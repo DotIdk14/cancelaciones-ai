@@ -1,0 +1,32 @@
+# Evidencias reales y casos historicos con PII no deben versionarse.
+private-historical/
+references/private-historical
+references/private-historical/
+
+# Archivos locales y derivados.
+node_modules/
+dist/
+.next/
+apps/web/.next/
+.env
+.env.*
+!.env.example
+*.log
+*.tsbuildinfo
+derived/
+tmp/
+
+# InsForge & AI agent skills
+.insforge
+.agent
+.agents
+.augment
+.claude
+.cline
+.github/copilot*
+.kilocode
+.qoder
+.qwen
+.roo
+.trae
+.windsurf
