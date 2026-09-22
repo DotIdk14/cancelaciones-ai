@@ -25,7 +25,19 @@ sobrescribir la decisión de máquina.
   `factsFingerprint`;
 - reglas evaluadas, faltantes, conflictos y trace;
 - referencias a artifacts/evidencias originales, páginas, timestamps o celdas;
-- plantilla canónica registrada y su hash.
+- plantilla canónica registrada y su hash;
+- `audit_manual_comments` con
+  `back_office_comment`, `helpdesk_comment`, `school_services_comment`,
+  `finance_comment`, `additional_comment` como inputs operativos manuales.
+
+Mapeo operativo requerido:
+
+- `back_office_comment` → Comentarios BO
+- `helpdesk_comment` → Comentarios HelpDesk
+- `school_services_comment` → Comentarios SER
+- `finance_comment` → Comentarios Finanzas
+- `additional_comment` → sin asignación automática aún; Phase 7 decide si va a
+  `NOTAS Y EVIDENCIAS PROPIAS`, `OBSERVACIONES FINALES` o se excluye.
 
 Una auditoría sin versión normativa, facts congelados, trace completo o
 provenance verificable no puede generar un dictamen final.
