@@ -13,6 +13,12 @@ type ManualCommentPayload = {
   additionalComment?: string | null;
 };
 
+type AuthorizedAuditContext = {
+  user: { id: string };
+  client: Awaited<ReturnType<typeof createInsForgeServerClient>>;
+  audit: Awaited<ReturnType<ReturnType<typeof createAuditRepository>['findById']>>;
+};
+
 function normalizeText(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
@@ -39,7 +45,7 @@ async function authorized(auditId: string) {
   return { user, client, audit };
 }
 
-async function saveComments(request: NextRequest, auditId: string, auth: { user: any; client: any }) {
+async function saveComments(request: NextRequest, auditId: string, auth: Omit<AuthorizedAuditContext, 'audit'>) {
   const contentType = request.headers.get('content-type') ?? '';
   let payload: Record<string, unknown> = {};
 

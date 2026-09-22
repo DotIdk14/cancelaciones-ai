@@ -6,6 +6,10 @@ Cancelaciones AI sera un asistente interno de auditoria de cancelaciones. El flu
 
 Phase 0 completada con advertencias. Se identificaron la fuente normativa principal, la plantilla canonica y cuatro casos historicos privados. Faltan anexos y documentos de referencia oficiales, por lo que algunas reglas quedan bloqueadas para formalizacion productiva.
 
+## Estado de cierre de Phase 6
+
+Phase 6 sigue bloqueada por falta de evidencia real del gate requerido por Phase 7: OpenRouter no esta validado con una key valida en el runtime efectivo y el backend vinculado no contiene actualmente expediente/evidencias para ejecutar una nueva Fact Run congelada, Engine Run, trace, sourceCompleteness, comments isolation e historical isolation. La migracion de manual comments en InsForge real ya fue verificada como resuelta. Ver `docs/reports/phase-6-report.md` como reporte canonico.
+
 ## Principios
 
 - La politica oficial decide.
