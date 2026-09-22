@@ -60,6 +60,65 @@ describe('contact calculations', () => {
     expect(posgrado.evaluatedRules.find((rule) => rule.ruleId.includes('NON-LICENCIATURA'))?.conditions.map((item) => item.id))
       .toContain('non-licenciatura-no-activity');
   });
+
+  it('returns unknown for an incomplete written collection even when six rows are visible', () => {
+    const result = evaluatePolicy({
+      policyCode: 'GDM_GAM_PRD_MLG_003',
+      policyVersion: '5',
+      facts: [
+        fact('contact.callAttempts', { events: [], observedCount: 0, sourceCompleteness: 'COMPLETE' }),
+        fact('contact.writtenInteractions', {
+          events: Array.from({ length: 6 }, (_, index) => ({ kind: 'EMAIL', occurredAt: `2026-09-${index + 1}T10:00:00Z` })),
+          observedCount: 6,
+          sourceCompleteness: 'PARTIAL',
+        }),
+      ],
+    });
+    const rule = result.evaluatedRules.find((item) => item.ruleId === 'GDM-V5-5.2-A-CONTACT-ATTEMPTS');
+    expect(rule?.conditions.find((item) => item.id === 'written-count')?.state).toBe('UNKNOWN');
+  });
+
+  it('does not select a non-licenciatura branch when academic level is missing', () => {
+    const result = evaluatePolicy({
+      policyCode: 'GDM_GAM_PRD_MLG_003',
+      policyVersion: '5',
+      facts: [fact('contact.effectiveContact', false)],
+    });
+    expect(result.evaluatedRules.some((item) => item.ruleId === 'GDM-V5-5.8-A-ACADEMIC-LEVEL-UNKNOWN')).toBe(true);
+    expect(result.suggestedOutcome).toBeNull();
+  });
+
+  it('keeps a known suggested outcome separate from review status', () => {
+    const result = evaluatePolicy({
+      policyCode: 'GDM_GAM_PRD_MLG_003',
+      policyVersion: '5',
+      facts: [
+        fact('contact.effectiveContact', false),
+        fact('student.level', 'LICENCIATURA'),
+        fact('classroom.hasLogin', false),
+        fact('classroom.hasEvaluationMode', false),
+      ],
+    });
+
+    expect(result.suggestedOutcome).toBe('CANCELACION_VENTA');
+    expect(result.decisionStatus).toBe('REVIEW_REQUIRED');
+    expect(result.reviewRequired).toBe(true);
+    expect(result.supportingRules).toContain('GDM-V5-5.8-A-LICENCIATURA');
+    expect(result.pendingRules).toContain('GDM-V5-5.2-A-CONTACT-ATTEMPTS');
+    expect(result.nextActions.length).toBeGreaterThan(0);
+  });
+
+  it('does not treat UNKNOWN as support for an outcome', () => {
+    const result = evaluatePolicy({
+      policyCode: 'GDM_GAM_PRD_MLG_003',
+      policyVersion: '5',
+      facts: [fact('student.level', 'LICENCIATURA')],
+    });
+
+    expect(result.suggestedOutcome).toBeNull();
+    expect(result.decisionStatus).toBe('INDETERMINATE');
+    expect(result.supportingRules).toEqual([]);
+  });
 });
 
 describe('business days', () => {

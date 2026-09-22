@@ -5,6 +5,8 @@ export type RuleStatus = 'SATISFIED' | 'NOT_SATISFIED' | 'UNKNOWN' | 'NOT_APPLIC
 export type RuleCategory = 'OUTCOME_RULE' | 'EXCLUSION_RULE' | 'PROCESS_RULE' | 'EVIDENCE_RULE' | 'SLA_RULE' | 'INFORMATIONAL_RULE';
 export type MissingSeverity = 'NON_BLOCKING' | 'IMPORTANT' | 'BLOCKING';
 export type OutcomeStatus = 'DETERMINED' | 'DETERMINED_WITH_WARNINGS' | 'CONFLICTED' | 'INDETERMINATE';
+export type DecisionStatus = 'READY_TO_APPROVE' | 'REVIEW_REQUIRED' | 'CONFLICTED' | 'INDETERMINATE';
+export type NextActionType = 'UPLOAD_EVIDENCE' | 'VERIFY_EVIDENCE' | 'RESOLVE_CONFLICT' | 'PROVIDE_NORMATIVE_SOURCE' | 'IMPLEMENT_RULE' | 'CORRECT_FACT' | 'REVIEW_REQUIRED';
 export type Outcome = 'CANCELACION_VENTA' | 'BAJA' | 'CANCELACION_VENTA_OPERATIVA' | 'CANCELACION_MATRICULA' | 'RETENCION' | 'NO_APLICA_CANCELACION_VENTA';
 
 export interface PolicySource { documentCode: string; version: string; section: string; page: number; }
@@ -15,7 +17,7 @@ export interface EvidenceRef {
   evidenceId: string; artifactId?: string; page?: number; timestampStart?: number; timestampEnd?: number; cell?: string; sha256?: string;
 }
 export interface ConditionTrace {
-  id: string; description: string; state: ConditionState; factIds: string[]; evidenceRefs: EvidenceRef[]; missingFacts?: string[];
+  id: string; description: string; state: ConditionState; factIds: string[]; evidenceRefs: EvidenceRef[]; missingFacts?: string[]; observedValue?: string;
 }
 export interface EvaluatedRule {
   ruleId: string; category: RuleCategory; status: RuleStatus; source: PolicySource;
@@ -23,13 +25,24 @@ export interface EvaluatedRule {
   outcomeEffect?: Outcome; missingFacts: string[]; blockedBySource?: string;
 }
 export interface MissingData { factType: string; rulesAffected: string[]; whyNeeded: string; severity: MissingSeverity; }
+export interface NextAction {
+  type: NextActionType;
+  description: string;
+  affectedRules: string[];
+  severity: MissingSeverity;
+  canChangeOutcome: boolean;
+}
 export interface Conflict { ruleIds: string[]; outcomes: Outcome[]; reason: string; resolvedBy?: { type: 'EXPLICIT_POLICY' | 'OWNER_OPERATIONAL_PRECEDENCE'; citation?: PolicySource; precedenceId?: string; reason: string }; }
 export interface OwnerPrecedence { id: string; rulesInvolved: string[]; resolution: Outcome; reason: string; approvedBy: string; approvedAt: string; version: string; active: boolean; }
 export interface PolicyEvaluation {
   policyCode: string; policyVersion: string; rulesFingerprint: string; factsFingerprint: string;
   evaluatedRules: EvaluatedRule[]; satisfiedRules: string[]; unknownRules: string[]; notApplicableRules: string[];
   missingData: MissingData[]; conflicts: Conflict[]; suggestedOutcome: Outcome | null; outcomeStatus: OutcomeStatus;
-  reviewRequired: boolean; decisiveRules: string[]; supportingRules: string[]; exclusions: string[];
+  decisionStatus: DecisionStatus; reviewRequired: boolean; suggestedReason: string | null;
+  decisiveRules: string[]; supportingRules: string[]; opposingRules: string[]; pendingRules: string[];
+  conflictingRules: string[]; blockedRules: string[]; exclusions: string[];
+  missingEvidence: string[]; missingFacts: string[]; missingNormativeSources: string[];
+  softwareCoverageGaps: string[]; nextActions: NextAction[]; explanation: string;
   trace: { decision: string; ruleIds: string[]; factIds: string[]; evidenceRefs: EvidenceRef[] };
 }
 export type HistoricalOutcomeComparison = 'MATCH' | 'DIFFERENT' | 'HUMAN_OUTCOME_MISSING' | 'AI_INDETERMINATE' | 'AI_CONFLICTED' | 'NOT_COMPARABLE';
@@ -61,9 +74,25 @@ export function compareHistoricalOutcome(input: {
   };
 }
 
-export interface ContactAttempt { id: string; kind: 'CALL' | 'WRITTEN'; occurredAt: string; successful?: boolean; evidenceRefs?: EvidenceRef[]; }
+export type SourceCompleteness = 'COMPLETE' | 'PARTIAL' | 'UNKNOWN';
+export interface ContactAttempt {
+  id: string;
+  kind: 'CALL' | 'EMAIL' | 'WHATSAPP' | 'OTHER_WRITTEN' | 'WRITTEN';
+  occurredAt: string;
+  successful?: boolean;
+  status?: string;
+  campaign?: string;
+  evidenceRefs?: EvidenceRef[];
+  confidence?: number;
+}
+export interface ContactCollection {
+  events: ContactAttempt[];
+  observedCount: number;
+  sourceCompleteness: SourceCompleteness;
+  warnings?: string[];
+}
 export interface ContactFacts {
-  attempts?: ContactAttempt[]; callAttempts?: ContactAttempt[]; writtenInteractions?: ContactAttempt[];
+  attempts?: ContactAttempt[]; callAttempts?: ContactAttempt[] | ContactCollection; writtenInteractions?: ContactAttempt[] | ContactCollection;
   effectiveContact?: boolean; studentLevel?: 'LICENCIATURA' | 'POSGRADO' | string;
   classroomHasLogin?: boolean; classroomHasEvaluationMode?: boolean; classroomHasActivities?: boolean;
 }
@@ -72,8 +101,8 @@ export interface PolicyFacts { contact?: ContactFacts; student?: { startDate?: s
 const source = (version: string, section: string, page: number): PolicySource => ({ documentCode: 'GDM_GAM_PRD_MLG_003', version, section, page });
 const refFor = (fact: Fact): EvidenceRef[] => fact.source ? [fact.source] : [];
 function factByType(facts: Fact[], type: string): Fact | undefined { return facts.find((fact) => fact.type === type); }
-function condition(id: string, description: string, state: ConditionState, facts: Fact[] = [], missingFacts: string[] = []): ConditionTrace {
-  return { id, description, state, factIds: facts.map((fact) => fact.id), evidenceRefs: facts.flatMap(refFor), missingFacts };
+function condition(id: string, description: string, state: ConditionState, facts: Fact[] = [], missingFacts: string[] = [], observedValue?: string): ConditionTrace {
+  return { id, description, state, factIds: facts.map((fact) => fact.id), evidenceRefs: facts.flatMap(refFor), missingFacts, observedValue };
 }
 const stateToRule = (states: ConditionState[]): RuleStatus => {
   if (states.includes('UNKNOWN')) return 'UNKNOWN';
@@ -92,6 +121,19 @@ export function businessDaysBetween(start: Date | string, end: Date | string): n
 export function countValidCalls(attempts: ContactAttempt[]): number {
   return attempts.filter((a) => a.kind === 'CALL').length;
 }
+function collectionValue(value: unknown): { events: ContactAttempt[]; observedCount: number; completeness: SourceCompleteness } {
+  if (Array.isArray(value)) return { events: value as ContactAttempt[], observedCount: value.length, completeness: 'COMPLETE' };
+  if (typeof value === 'number' || (typeof value === 'string' && /^\d+$/.test(value))) return { events: [], observedCount: Number(value), completeness: 'UNKNOWN' };
+  if (value && typeof value === 'object') {
+    const candidate = value as Partial<ContactCollection>;
+    return {
+      events: Array.isArray(candidate.events) ? candidate.events : [],
+      observedCount: typeof candidate.observedCount === 'number' ? candidate.observedCount : Array.isArray(candidate.events) ? candidate.events.length : 0,
+      completeness: candidate.sourceCompleteness ?? 'UNKNOWN',
+    };
+  }
+  return { events: [], observedCount: 0, completeness: 'UNKNOWN' };
+}
 export function groupCalls(attempts: ContactAttempt[], gapHours = 6): ContactAttempt[][] {
   const calls = attempts.filter((a) => a.kind === 'CALL').slice().sort((a, b) => +new Date(a.occurredAt) - +new Date(b.occurredAt));
   const groups: ContactAttempt[][] = [];
@@ -106,40 +148,47 @@ export function calculateInteractionDistribution(attempts: ContactAttempt[]): { 
 
 function v5Rules(facts: Fact[]): EvaluatedRule[] {
   const calls = factByType(facts, 'contact.callAttempts'); const written = factByType(facts, 'contact.writtenInteractions');
-  const callList = (calls?.value as ContactAttempt[] | undefined) ?? []; const writtenList = (written?.value as ContactAttempt[] | undefined) ?? [];
+  const callCollection = collectionValue(calls?.value);
+  const writtenCollection = collectionValue(written?.value);
+  const callList = callCollection.events;
+  const writtenList = writtenCollection.events;
+  const callCount = callCollection.observedCount;
+  const writtenCountValue = writtenCollection.observedCount;
   const all = [calls, written].filter((f): f is Fact => Boolean(f));
-  const count = condition('calls-count', 'Al menos 16 llamadas', calls ? (countValidCalls(callList) >= 16 ? 'TRUE' : 'FALSE') : 'UNKNOWN', calls ? [calls] : [], calls ? [] : ['contact.callAttempts']);
-  const spacing = condition('calls-spacing', 'Llamadas con separacion minima de 6 horas', calls ? (groupCalls(callList).length >= 16 ? 'TRUE' : 'FALSE') : 'UNKNOWN', calls ? [calls] : [], calls ? [] : ['contact.callAttempts']);
-  const writtenCount = condition('written-count', 'Al menos 6 interacciones escritas', written ? (writtenList.length >= 6 ? 'TRUE' : 'FALSE') : 'UNKNOWN', written ? [written] : [], written ? [] : ['contact.writtenInteractions']);
+  const callEvidence = calls ? `${callCount} llamadas observadas; fuente ${callCollection.completeness.toLowerCase()}` : undefined;
+  const writtenEvidence = written ? `${writtenCountValue} interacciones escritas observadas; fuente ${writtenCollection.completeness.toLowerCase()}` : undefined;
+  const count = condition('calls-count', 'Al menos 16 llamadas', calls ? (callCollection.completeness !== 'COMPLETE' ? 'UNKNOWN' : callCount >= 16 ? 'TRUE' : 'FALSE') : 'UNKNOWN', calls ? [calls] : [], calls ? [] : ['contact.callAttempts'], callEvidence);
+  const spacing = condition('calls-spacing', 'Llamadas con separacion minima de 6 horas', calls ? (callCollection.completeness !== 'COMPLETE' ? 'UNKNOWN' : callList.length ? (groupCalls(callList).length >= 16 ? 'TRUE' : 'FALSE') : 'FALSE') : 'UNKNOWN', calls ? [calls] : [], calls ? [] : ['contact.callAttempts'], callEvidence);
+  const writtenCount = condition('written-count', 'Al menos 6 interacciones escritas', written ? (writtenCollection.completeness !== 'COMPLETE' ? 'UNKNOWN' : writtenCountValue >= 6 ? 'TRUE' : 'FALSE') : 'UNKNOWN', written ? [written] : [], written ? [] : ['contact.writtenInteractions'], writtenEvidence);
   const distribution = calculateInteractionDistribution(writtenList);
-  const distributionState: ConditionState = written ? (distribution.total === 0 ? 'FALSE' : distribution.week1 / distribution.total >= .7 && distribution.week2 / distribution.total >= .3 ? 'TRUE' : 'UNKNOWN') : 'UNKNOWN';
-  const distributionCondition = condition('written-distribution', 'Distribucion 70/30 entre semanas', distributionState, written ? [written] : [], written ? [] : ['contact.writtenInteractions']);
+  const distributionState: ConditionState = written ? (writtenCollection.completeness !== 'COMPLETE' ? 'UNKNOWN' : writtenList.length === 0 ? 'FALSE' : distribution.week1 / distribution.total >= .7 && distribution.week2 / distribution.total >= .3 ? 'TRUE' : 'FALSE') : 'UNKNOWN';
+  const distributionCondition = condition('written-distribution', 'Distribucion 70/30 entre semanas', distributionState, written ? [written] : [], written ? [] : ['contact.writtenInteractions'], written ? `${distribution.week1} en semana 1 y ${distribution.week2} en semana 2; ${writtenCountValue} interacciones escritas observadas` : undefined);
   const contactRule: EvaluatedRule = { ruleId: 'GDM-V5-5.2-A-CONTACT-ATTEMPTS', category: 'PROCESS_RULE', status: stateToRule([count.state, spacing.state, writtenCount.state, distributionCondition.state]), source: source('5', '5.2', 3), conditions: [count, spacing, writtenCount, distributionCondition], factsUsed: all.map((f) => f.id), evidenceRefs: all.flatMap(refFor), missingFacts: all.length === 2 ? [] : ['contact.callAttempts', 'contact.writtenInteractions'].filter((x) => !all.some((f) => f.type === x)) };
   const effective = factByType(facts, 'contact.effectiveContact');
   const level = factByType(facts, 'student.level');
-  const noContact = condition('no-effective-contact', 'No existe contacto efectivo', effective ? (effective.value === false ? 'TRUE' : 'FALSE') : 'UNKNOWN', effective ? [effective] : [], effective ? [] : ['contact.effectiveContact']);
+  const noContact = condition('no-effective-contact', 'No existe contacto efectivo', effective ? (effective.value === false ? 'TRUE' : 'FALSE') : 'UNKNOWN', effective ? [effective] : [], effective ? [] : ['contact.effectiveContact'], effective ? `Contacto efectivo: ${effective.value === true ? 'sí' : 'no'}` : undefined);
   const levelValue = typeof level?.value === 'string' ? level.value.toUpperCase() : undefined;
-  const academicFacts = levelValue === 'LICENCIATURA'
-    ? [factByType(facts, 'classroom.hasLogin'), factByType(facts, 'classroom.hasEvaluationMode')]
-    : [factByType(facts, 'classroom.hasActivities')];
   const academicConditions: ConditionTrace[] = [
     condition('student-level', 'Nivel academico determina los criterios aplicables', level ? 'TRUE' : 'UNKNOWN', level ? [level] : [], level ? [] : ['student.level']),
   ];
   if (levelValue === 'LICENCIATURA') {
-    const [login, evaluationMode] = academicFacts;
+    const login = factByType(facts, 'classroom.hasLogin');
+    const evaluationMode = factByType(facts, 'classroom.hasEvaluationMode');
     academicConditions.push(
       condition('licenciatura-no-login', 'Licenciatura sin acceso al aula', login ? (login.value === false ? 'TRUE' : 'FALSE') : 'UNKNOWN', login ? [login] : [], login ? [] : ['classroom.hasLogin']),
       condition('licenciatura-no-evaluation-mode', 'Licenciatura sin modalidad seleccionada', evaluationMode ? (evaluationMode.value === false ? 'TRUE' : 'FALSE') : 'UNKNOWN', evaluationMode ? [evaluationMode] : [], evaluationMode ? [] : ['classroom.hasEvaluationMode']),
     );
-  } else {
-    const activities = academicFacts[0];
+  } else if (levelValue) {
+    const activities = factByType(facts, 'classroom.hasActivities');
     academicConditions.push(
       condition('non-licenciatura-no-activity', 'Nivel distinto de licenciatura sin actividad academica', activities ? (activities.value === false ? 'TRUE' : 'FALSE') : 'UNKNOWN', activities ? [activities] : [], activities ? [] : ['classroom.hasActivities']),
     );
+  } else {
+    academicConditions.push(condition('academic-level-unknown', 'No se identifico el nivel academico para seleccionar una rama normativa', 'UNKNOWN', [], ['student.level']));
   }
   const unreachableConditions = [noContact, ...academicConditions];
-  const levelRuleId = levelValue === 'LICENCIATURA' ? 'GDM-V5-5.8-A-LICENCIATURA' : 'GDM-V5-5.8-A-NON-LICENCIATURA';
-  return [contactRule, { ruleId: levelRuleId, category: 'OUTCOME_RULE', status: stateToRule(unreachableConditions.map((c) => c.state)), source: source('5', '5.8.a', 9), conditions: unreachableConditions, factsUsed: unreachableConditions.flatMap((c) => c.factIds), evidenceRefs: unreachableConditions.flatMap((c) => c.evidenceRefs), outcomeEffect: 'CANCELACION_VENTA', missingFacts: unreachableConditions.flatMap((c) => c.missingFacts ?? []) }];
+  const levelRuleId = levelValue === 'LICENCIATURA' ? 'GDM-V5-5.8-A-LICENCIATURA' : levelValue ? 'GDM-V5-5.8-A-NON-LICENCIATURA' : 'GDM-V5-5.8-A-ACADEMIC-LEVEL-UNKNOWN';
+  return [contactRule, { ruleId: levelRuleId, category: 'OUTCOME_RULE', status: stateToRule(unreachableConditions.map((c) => c.state)), source: source('5', '5.8.a', 9), conditions: unreachableConditions, factsUsed: unreachableConditions.flatMap((c) => c.factIds), evidenceRefs: unreachableConditions.flatMap((c) => c.evidenceRefs), outcomeEffect: levelValue ? 'CANCELACION_VENTA' : undefined, missingFacts: unreachableConditions.flatMap((c) => c.missingFacts ?? []) }];
 }
 function v2Rules(facts: Fact[]): EvaluatedRule[] {
   const rules = v5Rules(facts);
@@ -151,14 +200,107 @@ export function evaluatePolicy(input: { policyCode: string; policyVersion: strin
   if (!input.policyCode || !input.policyVersion) throw new Error('policyCode y policyVersion son obligatorios');
   const set = policySets[input.policyCode]?.[input.policyVersion]; if (!set) throw new Error(`Policy no soportada: ${input.policyCode} v${input.policyVersion}`);
   const evaluatedRules = set(input.facts);
-  const outcomes = evaluatedRules.filter((r) => r.status === 'SATISFIED' && r.outcomeEffect).map((r) => r.outcomeEffect as Outcome);
-  const conflicts: Conflict[] = []; const unique = [...new Set(outcomes)];
-  if (unique.length > 1) conflicts.push({ ruleIds: evaluatedRules.filter((r) => r.outcomeEffect && r.status === 'SATISFIED').map((r) => r.ruleId), outcomes: unique, reason: 'Reglas de outcome satisfechas producen resultados incompatibles.' });
-  const missingData: MissingData[] = [...new Set(evaluatedRules.flatMap((r) => r.missingFacts))].map((factType) => ({ factType, rulesAffected: evaluatedRules.filter((r) => r.missingFacts.includes(factType)).map((r) => r.ruleId), whyNeeded: 'Se requiere para evaluar una condicion normativa.', severity: evaluatedRules.some((r) => r.category === 'OUTCOME_RULE' && r.missingFacts.includes(factType)) ? 'BLOCKING' : 'IMPORTANT' }));
-  const unknownRules = evaluatedRules.filter((r) => r.status === 'UNKNOWN' || r.status === 'BLOCKED_BY_MISSING_NORMATIVE_SOURCE');
   const satisfied = evaluatedRules.filter((r) => r.status === 'SATISFIED');
-  const suggestedOutcome = conflicts.length ? null : (satisfied.find((r) => r.outcomeEffect)?.outcomeEffect ?? null);
-  const status: OutcomeStatus = conflicts.length ? 'CONFLICTED' : suggestedOutcome ? (unknownRules.length ? 'DETERMINED_WITH_WARNINGS' : 'DETERMINED') : (unknownRules.length ? 'INDETERMINATE' : 'DETERMINED');
-  const decisiveRules = satisfied.filter((r) => r.outcomeEffect).map((r) => r.ruleId);
-  return { policyCode: input.policyCode, policyVersion: input.policyVersion, rulesFingerprint: stableFingerprint(evaluatedRules), factsFingerprint: stableFingerprint(input.facts), evaluatedRules, satisfiedRules: satisfied.map((r) => r.ruleId), unknownRules: unknownRules.map((r) => r.ruleId), notApplicableRules: evaluatedRules.filter((r) => r.status === 'NOT_APPLICABLE').map((r) => r.ruleId), missingData, conflicts, suggestedOutcome, outcomeStatus: status, reviewRequired: status !== 'DETERMINED', decisiveRules, supportingRules: satisfied.filter((r) => !r.outcomeEffect).map((r) => r.ruleId), exclusions: evaluatedRules.filter((r) => r.category === 'EXCLUSION_RULE').map((r) => r.ruleId), trace: { decision: suggestedOutcome ?? status, ruleIds: decisiveRules, factIds: decisiveRules.flatMap((id) => evaluatedRules.find((r) => r.ruleId === id)?.factsUsed ?? []), evidenceRefs: decisiveRules.flatMap((id) => evaluatedRules.find((r) => r.ruleId === id)?.evidenceRefs ?? []) } };
+  const outcomeRules = satisfied.filter((r) => r.category === 'OUTCOME_RULE' && r.outcomeEffect);
+  const outcomes = outcomeRules.map((r) => r.outcomeEffect as Outcome);
+  const unique = [...new Set(outcomes)];
+  const conflicts: Conflict[] = [];
+  if (unique.length > 1) {
+    conflicts.push({
+      ruleIds: outcomeRules.map((r) => r.ruleId),
+      outcomes: unique,
+      reason: 'Reglas de outcome satisfechas producen resultados incompatibles y no existe precedencia explícita para resolverlas.',
+    });
+  }
+  const missingData: MissingData[] = [...new Set(evaluatedRules.flatMap((r) => r.missingFacts))].map((factType) => ({
+    factType,
+    rulesAffected: evaluatedRules.filter((r) => r.missingFacts.includes(factType)).map((r) => r.ruleId),
+    whyNeeded: 'Se requiere para evaluar una condición normativa.',
+    severity: evaluatedRules.some((r) => r.category === 'OUTCOME_RULE' && r.missingFacts.includes(factType)) ? 'BLOCKING' : 'IMPORTANT',
+  }));
+  const unknownRules = evaluatedRules.filter((r) => r.status === 'UNKNOWN');
+  const blockedRules = evaluatedRules.filter((r) => r.status === 'BLOCKED_BY_MISSING_NORMATIVE_SOURCE');
+  const pendingRules = unknownRules.map((r) => r.ruleId);
+  const conflictingRules = conflicts.flatMap((conflict) => conflict.ruleIds);
+  const suggestedOutcome = conflicts.length ? (unique.length === 1 ? unique[0] : null) : (outcomes[0] ?? null);
+  const supportingRules = suggestedOutcome
+    ? outcomeRules.filter((r) => r.outcomeEffect === suggestedOutcome).map((r) => r.ruleId)
+    : [];
+  const opposingRules = outcomeRules
+    .filter((r) => suggestedOutcome !== null && r.outcomeEffect !== suggestedOutcome)
+    .map((r) => r.ruleId);
+  const missingFacts = [...new Set(missingData.map((item) => item.factType))];
+  const missingNormativeSources = [...new Set(blockedRules.flatMap((rule) => rule.blockedBySource ? [rule.blockedBySource] : []))];
+  const missingEvidence = [...new Set(unknownRules.flatMap((rule) => rule.conditions.flatMap((condition) => condition.missingFacts ?? [])))];
+  const softwareCoverageGaps: string[] = [];
+  const hasBlockingUnknown = missingData.some((item) => item.severity === 'BLOCKING');
+  const requiresReview = conflicts.length > 0 || blockedRules.length > 0 || unknownRules.length > 0 || hasBlockingUnknown;
+  const decisionStatus: DecisionStatus = conflicts.length ? 'CONFLICTED' : suggestedOutcome ? (requiresReview ? 'REVIEW_REQUIRED' : 'READY_TO_APPROVE') : 'INDETERMINATE';
+  const status: OutcomeStatus = conflicts.length ? 'CONFLICTED' : suggestedOutcome ? (requiresReview ? 'DETERMINED_WITH_WARNINGS' : 'DETERMINED') : 'INDETERMINATE';
+  const decisiveRules = supportingRules;
+  const nextActions: NextAction[] = [
+    ...missingData.map((item) => ({
+      type: 'UPLOAD_EVIDENCE' as const,
+      description: `Acreditar ${item.factType} para evaluar las reglas pendientes.`,
+      affectedRules: item.rulesAffected,
+      severity: item.severity,
+      canChangeOutcome: item.severity !== 'NON_BLOCKING',
+    })),
+    ...blockedRules.map((rule) => ({
+      type: 'PROVIDE_NORMATIVE_SOURCE' as const,
+      description: `Proporcionar la fuente normativa requerida: ${rule.blockedBySource ?? 'fuente no identificada'}.`,
+      affectedRules: [rule.ruleId],
+      severity: 'BLOCKING' as const,
+      canChangeOutcome: true,
+    })),
+    ...conflicts.map((conflict) => ({
+      type: 'RESOLVE_CONFLICT' as const,
+      description: 'Resolver el conflicto entre outcomes mediante una precedencia normativa explícita.',
+      affectedRules: conflict.ruleIds,
+      severity: 'BLOCKING' as const,
+      canChangeOutcome: true,
+    })),
+  ];
+  const suggestedReason = suggestedOutcome
+    ? `El outcome ${suggestedOutcome} está sustentado por reglas conocidas satisfechas.`
+    : null;
+  const explanation = suggestedOutcome
+    ? `${suggestedReason}${requiresReview ? ' La evaluación requiere revisión porque existen reglas, evidencia o fuentes pendientes.' : ''}`
+    : 'No existe una regla de outcome suficientemente sustentada para sugerir un resultado.';
+  return {
+    policyCode: input.policyCode,
+    policyVersion: input.policyVersion,
+    rulesFingerprint: stableFingerprint(evaluatedRules),
+    factsFingerprint: stableFingerprint(input.facts),
+    evaluatedRules,
+    satisfiedRules: satisfied.map((r) => r.ruleId),
+    unknownRules: unknownRules.map((r) => r.ruleId),
+    notApplicableRules: evaluatedRules.filter((r) => r.status === 'NOT_APPLICABLE').map((r) => r.ruleId),
+    missingData,
+    conflicts,
+    suggestedOutcome,
+    outcomeStatus: status,
+    decisionStatus,
+    reviewRequired: decisionStatus !== 'READY_TO_APPROVE',
+    suggestedReason,
+    decisiveRules,
+    supportingRules,
+    opposingRules,
+    pendingRules,
+    conflictingRules,
+    blockedRules: blockedRules.map((r) => r.ruleId),
+    exclusions: evaluatedRules.filter((r) => r.category === 'EXCLUSION_RULE').map((r) => r.ruleId),
+    missingEvidence,
+    missingFacts,
+    missingNormativeSources,
+    softwareCoverageGaps,
+    nextActions,
+    explanation,
+    trace: {
+      decision: suggestedOutcome ?? decisionStatus,
+      ruleIds: decisiveRules,
+      factIds: decisiveRules.flatMap((id) => evaluatedRules.find((r) => r.ruleId === id)?.factsUsed ?? []),
+      evidenceRefs: decisiveRules.flatMap((id) => evaluatedRules.find((r) => r.ruleId === id)?.evidenceRefs ?? []),
+    },
+  };
 }
