@@ -15,6 +15,32 @@ interface AuditRow {
   updated_at: string;
 }
 
+export interface AuditManualComments {
+  id: string;
+  auditId: string;
+  backOfficeComment: string | null;
+  helpdeskComment: string | null;
+  schoolServicesComment: string | null;
+  financeComment: string | null;
+  additionalComment: string | null;
+  createdAt: string;
+  updatedAt: string;
+  updatedBy: string | null;
+}
+
+interface AuditManualCommentsRow {
+  id: string;
+  audit_id: string;
+  back_office_comment: string | null;
+  helpdesk_comment: string | null;
+  school_services_comment: string | null;
+  finance_comment: string | null;
+  additional_comment: string | null;
+  created_at: string;
+  updated_at: string;
+  updated_by: string | null;
+}
+
 interface EvidenceRow {
   id: string;
   audit_id: string;
@@ -135,6 +161,21 @@ function mapAudit(row: AuditRow): Audit {
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+}
+
+function mapAuditManualComments(row: AuditManualCommentsRow): AuditManualComments {
+  return {
+    id: row.id,
+    auditId: row.audit_id,
+    backOfficeComment: row.back_office_comment,
+    helpdeskComment: row.helpdesk_comment,
+    schoolServicesComment: row.school_services_comment,
+    financeComment: row.finance_comment,
+    additionalComment: row.additional_comment,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    updatedBy: row.updated_by,
   };
 }
 
@@ -326,6 +367,62 @@ export function createAuditLogRepository(database: DatabaseClient) {
         .from('audit_log')
         .insert([{ audit_id: input.auditId, event_type: input.eventType, actor_id: input.actorId, metadata: input.metadata ?? {} }]);
       if (error) throw new Error(error.message ?? 'No fue posible registrar audit log');
+    },
+  };
+}
+
+export function createAuditManualCommentsRepository(database: DatabaseClient) {
+  const columns = 'id,audit_id,back_office_comment,helpdesk_comment,school_services_comment,finance_comment,additional_comment,created_at,updated_at,updated_by';
+
+  return {
+    async findByAudit(auditId: string): Promise<AuditManualComments | null> {
+      const { data, error } = await database
+        .from('audit_manual_comments')
+        .select(columns)
+        .eq('audit_id', auditId)
+        .limit(1);
+      if (error) throw new Error(error.message ?? 'No fue posible leer comentarios manuales');
+      return data?.[0] ? mapAuditManualComments(data[0]) : null;
+    },
+
+    async upsert(input: {
+      auditId: string;
+      actorId: string;
+      comments: {
+        backOfficeComment?: string | null;
+        helpdeskComment?: string | null;
+        schoolServicesComment?: string | null;
+        financeComment?: string | null;
+        additionalComment?: string | null;
+      };
+    }): Promise<AuditManualComments> {
+      const normalized = {
+        back_office_comment: input.comments.backOfficeComment?.trim() || null,
+        helpdesk_comment: input.comments.helpdeskComment?.trim() || null,
+        school_services_comment: input.comments.schoolServicesComment?.trim() || null,
+        finance_comment: input.comments.financeComment?.trim() || null,
+        additional_comment: input.comments.additionalComment?.trim() || null,
+      };
+
+      const existing = await this.findByAudit(input.auditId);
+      if (existing) {
+        const { data, error } = await database
+          .from('audit_manual_comments')
+          .update({ ...normalized, updated_by: input.actorId })
+          .eq('audit_id', input.auditId)
+          .select(columns)
+          .single();
+        if (error || !data) throw new Error(error?.message ?? 'No fue posible guardar comentarios manuales');
+        return mapAuditManualComments(data);
+      }
+
+      const { data, error } = await database
+        .from('audit_manual_comments')
+        .insert([{ audit_id: input.auditId, ...normalized, updated_by: input.actorId }])
+        .select(columns)
+        .single();
+      if (error || !data) throw new Error(error?.message ?? 'No fue posible crear comentarios manuales');
+      return mapAuditManualComments(data);
     },
   };
 }
