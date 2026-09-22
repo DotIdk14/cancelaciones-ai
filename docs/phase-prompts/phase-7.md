@@ -1,5 +1,15 @@
 # Phase 7 — Dictamen oficial y revisión humana
 
+## Precondiciones de entrada
+
+No iniciar Phase 7 sin cerrar todas las condiciones de Phase 6:
+
+- Fact Run real congelado y generado desde evidencia original.
+- Engine Run nuevo con `policyCode` y `policyVersion` explícitos.
+- Cobertura V5 revisada y sin gaps de regla implementada, incluida `5.7.e`.
+- Reportes de fases faltantes restaurados o reconstruidos con marca de evidencia.
+- `suggestedOutcome` separado de `decisionStatus` y sin silenciar `UNKNOWN`.
+
 ## Objetivo
 
 Tomar un Fact Run congelado, una decisión de máquina inmutable, su trace y las

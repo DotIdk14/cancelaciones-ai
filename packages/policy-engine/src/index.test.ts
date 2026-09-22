@@ -78,6 +78,23 @@ describe('contact calculations', () => {
     expect(rule?.conditions.find((item) => item.id === 'written-count')?.state).toBe('UNKNOWN');
   });
 
+  it('implements the 5.7.e exclusion rule and removes it from coverage gaps', () => {
+    const result = evaluatePolicy({
+      policyCode: 'GDM_GAM_PRD_MLG_003',
+      policyVersion: '5',
+      facts: [
+        fact('classroom.hasGrades', true),
+        fact('contact.effectiveContact', false),
+        fact('student.level', 'LICENCIATURA'),
+        fact('classroom.hasLogin', false),
+        fact('classroom.hasEvaluationMode', false),
+      ],
+    });
+    expect(result.evaluatedRules.some((rule) => rule.ruleId === 'GDM-V5-5.7-E-INITIAL-BIMESTER-GRADES')).toBe(true);
+    expect(result.exclusions).toContain('GDM-V5-5.7-E-INITIAL-BIMESTER-GRADES');
+    expect(result.softwareCoverageGaps.some((gap) => gap.includes('5.7.e'))).toBe(false);
+  });
+
   it('does not select a non-licenciatura branch when academic level is missing', () => {
     const result = evaluatePolicy({
       policyCode: 'GDM_GAM_PRD_MLG_003',

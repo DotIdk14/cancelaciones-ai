@@ -164,6 +164,9 @@ function v5Rules(facts: Fact[]): EvaluatedRule[] {
   const distributionState: ConditionState = written ? (writtenCollection.completeness !== 'COMPLETE' ? 'UNKNOWN' : writtenList.length === 0 ? 'FALSE' : distribution.week1 / distribution.total >= .7 && distribution.week2 / distribution.total >= .3 ? 'TRUE' : 'FALSE') : 'UNKNOWN';
   const distributionCondition = condition('written-distribution', 'Distribucion 70/30 entre semanas', distributionState, written ? [written] : [], written ? [] : ['contact.writtenInteractions'], written ? `${distribution.week1} en semana 1 y ${distribution.week2} en semana 2; ${writtenCountValue} interacciones escritas observadas` : undefined);
   const contactRule: EvaluatedRule = { ruleId: 'GDM-V5-5.2-A-CONTACT-ATTEMPTS', category: 'PROCESS_RULE', status: stateToRule([count.state, spacing.state, writtenCount.state, distributionCondition.state]), source: source('5', '5.2', 3), conditions: [count, spacing, writtenCount, distributionCondition], factsUsed: all.map((f) => f.id), evidenceRefs: all.flatMap(refFor), missingFacts: all.length === 2 ? [] : ['contact.callAttempts', 'contact.writtenInteractions'].filter((x) => !all.some((f) => f.type === x)) };
+  const grades = factByType(facts, 'classroom.hasGrades');
+  const gradesCondition = condition('initial-bimestre-grades', 'Si existen calificaciones en el bimestre inicial no procede cancelación de venta y corresponde baja por devengamiento', grades ? (grades.value === true ? 'TRUE' : 'FALSE') : 'UNKNOWN', grades ? [grades] : [], grades ? [] : ['classroom.hasGrades'], grades ? `Calificaciones en bimestre inicial: ${grades.value === true ? 'sí' : 'no'}` : undefined);
+  const gradesExclusion: EvaluatedRule = { ruleId: 'GDM-V5-5.7-E-INITIAL-BIMESTER-GRADES', category: 'EXCLUSION_RULE', status: stateToRule([gradesCondition.state]), source: source('5', '5.7.e', 9), conditions: [gradesCondition], factsUsed: grades ? [grades.id] : [], evidenceRefs: grades ? refFor(grades) : [], missingFacts: grades ? [] : ['classroom.hasGrades'] };
   const effective = factByType(facts, 'contact.effectiveContact');
   const level = factByType(facts, 'student.level');
   const noContact = condition('no-effective-contact', 'No existe contacto efectivo', effective ? (effective.value === false ? 'TRUE' : 'FALSE') : 'UNKNOWN', effective ? [effective] : [], effective ? [] : ['contact.effectiveContact'], effective ? `Contacto efectivo: ${effective.value === true ? 'sí' : 'no'}` : undefined);
@@ -188,7 +191,7 @@ function v5Rules(facts: Fact[]): EvaluatedRule[] {
   }
   const unreachableConditions = [noContact, ...academicConditions];
   const levelRuleId = levelValue === 'LICENCIATURA' ? 'GDM-V5-5.8-A-LICENCIATURA' : levelValue ? 'GDM-V5-5.8-A-NON-LICENCIATURA' : 'GDM-V5-5.8-A-ACADEMIC-LEVEL-UNKNOWN';
-  return [contactRule, { ruleId: levelRuleId, category: 'OUTCOME_RULE', status: stateToRule(unreachableConditions.map((c) => c.state)), source: source('5', '5.8.a', 9), conditions: unreachableConditions, factsUsed: unreachableConditions.flatMap((c) => c.factIds), evidenceRefs: unreachableConditions.flatMap((c) => c.evidenceRefs), outcomeEffect: levelValue ? 'CANCELACION_VENTA' : undefined, missingFacts: unreachableConditions.flatMap((c) => c.missingFacts ?? []) }];
+  return [contactRule, gradesExclusion, { ruleId: levelRuleId, category: 'OUTCOME_RULE', status: stateToRule(unreachableConditions.map((c) => c.state)), source: source('5', '5.8.a', 9), conditions: unreachableConditions, factsUsed: unreachableConditions.flatMap((c) => c.factIds), evidenceRefs: unreachableConditions.flatMap((c) => c.evidenceRefs), outcomeEffect: levelValue ? 'CANCELACION_VENTA' : undefined, missingFacts: unreachableConditions.flatMap((c) => c.missingFacts ?? []) }];
 }
 function v2Rules(facts: Fact[]): EvaluatedRule[] {
   const rules = v5Rules(facts);
@@ -218,6 +221,22 @@ export function evaluatePolicy(input: { policyCode: string; policyVersion: strin
     whyNeeded: 'Se requiere para evaluar una condición normativa.',
     severity: evaluatedRules.some((r) => r.category === 'OUTCOME_RULE' && r.missingFacts.includes(factType)) ? 'BLOCKING' : 'IMPORTANT',
   }));
+  const softwareCoverageGaps: string[] = input.policyCode === 'GDM_GAM_PRD_MLG_003' && input.policyVersion === '5'
+    ? [
+      'Sección 5.3 no formalizada todavía',
+      'Sección 5.4 no formalizada todavía',
+      'Sección 5.5 no formalizada todavía',
+      'Sección 5.6 no formalizada todavía',
+      'Sección 5.7 restante no formalizada todavía',
+      'Sección 5.9 no formalizada todavía',
+      'Sección 5.10 no formalizada todavía',
+      'Sección 5.11 no formalizada todavía',
+      'Sección 5.12 no formalizada todavía',
+      'Sección 5.13 no formalizada todavía',
+      'Sección 5.14 no formalizada todavía',
+      'Sección 5.15 no formalizada todavía',
+    ]
+    : [];
   const unknownRules = evaluatedRules.filter((r) => r.status === 'UNKNOWN');
   const blockedRules = evaluatedRules.filter((r) => r.status === 'BLOCKED_BY_MISSING_NORMATIVE_SOURCE');
   const pendingRules = unknownRules.map((r) => r.ruleId);
@@ -232,7 +251,6 @@ export function evaluatePolicy(input: { policyCode: string; policyVersion: strin
   const missingFacts = [...new Set(missingData.map((item) => item.factType))];
   const missingNormativeSources = [...new Set(blockedRules.flatMap((rule) => rule.blockedBySource ? [rule.blockedBySource] : []))];
   const missingEvidence = [...new Set(unknownRules.flatMap((rule) => rule.conditions.flatMap((condition) => condition.missingFacts ?? [])))];
-  const softwareCoverageGaps: string[] = [];
   const hasBlockingUnknown = missingData.some((item) => item.severity === 'BLOCKING');
   const requiresReview = conflicts.length > 0 || blockedRules.length > 0 || unknownRules.length > 0 || hasBlockingUnknown;
   const decisionStatus: DecisionStatus = conflicts.length ? 'CONFLICTED' : suggestedOutcome ? (requiresReview ? 'REVIEW_REQUIRED' : 'READY_TO_APPROVE') : 'INDETERMINATE';
