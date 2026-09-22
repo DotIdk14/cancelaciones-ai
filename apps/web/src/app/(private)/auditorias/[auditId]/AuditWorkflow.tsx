@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 type WorkflowState = 'idle' | 'uploading' | 'processing' | 'extracting' | 'evaluating' | 'done' | 'error';
@@ -8,13 +8,14 @@ type QueueJob = { id: string; jobType: string; status: string; progress: number;
 
 const activeStatuses = new Set(['QUEUED', 'RUNNING', 'RETRY_SCHEDULED']);
 
-export function AuditWorkflow({ auditId }: { auditId: string }) {
+export function AuditWorkflow({ auditId, factRunId, autoEvaluate = false }: { auditId: string; factRunId?: string; autoEvaluate?: boolean }) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const [state, setState] = useState<WorkflowState>('idle');
   const [message, setMessage] = useState('Arrastra aquí los archivos del expediente.');
   const [error, setError] = useState('');
   const [dragging, setDragging] = useState(false);
+  const [evaluationChecked, setEvaluationChecked] = useState(false);
   const refreshQueue = useCallback(async () => {
     const response = await fetch(`/api/audits/${auditId}/jobs`, { cache: 'no-store' });
     const data = await response.json();
@@ -112,6 +113,30 @@ export function AuditWorkflow({ auditId }: { auditId: string }) {
       setMessage('No se completó el análisis.');
     }
   }, [auditId, router, state, waitForJobs]);
+
+  useEffect(() => {
+    if (!autoEvaluate || !factRunId || evaluationChecked || state !== 'idle') return;
+    setEvaluationChecked(true);
+    setState('evaluating');
+    setMessage('Generando el dictamen con los hechos ya procesados…');
+    void fetch(`/api/audits/${auditId}/policy`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ policyCode: 'GDM_GAM_PRD_MLG_003', policyVersion: '5', factRunId }),
+    })
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message ?? 'No fue posible generar el dictamen.');
+        setState('done');
+        setMessage(`Dictamen listo: ${data.evaluation?.suggestedOutcome ?? 'INDETERMINADO'}.`);
+        router.refresh();
+      })
+      .catch((cause: unknown) => {
+        setState('error');
+        setError(cause instanceof Error ? cause.message : 'No fue posible generar el dictamen.');
+        setMessage('No se completó el dictamen.');
+      });
+  }, [auditId, autoEvaluate, evaluationChecked, factRunId, router, state]);
 
   function onInputChange(event: React.ChangeEvent<HTMLInputElement>) {
     void run(Array.from(event.target.files ?? []));

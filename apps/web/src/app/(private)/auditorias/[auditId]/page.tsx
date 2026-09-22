@@ -141,7 +141,7 @@ export default async function AuditDetailPage({ params }: { params: Promise<{ au
         </div>
 
         <div className="space-y-6">
-          <AuditWorkflow auditId={audit.id} />
+          <AuditWorkflow auditId={audit.id} factRunId={selectedRun?.state === 'FROZEN' ? selectedRun.id : undefined} autoEvaluate={selectedRun?.state === 'FROZEN' && !evaluation} />
 
           <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
             <h2 className="text-xl font-bold text-ink">Datos del estudiante y la auditoría</h2>
