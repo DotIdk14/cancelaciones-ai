@@ -24,13 +24,17 @@ AssemblyAI server-side, diarizacion, segmentos, player con timestamps y roles in
 
 OpenRouter, structured outputs, model routing, facts normalizados, cost accounting.
 
-## Phase 6 - Formalizacion normativa (en progreso, PASS_WITH_WARNINGS)
+## Phase 6 - Formalizacion normativa (bloqueada por gate real)
 
 Existe un motor puro version-aware, evaluación de cuatro estados, fingerprints,
 traces, datos faltantes, conflictos, persistencia de engine runs, endpoints y
 un explorador mínimo. La cobertura normativa productiva actual es parcial
-(principalmente V5 5.2 y 5.8); faltan ramas V5 y la integración con Fact Runs
-congelados en la UI.
+(principalmente V5 5.2 y 5.8). `audit_manual_comments` ya existe y su CRUD real
+sin PII fue validado en InsForge, pero el cierre real sigue bloqueado por la
+ausencia de evidencia operativa requerida: OpenRouter real con runtime valido,
+expediente/evidencias reales en el backend vinculado, Fact Run nuevo congelado
+desde original, Engine Run nuevo, trace real, sourceCompleteness real, comments
+isolation e historical isolation.
 
 ## Phase 7 - Dictamen.pdf y revisión humana
 
