@@ -3,14 +3,14 @@
 import { useState } from 'react';
 import type { EvaluatedRule, MissingData, PolicyEvaluation } from '@cancelaciones/policy-engine';
 
-export function PolicyEvaluationPanel({ auditId }: { auditId: string }) {
+export function PolicyEvaluationPanel({ auditId, factRunId }: { auditId: string; factRunId?: string }) {
   const [result, setResult] = useState<PolicyEvaluation | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   async function evaluate() {
     setLoading(true); setError('');
     try {
-      const response = await fetch(`/api/audits/${auditId}/policy`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ policyCode: 'GDM_GAM_PRD_MLG_003', policyVersion: '5', facts: [] }) });
+      const response = await fetch(`/api/audits/${auditId}/policy`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ policyCode: 'GDM_GAM_PRD_MLG_003', policyVersion: '5', factRunId }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message ?? 'No fue posible evaluar la política.');
       setResult(data.evaluation as PolicyEvaluation);
@@ -19,7 +19,8 @@ export function PolicyEvaluationPanel({ auditId }: { auditId: string }) {
   return <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
     <h2 className="text-xl font-bold text-ink">Evaluación normativa</h2>
     <p className="mt-2 text-sm text-slate-600">Versión fijada: GDM_GAM_PRD_MLG_003 V5. Los hechos deben estar congelados antes de ejecutar.</p>
-    <button onClick={evaluate} disabled={loading} className="mt-4 w-full rounded-xl bg-brand px-5 py-3 font-semibold text-white disabled:opacity-60">{loading ? 'Evaluando…' : 'Evaluar política'}</button>
+    <button onClick={evaluate} disabled={loading || !factRunId} className="mt-4 w-full rounded-xl bg-brand px-5 py-3 font-semibold text-white disabled:opacity-60">{loading ? 'Evaluando…' : 'Evaluar política'}</button>
+    {!factRunId && <p className="mt-3 text-sm text-amber-700">Primero congela un Fact Run real.</p>}
     {error && <p className="mt-3 text-sm text-red-700">{error}</p>}
     {result && <div className="mt-5 space-y-4 text-sm">
       <p><strong>Resultado sugerido:</strong> {result.suggestedOutcome ?? 'INDETERMINADO'}</p>

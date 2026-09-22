@@ -1,4 +1,4 @@
-import type { Audit, ClaimedJob, Evidence, EvidenceStatus, Job, JobStatus, JobType } from '@cancelaciones/domain';
+import { stableFingerprint, type Audit, type ClaimedJob, type Evidence, type EvidenceStatus, type Job, type JobStatus, type JobType } from '@cancelaciones/domain';
 
 export interface DatabaseClient {
   from(table: string): any;
@@ -53,6 +53,74 @@ interface ClaimedJobRow {
   job_type: JobType;
   payload: Record<string, unknown>;
   attempt_number: number;
+}
+
+export interface JobArtifact {
+  id: string;
+  jobId: string;
+  evidenceId: string | null;
+  artifactType: string;
+  result: Record<string, unknown>;
+  contentSha256: string | null;
+  createdAt: string;
+}
+
+interface JobArtifactRow {
+  id: string;
+  job_id: string;
+  evidence_id: string | null;
+  artifact_type: string;
+  result: Record<string, unknown>;
+  content_sha256: string | null;
+  created_at: string;
+}
+
+export interface FactExtractionRun {
+  id: string;
+  auditId: string;
+  policyCode: string;
+  policyVersion: string;
+  extractorVersion: string;
+  artifactSetFingerprint: string;
+  state: 'DRAFT' | 'PROCESSING' | 'FAILED' | 'FROZEN';
+  frozenAt: string | null;
+  createdAt: string;
+}
+
+interface FactExtractionRunRow {
+  id: string;
+  audit_id: string;
+  policy_code: string;
+  policy_version: string;
+  extractor_version: string;
+  artifact_set_fingerprint: string;
+  state: FactExtractionRun['state'];
+  frozen_at: string | null;
+  created_at: string;
+}
+
+export interface StoredFact {
+  id: string;
+  auditId: string;
+  runId: string;
+  factType: string;
+  classification: string;
+  value: unknown;
+  sourceRef: Record<string, unknown>;
+  confidence: number | null;
+  createdAt: string;
+}
+
+interface FactRow {
+  id: string;
+  audit_id: string;
+  run_id: string;
+  fact_type: string;
+  classification: string;
+  value: unknown;
+  source_ref: Record<string, unknown>;
+  confidence: number | null;
+  created_at: string;
 }
 
 function mapAudit(row: AuditRow): Audit {
@@ -110,6 +178,18 @@ function mapClaimedJob(row: ClaimedJobRow): ClaimedJob {
     payload: row.payload,
     attemptNumber: row.attempt_number,
   };
+}
+
+function mapJobArtifact(row: JobArtifactRow): JobArtifact {
+  return { id: row.id, jobId: row.job_id, evidenceId: row.evidence_id, artifactType: row.artifact_type, result: row.result, contentSha256: row.content_sha256, createdAt: row.created_at };
+}
+
+function mapFactRun(row: FactExtractionRunRow): FactExtractionRun {
+  return { id: row.id, auditId: row.audit_id, policyCode: row.policy_code, policyVersion: row.policy_version, extractorVersion: row.extractor_version, artifactSetFingerprint: row.artifact_set_fingerprint, state: row.state, frozenAt: row.frozen_at, createdAt: row.created_at };
+}
+
+function mapFact(row: FactRow): StoredFact {
+  return { id: row.id, auditId: row.audit_id, runId: row.run_id, factType: row.fact_type, classification: row.classification, value: row.value, sourceRef: row.source_ref, confidence: row.confidence === null ? null : Number(row.confidence), createdAt: row.created_at };
 }
 
 export function createAuditRepository(database: DatabaseClient) {
@@ -180,7 +260,7 @@ export function createEvidenceRepository(database: DatabaseClient) {
         .from('evidences')
         .insert([{
           id: input.id,
-          ticket_id: input.auditId,
+          ticket_id: null,
           audit_id: input.auditId,
           nombre_archivo: input.originalFilename,
           original_filename: input.originalFilename,
@@ -257,6 +337,7 @@ export function createJobRepository(database: DatabaseClient) {
       idempotencyKey: string;
       inputFingerprint: string;
       payload?: Record<string, unknown>;
+      evidenceId?: string | null;
       priority?: number;
       maxAttempts?: number;
       actorId?: string | null;
@@ -271,6 +352,7 @@ export function createJobRepository(database: DatabaseClient) {
         p_priority: input.priority ?? 100,
         p_max_attempts: input.maxAttempts ?? 3,
         p_actor_id: input.actorId ?? null,
+        p_evidence_id: input.evidenceId ?? null,
       });
       if (error || !data) throw new Error(error?.message ?? 'No fue posible encolar job');
       return mapJob(Array.isArray(data) ? data[0] : data);
@@ -294,9 +376,35 @@ export function createJobRepository(database: DatabaseClient) {
       return (data ?? []).map(mapJob);
     },
 
-    async recordArtifact(jobId: string, artifactType: string, result: Record<string, unknown>): Promise<void> {
-      const { error } = await rpc('record_job_artifact', { p_job_id: jobId, p_artifact_type: artifactType, p_result: result });
+    async recordArtifact(jobId: string, artifactType: string, result: Record<string, unknown>, metadata?: { evidenceId?: string | null; contentSha256?: string | null; extractorVersion?: string | null; provider?: string | null }): Promise<void> {
+      const { error } = await rpc('record_job_artifact', {
+        p_job_id: jobId,
+        p_artifact_type: artifactType,
+        p_result: result,
+        p_evidence_id: metadata?.evidenceId ?? null,
+        p_attempt_id: null,
+        p_extractor_version: metadata?.extractorVersion ?? null,
+        p_provider: metadata?.provider ?? null,
+        p_provider_operation_id: null,
+        p_storage_bucket: null,
+        p_storage_key: null,
+        p_content_sha256: metadata?.contentSha256 ?? null,
+        p_warnings: [],
+      });
       if (error) throw new Error(error.message ?? 'No fue posible registrar artifact');
+    },
+
+    async listArtifactsByAudit(auditId: string): Promise<JobArtifact[]> {
+      const jobs = await this.listByAudit(auditId);
+      if (!jobs.length) return [];
+      const { data, error } = await database
+        .from('job_artifacts')
+        .select('id,job_id,evidence_id,artifact_type,result,content_sha256,created_at')
+        .in('job_id', jobs.map((job) => job.id))
+        .order('created_at', { ascending: false })
+        .limit(200);
+      if (error) throw new Error(error.message ?? 'No fue posible leer artifacts');
+      return (data ?? []).map(mapJobArtifact);
     },
 
     async complete(jobId: string, workerId: string, progress = 100): Promise<void> {
@@ -323,6 +431,71 @@ export function createJobRepository(database: DatabaseClient) {
         p_error_message_sanitized: message,
       });
       if (error) throw new Error(error.message ?? 'No fue posible fallar job');
+    },
+  };
+}
+
+export function createFactRepository(database: DatabaseClient) {
+  const runColumns = 'id,audit_id,policy_code,policy_version,extractor_version,artifact_set_fingerprint,state,frozen_at,created_at';
+  const factColumns = 'id,audit_id,run_id,fact_type,classification,value,source_ref,confidence,created_at';
+
+  return {
+    async listRunsByAudit(auditId: string): Promise<FactExtractionRun[]> {
+      const { data, error } = await database.from('fact_extraction_runs').select(runColumns).eq('audit_id', auditId).order('created_at', { ascending: false }).limit(20);
+      if (error) throw new Error(error.message ?? 'No fue posible leer fact runs');
+      return (data ?? []).map(mapFactRun);
+    },
+
+    async findRunById(runId: string): Promise<FactExtractionRun | null> {
+      const { data, error } = await database.from('fact_extraction_runs').select(runColumns).eq('id', runId).limit(1);
+      if (error) throw new Error(error.message ?? 'No fue posible leer fact run');
+      return data?.[0] ? mapFactRun(data[0]) : null;
+    },
+
+    async createRun(input: { auditId: string; policyCode: string; policyVersion: string; extractorVersion: string; artifactSetFingerprint: string; createdBy: string }): Promise<FactExtractionRun> {
+      const { data, error } = await database.from('fact_extraction_runs').insert([{
+        audit_id: input.auditId,
+        policy_code: input.policyCode,
+        policy_version: input.policyVersion,
+        extractor_version: input.extractorVersion,
+        artifact_set_fingerprint: input.artifactSetFingerprint,
+        state: 'DRAFT',
+        created_by: input.createdBy,
+      }]).select(runColumns).single();
+      if (error || !data) throw new Error(error?.message ?? 'No fue posible crear fact run');
+      return mapFactRun(data);
+    },
+
+    async freezeRun(runId: string): Promise<FactExtractionRun> {
+      const { data, error } = await database.from('fact_extraction_runs').update({ state: 'FROZEN', frozen_at: new Date().toISOString() }).eq('id', runId).eq('state', 'DRAFT').select(runColumns).single();
+      if (error || !data) throw new Error(error?.message ?? 'No fue posible congelar fact run');
+      return mapFactRun(data);
+    },
+
+    async listFactsByRun(runId: string): Promise<StoredFact[]> {
+      const { data, error } = await database.from('facts').select(factColumns).eq('run_id', runId).order('created_at', { ascending: true }).limit(500);
+      if (error) throw new Error(error.message ?? 'No fue posible leer facts');
+      return (data ?? []).map(mapFact);
+    },
+
+    async insertFacts(facts: Array<{ auditId: string; runId: string; factType: string; value: unknown; sourceRef: Record<string, unknown>; confidence?: number }>): Promise<StoredFact[]> {
+      if (!facts.length) return [];
+      const { data, error } = await database.from('facts').insert(facts.map((fact) => ({
+        audit_id: fact.auditId,
+        run_id: fact.runId,
+        fact_type: fact.factType,
+        classification: 'OBSERVABLE',
+        value: fact.value,
+        source_ref: fact.sourceRef,
+        confidence: fact.confidence ?? null,
+      }))).select(factColumns);
+      if (error || !data) throw new Error(error?.message ?? 'No fue posible guardar facts');
+      return data.map(mapFact);
+    },
+
+    async artifactSetFingerprint(auditId: string): Promise<string> {
+      const artifacts = await createJobRepository(database).listArtifactsByAudit(auditId);
+      return stableFingerprint(artifacts.map((artifact) => ({ id: artifact.id, type: artifact.artifactType, sha256: artifact.contentSha256, evidenceId: artifact.evidenceId })));
     },
   };
 }
