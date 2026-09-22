@@ -27,6 +27,8 @@ Contiene titulo/identificador CaVe y tabla principal. Campos variables detectado
 - Dictamen aplicado el
 - Dictamen
 
+La primera pagina incluye `Comentarios BO`, `Comentarios HelpDesk`, `Comentarios SER` y `Comentarios Finanzas`, provenientes de `MANUAL AREA COMMENTS`.
+
 Estructura visual: tabla con encabezados azul/gris, etiquetas amarillas, bloque verde para fecha de dictamen y etiqueta cyan para dictamen.
 
 ## Pagina 2

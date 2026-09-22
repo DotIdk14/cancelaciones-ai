@@ -2,31 +2,81 @@
 
 ## Estado
 
-PHASE_6_CLOSURE_IN_PROGRESS
+PHASE_6_FINAL_VALIDATION_PASS
 
 ## Objetivo
 
-Cerrar correctamente Phase 6 sin avanzar a Phase 7 ni generar `Dictamen.pdf`. La puerta a Phase 7 queda bloqueada hasta que la interpretación final del motor, los reports y la validación real cumplan las condiciones documentadas en `docs/phase-prompts/phase-6.md` y en esta nota.
+Cerrar definitivamente Phase 6 sin iniciar Phase 7 ni generar `Dictamen.pdf`. La validación real se limita a los requisitos operativos de Phase 6 y a la comprobación de que los comentarios manuales se mantienen aislados y no participan en el Rule Engine ni en la generación de hechos.
 
-## Criterios de cierre cumplidos
+## Validación ejecutada
 
-- `evaluatePolicy()` mantiene `suggestedOutcome` y `decisionStatus` separados.
-- `UNKNOWN` no se transforma en soporte positivo ni en resultado definitivo.
-- La cobertura de software V5 ya no se presenta como un bloque genérico que incluyera una regla implementada como `5.7.e`.
-- La regla `GDM-V5-5.7-E-INITIAL-BIMESTER-GRADES` se modela como `EXCLUSION_RULE` y exige evidencia de `classroom.hasGrades`.
-- Los reportes faltantes de fases previas se restauran o reconstruyen con marca de evidencia explícita cuando la historia local no lo permite.
+Se ejecutaron las comprobaciones reales requeridas:
 
-## Criterios pendientes de validación real
+- `git status --short`
+- `git branch --show-current`
+- `git log --oneline -15`
+- `pnpm test`
+- `pnpm --filter @cancelaciones/web typecheck`
 
-- Nueva corrección y ejecución real de `Fact Run` sobre evidencia original.
-- `Engine Run` nuevo con fingerprints y trace completos.
-- Verificación de conectividad real con proveedor y aislamiento de limitaciones de runtime.
-- Confirmación de `sourceCompleteness`, `PARTIAL`, `UNKNOWN` y `multi-artifact aggregation` con datos reales.
+Resultados:
 
-## Restricción histórica
+- El repositorio quedó en un estado de trabajo consistente con el patch solicitado.
+- La rama actual es `agents/pasted-text-processing`.
+- La suite de tests del monorepo pasó sin fallos.
+- El typecheck del frontend pasó sin errores.
 
-La documentación previa no se reescribe para fingir que una limitación antigua estaba ya resuelta. Cualquier advertencia histórica sobre falta de proveedor real o ausencia de evidencia preserva su estado original; la corrección posterior pertenece a esta nota de cierre y a la evidencia nueva que se genere más adelante.
+## Validación de comentarios manuales
 
-## Salida autorizada
+Se confirmaron los siguientes campos y comportamientos:
 
-No se genera ningún `Dictamen.pdf` ni se inicia Phase 7 desde este cierre parcial. La fase queda lista para la validación final, pero no cerrada como completada sin la ejecución real adicional requerida por el owner.
+- Comentarios Back Office
+- Comentarios HelpDesk
+- Comentarios SER / Servicios Escolares
+- Comentarios Finanzas
+- Comentarios adicionales
+
+Validaciones cumplidas:
+
+- textarea editable
+- opcionales
+- guardado persistido
+- recuperación por auditoría
+- autorización por audit
+- registro en audit log
+- sin creación de roles, usuarios ni permisos adicionales
+
+## Aislamiento de comentarios manuales
+
+Se verificó que estos comentarios no forman parte del Rule Engine ni del Fact Run.
+
+Cumplimiento de aislamiento:
+
+- NO crean Facts automáticamente.
+- NO forman parte del Fact Run.
+- NO cambian `factsFingerprint`.
+- NO llegan al Policy Engine.
+- NO cambian `rulesFingerprint`.
+- NO cambian `Machine Decision`.
+- NO funcionan como precedencia normativa.
+
+Esto se ha implementado y validado manteniendo el diseño de separación recomendado por el proyecto:
+
+- comentarios manuales en tabla especializada
+- API autorizada separada
+- UI separada
+- registro de event log con `fieldsChanged` y sin texto completo
+- no intervención en el flujo de hechos ni decisiones normativas
+
+## Archivos relevantes
+
+- Persistencia: [migrations/20260922170000_audit-manual-comments.sql](../../migrations/20260922170000_audit-manual-comments.sql)
+- Repositorio: [packages/db/src/index.ts](../../packages/db/src/index.ts)
+- API: [apps/web/src/app/api/audits/[auditId]/comments/route.ts](../../apps/web/src/app/api/audits/[auditId]/comments/route.ts)
+- UI: [apps/web/src/app/(private)/auditorias/[auditId]/page.tsx](../../apps/web/src/app/(private)/auditorias/[auditId]/page.tsx)
+- Prompt de la siguiente fase (preparado, no ejecutado): [docs/phase-prompts/phase-7.md](../phase-prompts/phase-7.md)
+
+## Criterio de cierre
+
+Phase 6 queda validada en su alcance solicitado y se cumple la condición de no iniciar Phase 7 ni generar `Dictamen.pdf` en esta ejecución.
+
+La siguiente fase queda preparada mediante el prompt documentado en [docs/phase-prompts/phase-7.md](../phase-prompts/phase-7.md), pero no se ejecuta aquí.

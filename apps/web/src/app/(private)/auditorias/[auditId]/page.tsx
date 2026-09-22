@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { createAuditRepository, createEvidenceRepository, createFactRepository, createJobRepository, type StoredFact } from '@cancelaciones/db';
+import { createAuditManualCommentsRepository, createAuditRepository, createEvidenceRepository, createFactRepository, createJobRepository, type StoredFact } from '@cancelaciones/db';
 import type { PolicyEvaluation } from '@cancelaciones/policy-engine';
 import { createInsForgeServerClient } from '@/server/insforge/server';
 import { AuditWorkflow } from './AuditWorkflow';
@@ -82,13 +82,15 @@ const ruleLabels: Record<string, string> = {
   'GDM-V5-5.8-A-ACADEMIC-LEVEL-UNKNOWN': 'Nivel académico no identificado',
 };
 
-export default async function AuditDetailPage({ params }: { params: Promise<{ auditId: string }> }) {
+export default async function AuditDetailPage({ params, searchParams }: { params: Promise<{ auditId: string }>; searchParams?: Promise<{ commentsSaved?: string }> }) {
   const { auditId } = await params;
+  const { commentsSaved } = (await searchParams) ?? {};
   const client = await createInsForgeServerClient();
   const audits = createAuditRepository(client.database);
   const audit = await audits.findById(auditId);
   if (!audit) notFound();
 
+  const manualComments = await createAuditManualCommentsRepository(client.database).findByAudit(auditId);
   const evidences = await createEvidenceRepository(client.database).listByAudit(auditId);
   const artifacts = await createJobRepository(client.database).listArtifactsByAudit(auditId);
   const transcripts = artifacts.filter((artifact) => artifact.artifactType === 'audio-transcript' && Array.isArray(artifact.result.utterances));
@@ -140,6 +142,36 @@ export default async function AuditDetailPage({ params }: { params: Promise<{ au
                 </tbody>
               </table>
             </div>
+          </div>
+
+          <div className="mt-8 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h2 className="text-xl font-bold text-ink">COMENTARIOS DE OTRAS ÁREAS</h2>
+            {commentsSaved === '1' && <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">Comentarios guardados correctamente.</div>}
+            <form action={`/api/audits/${auditId}/comments`} method="post" className="mt-5 space-y-4">
+              <div>
+                <label htmlFor="back_office_comment" className="mb-2 block text-sm font-semibold text-slate-700">Comentarios Back Office</label>
+                <textarea id="back_office_comment" name="back_office_comment" defaultValue={manualComments?.backOfficeComment ?? ''} rows={4} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-700 outline-none ring-0 transition focus:border-brand" placeholder="Comentarios de Back Office" />
+              </div>
+              <div>
+                <label htmlFor="helpdesk_comment" className="mb-2 block text-sm font-semibold text-slate-700">Comentarios HelpDesk</label>
+                <textarea id="helpdesk_comment" name="helpdesk_comment" defaultValue={manualComments?.helpdeskComment ?? ''} rows={4} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-700 outline-none ring-0 transition focus:border-brand" placeholder="Comentarios HelpDesk" />
+              </div>
+              <div>
+                <label htmlFor="school_services_comment" className="mb-2 block text-sm font-semibold text-slate-700">Comentarios SER / Servicios Escolares</label>
+                <textarea id="school_services_comment" name="school_services_comment" defaultValue={manualComments?.schoolServicesComment ?? ''} rows={4} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-700 outline-none ring-0 transition focus:border-brand" placeholder="Comentarios SER / Servicios Escolares" />
+              </div>
+              <div>
+                <label htmlFor="finance_comment" className="mb-2 block text-sm font-semibold text-slate-700">Comentarios Finanzas</label>
+                <textarea id="finance_comment" name="finance_comment" defaultValue={manualComments?.financeComment ?? ''} rows={4} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-700 outline-none ring-0 transition focus:border-brand" placeholder="Comentarios Finanzas" />
+              </div>
+              <div>
+                <label htmlFor="additional_comment" className="mb-2 block text-sm font-semibold text-slate-700">Comentarios adicionales</label>
+                <textarea id="additional_comment" name="additional_comment" defaultValue={manualComments?.additionalComment ?? ''} rows={4} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-700 outline-none ring-0 transition focus:border-brand" placeholder="Comentarios adicionales" />
+              </div>
+              <div className="flex justify-end">
+                <button type="submit" className="inline-flex items-center rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand/90">Guardar comentarios</button>
+              </div>
+            </form>
           </div>
         </div>
 
