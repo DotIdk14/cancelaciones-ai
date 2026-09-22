@@ -13,3 +13,13 @@
 | GDM_GAM_PRD_MLG_003 v2 | 5.9 | 12 | GDM-5.9-A-001 | `packages/policy-engine` |
 | GDM_GAM_PRD_MLG_003 v2 | 5.10 | 13 | GDM-5.10-A-001 | `packages/policy-engine` |
 | GDM_GAM_PRD_MLG_003 v2 | 5.12 | 13-14 | GDM-5.12-A-001 | `packages/evidence`, `packages/policy-engine` |
+
+## Phase 6 implementado
+
+| Fuente | Regla | Implementación | Tests | Facts | Estado |
+|---|---|---|---|---|---|
+| GDM_GAM_PRD_MLG_003 v5 | 5.2 | `packages/policy-engine/src/index.ts` (`GDM-V5-5.2-A-CONTACT-ATTEMPTS`) | `packages/policy-engine/src/index.test.ts` | `contact.callAttempts`, `contact.writtenInteractions` | IMPLEMENTED |
+| GDM_GAM_PRD_MLG_003 v5 | 5.8.a | `packages/policy-engine/src/index.ts` (`GDM-V5-5.8-A-UNREACHABLE`) | `packages/policy-engine/src/index.test.ts` | `contact.effectiveContact`, `classroom.hasActivities` | IMPLEMENTED |
+| GDM_GAM_PRD_MLG_003 v2/v5 | Shadow evaluation | `packages/policy-engine/src/index.ts` (`compareHistoricalOutcome`) | `packages/policy-engine/src/index.test.ts` | machine outcome, human historical outcome, policy version | IMPLEMENTED |
+
+Reverse trace: cada `EvaluatedRule.source` conserva documento, versión, sección y página; la API persiste la evaluación completa en `engine_runs.evaluation`.

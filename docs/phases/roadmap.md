@@ -24,21 +24,24 @@ AssemblyAI server-side, diarizacion, segmentos, player con timestamps y roles in
 
 OpenRouter, structured outputs, model routing, facts normalizados, cost accounting.
 
-## Phase 6 - Formalizacion normativa
+## Phase 6 - Formalizacion normativa (en progreso, PASS_WITH_WARNINGS)
 
-Rule engine puro, matriz de trazabilidad, tests de politica y manejo UNKNOWN.
+Existe un motor puro version-aware, evaluación de cuatro estados, fingerprints,
+traces, datos faltantes, conflictos, persistencia de engine runs, endpoints y
+un explorador mínimo. La cobertura normativa productiva actual es parcial
+(principalmente V5 5.2 y 5.8); faltan ramas V5 y la integración con Fact Runs
+congelados en la UI.
 
-## Phase 7 - Faltantes, conflictos y precedencias
+## Phase 7 - Dictamen.pdf y revisión humana
 
-Missing data severity, conflictos visibles, OWNER_OPERATIONAL_PRECEDENCE versionada.
+Generación draft/final con la plantilla canónica, selección de evidencia,
+aprobación humana separada y preservación de la decisión de máquina. Ver
+`docs/phase-prompts/phase-7.md`.
 
-## Phase 8 - UI de auditoria y revision
+## Phase 8 - Operación y hardening
 
-Flujo auditorias, subir, auditar, procesando, resultado, evidencia, razonamiento y correccion humana.
-
-## Phase 9 - Dictamen.pdf
-
-Generador de draft/final, fidelidad visual, evidencias relevantes y preview.
+Completar flujo de auditoría, revisión humana, validación histórica,
+anonimización, seguridad, performance y readiness de producción.
 
 ## Phase 10 - Validacion historica y hardening
 

@@ -26,6 +26,9 @@ importers:
       '@cancelaciones/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@cancelaciones/policy-engine':
+        specifier: workspace:*
+        version: link:../../packages/policy-engine
       '@insforge/sdk':
         specifier: ^1.5.2
         version: 1.5.2
@@ -78,6 +81,16 @@ importers:
         version: 2.1.9(@types/node@22.20.4)
 
   packages/domain:
+    devDependencies:
+      vitest:
+        specifier: ^2.1.9
+        version: 2.1.9(@types/node@22.20.4)
+
+  packages/policy-engine:
+    dependencies:
+      '@cancelaciones/domain':
+        specifier: workspace:*
+        version: link:../domain
     devDependencies:
       vitest:
         specifier: ^2.1.9
