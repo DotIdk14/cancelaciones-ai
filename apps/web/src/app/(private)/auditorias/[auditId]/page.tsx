@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { createAuditRepository, createEvidenceRepository, createJobRepository } from '@cancelaciones/db';
 import { createInsForgeServerClient } from '@/server/insforge/server';
+import { PolicyEvaluationPanel } from './PolicyEvaluationPanel';
 
 export const dynamic = 'force-dynamic';
 
@@ -58,6 +59,7 @@ export default async function AuditDetailPage({ params }: { params: Promise<{ au
         </div>
 
         <div className="space-y-6">
+          <PolicyEvaluationPanel auditId={audit.id} />
           <form action={`/api/audits/${audit.id}/evidences`} method="post" encType="multipart/form-data" className="rounded-3xl border border-dashed border-slate-300 bg-white p-6 shadow-sm">
             <h2 className="text-xl font-bold text-ink">Nueva evidencia</h2>
             <p className="mt-2 text-sm text-slate-600">Sube archivos originales. No se analizaran todavia.</p>

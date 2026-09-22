@@ -15,10 +15,12 @@
 
 - `evidence_artifacts`: derivados por evidencia: texto, imagenes, OCR, vision, transcript.
 - `facts`: hechos estructurados con source refs y confidence de extraccion.
-- `engine_runs`: snapshot de facts, policy version, rules version, resultado, faltantes, conflictos y trace.
+- `engine_runs`: snapshot de facts, policy code/version, rules/facts fingerprints, resultado, faltantes, conflictos y trace.
+- `engine_rule_results`: resultados por regla asociados a una corrida, con estado, cita y trace serializado.
 - `human_reviews`: aprobacion/correccion, notas, usuario y fecha.
 - `operational_precedences`: precedencias del owner, versionadas y separadas de politica.
 - `ai_usage`: costo por provider, modelo, operacion y evidencia.
+- `normative_shadow_comparisons`: comparación separada entre machine outcome y human historical outcome; no implica exactitud de política.
 
 ## Principio
 
