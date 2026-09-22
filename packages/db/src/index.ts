@@ -7,6 +7,7 @@ export interface DatabaseClient {
 
 interface AuditRow {
   id: string;
+  display_name: string | null;
   status: Audit['status'];
   external_case_id: string | null;
   created_by: string;
@@ -128,6 +129,7 @@ interface FactRow {
 function mapAudit(row: AuditRow): Audit {
   return {
     id: row.id,
+    displayName: row.display_name,
     status: row.status,
     externalCaseId: row.external_case_id,
     createdBy: row.created_by,
@@ -201,7 +203,7 @@ export function createAuditRepository(database: DatabaseClient) {
     async listRecent(): Promise<Audit[]> {
       const { data, error } = await database
         .from('audits')
-        .select('id,status,external_case_id,created_by,created_at,updated_at')
+        .select('id,display_name,status,external_case_id,created_by,created_at,updated_at')
         .order('created_at', { ascending: false })
         .limit(50);
 
@@ -209,11 +211,11 @@ export function createAuditRepository(database: DatabaseClient) {
       return (data ?? []).map(mapAudit);
     },
 
-    async create(input: { createdBy: string; externalCaseId?: string | null }): Promise<Audit> {
+    async create(input: { createdBy: string; displayName: string; externalCaseId?: string | null }): Promise<Audit> {
       const { data, error } = await database
         .from('audits')
-        .insert([{ created_by: input.createdBy, external_case_id: input.externalCaseId ?? null }])
-        .select('id,status,external_case_id,created_by,created_at,updated_at')
+        .insert([{ created_by: input.createdBy, display_name: input.displayName, external_case_id: input.externalCaseId ?? null }])
+        .select('id,display_name,status,external_case_id,created_by,created_at,updated_at')
         .single();
 
       if (error || !data) throw new Error(error?.message ?? 'No fue posible crear auditoria');
@@ -223,7 +225,7 @@ export function createAuditRepository(database: DatabaseClient) {
     async findById(auditId: string): Promise<Audit | null> {
       const { data, error } = await database
         .from('audits')
-        .select('id,status,external_case_id,created_by,created_at,updated_at')
+        .select('id,display_name,status,external_case_id,created_by,created_at,updated_at')
         .eq('id', auditId)
         .limit(1);
       if (error) throw new Error(error.message ?? 'No fue posible leer auditoria');

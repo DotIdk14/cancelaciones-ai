@@ -14,6 +14,7 @@ describe('createAuditRepository', () => {
         insert: (input: any[]) => {
           rows.push({
             id: 'audit_1',
+            display_name: input[0].display_name,
             status: 'DRAFT',
             external_case_id: input[0].external_case_id,
             created_by: input[0].created_by,
@@ -28,7 +29,7 @@ describe('createAuditRepository', () => {
     };
 
     const repo = createAuditRepository(database);
-    const created = await repo.create({ createdBy: 'user_1', externalCaseId: 'CaVe-SINTETICO' });
+    const created = await repo.create({ createdBy: 'user_1', displayName: 'Auditoria sintetica', externalCaseId: 'CaVe-SINTETICO' });
     const list = await repo.listRecent();
 
     expect(created.status).toBe('DRAFT');

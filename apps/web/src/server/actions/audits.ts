@@ -18,8 +18,11 @@ export async function createAudit(formData: FormData) {
 
   const client = await createInsForgeServerClient();
   const repo = createAuditRepository(client.database);
+  const displayName = String(formData.get('displayName') ?? '').trim();
+  if (!displayName) throw new Error('El nombre del expediente es obligatorio.');
   await repo.create({
     createdBy: user.id,
+    displayName,
     externalCaseId: String(formData.get('externalCaseId') ?? '').trim() || null,
   });
 

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { createEvidenceRepository, createFactRepository, createJobRepository, type DatabaseClient } from '@cancelaciones/db';
 import type { ClaimedJob } from '@cancelaciones/domain';
-import { extractFactsFromArtifacts, textArtifactResult } from '@/server/facts/extract';
+import { extractFactsFromArtifacts } from '@/server/facts/extract';
 import { getServerEnv } from '@/server/config/env';
 
 interface HandlerContext {
@@ -27,9 +27,41 @@ async function blobToText(data: Blob | ArrayBuffer): Promise<string> {
   return buffer.toString('utf8').replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, ' ');
 }
 
-type ExtractedFact = { factType: string; value: unknown; confidence?: number };
+async function transcribeAudio(data: Blob | ArrayBuffer): Promise<EvidenceAnalysis> {
+  const env = getServerEnv();
+  if (!env.ASSEMBLYAI_API_KEY) throw new Error('ASSEMBLYAI_API_KEY_NOT_CONFIGURED');
+  const buffer = data instanceof ArrayBuffer ? Buffer.from(data) : Buffer.from(await data.arrayBuffer());
+  const upload = await fetch('https://api.assemblyai.com/v2/upload', {
+    method: 'POST',
+    headers: { authorization: env.ASSEMBLYAI_API_KEY, 'content-type': 'application/octet-stream' },
+    body: buffer,
+  });
+  if (!upload.ok) throw new Error(`ASSEMBLYAI_UPLOAD_ERROR_${upload.status}`);
+  const uploaded = await upload.json() as { upload_url?: string };
+  if (!uploaded.upload_url) throw new Error('ASSEMBLYAI_UPLOAD_URL_MISSING');
+  const start = await fetch('https://api.assemblyai.com/v2/transcript', {
+    method: 'POST',
+    headers: { authorization: env.ASSEMBLYAI_API_KEY, 'content-type': 'application/json' },
+    body: JSON.stringify({ audio_url: uploaded.upload_url, speaker_labels: true, language_code: 'es' }),
+  });
+  if (!start.ok) throw new Error(`ASSEMBLYAI_TRANSCRIPT_ERROR_${start.status}`);
+  const started = await start.json() as { id?: string };
+  if (!started.id) throw new Error('ASSEMBLYAI_TRANSCRIPT_ID_MISSING');
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    const poll = await fetch(`https://api.assemblyai.com/v2/transcript/${started.id}`, { headers: { authorization: env.ASSEMBLYAI_API_KEY } });
+    if (!poll.ok) throw new Error(`ASSEMBLYAI_POLL_ERROR_${poll.status}`);
+    const result = await poll.json() as { status?: string; text?: string; utterances?: unknown[]; words?: unknown[]; error?: string };
+    if (result.status === 'completed') return { text: result.text ?? '', transcript: result.text ?? '', utterances: result.utterances ?? [], words: result.words ?? [], facts: [], provider: 'ASSEMBLYAI' };
+    if (result.status === 'error') throw new Error(result.error ?? 'ASSEMBLYAI_TRANSCRIPTION_FAILED');
+  }
+  throw new Error('ASSEMBLYAI_TRANSCRIPTION_TIMEOUT');
+}
 
-async function analyzeEvidence(data: Blob | ArrayBuffer, mimeType: string, filename: string): Promise<{ text: string; facts: ExtractedFact[]; provider: string | null }> {
+type ExtractedFact = { factType: string; value: unknown; confidence?: number };
+type EvidenceAnalysis = { text: string; facts: ExtractedFact[]; provider: string | null; transcript?: string; utterances?: unknown[]; words?: unknown[] };
+
+async function analyzeEvidence(data: Blob | ArrayBuffer, mimeType: string, filename: string): Promise<EvidenceAnalysis> {
   const env = getServerEnv();
   const buffer = data instanceof ArrayBuffer ? Buffer.from(data) : Buffer.from(await data.arrayBuffer());
   const encoded = buffer.toString('base64');
@@ -73,18 +105,22 @@ const evidenceProcessing: JobHandler = async (context, job) => {
   const download = await context.storage.from(evidence.storageBucket).download(evidence.storageKey);
   if (download.error || !download.data) throw new Error(download.error?.message ?? 'STORAGE_DOWNLOAD_FAILED');
   const isImage = evidence.detectedMimeType.startsWith('image/');
-  const analysis = isImage
+  const isAudio = evidence.detectedMimeType.startsWith('audio/');
+  const analysis = isAudio
+    ? await transcribeAudio(download.data)
+    : isImage
     ? await analyzeEvidence(download.data, evidence.detectedMimeType, evidence.originalFilename)
     : { text: await blobToText(download.data), facts: [] as ExtractedFact[], provider: 'LOCAL' };
   const contentSha256 = createHash('sha256').update(analysis.text).digest('hex');
   const extractionVersion = String(job.payload.version ?? (isImage ? 'vision-extraction-v3' : 'deterministic-text-v1'));
   const repo = createJobRepository(context.database);
-  await repo.recordArtifact(job.jobId, evidence.detectedMimeType.startsWith('audio/') ? 'audio-transcript' : isImage ? 'visual-transcription' : 'document-text', textArtifactResult(analysis.text, {
+  await repo.recordArtifact(job.jobId, isAudio ? 'audio-transcript' : isImage ? 'visual-transcription' : 'document-text', {
     evidenceId,
     mimeType: evidence.detectedMimeType,
     extraction: extractionVersion,
-    extractedFacts: analysis.facts,
-  }), { evidenceId, contentSha256, extractorVersion: extractionVersion, provider: analysis.provider });
+    ...(isAudio ? { transcript: analysis.transcript ?? analysis.text, utterances: analysis.utterances ?? [], words: analysis.words ?? [] } : { extractedFacts: analysis.facts }),
+    text: analysis.text,
+  }, { evidenceId, contentSha256, extractorVersion: extractionVersion, provider: analysis.provider });
   await repo.complete(job.jobId, context.workerId, 100);
 };
 
