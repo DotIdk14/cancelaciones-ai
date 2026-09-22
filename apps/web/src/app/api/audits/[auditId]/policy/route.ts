@@ -67,7 +67,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ au
   const inserted = await auth.client.database.from('engine_runs').insert([{
     audit_id: auditId, fact_run_id: validation.run.id, policy_code: evaluation.policyCode, policy_version: evaluation.policyVersion,
     rules_fingerprint: rulesFingerprint, facts_fingerprint: factsFingerprint, status: 'COMPLETED',
-    suggested_outcome: evaluation.suggestedOutcome, outcome_status: evaluation.outcomeStatus, decision_status: evaluation.decisionStatus, evaluation,
+    suggested_outcome: evaluation.suggestedOutcome, outcome_status: evaluation.outcomeStatus, evaluation,
   }]).select('*').single();
   if (inserted.error || !inserted.data) return NextResponse.json({ error: 'DATABASE_ERROR', message: inserted.error?.message ?? 'No fue posible persistir la corrida.' }, { status: 500 });
   const ruleRows = evaluation.evaluatedRules.map((rule) => ({ engine_run_id: inserted.data.id, rule_id: rule.ruleId, status: rule.status, result: rule }));

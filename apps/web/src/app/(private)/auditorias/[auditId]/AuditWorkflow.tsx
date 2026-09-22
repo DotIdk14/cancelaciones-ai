@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 type WorkflowState = 'idle' | 'uploading' | 'processing' | 'extracting' | 'evaluating' | 'done' | 'error';
@@ -8,14 +8,13 @@ type QueueJob = { id: string; jobType: string; status: string; progress: number;
 
 const activeStatuses = new Set(['QUEUED', 'RUNNING', 'RETRY_SCHEDULED']);
 
-export function AuditWorkflow({ auditId, factRunId, autoEvaluate = false }: { auditId: string; factRunId?: string; autoEvaluate?: boolean }) {
+export function AuditWorkflow({ auditId, factRunId }: { auditId: string; factRunId?: string }) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const [state, setState] = useState<WorkflowState>('idle');
   const [message, setMessage] = useState('Arrastra aquí los archivos del expediente.');
   const [error, setError] = useState('');
   const [dragging, setDragging] = useState(false);
-  const [evaluationChecked, setEvaluationChecked] = useState(false);
   const refreshQueue = useCallback(async () => {
     const response = await fetch(`/api/audits/${auditId}/jobs`, { cache: 'no-store' });
     const data = await response.json();
@@ -114,29 +113,28 @@ export function AuditWorkflow({ auditId, factRunId, autoEvaluate = false }: { au
     }
   }, [auditId, router, state, waitForJobs]);
 
-  useEffect(() => {
-    if (!autoEvaluate || !factRunId || evaluationChecked || state !== 'idle') return;
-    setEvaluationChecked(true);
+  const generateDecision = useCallback(async () => {
+    if (!factRunId || (state !== 'idle' && state !== 'error' && state !== 'done')) return;
     setState('evaluating');
+    setError('');
     setMessage('Generando el dictamen con los hechos ya procesados…');
-    void fetch(`/api/audits/${auditId}/policy`, {
+    try {
+      const response = await fetch(`/api/audits/${auditId}/policy`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ policyCode: 'GDM_GAM_PRD_MLG_003', policyVersion: '5', factRunId }),
-    })
-      .then(async (response) => {
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.message ?? 'No fue posible generar el dictamen.');
-        setState('done');
-        setMessage(`Dictamen listo: ${data.evaluation?.suggestedOutcome ?? 'INDETERMINADO'}.`);
-        router.refresh();
-      })
-      .catch((cause: unknown) => {
-        setState('error');
-        setError(cause instanceof Error ? cause.message : 'No fue posible generar el dictamen.');
-        setMessage('No se completó el dictamen.');
       });
-  }, [auditId, autoEvaluate, evaluationChecked, factRunId, router, state]);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message ?? 'No fue posible generar el dictamen.');
+      setState('done');
+      setMessage(`Dictamen listo: ${data.evaluation?.suggestedOutcome ?? 'INDETERMINADO'}.`);
+      router.refresh();
+    } catch (cause) {
+      setState('error');
+      setError(cause instanceof Error ? cause.message : 'No fue posible generar el dictamen.');
+      setMessage('No se completó el dictamen.');
+    }
+  }, [auditId, factRunId, router, state]);
 
   function onInputChange(event: React.ChangeEvent<HTMLInputElement>) {
     void run(Array.from(event.target.files ?? []));
@@ -172,6 +170,7 @@ export function AuditWorkflow({ auditId, factRunId, autoEvaluate = false }: { au
       <div className="mt-4 rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-700" aria-live="polite">{message}</div>
       {state !== 'idle' && state !== 'error' && state !== 'done' && <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full w-1/2 animate-pulse rounded-full bg-brand" /></div>}
       {error && <p className="mt-3 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
+      {factRunId && state === 'idle' && <button type="button" onClick={() => void generateDecision()} className="mt-4 block text-sm font-semibold text-brand hover:underline">Generar dictamen con los datos actuales</button>}
       {(state === 'error' || state === 'done') && <button type="button" onClick={() => { setState('idle'); setError(''); setMessage('Arrastra aquí los archivos del expediente.'); }} className="mt-4 text-sm font-semibold text-brand hover:underline">{state === 'error' ? 'Intentar de nuevo' : 'Agregar nuevas evidencias'}</button>}
       {state === 'done' && <button type="button" onClick={() => void run([], true)} className="ml-4 mt-4 text-sm font-semibold text-brand hover:underline">Rehacer auditoría con las evidencias actuales</button>}
     </section>
