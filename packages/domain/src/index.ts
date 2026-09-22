@@ -95,7 +95,7 @@ export interface Job {
   createdAt: string;
 }
 
-export type JobType = 'METADATA_PROBE';
+export type JobType = 'METADATA_PROBE' | 'EVIDENCE_PROCESSING' | 'FACT_EXTRACTION';
 export type JobStatus = 'QUEUED' | 'RUNNING' | 'RETRY_SCHEDULED' | 'SUCCEEDED' | 'FAILED' | 'CANCELLATION_REQUESTED' | 'CANCELLED';
 export type JobErrorKind = 'TRANSIENT' | 'PERMANENT' | 'CANCELLED';
 

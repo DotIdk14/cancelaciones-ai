@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { createAuditRepository, createEvidenceRepository, createJobRepository } from '@cancelaciones/db';
+import { createAuditRepository, createEvidenceRepository, createFactRepository, createJobRepository } from '@cancelaciones/db';
 import { createInsForgeServerClient } from '@/server/insforge/server';
 import { PolicyEvaluationPanel } from './PolicyEvaluationPanel';
 
@@ -14,7 +14,14 @@ export default async function AuditDetailPage({ params }: { params: Promise<{ au
   if (!audit) notFound();
 
   const evidences = await createEvidenceRepository(client.database).listByAudit(auditId);
-  const jobs = await createJobRepository(client.database).listByAudit(auditId);
+  const jobRepo = createJobRepository(client.database);
+  const jobs = await jobRepo.listByAudit(auditId);
+  const artifacts = await jobRepo.listArtifactsByAudit(auditId);
+  const factRepo = createFactRepository(client.database);
+  const factRuns = await factRepo.listRunsByAudit(auditId);
+  const selectedRun = factRuns.find((run) => run.state === 'FROZEN') ?? factRuns[0] ?? null;
+  const facts = selectedRun ? await factRepo.listFactsByRun(selectedRun.id) : [];
+  const latestEngineRun = await client.database.from('engine_runs').select('*').eq('audit_id', auditId).order('created_at', { ascending: false }).limit(1);
 
   return (
     <section className="mx-auto max-w-6xl px-6 py-10">
@@ -59,7 +66,7 @@ export default async function AuditDetailPage({ params }: { params: Promise<{ au
         </div>
 
         <div className="space-y-6">
-          <PolicyEvaluationPanel auditId={audit.id} />
+          <PolicyEvaluationPanel auditId={audit.id} factRunId={selectedRun?.state === 'FROZEN' ? selectedRun.id : undefined} />
           <form action={`/api/audits/${audit.id}/evidences`} method="post" encType="multipart/form-data" className="rounded-3xl border border-dashed border-slate-300 bg-white p-6 shadow-sm">
             <h2 className="text-xl font-bold text-ink">Nueva evidencia</h2>
             <p className="mt-2 text-sm text-slate-600">Sube archivos originales. No se analizaran todavia.</p>
@@ -71,7 +78,12 @@ export default async function AuditDetailPage({ params }: { params: Promise<{ au
           <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
             <h2 className="text-xl font-bold text-ink">Procesamiento</h2>
             <form action={`/api/audits/${audit.id}/jobs`} method="post" className="mt-4">
-              <button className="w-full rounded-xl border border-slate-300 px-5 py-3 font-semibold text-slate-700 hover:bg-slate-50" type="submit">Encolar job sintetico</button>
+              <input type="hidden" name="action" value="PROCESS_EVIDENCES" />
+              <button className="w-full rounded-xl border border-slate-300 px-5 py-3 font-semibold text-slate-700 hover:bg-slate-50" type="submit">Procesar evidencias</button>
+            </form>
+            <form action={`/api/audits/${audit.id}/jobs`} method="post" className="mt-3">
+              <input type="hidden" name="action" value="EXTRACT_FACTS" />
+              <button className="w-full rounded-xl border border-slate-300 px-5 py-3 font-semibold text-slate-700 hover:bg-slate-50" type="submit">Extraer hechos</button>
             </form>
             <form action="/api/jobs/process" method="post" className="mt-3">
               <button className="w-full rounded-xl bg-slate-900 px-5 py-3 font-semibold text-white hover:bg-slate-800" type="submit">Procesar siguiente job</button>
@@ -88,6 +100,24 @@ export default async function AuditDetailPage({ params }: { params: Promise<{ au
                 </div>
               ))}
             </div>
+          </div>
+
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h2 className="text-xl font-bold text-ink">Artifacts</h2>
+            {artifacts.length === 0 ? <p className="mt-3 text-sm text-slate-500">Sin artifacts.</p> : artifacts.map((artifact) => <div key={artifact.id} className="mt-3 rounded-xl border border-slate-200 p-3 text-sm"><p className="font-semibold">{artifact.artifactType}</p><p className="break-all text-xs text-slate-500">Artifact: {artifact.id}</p><p className="break-all text-xs text-slate-500">Evidence: {artifact.evidenceId}</p></div>)}
+          </div>
+
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h2 className="text-xl font-bold text-ink">Fact Run</h2>
+            {selectedRun ? <div className="mt-3 text-sm"><p><strong>ID:</strong> <span className="break-all">{selectedRun.id}</span></p><p><strong>Estado:</strong> {selectedRun.state}</p><p><strong>Policy Version:</strong> {selectedRun.policyCode} V{selectedRun.policyVersion}</p></div> : <p className="mt-3 text-sm text-slate-500">Sin Fact Run.</p>}
+            {selectedRun && selectedRun.state !== 'FROZEN' && <form action={`/api/audits/${audit.id}/fact-runs`} method="post" className="mt-4"><input type="hidden" name="action" value="FREEZE" /><input type="hidden" name="factRunId" value={selectedRun.id} /><button className="w-full rounded-xl bg-brand px-5 py-3 font-semibold text-white" type="submit">Congelar análisis</button></form>}
+            <h3 className="mt-5 font-semibold text-ink">Facts</h3>
+            {facts.length === 0 ? <p className="mt-2 text-sm text-slate-500">Sin facts efectivos.</p> : facts.map((fact) => <div key={fact.id} className="mt-3 rounded-xl border border-slate-200 p-3 text-sm"><p className="font-semibold">{fact.factType}</p><p className="break-all text-xs text-slate-500">Fact: {fact.id}</p><p className="break-all text-xs text-slate-500">Source: {JSON.stringify(fact.sourceRef)}</p></div>)}
+          </div>
+
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h2 className="text-xl font-bold text-ink">Machine Decision</h2>
+            {latestEngineRun.data?.[0] ? <div className="mt-3 text-sm"><p><strong>Resultado:</strong> {latestEngineRun.data[0].suggested_outcome ?? 'INDETERMINADO'}</p><p><strong>Estado:</strong> {latestEngineRun.data[0].outcome_status}</p><p className="break-all text-xs text-slate-500">Fact Run: {latestEngineRun.data[0].fact_run_id}</p><p className="break-all text-xs text-slate-500">factsFingerprint: {latestEngineRun.data[0].facts_fingerprint}</p></div> : <p className="mt-3 text-sm text-slate-500">Sin evaluación persistida.</p>}
           </div>
         </div>
       </div>

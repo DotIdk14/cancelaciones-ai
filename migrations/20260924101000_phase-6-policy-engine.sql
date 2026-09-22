@@ -31,19 +31,26 @@ ALTER TABLE public.engine_runs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.engine_rule_results ENABLE ROW LEVEL SECURITY;
 GRANT SELECT, INSERT ON public.engine_runs, public.engine_rule_results TO authenticated;
 
+DROP POLICY IF EXISTS engine_runs_visible_audits ON public.engine_runs;
 CREATE POLICY engine_runs_visible_audits ON public.engine_runs FOR SELECT TO authenticated USING (
   EXISTS (SELECT 1 FROM public.audits WHERE audits.id = engine_runs.audit_id AND
     (audits.created_by = auth.uid() OR public.current_app_role() = 'OWNER'))
 );
+
+DROP POLICY IF EXISTS engine_runs_insert_visible_audits ON public.engine_runs;
 CREATE POLICY engine_runs_insert_visible_audits ON public.engine_runs FOR INSERT TO authenticated WITH CHECK (
   EXISTS (SELECT 1 FROM public.audits WHERE audits.id = engine_runs.audit_id AND
     (audits.created_by = auth.uid() OR public.current_app_role() = 'OWNER'))
 );
+
+DROP POLICY IF EXISTS engine_rule_results_visible_runs ON public.engine_rule_results;
 CREATE POLICY engine_rule_results_visible_runs ON public.engine_rule_results FOR SELECT TO authenticated USING (
   EXISTS (SELECT 1 FROM public.engine_runs WHERE engine_runs.id = engine_rule_results.engine_run_id AND
     EXISTS (SELECT 1 FROM public.audits WHERE audits.id = engine_runs.audit_id AND
       (audits.created_by = auth.uid() OR public.current_app_role() = 'OWNER')))
 );
+
+DROP POLICY IF EXISTS engine_rule_results_insert_visible_runs ON public.engine_rule_results;
 CREATE POLICY engine_rule_results_insert_visible_runs ON public.engine_rule_results FOR INSERT TO authenticated WITH CHECK (
   EXISTS (SELECT 1 FROM public.engine_runs WHERE engine_runs.id = engine_rule_results.engine_run_id AND
     EXISTS (SELECT 1 FROM public.audits WHERE audits.id = engine_runs.audit_id AND

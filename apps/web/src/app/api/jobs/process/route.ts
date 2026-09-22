@@ -18,6 +18,6 @@ export async function POST() {
   const claimed = await repo.claimNext(workerId, 60);
   if (!claimed) return NextResponse.json({ processed: 0, workerId });
 
-  await executeClaimedJob({ database: client.database, workerId }, claimed);
+  await executeClaimedJob({ database: client.database, storage: client.storage, workerId }, claimed);
   return NextResponse.json({ processed: 1, workerId, jobId: claimed.jobId });
 }
