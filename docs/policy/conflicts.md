@@ -13,3 +13,11 @@
 - CaVe-30318: evidencia menciona ingreso breve y seleccion/modalidad; dictamen final aplica CV por ilocalizable con argumento de no activacion efectiva.
 
 Estos conflictos no autorizan reglas nuevas; deben mostrarse al humano y resolverse por politica explicita u OWNER_OPERATIONAL_PRECEDENCE versionada.
+
+## Estado Phase 6
+
+El motor expone conflictos como `CONFLICTED` y exige revisión; no aplica una
+prioridad numérica implícita. Las reglas actualmente implementadas no cubren
+todos los conflictos listados arriba. En particular, la precedencia de 5.7.d y
+las ramas 5.3/5.6 permanecen pendientes de formalización con cita V5 exacta.
+Las referencias históricas son señales de revisión y no resuelven el conflicto.
