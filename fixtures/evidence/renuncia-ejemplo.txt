@@ -1,0 +1,10 @@
+REGISTRO DE RENUNCIA VOLUNTARIA (EJEMPLO SINTETICO)
+
+Fecha de emision: 15 de marzo de 2026
+Empleado: Trabajador, Juan (datos ficticios)
+Cargo: Operador de almacen
+
+Por medio de la presente, comunico mi decision de terminar la relacion laboral
+de forma voluntaria a partir del 15 de marzo de 2026.
+
+Firmado digitalmente para pruebas de extraccion de texto.
