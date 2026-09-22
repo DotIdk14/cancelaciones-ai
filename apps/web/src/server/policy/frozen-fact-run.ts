@@ -17,18 +17,50 @@ export function validateFrozenFactRun(input: {
 }
 
 export function mapStoredFactsToPolicyFacts(facts: StoredFact[]): Fact[] {
-  return facts.map((fact) => ({
-    id: fact.id,
-    type: fact.factType,
-    value: fact.value,
-    source: {
-      evidenceId: String(fact.sourceRef.evidenceId ?? ''),
-      artifactId: fact.sourceRef.artifactId ? String(fact.sourceRef.artifactId) : undefined,
-      page: typeof fact.sourceRef.page === 'number' ? fact.sourceRef.page : undefined,
-      timestampStart: typeof fact.sourceRef.timestampStart === 'number' ? fact.sourceRef.timestampStart : undefined,
-      timestampEnd: typeof fact.sourceRef.timestampEnd === 'number' ? fact.sourceRef.timestampEnd : undefined,
-      sha256: fact.sourceRef.sha256 ? String(fact.sourceRef.sha256) : undefined,
-    },
-    extractionConfidence: fact.confidence ?? undefined,
-  }));
+  const grouped = new Map<string, StoredFact[]>();
+  for (const fact of facts) grouped.set(fact.factType, [...(grouped.get(fact.factType) ?? []), fact]);
+  return Array.from(grouped.entries()).map(([type, entries]) => {
+    const first = entries[0];
+    let value: unknown = first.value;
+    if (type === 'contact.callAttempts' || type === 'contact.writtenInteractions') {
+      const events = entries.flatMap((entry) => {
+        if (entry.value && typeof entry.value === 'object' && !Array.isArray(entry.value)) {
+          const candidate = entry.value as { events?: unknown[]; observedCount?: number; sourceCompleteness?: string };
+          return candidate.events ?? [];
+        }
+        return [];
+      });
+      const counts = entries.map((entry) => {
+        if (typeof entry.value === 'number') return entry.value;
+        if (typeof entry.value === 'string' && /^\d+$/.test(entry.value)) return Number(entry.value);
+        if (entry.value && typeof entry.value === 'object' && !Array.isArray(entry.value)) {
+          const count = (entry.value as { observedCount?: unknown }).observedCount;
+          return typeof count === 'number' ? count : null;
+        }
+        return null;
+      }).filter((count): count is number => count !== null);
+      const uniqueEvents = Array.from(new Map(events.map((event) => {
+        const item = event as { kind?: string; channel?: string; occurredAt?: string; dateTime?: string; status?: string };
+        return [`${item.kind ?? item.channel ?? ''}|${item.occurredAt ?? item.dateTime ?? ''}|${item.status ?? ''}`, event];
+      })).values());
+      const completeness = entries.some((entry) => entry.value && typeof entry.value === 'object' && !Array.isArray(entry.value) && (entry.value as { sourceCompleteness?: string }).sourceCompleteness === 'PARTIAL')
+        ? 'PARTIAL'
+        : entries.every((entry) => entry.value && typeof entry.value === 'object' && !Array.isArray(entry.value) && (entry.value as { sourceCompleteness?: string }).sourceCompleteness === 'COMPLETE') ? 'COMPLETE' : 'UNKNOWN';
+      value = { events: uniqueEvents, observedCount: Math.max(uniqueEvents.length, ...(counts.length ? counts : [0])), sourceCompleteness: completeness };
+    }
+    return {
+      id: first.id,
+      type,
+      value,
+      source: {
+        evidenceId: String(first.sourceRef.evidenceId ?? ''),
+        artifactId: first.sourceRef.artifactId ? String(first.sourceRef.artifactId) : undefined,
+        page: typeof first.sourceRef.page === 'number' ? first.sourceRef.page : undefined,
+        timestampStart: typeof first.sourceRef.timestampStart === 'number' ? first.sourceRef.timestampStart : undefined,
+        timestampEnd: typeof first.sourceRef.timestampEnd === 'number' ? first.sourceRef.timestampEnd : undefined,
+        sha256: first.sourceRef.sha256 ? String(first.sourceRef.sha256) : undefined,
+      },
+      extractionConfidence: first.confidence ?? undefined,
+    };
+  });
 }

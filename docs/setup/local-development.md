@@ -20,6 +20,10 @@ Copiar `.env.example` a `.env.local` y completar `NEXT_PUBLIC_INSFORGE_ANON_KEY`
 
 No versionar `.env.local`.
 
+Para procesar imágenes con visión y producir datos estructurados, también se requiere
+`OPENROUTER_API_KEY` en el servidor. El modelo se puede cambiar con
+`OPENROUTER_MODEL`; por defecto se usa `google/gemini-2.0-flash-001`.
+
 ## Comandos
 
 ```bash

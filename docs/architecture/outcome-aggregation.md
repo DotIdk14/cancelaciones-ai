@@ -19,6 +19,17 @@ de la política o por una precedencia operacional de OWNER aprobada,
 versionada y separada de la fuente normativa. Phase 6 no crea precedencias
 operativas automáticamente.
 
-La implementación actual (`packages/policy-engine`) cubre la agregación
-necesaria para las reglas V5 implementadas en 5.2 y 5.8. No afirma cobertura
-total de las secciones restantes; consultar `docs/policy/v5-coverage.md`.
+La agregación separa ahora el `suggestedOutcome` del `decisionStatus`.
+Un outcome puede estar sustentado por reglas `SATISFIED` aunque existan
+reglas `UNKNOWN`; en ese caso el resultado es `REVIEW_REQUIRED`, nunca se
+convierte UNKNOWN en soporte positivo. `READY_TO_APPROVE` sólo se usa cuando
+no quedan incertidumbres relevantes, conflictos, fuentes normativas faltantes
+ni cobertura de software pendiente. `CONFLICTED` se reserva para outcomes
+incompatibles conocidos sin precedencia explícita.
+
+Cada evaluación expone además reglas a favor, en contra, pendientes y
+bloqueadas; faltantes de evidencia/facts separados de fuentes normativas y
+cobertura de software; y `nextActions` deterministas. La implementación
+actual (`packages/policy-engine`) cubre la agregación necesaria para las
+reglas V5 implementadas en 5.2 y 5.8. No afirma cobertura total de las
+secciones restantes; consultar `docs/policy/v5-coverage.md`.

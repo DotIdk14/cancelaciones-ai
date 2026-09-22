@@ -70,6 +70,7 @@ export interface EngineRun {
   auditId: string;
   policyVersion: string;
   rulesVersion: string;
+  decisionStatus?: 'READY_TO_APPROVE' | 'REVIEW_REQUIRED' | 'CONFLICTED' | 'INDETERMINATE';
   createdAt: string;
 }
 
@@ -92,6 +93,8 @@ export interface Job {
   progress: number;
   attemptCount: number;
   maxAttempts: number;
+  lastErrorCode?: string | null;
+  lastErrorMessage?: string | null;
   createdAt: string;
 }
 

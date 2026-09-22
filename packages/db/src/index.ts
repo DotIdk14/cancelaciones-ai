@@ -43,6 +43,8 @@ interface JobRow {
   progress: number;
   attempt_count: number;
   max_attempts: number;
+  last_error_code: string | null;
+  last_error_message_sanitized: string | null;
   created_at: string;
 }
 
@@ -165,6 +167,8 @@ function mapJob(row: JobRow): Job {
     progress: row.progress,
     attemptCount: row.attempt_count,
     maxAttempts: row.max_attempts,
+    lastErrorCode: row.last_error_code,
+    lastErrorMessage: row.last_error_message_sanitized,
     createdAt: row.created_at,
   };
 }
@@ -327,7 +331,7 @@ export function createAuditLogRepository(database: DatabaseClient) {
 export function createJobRepository(database: DatabaseClient) {
   if (!database.rpc) throw new Error('Database client must support rpc for durable jobs');
   const rpc = database.rpc.bind(database);
-  const columns = 'id,audit_id,job_type,operation_scope,idempotency_key,input_fingerprint,status,progress,attempt_count,max_attempts,created_at';
+  const columns = 'id,audit_id,job_type,operation_scope,idempotency_key,input_fingerprint,status,progress,attempt_count,max_attempts,last_error_code,last_error_message_sanitized,created_at';
 
   return {
     async enqueue(input: {
@@ -476,6 +480,12 @@ export function createFactRepository(database: DatabaseClient) {
       const { data, error } = await database.from('facts').select(factColumns).eq('run_id', runId).order('created_at', { ascending: true }).limit(500);
       if (error) throw new Error(error.message ?? 'No fue posible leer facts');
       return (data ?? []).map(mapFact);
+    },
+
+    async findFactById(factId: string): Promise<StoredFact | null> {
+      const { data, error } = await database.from('facts').select(factColumns).eq('id', factId).limit(1);
+      if (error) throw new Error(error.message ?? 'No fue posible leer el dato');
+      return data?.[0] ? mapFact(data[0]) : null;
     },
 
     async insertFacts(facts: Array<{ auditId: string; runId: string; factType: string; value: unknown; sourceRef: Record<string, unknown>; confidence?: number }>): Promise<StoredFact[]> {

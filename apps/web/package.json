@@ -14,7 +14,7 @@
     "@cancelaciones/domain": "workspace:*",
     "@cancelaciones/policy-engine": "workspace:*",
     "@insforge/sdk": "^1.5.2",
-    "next": "^15.5.4",
+    "next": "^15.5.26",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "zod": "^3.25.76"
