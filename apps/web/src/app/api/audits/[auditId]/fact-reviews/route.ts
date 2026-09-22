@@ -33,7 +33,9 @@ export async function POST(request: NextRequest, context: { params: Promise<{ au
   if (!fact || fact.auditId !== auditId) return NextResponse.json({ error: 'FACT_NOT_FOUND', message: 'Dato no encontrado.' }, { status: 404 });
   const inserted = await auth.client.database.from('fact_reviews').insert([{
     audit_id: auditId, fact_id: body.factId, decision: body.decision,
-    corrected_value: body.correctedValue ?? null, note: body.note?.trim() || null, reviewed_by: auth.user.id,
+    status: body.decision === 'VALID' ? 'ACCEPTED' : 'REJECTED',
+    corrected_value: body.correctedValue ?? null, note: body.note?.trim() || null,
+    note_sanitized: body.note?.trim() || null, reviewed_by: auth.user.id,
   }]).select('*').single();
   if (inserted.error || !inserted.data) return NextResponse.json({ error: 'DATABASE_ERROR', message: inserted.error?.message ?? 'No fue posible guardar la revisión.' }, { status: 500 });
   return NextResponse.json({ review: inserted.data }, { status: 201 });
