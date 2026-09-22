@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { createAuditRepository, createEvidenceRepository, createFactRepository, type StoredFact } from '@cancelaciones/db';
+import { createAuditRepository, createEvidenceRepository, createFactRepository, createJobRepository, type StoredFact } from '@cancelaciones/db';
 import type { PolicyEvaluation } from '@cancelaciones/policy-engine';
 import { createInsForgeServerClient } from '@/server/insforge/server';
 import { AuditWorkflow } from './AuditWorkflow';
@@ -90,6 +90,8 @@ export default async function AuditDetailPage({ params }: { params: Promise<{ au
   if (!audit) notFound();
 
   const evidences = await createEvidenceRepository(client.database).listByAudit(auditId);
+  const artifacts = await createJobRepository(client.database).listArtifactsByAudit(auditId);
+  const transcripts = artifacts.filter((artifact) => artifact.artifactType === 'audio-transcript' && Array.isArray(artifact.result.utterances));
   const factRepo = createFactRepository(client.database);
   const factRuns = await factRepo.listRunsByAudit(auditId);
   const selectedRun = factRuns.find((run) => run.state === 'FROZEN') ?? factRuns[0] ?? null;
@@ -104,7 +106,8 @@ export default async function AuditDetailPage({ params }: { params: Promise<{ au
       <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Auditoria</p>
-          <h1 className="mt-2 break-all text-2xl font-bold text-ink">{audit.externalCaseId ?? 'Expediente de auditoría'}</h1>
+          <h1 className="mt-2 break-all text-2xl font-bold text-ink">{audit.displayName ?? 'Expediente de auditoría'}</h1>
+          {audit.externalCaseId && <p className="mt-1 text-xs text-slate-500">Identificador CaVe: {audit.externalCaseId}</p>}
           <p className="mt-2 text-sm text-slate-600">Revisa la evidencia y el dictamen sugerido del expediente.</p>
 
           <div className="mt-8">
@@ -142,6 +145,21 @@ export default async function AuditDetailPage({ params }: { params: Promise<{ au
 
         <div className="space-y-6">
           <AuditWorkflow auditId={audit.id} factRunId={selectedRun?.state === 'FROZEN' ? selectedRun.id : undefined} />
+
+          {transcripts.length > 0 && <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h2 className="text-xl font-bold text-ink">Transcripciones de llamadas</h2>
+            <p className="mt-2 text-sm text-slate-600">Transcripción automática con participantes y tiempos. Los roles asesor/cliente deben validarse con la evidencia.</p>
+            {transcripts.map((artifact) => {
+              const utterances = artifact.result.utterances as Array<{ speaker?: string; text?: string; start?: number; end?: number }>;
+              return <details key={artifact.id} className="mt-4 rounded-2xl border border-slate-200 p-4" open>
+                <summary className="cursor-pointer font-semibold">{String(artifact.result.evidenceId ?? 'Llamada')} · AssemblyAI</summary>
+                <div className="mt-3 space-y-2">{utterances.map((utterance, index) => <div key={`${artifact.id}-${index}`} className="rounded-xl bg-slate-50 p-3 text-sm">
+                  <div className="flex justify-between gap-3 text-xs font-semibold text-teal-800"><span>Participante {utterance.speaker ?? '?'}</span><span>{typeof utterance.start === 'number' ? `${Math.round(utterance.start / 1000)}s` : ''}</span></div>
+                  <p className="mt-1 text-slate-700">{utterance.text ?? 'Sin texto'}</p>
+                </div>)}</div>
+              </details>;
+            })}
+          </div>}
 
           <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
             <h2 className="text-xl font-bold text-ink">Datos del estudiante y la auditoría</h2>

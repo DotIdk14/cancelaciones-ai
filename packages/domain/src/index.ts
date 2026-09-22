@@ -3,6 +3,7 @@ export type UserRole = 'AUDITOR' | 'OWNER';
 
 export interface Audit {
   id: string;
+  displayName: string | null;
   status: AuditStatus;
   externalCaseId: string | null;
   createdBy: string;
