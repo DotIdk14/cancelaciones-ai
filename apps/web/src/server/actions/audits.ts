@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation';
 import { createAuditRepository } from '@cancelaciones/db';
 import { createInsForgeServerClient } from '@/server/insforge/server';
 import { getCurrentUser } from '@/server/auth/session';
+import { uploadEvidenceFilesForAudit } from '@/server/evidence/upload';
 import { isLocalDemoMode, LOCAL_DEMO_AUDIT_ID, localDemoAudits } from '@/server/local-demo';
 
 export async function listAuditsForCurrentUser() {
@@ -22,12 +23,14 @@ export async function createAudit(formData: FormData) {
   const cave = String(formData.get('externalCaseId') ?? '').trim();
   const classStartDate = String(formData.get('classStartDate') ?? '').trim();
   const ticketStartDate = String(formData.get('ticketStartDate') ?? '').trim();
-  const evidences = formData.getAll('evidences');
+  const evidenceFiles = formData
+    .getAll('evidences')
+    .filter((value): value is File => value instanceof File && value.size > 0 && value.name.trim().length > 0);
 
   if (!cave) throw new Error('Falta capturar CaVe.');
   if (!classStartDate) throw new Error('Falta confirmar fecha de inicio de clases.');
   if (!ticketStartDate) throw new Error('Falta confirmar fecha de inicio del ticket.');
-  if (evidences.length === 0) throw new Error('Agrega al menos una evidencia válida.');
+  if (evidenceFiles.length === 0) throw new Error('Agrega al menos una evidencia válida.');
 
   const client = await createInsForgeServerClient();
   const repo = createAuditRepository(client.database);
@@ -38,6 +41,11 @@ export async function createAudit(formData: FormData) {
     displayName,
     externalCaseId: cave,
   });
+
+  const uploadResults = await uploadEvidenceFilesForAudit({ auditId: audit.id, actorId: user.id, files: evidenceFiles, database: client.database, storage: client.storage });
+  const storedCount = uploadResults.filter((result) => result.status === 'STORED').length;
+
+  if (storedCount === 0) throw new Error('No fue posible almacenar ninguna evidencia.');
 
   revalidatePath('/auditorias');
   redirect(`/auditorias/${audit.id}`);
