@@ -5,6 +5,11 @@ const privatePrefixes = ['/auditorias'];
 
 export async function middleware(request: NextRequest) {
   const response = NextResponse.next({ request });
+
+  if (process.env.LOCAL_DEMO === '1' || process.env.NEXT_PUBLIC_LOCAL_DEMO === '1') {
+    return response;
+  }
+
   await updateSession({ requestCookies: request.cookies, responseCookies: response.cookies });
 
   const isPrivatePath = privatePrefixes.some((prefix) => request.nextUrl.pathname.startsWith(prefix));
