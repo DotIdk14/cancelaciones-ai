@@ -5,8 +5,18 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        ink: '#111827',
-        brand: '#0f766e',
+        background: 'var(--background)',
+        'surface-1': 'var(--surface-1)',
+        'surface-2': 'var(--surface-2)',
+        'surface-3': 'var(--surface-3)',
+        line: 'var(--border)',
+        ink: 'var(--text-primary)',
+        muted: 'var(--text-secondary)',
+        subtle: 'var(--text-muted)',
+        brand: 'var(--accent)',
+        success: 'var(--success)',
+        warning: 'var(--warning)',
+        danger: 'var(--danger)',
       },
     },
   },

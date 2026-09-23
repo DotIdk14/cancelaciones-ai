@@ -1,0 +1,1006 @@
+{
+  "fileName": "Dictamen.pdf",
+  "templateHash": "e5c62e10ba0a603081d84c601e4e9844ffa53128c276e1ab88e8a0757435d751",
+  "pageCount": 5,
+  "pages": [
+    {
+      "page": 1,
+      "widthPt": 596,
+      "heightPt": 842,
+      "spans": [
+        {
+          "text": "XXX",
+          "x": 257.26,
+          "y": 802.92,
+          "width": 38.01,
+          "height": 19,
+          "fontSize": 19,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": "Nombre",
+          "x": 34.5,
+          "y": 750.2,
+          "width": 41.54,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": " ",
+          "x": 76.04,
+          "y": 750.2,
+          "width": 162.62,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": "Matrícula",
+          "x": 198,
+          "y": 750.2,
+          "width": 48.26,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": " ",
+          "x": 246.26,
+          "y": 750.2,
+          "width": 134.65,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": "Correo",
+          "x": 347.25,
+          "y": 750.2,
+          "width": 36.04,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": "Canal",
+          "x": 34.5,
+          "y": 701.56,
+          "width": 29.94,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": " ",
+          "x": 64.44,
+          "y": 701.56,
+          "width": 178.09,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": "Programa",
+          "x": 198,
+          "y": 701.56,
+          "width": 51.32,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": " ",
+          "x": 249.32,
+          "y": 701.56,
+          "width": 130.57,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": "Fecha de creación",
+          "x": 347.25,
+          "y": 701.56,
+          "width": 95.92,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": "Fecha Decisión",
+          "x": 34.5,
+          "y": 653.76,
+          "width": 80.64,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": " ",
+          "x": 115.14,
+          "y": 653.76,
+          "width": 110.48,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": "Fecha de inicio de ciclo",
+          "x": 198,
+          "y": 653.76,
+          "width": 123.4,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": " ",
+          "x": 321.4,
+          "y": 653.76,
+          "width": 34.47,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": "Fecha solicitud de ticket",
+          "x": 347.25,
+          "y": 653.76,
+          "width": 127.67,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": "Asignado a Dictaminar",
+          "x": 34.5,
+          "y": 605.96,
+          "width": 119.11,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": " ",
+          "x": 153.61,
+          "y": 605.96,
+          "width": 59.18,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": "Última sesión",
+          "x": 198,
+          "y": 605.96,
+          "width": 71.48,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": " ",
+          "x": 269.48,
+          "y": 605.96,
+          "width": 103.7,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": "Teléfono",
+          "x": 347.25,
+          "y": 605.96,
+          "width": 44.99,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": "Primer pago",
+          "x": 34.5,
+          "y": 558.16,
+          "width": 64.14,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": " ",
+          "x": 98.64,
+          "y": 558.16,
+          "width": 433.66,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": "🚫",
+          "x": 423.89,
+          "y": 556.29,
+          "width": 16.22,
+          "height": 13,
+          "fontSize": 13,
+          "fontName": "g_d0_f3"
+        },
+        {
+          "text": "Política que aplica/solicitada",
+          "x": 34.5,
+          "y": 531.96,
+          "width": 149.67,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": "Motivo",
+          "x": 34.5,
+          "y": 508.06,
+          "width": 35.42,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": "Descripción",
+          "x": 34.5,
+          "y": 484.17,
+          "width": 62.93,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": "Comentarios BO",
+          "x": 34.5,
+          "y": 460.27,
+          "width": 86.74,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": "Comentarios HelpDesk",
+          "x": 34.5,
+          "y": 431.02,
+          "width": 120.34,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": "Jacqueline",
+          "x": 34.5,
+          "y": 382.76,
+          "width": 47.8,
+          "height": 10,
+          "fontSize": 10,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "Claudia",
+          "x": 34.5,
+          "y": 358.86,
+          "width": 33.9,
+          "height": 10,
+          "fontSize": 10,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "Comentarios SER",
+          "x": 34.5,
+          "y": 334.02,
+          "width": 92.85,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": "Comentarios Finanzas",
+          "x": 34.5,
+          "y": 299.12,
+          "width": 117.28,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": "Dictamen aplicado el:",
+          "x": 34.5,
+          "y": 264.22,
+          "width": 113.01,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f4"
+        },
+        {
+          "text": "Dictamen:",
+          "x": 29.25,
+          "y": 147.3,
+          "width": 49.48,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "De acuerdo a la política y a las evidencias encontradas y compartidas, se determina una",
+          "x": 29.25,
+          "y": 118.2,
+          "width": 431.38,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "Cancelación de Venta",
+          "x": 29.25,
+          "y": 103.66,
+          "width": 113.02,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        }
+      ],
+      "fillRects": []
+    },
+    {
+      "page": 2,
+      "widthPt": 596,
+      "heightPt": 842,
+      "spans": [
+        {
+          "text": "Se comparten evidencias del caso:",
+          "x": 29.25,
+          "y": 795.88,
+          "width": 170.48,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "-------------------",
+          "x": 29.25,
+          "y": 679.51,
+          "width": 69.55,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": " ",
+          "x": 98.8,
+          "y": 679.51,
+          "width": 28.5,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": "Localizable/activo en AV",
+          "x": 120.18,
+          "y": 679.51,
+          "width": 127.47,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f4"
+        },
+        {
+          "text": "la",
+          "x": 29.25,
+          "y": 650.41,
+          "width": 8.56,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": " ",
+          "x": 37.81,
+          "y": 650.41,
+          "width": 4.07,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "cancelación del ticket",
+          "x": 40.86,
+          "y": 650.41,
+          "width": 113.64,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": " ",
+          "x": 154.5,
+          "y": 650.41,
+          "width": 4.07,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": "para que la alumna continúe con sus estudios con normalidad, ya que sí",
+          "x": 157.55,
+          "y": 650.41,
+          "width": 352.58,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "ha ingresado a su aula, tiene selección de modalidad de evaluación, realizó actividades y ya cuenta",
+          "x": 29.25,
+          "y": 635.87,
+          "width": 485.81,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "con calificación en su materia, por lo que no se considera una alumna ilocalizable para EE y se",
+          "x": 29.25,
+          "y": 621.32,
+          "width": 463.16,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "procede a cerrar el ticket.",
+          "x": 29.25,
+          "y": 606.77,
+          "width": 124.02,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "—-----------------",
+          "x": 29.25,
+          "y": 563.14,
+          "width": 73.22,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": " ",
+          "x": 102.47,
+          "y": 563.14,
+          "width": 16.28,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": "Ilocalizable",
+          "x": 114.69,
+          "y": 563.14,
+          "width": 58.65,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f4"
+        },
+        {
+          "text": "De acuerdo a la política y a las evidencias encontradas y compartidas, se determina una",
+          "x": 29.25,
+          "y": 534.04,
+          "width": 431.38,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "Cancelación de Venta por Estudiante Ilocalizable.",
+          "x": 29.25,
+          "y": 519.5,
+          "width": 257.78,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": "No se encontró evidencia de contacto efectivo con el alumnX por ninguno de los medios oficiales, a",
+          "x": 29.25,
+          "y": 490.4,
+          "width": 484.56,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "pesar de que se realizaron los intentos mínimos de acuerdo a la política (5.2, b). Adicional a ello, han",
+          "x": 29.25,
+          "y": 475.86,
+          "width": 492.5,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "transcurrido más de xx días desde su inicio de ciclo (xxx) y el alumnX sigue siendo NUNCA en AV,",
+          "x": 29.25,
+          "y": 461.31,
+          "width": 479.6,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "por lo cual, se procede a aplicar la CV.",
+          "x": 29.25,
+          "y": 446.77,
+          "width": 187.79,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "—-----------------",
+          "x": 29.25,
+          "y": 403.13,
+          "width": 73.22,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": " ",
+          "x": 102.47,
+          "y": 403.13,
+          "width": 12.21,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": "Sin intentos mínimos",
+          "x": 111.63,
+          "y": 403.13,
+          "width": 111.16,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f4"
+        },
+        {
+          "text": "De acuerdo a la política y a las evidencias encontradas y compartidas, se determina la",
+          "x": 29.25,
+          "y": 374.03,
+          "width": 421.6,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": " ",
+          "x": 450.85,
+          "y": 374.03,
+          "width": 4.07,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "cancelación",
+          "x": 453.9,
+          "y": 374.03,
+          "width": 62.94,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": "del ticket,",
+          "x": 29.25,
+          "y": 359.49,
+          "width": 50.71,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": " ",
+          "x": 79.96,
+          "y": 359.49,
+          "width": 4.07,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": "debido a que no cuenta con los intentos mínimos de contacto de acuerdo a la política",
+          "x": 83.01,
+          "y": 359.49,
+          "width": 415.54,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "(5.2, b). Solamente cuenta con X interacciones por medios escritos y X llamadas en estas 2",
+          "x": 29.25,
+          "y": 344.94,
+          "width": 446.64,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "semanas para considerarse como ilocalizable. Por lo cual, no aplica para una cv y se recomienda",
+          "x": 29.25,
+          "y": 330.4,
+          "width": 474.75,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "agotar los intentos mínimos, por todos los canales oficiales de contacto para poder localizar al",
+          "x": 29.25,
+          "y": 315.85,
+          "width": 458.26,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "estudiante.",
+          "x": 29.25,
+          "y": 301.3,
+          "width": 53.78,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "—-----------------",
+          "x": 29.25,
+          "y": 272.21,
+          "width": 73.22,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": " ",
+          "x": 102.47,
+          "y": 272.21,
+          "width": 12.21,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": "A solicitud del Estudiante",
+          "x": 111.63,
+          "y": 272.21,
+          "width": 134.37,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f4"
+        },
+        {
+          "text": "De acuerdo a la política y a las evidencias encontradas y compartidas, se determina una",
+          "x": 29.25,
+          "y": 243.12,
+          "width": 431.38,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "Cancelación de Venta a Solicitud del Estudiante",
+          "x": 29.25,
+          "y": 228.57,
+          "width": 249.83,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": " ",
+          "x": 279.08,
+          "y": 228.57,
+          "width": 4.07,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": "ya que se pudo confirmar que él/la alumno/a",
+          "x": 282.13,
+          "y": 228.57,
+          "width": 216.93,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "solicitó no continuar previo a su inicio de clases programado para el xx/xx. Dicha solicitud fue",
+          "x": 29.25,
+          "y": 214.03,
+          "width": 453.97,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "realizada mediante xx con EE el día xx/xx en donde compartió que no seguiría debido a",
+          "x": 29.25,
+          "y": 199.48,
+          "width": 427.74,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "Captura de la política",
+          "x": 215.58,
+          "y": 53.08,
+          "width": 121.36,
+          "height": 12,
+          "fontSize": 12,
+          "fontName": "g_d0_f1"
+        }
+      ],
+      "fillRects": []
+    },
+    {
+      "page": 3,
+      "widthPt": 596,
+      "heightPt": 842,
+      "spans": [
+        {
+          "text": "Evidencias a subir",
+          "x": 223.57,
+          "y": 605.84,
+          "width": 105.38,
+          "height": 12,
+          "fontSize": 12,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": "Mensaje para el alumno",
+          "x": 208.57,
+          "y": 371.77,
+          "width": 135.38,
+          "height": 12,
+          "fontSize": 12,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": "Estimadx",
+          "x": 29.25,
+          "y": 313.2,
+          "width": 45.21,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "Damos por finalizado este proceso ya que detectamos en el sistema que te encuentras ingresando a",
+          "x": 29.25,
+          "y": 284.11,
+          "width": 490.67,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "tu materia curricular, por lo que te invitamos a seguir entregando tus actividades en tiempo y forma.",
+          "x": 29.25,
+          "y": 269.57,
+          "width": 483.9,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "Recuerda que estamos para apoyarte con todas tus dudas a través de los siguientes medios de",
+          "x": 29.25,
+          "y": 240.47,
+          "width": 466.84,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "contacto del equipo de Éxito Estudiantil:",
+          "x": 29.25,
+          "y": 225.93,
+          "width": 194.94,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "MX: +525589770707",
+          "x": 29.25,
+          "y": 196.83,
+          "width": 102.38,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "LATAM: +525592522985",
+          "x": 29.25,
+          "y": 182.29,
+          "width": 120.91,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "+525592522986",
+          "x": 72.01,
+          "y": 167.74,
+          "width": 79.78,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "Oficina virtual:",
+          "x": 29.25,
+          "y": 138.65,
+          "width": 69.64,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "https://utel.edu.mx/oficina-virtual?utm_source=oficinas-virtuales&utm_medium=SIU&utm_campaign=",
+          "x": 29.25,
+          "y": 124.1,
+          "width": 490.91,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "oficinas-virtuales&utm_content=sitio-oficinas-virtuales-siu-18-12",
+          "x": 29.25,
+          "y": 109.56,
+          "width": 310.67,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "¡Mucho éxito!",
+          "x": 29.25,
+          "y": 65.92,
+          "width": 65.98,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        }
+      ],
+      "fillRects": []
+    },
+    {
+      "page": 4,
+      "widthPt": 596,
+      "heightPt": 842,
+      "spans": [
+        {
+          "text": "EE Insurgentes: 5513289027",
+          "x": 29.25,
+          "y": 781.33,
+          "width": 142.4,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "EE UVE: [Teléfono: 55536841430 / WhatsApp: 5596254885]",
+          "x": 29.25,
+          "y": 766.78,
+          "width": 294.56,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "EE Diplos: +525536841474",
+          "x": 29.25,
+          "y": 752.24,
+          "width": 137.21,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "EE UNICA: Tel: 5536841429 / WhatsApp: 5596254885",
+          "x": 29.25,
+          "y": 737.69,
+          "width": 266.44,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "—----------------------------------------",
+          "x": 29.25,
+          "y": 723.14,
+          "width": 157.41,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "Damos por finalizado este proceso, ya que detectamos en el sistema que estás apunto de iniciar tus",
+          "x": 29.25,
+          "y": 694.05,
+          "width": 488.21,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "clases este xx/00, por lo cual, te deseamos el mayor de los éxitos en esta nueva etapa en tu vida.",
+          "x": 29.25,
+          "y": 679.51,
+          "width": 475.99,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f2"
+        },
+        {
+          "text": "EVIDENCIAS DE OTRAS ÁREAS",
+          "x": 191.98,
+          "y": 606.77,
+          "width": 168.58,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": "NOTAS Y EVIDENCIAS PROPIAS",
+          "x": 190.86,
+          "y": 344.94,
+          "width": 170.82,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        },
+        {
+          "text": "Campañas de contacto:",
+          "x": 29.25,
+          "y": 257.66,
+          "width": 124,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        }
+      ],
+      "fillRects": []
+    },
+    {
+      "page": 5,
+      "widthPt": 596,
+      "heightPt": 842,
+      "spans": [
+        {
+          "text": "OBSERVACIONES FINALES",
+          "x": 203.48,
+          "y": 548.59,
+          "width": 145.57,
+          "height": 11,
+          "fontSize": 11,
+          "fontName": "g_d0_f1"
+        }
+      ],
+      "fillRects": []
+    }
+  ],
+  "provenance": {
+    "source": "templates/Dictamen.pdf",
+    "generator": "scripts/extract-template-layout.mjs",
+    "generatedAt": "2026-09-23T15:52:14.423Z"
+  }
+}

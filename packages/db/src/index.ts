@@ -608,3 +608,462 @@ export function createFactRepository(database: DatabaseClient) {
     },
   };
 }
+
+// ---------------------------------------------------------------------------
+// Phase 7 — Dictamen oficial, revisión humana y workflow PDF
+// ---------------------------------------------------------------------------
+
+export interface HumanReviewRecord {
+  id: string;
+  auditId: string;
+  machineDecision: Record<string, unknown>;
+  decisionType: 'APPROVE' | 'CORRECT';
+  humanOutcome: string | null;
+  humanCause: string | null;
+  humanReason: string | null;
+  reviewedBy: string;
+  reviewedAt: string;
+  createdAt: string;
+  updatedAt: string;
+  updatedBy: string | null;
+}
+
+interface HumanReviewRow {
+  id: string;
+  audit_id: string;
+  machine_decision: Record<string, unknown>;
+  decision_type: 'APPROVE' | 'CORRECT';
+  human_outcome: string | null;
+  human_cause: string | null;
+  human_reason: string | null;
+  reviewed_by: string;
+  reviewed_at: string;
+  created_at: string;
+  updated_at: string;
+  updated_by: string | null;
+}
+
+export interface EvidenceSelectionRecord {
+  id: string;
+  auditId: string;
+  evidenceId: string;
+  artifactId: string | null;
+  sha256: string | null;
+  page: number | null;
+  region: Record<string, unknown> | null;
+  timestampStart: number | null;
+  timestampEnd: number | null;
+  cell: string | null;
+  originalFilename: string | null;
+  selectedBy: string;
+  selectedAt: string;
+}
+
+interface EvidenceSelectionRow {
+  id: string;
+  audit_id: string;
+  evidence_id: string;
+  artifact_id: string | null;
+  sha256: string | null;
+  page: number | null;
+  region: Record<string, unknown> | null;
+  timestamp_start: number | null;
+  timestamp_end: number | null;
+  cell: string | null;
+  original_filename: string | null;
+  selected_by: string;
+  selected_at: string;
+}
+
+export interface ReportSnapshotRecord {
+  id: string;
+  auditId: string;
+  factRunId: string | null;
+  engineRunId: string;
+  policyCode: string;
+  policyVersion: string;
+  snapshotFingerprint: string;
+  machine: Record<string, unknown>;
+  human: Record<string, unknown> | null;
+  manualComments: Record<string, unknown>;
+  selectedEvidence: Record<string, unknown>[];
+  templateHash: string;
+  ruleTrace: Record<string, unknown>;
+  status: 'DRAFT' | 'FINAL';
+  approvedBy: string | null;
+  approvedAt: string | null;
+  createdBy: string;
+  createdAt: string;
+}
+
+interface ReportSnapshotRow {
+  id: string;
+  audit_id: string;
+  fact_run_id: string | null;
+  engine_run_id: string;
+  policy_code: string;
+  policy_version: string;
+  snapshot_fingerprint: string;
+  machine: Record<string, unknown>;
+  human: Record<string, unknown> | null;
+  manual_comments: Record<string, unknown>;
+  selected_evidence: Record<string, unknown>[];
+  template_hash: string;
+  rule_trace: Record<string, unknown>;
+  status: 'DRAFT' | 'FINAL';
+  approved_by: string | null;
+  approved_at: string | null;
+  created_by: string;
+  created_at: string;
+}
+
+export interface DictamenDocumentRecord {
+  id: string;
+  snapshotId: string;
+  auditId: string;
+  kind: 'DRAFT' | 'FINAL';
+  docFingerprint: string;
+  pdfSha256: string;
+  storageBucket: string;
+  storageKey: string;
+  templateHash: string;
+  generatedBy: string;
+  generatedAt: string;
+  createdAt: string;
+}
+
+interface DictamenDocumentRow {
+  id: string;
+  snapshot_id: string;
+  audit_id: string;
+  kind: 'DRAFT' | 'FINAL';
+  doc_fingerprint: string;
+  pdf_sha256: string;
+  storage_bucket: string;
+  storage_key: string;
+  template_hash: string;
+  generated_by: string;
+  generated_at: string;
+  created_at: string;
+}
+
+const mapHumanReview = (row: HumanReviewRow): HumanReviewRecord => ({
+  id: row.id,
+  auditId: row.audit_id,
+  machineDecision: row.machine_decision,
+  decisionType: row.decision_type,
+  humanOutcome: row.human_outcome,
+  humanCause: row.human_cause,
+  humanReason: row.human_reason,
+  reviewedBy: row.reviewed_by,
+  reviewedAt: row.reviewed_at,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+  updatedBy: row.updated_by,
+});
+
+const mapEvidenceSelection = (row: EvidenceSelectionRow): EvidenceSelectionRecord => ({
+  id: row.id,
+  auditId: row.audit_id,
+  evidenceId: row.evidence_id,
+  artifactId: row.artifact_id,
+  sha256: row.sha256,
+  page: row.page,
+  region: row.region,
+  timestampStart: row.timestamp_start,
+  timestampEnd: row.timestamp_end,
+  cell: row.cell,
+  originalFilename: row.original_filename,
+  selectedBy: row.selected_by,
+  selectedAt: row.selected_at,
+});
+
+const mapReportSnapshot = (row: ReportSnapshotRow): ReportSnapshotRecord => ({
+  id: row.id,
+  auditId: row.audit_id,
+  factRunId: row.fact_run_id,
+  engineRunId: row.engine_run_id,
+  policyCode: row.policy_code,
+  policyVersion: row.policy_version,
+  snapshotFingerprint: row.snapshot_fingerprint,
+  machine: row.machine,
+  human: row.human,
+  manualComments: row.manual_comments,
+  selectedEvidence: row.selected_evidence,
+  templateHash: row.template_hash,
+  ruleTrace: row.rule_trace,
+  status: row.status,
+  approvedBy: row.approved_by,
+  approvedAt: row.approved_at,
+  createdBy: row.created_by,
+  createdAt: row.created_at,
+});
+
+const mapDictamenDocument = (row: DictamenDocumentRow): DictamenDocumentRecord => ({
+  id: row.id,
+  snapshotId: row.snapshot_id,
+  auditId: row.audit_id,
+  kind: row.kind,
+  docFingerprint: row.doc_fingerprint,
+  pdfSha256: row.pdf_sha256,
+  storageBucket: row.storage_bucket,
+  storageKey: row.storage_key,
+  templateHash: row.template_hash,
+  generatedBy: row.generated_by,
+  generatedAt: row.generated_at,
+  createdAt: row.created_at,
+});
+
+export function createHumanReviewRepository(database: DatabaseClient) {
+  const columns = 'id,audit_id,machine_decision,decision_type,human_outcome,human_cause,human_reason,reviewed_by,reviewed_at,created_at,updated_at,updated_by';
+
+  return {
+    async findByAudit(auditId: string): Promise<HumanReviewRecord | null> {
+      const { data, error } = await database
+        .from('human_reviews')
+        .select(columns)
+        .eq('audit_id', auditId)
+        .limit(1);
+      if (error) throw new Error(error.message ?? 'No fue posible leer la revision humana');
+      return data?.[0] ? mapHumanReview(data[0]) : null;
+    },
+
+    async upsert(input: {
+      auditId: string;
+      machineDecision: Record<string, unknown>;
+      decisionType: 'APPROVE' | 'CORRECT';
+      humanOutcome?: string | null;
+      humanCause?: string | null;
+      humanReason?: string | null;
+      reviewedBy: string;
+      reviewedAt: string;
+    }): Promise<HumanReviewRecord> {
+      const payload = {
+        audit_id: input.auditId,
+        machine_decision: input.machineDecision,
+        decision_type: input.decisionType,
+        human_outcome: input.humanOutcome ?? null,
+        human_cause: input.humanCause ?? null,
+        human_reason: input.humanReason ?? null,
+        reviewed_by: input.reviewedBy,
+        reviewed_at: input.reviewedAt,
+        updated_by: input.reviewedBy,
+      };
+      const existing = await this.findByAudit(input.auditId);
+      if (existing) {
+        const { data, error } = await database
+          .from('human_reviews')
+          .update(payload)
+          .eq('audit_id', input.auditId)
+          .select(columns)
+          .single();
+        if (error || !data) throw new Error(error?.message ?? 'No fue posible actualizar la revision humana');
+        return mapHumanReview(data);
+      }
+      const { data, error } = await database
+        .from('human_reviews')
+        .insert([payload])
+        .select(columns)
+        .single();
+      if (error || !data) throw new Error(error?.message ?? 'No fue posible crear la revision humana');
+      return mapHumanReview(data);
+    },
+  };
+}
+
+export function createEvidenceSelectionRepository(database: DatabaseClient) {
+  const columns = 'id,audit_id,evidence_id,artifact_id,sha256,page,region,timestamp_start,timestamp_end,cell,original_filename,selected_by,selected_at';
+
+  return {
+    async listByAudit(auditId: string): Promise<EvidenceSelectionRecord[]> {
+      const { data, error } = await database
+        .from('audit_evidence_selection')
+        .select(columns)
+        .eq('audit_id', auditId)
+        .order('selected_at', { ascending: true })
+        .limit(200);
+      if (error) throw new Error(error.message ?? 'No fue posible leer la seleccion de evidencias');
+      return (data ?? []).map(mapEvidenceSelection);
+    },
+
+    /** Reemplaza toda la selección de la auditoría (commit único por petición). */
+    async replaceForAudit(auditId: string, items: Array<{
+      evidenceId: string;
+      artifactId?: string | null;
+      sha256?: string | null;
+      page?: number | null;
+      region?: Record<string, unknown> | null;
+      timestampStart?: number | null;
+      timestampEnd?: number | null;
+      cell?: string | null;
+      originalFilename?: string | null;
+    }>, selectedBy: string): Promise<EvidenceSelectionRecord[]> {
+      const { error: delError } = await database
+        .from('audit_evidence_selection')
+        .delete()
+        .eq('audit_id', auditId);
+      if (delError) throw new Error(delError.message ?? 'No fue posible limpiar la seleccion previa');
+      if (items.length === 0) return [];
+
+      const { data, error } = await database
+        .from('audit_evidence_selection')
+        .insert(items.map((item) => ({
+          audit_id: auditId,
+          evidence_id: item.evidenceId,
+          artifact_id: item.artifactId ?? null,
+          sha256: item.sha256 ?? null,
+          page: item.page ?? null,
+          region: item.region ?? null,
+          timestamp_start: item.timestampStart ?? null,
+          timestamp_end: item.timestampEnd ?? null,
+          cell: item.cell ?? null,
+          original_filename: item.originalFilename ?? null,
+          selected_by: selectedBy,
+        })))
+        .select(columns);
+      if (error || !data) throw new Error(error?.message ?? 'No fue posible guardar la seleccion de evidencias');
+      return data.map(mapEvidenceSelection);
+    },
+  };
+}
+
+export function createReportSnapshotRepository(database: DatabaseClient) {
+  const columns = 'id,audit_id,fact_run_id,engine_run_id,policy_code,policy_version,snapshot_fingerprint,machine,human,manual_comments,selected_evidence,template_hash,rule_trace,status,approved_by,approved_at,created_by,created_at';
+
+  return {
+    async findLatestByAudit(auditId: string): Promise<ReportSnapshotRecord | null> {
+      const { data, error } = await database
+        .from('report_snapshots')
+        .select(columns)
+        .eq('audit_id', auditId)
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (error) throw new Error(error.message ?? 'No fue posible leer el snapshot');
+      return data?.[0] ? mapReportSnapshot(data[0]) : null;
+    },
+
+    async findById(snapshotId: string): Promise<ReportSnapshotRecord | null> {
+      const { data, error } = await database
+        .from('report_snapshots')
+        .select(columns)
+        .eq('id', snapshotId)
+        .limit(1);
+      if (error) throw new Error(error.message ?? 'No fue posible leer el snapshot');
+      return data?.[0] ? mapReportSnapshot(data[0]) : null;
+    },
+
+    async create(input: {
+      auditId: string;
+      factRunId: string | null;
+      engineRunId: string;
+      policyCode: string;
+      policyVersion: string;
+      snapshotFingerprint: string;
+      machine: Record<string, unknown>;
+      human: Record<string, unknown> | null;
+      manualComments: Record<string, unknown>;
+      selectedEvidence: Record<string, unknown>[];
+      templateHash: string;
+      ruleTrace: Record<string, unknown>;
+      createdBy: string;
+    }): Promise<ReportSnapshotRecord> {
+      const { data, error } = await database
+        .from('report_snapshots')
+        .insert([{
+          audit_id: input.auditId,
+          fact_run_id: input.factRunId,
+          engine_run_id: input.engineRunId,
+          policy_code: input.policyCode,
+          policy_version: input.policyVersion,
+          snapshot_fingerprint: input.snapshotFingerprint,
+          machine: input.machine,
+          human: input.human,
+          manual_comments: input.manualComments,
+          selected_evidence: input.selectedEvidence,
+          template_hash: input.templateHash,
+          rule_trace: input.ruleTrace,
+          status: 'DRAFT',
+          created_by: input.createdBy,
+        }])
+        .select(columns)
+        .single();
+      if (error || !data) throw new Error(error?.message ?? 'No fue posible crear el snapshot');
+      return mapReportSnapshot(data);
+    },
+
+    /** Marca el snapshot como FINAL (uno por auditoría; el índice parcial lo garantiza). */
+    async markFinal(snapshotId: string, approvedBy: string): Promise<ReportSnapshotRecord> {
+      const { data, error } = await database
+        .from('report_snapshots')
+        .update({ status: 'FINAL', approved_by: approvedBy, approved_at: new Date().toISOString() })
+        .eq('id', snapshotId)
+        .select(columns)
+        .single();
+      if (error || !data) throw new Error(error?.message ?? 'No fue posible aprobar el snapshot');
+      return mapReportSnapshot(data);
+    },
+  };
+}
+
+export function createDictamenDocumentRepository(database: DatabaseClient) {
+  const columns = 'id,snapshot_id,audit_id,kind,doc_fingerprint,pdf_sha256,storage_bucket,storage_key,template_hash,generated_by,generated_at,created_at';
+
+  return {
+    async findForSnapshot(snapshotId: string, kind: 'DRAFT' | 'FINAL'): Promise<DictamenDocumentRecord | null> {
+      const { data, error } = await database
+        .from('dictamen_documents')
+        .select(columns)
+        .eq('snapshot_id', snapshotId)
+        .eq('kind', kind)
+        .limit(1);
+      if (error) throw new Error(error.message ?? 'No fue posible leer el documento');
+      return data?.[0] ? mapDictamenDocument(data[0]) : null;
+    },
+
+    async listByAudit(auditId: string): Promise<DictamenDocumentRecord[]> {
+      const { data, error } = await database
+        .from('dictamen_documents')
+        .select(columns)
+        .eq('audit_id', auditId)
+        .order('created_at', { ascending: false })
+        .limit(20);
+      if (error) throw new Error(error.message ?? 'No fue posible leer los documentos');
+      return (data ?? []).map(mapDictamenDocument);
+    },
+
+    /** Inserta el documento (idempotente: si ya existe el mismo doc_fingerprint, no duplica). */
+    async createIfAbsent(input: {
+      snapshotId: string;
+      auditId: string;
+      kind: 'DRAFT' | 'FINAL';
+      docFingerprint: string;
+      pdfSha256: string;
+      storageBucket: string;
+      storageKey: string;
+      templateHash: string;
+      generatedBy: string;
+      generatedAt: string;
+    }): Promise<DictamenDocumentRecord | null> {
+      const existing = await this.findForSnapshot(input.snapshotId, input.kind);
+      if (existing) return existing.pdfSha256 === input.pdfSha256 ? existing : null;
+      const { data, error } = await database
+        .from('dictamen_documents')
+        .insert([{
+          snapshot_id: input.snapshotId,
+          audit_id: input.auditId,
+          kind: input.kind,
+          doc_fingerprint: input.docFingerprint,
+          pdf_sha256: input.pdfSha256,
+          storage_bucket: input.storageBucket,
+          storage_key: input.storageKey,
+          template_hash: input.templateHash,
+          generated_by: input.generatedBy,
+          generated_at: input.generatedAt,
+        }])
+        .select(columns)
+        .single();
+      if (error || !data) throw new Error(error?.message ?? 'No fue posible guardar el documento');
+      return mapDictamenDocument(data);
+    },
+  };
+}

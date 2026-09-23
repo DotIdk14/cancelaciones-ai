@@ -13,19 +13,24 @@
     "@cancelaciones/db": "workspace:*",
     "@cancelaciones/domain": "workspace:*",
     "@cancelaciones/policy-engine": "workspace:*",
+    "@cancelaciones/reporting": "workspace:*",
     "@insforge/sdk": "^1.5.2",
     "next": "^15.5.26",
+    "pdf-lib": "1.17.1",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "zod": "^3.25.76"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.1",
+    "@napi-rs/canvas": "^1.0.9",
     "@types/react": "^19.1.13",
     "@types/react-dom": "^19.1.9",
     "autoprefixer": "^10.4.21",
+    "esbuild": "^0.28.2",
     "eslint": "^9.36.0",
     "eslint-config-next": "^15.5.4",
+    "pdfjs-dist": "6.3.289",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.17"
   }
