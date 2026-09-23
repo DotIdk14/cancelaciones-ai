@@ -34,3 +34,4 @@ tmp-render-smoke/
 .windsurf
 
 .vercel
+.env*
