@@ -86,6 +86,7 @@ function renderAuditDetail({ commentsSaved, audit, manualComments, evidences, ar
       rules={(evaluation?.evaluatedRules as import('./components/types').EvaluatedRule[] | undefined) ?? []}
       missingItems={(evaluation?.missingData as import('./components/types').MissingItem[] | undefined) ?? []}
       ruleLabels={ruleLabels}
+      factRunId={selectedRun?.id ?? null}
     />
   );
 }

@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
-import { getServerEnv } from '@/server/config/env';
+import { getInsForgeEnv } from '@/server/config/env';
 import { createInsForgeServerClient } from '@/server/insforge/server';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  const env = getServerEnv();
+  const env = getInsForgeEnv();
   const client = await createInsForgeServerClient();
   const { error } = await client.database.from('audits').select('id').limit(1);
 

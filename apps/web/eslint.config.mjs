@@ -3,7 +3,7 @@ import { globalIgnores } from 'eslint/config';
 
 const compat = new FlatCompat({ baseDirectory: import.meta.dirname });
 const eslintConfig = [
-  globalIgnores(['.next/**', 'next-env.d.ts']),
+  globalIgnores(['.next/**', '.next-local/**', 'next-env.d.ts']),
   ...compat.extends('next/core-web-vitals', 'next/typescript'),
 ];
 
