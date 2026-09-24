@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { createAuditManualCommentsRepository, createAuditRepository, createDictamenDocumentRepository, createEvidenceRepository, createFactRepository, createHumanReviewRepository, createJobRepository, createReportSnapshotRepository } from '@cancelaciones/db';
+import { createAdjudicationRepository, createAuditLogRepository, createAuditManualCommentsRepository, createAuditRepository, createAuditRunRepository, createComparisonRepository, createDictamenDocumentRepository, createEvidenceRepository, createFactRepository, createHumanDecisionExtractRepository, createHumanReviewRepository, createJobRepository, createReportSnapshotRepository } from '@cancelaciones/db';
 import type { PolicyEvaluation } from '@cancelaciones/policy-engine';
 import { createInsForgeServerClient } from '@/server/insforge/server';
 import { getLocalDemoDetail, isLocalDemoMode } from '@/server/local-demo';
@@ -40,13 +40,18 @@ export default async function AuditDetailPage({ params, searchParams }: { params
   const audit = await createAuditRepository(client.database).findById(auditId);
   if (!audit) notFound();
 
-  const [manualComments, evidences, artifacts, humanReview, snapshot, dictamenDocuments] = await Promise.all([
+  const [manualComments, evidences, artifacts, humanReview, snapshot, dictamenDocuments, auditRuns, humanDecisionExtract, comparison, adjudication, timelineEvents] = await Promise.all([
     createAuditManualCommentsRepository(client.database).findByAudit(auditId),
     createEvidenceRepository(client.database).listByAudit(auditId),
     createJobRepository(client.database).listArtifactsByAudit(auditId),
     createHumanReviewRepository(client.database).findByAudit(auditId),
     createReportSnapshotRepository(client.database).findLatestByAudit(auditId),
     createDictamenDocumentRepository(client.database).listByAudit(auditId),
+    createAuditRunRepository(client.database).listByAudit(auditId),
+    createHumanDecisionExtractRepository(client.database).findLatestByAudit(auditId),
+    createComparisonRepository(client.database).findLatestByAudit(auditId),
+    createAdjudicationRepository(client.database).findLatestByAudit(auditId),
+    createAuditLogRepository(client.database).listByAudit(auditId),
   ]);
 
   const factRuns = await createFactRepository(client.database).listRunsByAudit(auditId);
@@ -54,10 +59,10 @@ export default async function AuditDetailPage({ params, searchParams }: { params
   const latestEngineRun = await client.database.from('engine_runs').select('*').eq('audit_id', auditId).order('created_at', { ascending: false }).limit(1);
   const evaluation = latestEngineRun.data?.[0]?.evaluation as PolicyEvaluation | undefined;
 
-  return renderAuditDetail({ commentsSaved, audit, manualComments, evidences, artifacts, humanReview, snapshot, dictamenDocuments, selectedRun, evaluation, demoMode: false });
+  return renderAuditDetail({ commentsSaved, audit, manualComments, evidences, artifacts, humanReview, snapshot, dictamenDocuments, auditRuns, humanDecisionExtract, comparison, adjudication, timelineEvents, selectedRun, evaluation, demoMode: false });
 }
 
-function renderAuditDetail({ commentsSaved, audit, manualComments, evidences, artifacts, humanReview, snapshot, dictamenDocuments, selectedRun, evaluation, demoMode }: {
+function renderAuditDetail({ commentsSaved, audit, manualComments, evidences, artifacts, humanReview, snapshot, dictamenDocuments, auditRuns = [], humanDecisionExtract = null, comparison = null, adjudication = null, timelineEvents = [], selectedRun, evaluation, demoMode }: {
   commentsSaved?: string;
   audit: NonNullable<Awaited<ReturnType<ReturnType<typeof createAuditRepository>['findById']>>>;
   manualComments: Awaited<ReturnType<ReturnType<typeof createAuditManualCommentsRepository>['findByAudit']>>;
@@ -66,6 +71,11 @@ function renderAuditDetail({ commentsSaved, audit, manualComments, evidences, ar
   humanReview: Awaited<ReturnType<ReturnType<typeof createHumanReviewRepository>['findByAudit']>>;
   snapshot: Awaited<ReturnType<ReturnType<typeof createReportSnapshotRepository>['findLatestByAudit']>>;
   dictamenDocuments: Awaited<ReturnType<ReturnType<typeof createDictamenDocumentRepository>['listByAudit']>>;
+  auditRuns?: Awaited<ReturnType<ReturnType<typeof createAuditRunRepository>['listByAudit']>>;
+  humanDecisionExtract?: Awaited<ReturnType<ReturnType<typeof createHumanDecisionExtractRepository>['findLatestByAudit']>>;
+  comparison?: Awaited<ReturnType<ReturnType<typeof createComparisonRepository>['findLatestByAudit']>>;
+  adjudication?: Awaited<ReturnType<ReturnType<typeof createAdjudicationRepository>['findLatestByAudit']>>;
+  timelineEvents?: Awaited<ReturnType<ReturnType<typeof createAuditLogRepository>['listByAudit']>>;
   selectedRun: Awaited<ReturnType<ReturnType<typeof createFactRepository>['listRunsByAudit']>>[number] | null;
   evaluation?: PolicyEvaluation;
   demoMode: boolean;
@@ -75,7 +85,7 @@ function renderAuditDetail({ commentsSaved, audit, manualComments, evidences, ar
     <AuditWorkspace
       audit={audit}
       status={selectedRun?.state === 'FROZEN' ? 'FROZEN' : selectedRun ? 'PROCESSING' : 'DRAFT'}
-      evidences={evidences.map((evidence) => ({ id: evidence.id, auditId: audit.id, originalFilename: evidence.originalFilename, detectedMimeType: evidence.detectedMimeType, sizeBytes: evidence.sizeBytes, sha256: evidence.sha256, status: evidence.status }))}
+      evidences={evidences.map((evidence) => ({ id: evidence.id, auditId: audit.id, originalFilename: evidence.originalFilename, detectedMimeType: evidence.detectedMimeType, sizeBytes: evidence.sizeBytes, sha256: evidence.sha256, status: evidence.status, documentRole: evidence.documentRole }))}
       transcripts={transcripts.map((artifact) => ({ id: artifact.id, evidenceId: artifact.evidenceId, result: artifact.result }))}
       evaluation={evaluation as import('./components/types').PolicyEvaluationShape | undefined}
       policyVersion={selectedRun ? `${selectedRun.policyCode} V${selectedRun.policyVersion}` : null}
@@ -90,6 +100,11 @@ function renderAuditDetail({ commentsSaved, audit, manualComments, evidences, ar
       ruleLabels={ruleLabels}
       factRunId={selectedRun?.id ?? null}
       demoMode={demoMode}
+      auditRuns={auditRuns}
+      humanDecisionExtract={humanDecisionExtract}
+      comparison={comparison}
+      adjudication={adjudication}
+      timelineEvents={timelineEvents}
     />
   );
 }

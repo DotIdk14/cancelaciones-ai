@@ -5,11 +5,16 @@ import { evaluatePolicy } from '@cancelaciones/policy-engine';
 import { createInsForgeServerClient } from '@/server/insforge/server';
 import { getCurrentUser } from '@/server/auth/session';
 import { mapStoredFactsToPolicyFacts, validateFrozenFactRun } from '@/server/policy/frozen-fact-run';
+import { recordBaselineRun } from '@/server/comparison/baseline';
 
 export const dynamic = 'force-dynamic';
 
 function fingerprintHash(value: string): string {
   return createHash('sha256').update(value).digest('hex');
+}
+
+function policyCodeHash(value: string): string {
+  return fingerprintHash(value);
 }
 
 async function authorizedAudit(auditId: string) {
@@ -28,7 +33,21 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ au
   if (auth.response) return auth.response;
   const result = await auth.client.database.from('engine_runs').select('*').eq('audit_id', auditId).order('created_at', { ascending: false }).limit(1);
   if (result.error) return NextResponse.json({ error: 'DATABASE_ERROR', message: result.error.message }, { status: 500 });
-  return NextResponse.json({ engineRun: result.data?.[0] ?? null });
+  const engineRun = result.data?.[0] ?? null;
+  // Backfill idempotente: si existe un engine_run pero aún no hay AI_BASELINE, se registra.
+  if (engineRun && engineRun.evaluation) {
+    await recordBaselineRun({
+      database: auth.client.database,
+      auditId,
+      engineRunId: engineRun.id,
+      factRunId: engineRun.fact_run_id ?? null,
+      policyCode: engineRun.policy_code,
+      policyVersion: engineRun.policy_version,
+      evaluation: engineRun.evaluation,
+      actorId: auth.user.id,
+    });
+  }
+  return NextResponse.json({ engineRun });
 }
 
 export async function POST(request: NextRequest, context: { params: Promise<{ auditId: string }> }) {
@@ -60,12 +79,26 @@ export async function POST(request: NextRequest, context: { params: Promise<{ au
   catch (error) { return NextResponse.json({ error: 'UNSUPPORTED_POLICY', message: error instanceof Error ? error.message : 'Policy no soportada.' }, { status: 422 }); }
   const factsFingerprint = fingerprintHash(evaluation.factsFingerprint);
   const rulesFingerprint = fingerprintHash(evaluation.rulesFingerprint);
-  const existing = await auth.client.database.from('engine_runs').select('*').eq('audit_id', auditId).eq('policy_code', evaluation.policyCode).eq('policy_version', evaluation.policyVersion).order('created_at', { ascending: false }).limit(20);
+  const policyHash = policyCodeHash(evaluation.policyCode);
+  const existing = await auth.client.database.from('engine_runs').select('*').eq('audit_id', auditId).eq('policy_code_hash', policyHash).eq('policy_version', evaluation.policyVersion).order('created_at', { ascending: false }).limit(20);
   if (existing.error) return NextResponse.json({ error: 'DATABASE_ERROR', message: existing.error.message }, { status: 500 });
   const matchingRun = existing.data?.find((run: { facts_fingerprint?: string; rules_fingerprint?: string }) => run.facts_fingerprint === factsFingerprint && run.rules_fingerprint === rulesFingerprint);
-  if (matchingRun) return NextResponse.json({ engineRun: matchingRun, evaluation, factsUsed: facts.length }, { status: 200 });
+  if (matchingRun) {
+    // Registro de línea base idempotente: si aún no existe una AI_BASELINE para este engine_run, se crea.
+    await recordBaselineRun({
+      database: auth.client.database,
+      auditId,
+      engineRunId: matchingRun.id,
+      factRunId: validation.run.id,
+      policyCode: evaluation.policyCode,
+      policyVersion: evaluation.policyVersion,
+      evaluation,
+      actorId: auth.user.id,
+    });
+    return NextResponse.json({ engineRun: matchingRun, evaluation, factsUsed: facts.length }, { status: 200 });
+  }
   const inserted = await auth.client.database.from('engine_runs').insert([{
-    audit_id: auditId, fact_run_id: validation.run.id, policy_code: evaluation.policyCode, policy_version: evaluation.policyVersion,
+    audit_id: auditId, fact_run_id: validation.run.id, policy_code: evaluation.policyCode, policy_code_hash: policyCodeHash(evaluation.policyCode), policy_version: evaluation.policyVersion,
     rules_fingerprint: rulesFingerprint, facts_fingerprint: factsFingerprint, status: 'COMPLETED',
     suggested_outcome: evaluation.suggestedOutcome, outcome_status: evaluation.outcomeStatus, evaluation,
   }]).select('*').single();
@@ -73,5 +106,16 @@ export async function POST(request: NextRequest, context: { params: Promise<{ au
   const ruleRows = evaluation.evaluatedRules.map((rule) => ({ engine_run_id: inserted.data.id, rule_id: rule.ruleId, status: rule.status, result: rule }));
   const ruleInsert = await auth.client.database.from('engine_rule_results').insert(ruleRows);
   if (ruleInsert.error) return NextResponse.json({ error: 'DATABASE_ERROR', message: ruleInsert.error.message }, { status: 500 });
+  // Registro de línea base AI_BASELINE (audit_run) referenciando el engine_run nuevo.
+  await recordBaselineRun({
+    database: auth.client.database,
+    auditId,
+    engineRunId: inserted.data.id,
+    factRunId: validation.run.id,
+    policyCode: evaluation.policyCode,
+    policyVersion: evaluation.policyVersion,
+    evaluation,
+    actorId: auth.user.id,
+  });
   return NextResponse.json({ engineRun: inserted.data, evaluation, factsUsed: facts.length }, { status: 201 });
 }

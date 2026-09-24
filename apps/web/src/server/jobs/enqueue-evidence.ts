@@ -21,7 +21,11 @@ export async function enqueueEvidenceProcessingJobs(input: {
 }): Promise<EnqueuedEvidenceJob[]> {
   const repository = createJobRepository(input.database);
   const evidences = await createEvidenceRepository(input.database).listByAudit(input.auditId);
-  const stored = evidences.filter((evidence) => evidence.status === 'STORED');
+  // Aislamiento de baseline: solo los documentos con rol EVIDENCE entran al
+  // pipeline de evidencias y, por lo tanto, al universo de hechos. El dictamen
+  // humano (HUMAN_DECISION_DOCUMENT) y las evidencias de adjudicación se
+  // procesan por jobs dedicados que nunca alimentan el hechario de la IA.
+  const stored = evidences.filter((evidence) => evidence.status === 'STORED' && evidence.documentRole === 'EVIDENCE');
   const jobs: EnqueuedEvidenceJob[] = [];
 
   for (const evidence of stored) {

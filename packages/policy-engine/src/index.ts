@@ -1,5 +1,7 @@
 import { stableFingerprint } from '@cancelaciones/domain';
 
+export * from './comparison';
+
 export type ConditionState = 'TRUE' | 'FALSE' | 'UNKNOWN' | 'NOT_APPLICABLE';
 export type RuleStatus = 'SATISFIED' | 'NOT_SATISFIED' | 'UNKNOWN' | 'NOT_APPLICABLE' | 'BLOCKED_BY_MISSING_NORMATIVE_SOURCE';
 export type RuleCategory = 'OUTCOME_RULE' | 'EXCLUSION_RULE' | 'PROCESS_RULE' | 'EVIDENCE_RULE' | 'SLA_RULE' | 'INFORMATIONAL_RULE';

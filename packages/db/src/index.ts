@@ -1,4 +1,4 @@
-import { stableFingerprint, type Audit, type ClaimedJob, type Evidence, type EvidenceStatus, type Job, type JobStatus, type JobType } from '@cancelaciones/domain';
+import { stableFingerprint, type Audit, type AuditRun, type AuditRunStatus, type AuditRunType, type ClaimedJob, type ComparisonStatus, type DiscrepancyType, type DocumentRole, type Evidence, type EvidenceStatus, type FinalAdjudicationType, type HumanClaimClassification, type Job, type JobStatus, type JobType } from '@cancelaciones/domain';
 
 export interface DatabaseClient {
   from(table: string): any;
@@ -54,6 +54,7 @@ interface EvidenceRow {
   storage_bucket: string;
   storage_key: string | null;
   status: EvidenceStatus;
+  document_role: DocumentRole;
   uploaded_by: string | null;
   created_at: string;
   updated_at: string;
@@ -192,6 +193,7 @@ function mapEvidence(row: EvidenceRow): Evidence {
     storageBucket: row.storage_bucket,
     storageKey: row.storage_key,
     status: row.status,
+    documentRole: row.document_role ?? 'EVIDENCE',
     uploadedBy: row.uploaded_by ?? '',
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -276,7 +278,7 @@ export function createAuditRepository(database: DatabaseClient) {
 }
 
 export function createEvidenceRepository(database: DatabaseClient) {
-  const columns = 'id,audit_id,original_filename,safe_filename,nombre_archivo,mime_type,detected_mime_type,size_bytes,sha256,storage_bucket,storage_key,status,uploaded_by,created_at,updated_at';
+  const columns = 'id,audit_id,original_filename,safe_filename,nombre_archivo,mime_type,detected_mime_type,size_bytes,sha256,storage_bucket,storage_key,status,document_role,uploaded_by,created_at,updated_at';
 
   return {
     async listByAudit(auditId: string): Promise<Evidence[]> {
@@ -302,6 +304,7 @@ export function createEvidenceRepository(database: DatabaseClient) {
       storageBucket: string;
       storageKey: string;
       uploadedBy: string;
+      documentRole?: DocumentRole;
     }): Promise<Evidence> {
       const { data, error } = await database
         .from('evidences')
@@ -322,6 +325,7 @@ export function createEvidenceRepository(database: DatabaseClient) {
           storage_key: input.storageKey,
           status: 'PENDING',
           estado_lectura: 'PENDING',
+          document_role: input.documentRole ?? 'EVIDENCE',
           uploaded_by: input.uploadedBy,
           created_by: input.uploadedBy,
         }])
@@ -367,6 +371,23 @@ export function createAuditLogRepository(database: DatabaseClient) {
         .from('audit_log')
         .insert([{ audit_id: input.auditId, event_type: input.eventType, actor_id: input.actorId, metadata: input.metadata ?? {} }]);
       if (error) throw new Error(error.message ?? 'No fue posible registrar audit log');
+    },
+
+    async listByAudit(auditId: string, limit = 100): Promise<Array<{ id: string; eventType: string; actorId: string | null; metadata: Record<string, unknown>; occurredAt: string }>> {
+      const { data, error } = await database
+        .from('audit_log')
+        .select('id,event_type,actor_id,metadata,occurred_at')
+        .eq('audit_id', auditId)
+        .order('occurred_at', { ascending: true })
+        .limit(limit);
+      if (error) throw new Error(error.message ?? 'No fue posible leer audit log');
+      return (data ?? []).map((row: { id: string; event_type: string; actor_id: string | null; metadata?: Record<string, unknown> | null; occurred_at: string }) => ({
+        id: row.id,
+        eventType: row.event_type,
+        actorId: row.actor_id,
+        metadata: row.metadata ?? {},
+        occurredAt: row.occurred_at,
+      }));
     },
   };
 }
@@ -510,6 +531,18 @@ export function createJobRepository(database: DatabaseClient) {
       return (data ?? []).map(mapJobArtifact);
     },
 
+    /**
+     * Solo los artifacts producidos por evidencias con rol EVIDENCE alimentan el
+     * hechario de la línea base. El dictamen humano y las evidencias de
+     * adjudicación jamás entran a este universo (aislamiento de baseline).
+     */
+    async listBaselineArtifactsByAudit(auditId: string): Promise<JobArtifact[]> {
+      const evidences = await createEvidenceRepository(database).listByAudit(auditId);
+      const allowed = new Set(evidences.filter((evidence) => evidence.documentRole === 'EVIDENCE').map((evidence) => evidence.id));
+      const artifacts = await this.listArtifactsByAudit(auditId);
+      return artifacts.filter((artifact) => artifact.evidenceId !== null && allowed.has(artifact.evidenceId));
+    },
+
     async complete(jobId: string, workerId: string, progress = 100): Promise<void> {
       const { error } = await rpc('complete_job', { p_job_id: jobId, p_worker_id: workerId, p_progress: progress });
       if (error) throw new Error(error.message ?? 'No fue posible completar job');
@@ -603,7 +636,7 @@ export function createFactRepository(database: DatabaseClient) {
     },
 
     async artifactSetFingerprint(auditId: string): Promise<string> {
-      const artifacts = await createJobRepository(database).listArtifactsByAudit(auditId);
+      const artifacts = await createJobRepository(database).listBaselineArtifactsByAudit(auditId);
       return stableFingerprint(artifacts.map((artifact) => ({ id: artifact.id, type: artifact.artifactType, sha256: artifact.contentSha256, evidenceId: artifact.evidenceId })));
     },
   };
@@ -1064,6 +1097,538 @@ export function createDictamenDocumentRepository(database: DatabaseClient) {
         .single();
       if (error || !data) throw new Error(error?.message ?? 'No fue posible guardar el documento');
       return mapDictamenDocument(data);
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Phase 9 — Comparación IA vs Dictamen humano
+// ---------------------------------------------------------------------------
+
+interface AuditRunRow {
+  id: string;
+  audit_id: string;
+  run_type: AuditRunType;
+  status: AuditRunStatus;
+  parent_run_id: string | null;
+  fact_run_id: string | null;
+  engine_run_id: string | null;
+  job_id: string | null;
+  policy_code: string | null;
+  policy_version: string | null;
+  prompt_version: string | null;
+  model: string | null;
+  provider: string | null;
+  input_fingerprint: string | null;
+  result: Record<string, unknown>;
+  created_by: string;
+  created_at: string;
+  completed_at: string | null;
+}
+
+function mapAuditRun(row: AuditRunRow): AuditRun {
+  return {
+    id: row.id,
+    auditId: row.audit_id,
+    runType: row.run_type,
+    status: row.status,
+    parentRunId: row.parent_run_id,
+    factRunId: row.fact_run_id,
+    engineRunId: row.engine_run_id,
+    jobId: row.job_id,
+    policyCode: row.policy_code,
+    policyVersion: row.policy_version,
+    promptVersion: row.prompt_version,
+    model: row.model,
+    provider: row.provider,
+    inputFingerprint: row.input_fingerprint,
+    result: row.result ?? {},
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+    completedAt: row.completed_at,
+  };
+}
+
+const auditRunColumns = 'id,audit_id,run_type,status,parent_run_id,fact_run_id,engine_run_id,job_id,policy_code,policy_version,prompt_version,model,provider,input_fingerprint,result,created_by,created_at,completed_at';
+
+export function createAuditRunRepository(database: DatabaseClient) {
+  return {
+    async listByAudit(auditId: string): Promise<AuditRun[]> {
+      const { data, error } = await database
+        .from('audit_runs')
+        .select(auditRunColumns)
+        .eq('audit_id', auditId)
+        .order('created_at', { ascending: false })
+        .limit(50);
+      if (error) throw new Error(error.message ?? 'No fue posible leer audit runs');
+      return (data ?? []).map(mapAuditRun);
+    },
+
+    async findLatestByType(auditId: string, runType: AuditRunType): Promise<AuditRun | null> {
+      const { data, error } = await database
+        .from('audit_runs')
+        .select(auditRunColumns)
+        .eq('audit_id', auditId)
+        .eq('run_type', runType)
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (error) throw new Error(error.message ?? 'No fue posible leer audit run');
+      return data?.[0] ? mapAuditRun(data[0]) : null;
+    },
+
+    async findById(runId: string): Promise<AuditRun | null> {
+      const { data, error } = await database
+        .from('audit_runs')
+        .select(auditRunColumns)
+        .eq('id', runId)
+        .limit(1);
+      if (error) throw new Error(error.message ?? 'No fue posible leer audit run');
+      return data?.[0] ? mapAuditRun(data[0]) : null;
+    },
+
+    async create(input: {
+      auditId: string;
+      runType: AuditRunType;
+      status?: AuditRunStatus;
+      parentRunId?: string | null;
+      factRunId?: string | null;
+      engineRunId?: string | null;
+      jobId?: string | null;
+      policyCode?: string | null;
+      policyVersion?: string | null;
+      promptVersion?: string | null;
+      model?: string | null;
+      provider?: string | null;
+      inputFingerprint?: string | null;
+      result?: Record<string, unknown>;
+      createdBy: string;
+    }): Promise<AuditRun> {
+      const { data, error } = await database
+        .from('audit_runs')
+        .insert([{
+          audit_id: input.auditId,
+          run_type: input.runType,
+          status: input.status ?? 'PENDING',
+          parent_run_id: input.parentRunId ?? null,
+          fact_run_id: input.factRunId ?? null,
+          engine_run_id: input.engineRunId ?? null,
+          job_id: input.jobId ?? null,
+          policy_code: input.policyCode ?? null,
+          policy_version: input.policyVersion ?? null,
+          prompt_version: input.promptVersion ?? null,
+          model: input.model ?? null,
+          provider: input.provider ?? null,
+          input_fingerprint: input.inputFingerprint ?? null,
+          result: input.result ?? {},
+          created_by: input.createdBy,
+        }])
+        .select(auditRunColumns)
+        .single();
+      if (error || !data) throw new Error(error?.message ?? 'No fue posible crear audit run');
+      return mapAuditRun(data);
+    },
+
+    async mark(id: string, status: AuditRunStatus, result?: Record<string, unknown>, completed?: boolean): Promise<AuditRun> {
+      const { data, error } = await database
+        .from('audit_runs')
+        .update({
+          status,
+          ...(result !== undefined ? { result } : {}),
+          ...(completed ? { completed_at: new Date().toISOString() } : {}),
+        })
+        .eq('id', id)
+        .select(auditRunColumns)
+        .single();
+      if (error || !data) throw new Error(error?.message ?? 'No fue posible actualizar audit run');
+      return mapAuditRun(data);
+    },
+
+    async findBaselineByEngineRun(engineRunId: string): Promise<AuditRun | null> {
+      const { data, error } = await database
+        .from('audit_runs')
+        .select(auditRunColumns)
+        .eq('engine_run_id', engineRunId)
+        .eq('run_type', 'AI_BASELINE')
+        .limit(1);
+      if (error) throw new Error(error.message ?? 'No fue posible leer audit run baseline');
+      return data?.[0] ? mapAuditRun(data[0]) : null;
+    },
+  };
+}
+
+export interface HumanClaimRecord {
+  id: string;
+  statement: string;
+  classification: HumanClaimClassification;
+  source?: string;
+}
+
+interface HumanDecisionExtractRow {
+  id: string;
+  audit_id: string;
+  run_id: string;
+  evidence_id: string | null;
+  extractor_version: string;
+  resolution: string | null;
+  decision_date: string | null;
+  motives: unknown;
+  conditions_considered: unknown;
+  dates_considered: unknown;
+  facts: unknown;
+  evidence_mentioned: unknown;
+  rules_mentioned: unknown;
+  observations: unknown;
+  areas_involved: unknown;
+  external_information: unknown;
+  provider: string | null;
+  model: string | null;
+  prompt_version: string | null;
+  raw_text_hash: string | null;
+  created_by: string;
+  created_at: string;
+}
+
+export interface HumanDecisionExtract {
+  id: string;
+  auditId: string;
+  runId: string;
+  evidenceId: string | null;
+  extractorVersion: string;
+  resolution: string | null;
+  decisionDate: string | null;
+  motives: string[];
+  conditionsConsidered: string[];
+  datesConsidered: string[];
+  facts: HumanClaimRecord[];
+  evidenceMentioned: string[];
+  rulesMentioned: string[];
+  observations: string[];
+  areasInvolved: string[];
+  externalInformation: string[];
+  provider: string | null;
+  model: string | null;
+  promptVersion: string | null;
+  rawTextHash: string | null;
+  createdBy: string;
+  createdAt: string;
+}
+
+function asStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+function mapHumanDecisionExtract(row: HumanDecisionExtractRow): HumanDecisionExtract {
+  return {
+    id: row.id,
+    auditId: row.audit_id,
+    runId: row.run_id,
+    evidenceId: row.evidence_id,
+    extractorVersion: row.extractor_version,
+    resolution: row.resolution,
+    decisionDate: row.decision_date,
+    motives: asStringArray(row.motives),
+    conditionsConsidered: asStringArray(row.conditions_considered),
+    datesConsidered: asStringArray(row.dates_considered),
+    facts: Array.isArray(row.facts) ? (row.facts as HumanClaimRecord[]) : [],
+    evidenceMentioned: asStringArray(row.evidence_mentioned),
+    rulesMentioned: asStringArray(row.rules_mentioned),
+    observations: asStringArray(row.observations),
+    areasInvolved: asStringArray(row.areas_involved),
+    externalInformation: asStringArray(row.external_information),
+    provider: row.provider,
+    model: row.model,
+    promptVersion: row.prompt_version,
+    rawTextHash: row.raw_text_hash,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+  };
+}
+
+const humanDecisionExtractColumns = 'id,audit_id,run_id,evidence_id,extractor_version,resolution,decision_date,motives,conditions_considered,dates_considered,facts,evidence_mentioned,rules_mentioned,observations,areas_involved,external_information,provider,model,prompt_version,raw_text_hash,created_by,created_at';
+
+export function createHumanDecisionExtractRepository(database: DatabaseClient) {
+  return {
+    async create(input: {
+      auditId: string;
+      runId: string;
+      evidenceId?: string | null;
+      extractorVersion: string;
+      resolution?: string | null;
+      decisionDate?: string | null;
+      motives?: string[];
+      conditionsConsidered?: string[];
+      datesConsidered?: string[];
+      facts?: HumanClaimRecord[];
+      evidenceMentioned?: string[];
+      rulesMentioned?: string[];
+      observations?: string[];
+      areasInvolved?: string[];
+      externalInformation?: string[];
+      provider?: string | null;
+      model?: string | null;
+      promptVersion?: string | null;
+      rawTextHash?: string | null;
+      createdBy: string;
+    }): Promise<HumanDecisionExtract> {
+      const { data, error } = await database
+        .from('human_decision_extracts')
+        .insert([{
+          audit_id: input.auditId,
+          run_id: input.runId,
+          evidence_id: input.evidenceId ?? null,
+          extractor_version: input.extractorVersion,
+          resolution: input.resolution ?? null,
+          decision_date: input.decisionDate ?? null,
+          motives: input.motives ?? [],
+          conditions_considered: input.conditionsConsidered ?? [],
+          dates_considered: input.datesConsidered ?? [],
+          facts: input.facts ?? [],
+          evidence_mentioned: input.evidenceMentioned ?? [],
+          rules_mentioned: input.rulesMentioned ?? [],
+          observations: input.observations ?? [],
+          areas_involved: input.areasInvolved ?? [],
+          external_information: input.externalInformation ?? [],
+          provider: input.provider ?? null,
+          model: input.model ?? null,
+          prompt_version: input.promptVersion ?? null,
+          raw_text_hash: input.rawTextHash ?? null,
+          created_by: input.createdBy,
+        }])
+        .select(humanDecisionExtractColumns)
+        .single();
+      if (error || !data) throw new Error(error?.message ?? 'No fue posible crear la extracción humana');
+      return mapHumanDecisionExtract(data);
+    },
+
+    async findByRun(runId: string): Promise<HumanDecisionExtract | null> {
+      const { data, error } = await database
+        .from('human_decision_extracts')
+        .select(humanDecisionExtractColumns)
+        .eq('run_id', runId)
+        .limit(1);
+      if (error) throw new Error(error.message ?? 'No fue posible leer la extracción humana');
+      return data?.[0] ? mapHumanDecisionExtract(data[0]) : null;
+    },
+
+    async findLatestByAudit(auditId: string): Promise<HumanDecisionExtract | null> {
+      const { data, error } = await database
+        .from('human_decision_extracts')
+        .select(humanDecisionExtractColumns)
+        .eq('audit_id', auditId)
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (error) throw new Error(error.message ?? 'No fue posible leer la extracción humana');
+      return data?.[0] ? mapHumanDecisionExtract(data[0]) : null;
+    },
+  };
+}
+
+export interface AuditComparison {
+  id: string;
+  auditId: string;
+  runId: string;
+  aiRunId: string;
+  humanRunId: string;
+  status: ComparisonStatus;
+  discrepancyType: DiscrepancyType | null;
+  explanation: string | null;
+  counterfactuals: string[];
+  rulesInvolved: string[];
+  unverifiedHumanClaims: HumanClaimRecord[];
+  missingEvidence: string[];
+  aiOutcome: string | null;
+  humanOutcome: string | null;
+  aiOutcomeStatus: string | null;
+  humanResolution: string | null;
+  evidenceRefs: string[];
+  createdAt: string;
+}
+
+interface AuditComparisonRow {
+  id: string;
+  audit_id: string;
+  run_id: string;
+  ai_run_id: string;
+  human_run_id: string;
+  status: ComparisonStatus;
+  discrepancy_type: DiscrepancyType | null;
+  explanation: string | null;
+  counterfactuals: unknown;
+  rules_involved: unknown;
+  unverified_human_claims: unknown;
+  missing_evidence: unknown;
+  ai_outcome: string | null;
+  human_outcome: string | null;
+  ai_outcome_status: string | null;
+  human_resolution: string | null;
+  evidence_refs: unknown;
+  created_at: string;
+}
+
+function mapAuditComparison(row: AuditComparisonRow): AuditComparison {
+  return {
+    id: row.id,
+    auditId: row.audit_id,
+    runId: row.run_id,
+    aiRunId: row.ai_run_id,
+    humanRunId: row.human_run_id,
+    status: row.status,
+    discrepancyType: row.discrepancy_type,
+    explanation: row.explanation,
+    counterfactuals: asStringArray(row.counterfactuals),
+    rulesInvolved: asStringArray(row.rules_involved),
+    unverifiedHumanClaims: Array.isArray(row.unverified_human_claims) ? (row.unverified_human_claims as HumanClaimRecord[]) : [],
+    missingEvidence: asStringArray(row.missing_evidence),
+    aiOutcome: row.ai_outcome,
+    humanOutcome: row.human_outcome,
+    aiOutcomeStatus: row.ai_outcome_status,
+    humanResolution: row.human_resolution,
+    evidenceRefs: asStringArray(row.evidence_refs),
+    createdAt: row.created_at,
+  };
+}
+
+const auditComparisonColumns = 'id,audit_id,run_id,ai_run_id,human_run_id,status,discrepancy_type,explanation,counterfactuals,rules_involved,unverified_human_claims,missing_evidence,ai_outcome,human_outcome,ai_outcome_status,human_resolution,evidence_refs,created_at';
+
+export function createComparisonRepository(database: DatabaseClient) {
+  return {
+    async create(input: {
+      auditId: string;
+      runId: string;
+      aiRunId: string;
+      humanRunId: string;
+      status: ComparisonStatus;
+      discrepancyType?: DiscrepancyType | null;
+      explanation?: string | null;
+      counterfactuals?: string[];
+      rulesInvolved?: string[];
+      unverifiedHumanClaims?: HumanClaimRecord[];
+      missingEvidence?: string[];
+      aiOutcome?: string | null;
+      humanOutcome?: string | null;
+      aiOutcomeStatus?: string | null;
+      humanResolution?: string | null;
+      evidenceRefs?: string[];
+    }): Promise<AuditComparison> {
+      const { data, error } = await database
+        .from('audit_comparisons')
+        .insert([{
+          audit_id: input.auditId,
+          run_id: input.runId,
+          ai_run_id: input.aiRunId,
+          human_run_id: input.humanRunId,
+          status: input.status,
+          discrepancy_type: input.discrepancyType ?? null,
+          explanation: input.explanation ?? null,
+          counterfactuals: input.counterfactuals ?? [],
+          rules_involved: input.rulesInvolved ?? [],
+          unverified_human_claims: input.unverifiedHumanClaims ?? [],
+          missing_evidence: input.missingEvidence ?? [],
+          ai_outcome: input.aiOutcome ?? null,
+          human_outcome: input.humanOutcome ?? null,
+          ai_outcome_status: input.aiOutcomeStatus ?? null,
+          human_resolution: input.humanResolution ?? null,
+          evidence_refs: input.evidenceRefs ?? [],
+        }])
+        .select(auditComparisonColumns)
+        .single();
+      if (error || !data) throw new Error(error?.message ?? 'No fue posible crear la comparación');
+      return mapAuditComparison(data);
+    },
+
+    async findLatestByAudit(auditId: string): Promise<AuditComparison | null> {
+      const { data, error } = await database
+        .from('audit_comparisons')
+        .select(auditComparisonColumns)
+        .eq('audit_id', auditId)
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (error) throw new Error(error.message ?? 'No fue posible leer la comparación');
+      return data?.[0] ? mapAuditComparison(data[0]) : null;
+    },
+  };
+}
+
+export interface FinalAdjudication {
+  id: string;
+  auditId: string;
+  runId: string;
+  adjudicationType: FinalAdjudicationType;
+  finalOutcome: string | null;
+  comment: string | null;
+  evidenceIds: string[];
+  adjudicatedBy: string;
+  adjudicatedAt: string;
+  createdAt: string;
+}
+
+interface FinalAdjudicationRow {
+  id: string;
+  audit_id: string;
+  run_id: string;
+  adjudication_type: FinalAdjudicationType;
+  final_outcome: string | null;
+  comment: string | null;
+  evidence_ids: unknown;
+  adjudicated_by: string;
+  adjudicated_at: string;
+  created_at: string;
+}
+
+function mapFinalAdjudication(row: FinalAdjudicationRow): FinalAdjudication {
+  return {
+    id: row.id,
+    auditId: row.audit_id,
+    runId: row.run_id,
+    adjudicationType: row.adjudication_type,
+    finalOutcome: row.final_outcome,
+    comment: row.comment,
+    evidenceIds: asStringArray(row.evidence_ids),
+    adjudicatedBy: row.adjudicated_by,
+    adjudicatedAt: row.adjudicated_at,
+    createdAt: row.created_at,
+  };
+}
+
+const finalAdjudicationColumns = 'id,audit_id,run_id,adjudication_type,final_outcome,comment,evidence_ids,adjudicated_by,adjudicated_at,created_at';
+
+export function createAdjudicationRepository(database: DatabaseClient) {
+  return {
+    async create(input: {
+      auditId: string;
+      runId: string;
+      adjudicationType: FinalAdjudicationType;
+      finalOutcome?: string | null;
+      comment?: string | null;
+      evidenceIds?: string[];
+      adjudicatedBy: string;
+    }): Promise<FinalAdjudication> {
+      const { data, error } = await database
+        .from('final_adjudications')
+        .insert([{
+          audit_id: input.auditId,
+          run_id: input.runId,
+          adjudication_type: input.adjudicationType,
+          final_outcome: input.finalOutcome ?? null,
+          comment: input.comment ?? null,
+          evidence_ids: input.evidenceIds ?? [],
+          adjudicated_by: input.adjudicatedBy,
+        }])
+        .select(finalAdjudicationColumns)
+        .single();
+      if (error || !data) throw new Error(error?.message ?? 'No fue posible registrar la adjudicación');
+      return mapFinalAdjudication(data);
+    },
+
+    async findLatestByAudit(auditId: string): Promise<FinalAdjudication | null> {
+      const { data, error } = await database
+        .from('final_adjudications')
+        .select(finalAdjudicationColumns)
+        .eq('audit_id', auditId)
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (error) throw new Error(error.message ?? 'No fue posible leer la adjudicación');
+      return data?.[0] ? mapFinalAdjudication(data[0]) : null;
     },
   };
 }

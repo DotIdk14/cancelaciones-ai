@@ -124,6 +124,11 @@ export function NewAuditForm({ action }: NewAuditFormProps) {
               <input name="ticketStartDate" required type="datetime-local" className="mt-1 w-full rounded-lg border border-line bg-background px-3 py-1.5 text-sm text-ink outline-none focus:border-brand" />
             </label>
           </div>
+          <label className="mt-4 block rounded-lg border border-dashed border-brand/30 bg-brand/5 p-3 text-sm text-muted">
+            <span className="font-semibold text-ink">Dictamen humano opcional</span>
+            <span className="mt-1 block text-xs leading-5 text-muted">Se almacena separado como HUMAN_DECISION_DOCUMENT y no alimenta la línea base IA.</span>
+            <input name="humanDecision" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,.txt,.csv" className="mt-3 block w-full text-xs text-muted file:mr-3 file:rounded-md file:border-0 file:bg-surface-2 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-ink" />
+          </label>
         </aside>
 
         <FileQueue files={files} totalBytes={totalBytes} />

@@ -3,6 +3,9 @@ import { createEvidenceRepository, createFactRepository, createJobRepository, ty
 import type { ClaimedJob } from '@cancelaciones/domain';
 import { extractFactsFromArtifacts } from '@/server/facts/extract';
 import { getServerEnv } from '@/server/config/env';
+import { blobToText } from '@/server/jobs/blob-text';
+import { runHumanDecisionExtraction } from '@/server/human-decision/service';
+import { runReconciliationAnalysis } from '@/server/reconciliation/service';
 
 interface HandlerContext {
   database: DatabaseClient;
@@ -21,11 +24,6 @@ const metadataProbe: JobHandler = async (context, job) => {
   });
   await repo.complete(job.jobId, context.workerId, 100);
 };
-
-async function blobToText(data: Blob | ArrayBuffer): Promise<string> {
-  const buffer = data instanceof ArrayBuffer ? Buffer.from(data) : Buffer.from(await data.arrayBuffer());
-  return buffer.toString('utf8').replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, ' ');
-}
 
 async function transcribeAudio(data: Blob | ArrayBuffer): Promise<EvidenceAnalysis> {
   const env = getServerEnv();
@@ -129,7 +127,8 @@ const factExtraction: JobHandler = async (context, job) => {
   const factsRepo = createFactRepository(context.database);
   const run = await factsRepo.findRunById(runId);
   if (!run) throw new Error('FACT_RUN_NOT_FOUND');
-  const artifacts = await createJobRepository(context.database).listArtifactsByAudit(run.auditId);
+  // Aislamiento de baseline: solo artifacts de evidencias con rol EVIDENCE.
+  const artifacts = await createJobRepository(context.database).listBaselineArtifactsByAudit(run.auditId);
   const facts = extractFactsFromArtifacts({ auditId: run.auditId, runId: run.id, artifacts });
   await factsRepo.insertFacts(facts);
   await context.database.from('fact_extraction_runs').update({ state: 'DRAFT' }).eq('id', run.id).eq('state', 'PROCESSING');
@@ -140,6 +139,14 @@ const handlers: Record<string, JobHandler> = {
   METADATA_PROBE: metadataProbe,
   EVIDENCE_PROCESSING: evidenceProcessing,
   FACT_EXTRACTION: factExtraction,
+  HUMAN_DECISION_EXTRACTION: async (context, job) => {
+    await runHumanDecisionExtraction({ database: context.database, storage: context.storage }, job);
+    await createJobRepository(context.database).complete(job.jobId, context.workerId, 100);
+  },
+  AI_RECONCILIATION: async (context, job) => {
+    await runReconciliationAnalysis({ database: context.database }, job);
+    await createJobRepository(context.database).complete(job.jobId, context.workerId, 100);
+  },
 };
 
 export async function executeClaimedJob(context: HandlerContext, job: ClaimedJob): Promise<void> {
