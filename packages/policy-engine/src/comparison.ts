@@ -1,5 +1,5 @@
 import type { ComparisonStatus, DiscrepancyType, HumanClaim, HumanClaimClassification } from '@cancelaciones/domain';
-import type { Outcome, PolicyEvaluation } from './index';
+import type { Outcome, PolicyEvaluation, OutcomeStatus, DecisionStatus } from './index';
 
 /**
  * Comparación IA vs Dictamen humano — módulo puro y determinista.
@@ -60,8 +60,8 @@ export function normalizeHumanResolution(raw: string | null | undefined): Outcom
 
 export interface ComparisonPrimitives {
   aiOutcome: Outcome | null;
-  aiOutcomeStatus: 'DETERMINED' | 'DETERMINED_WITH_WARNINGS' | 'CONFLICTED' | 'INDETERMINATE';
-  aiDecisionStatus: 'READY_TO_APPROVE' | 'REVIEW_REQUIRED' | 'CONFLICTED' | 'INDETERMINATE';
+  aiOutcomeStatus: OutcomeStatus;
+  aiDecisionStatus: DecisionStatus;
   aiMissingEvidence: string[];
   aiSoftwareCoverageGaps: string[];
   humanResolutionRaw: string | null;

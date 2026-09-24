@@ -274,6 +274,23 @@ export function createAuditRepository(database: DatabaseClient) {
       if (error) throw new Error(error.message ?? 'No fue posible leer auditoria');
       return data?.[0] ? mapAudit(data[0]) : null;
     },
+
+    /**
+     * Elimina una auditoría a través de la función RPC public.delete_audit().
+     * Esa función valida autorización (creador u OWNER) y deja SIEMPRE una
+     * entrada en audit_log con quién la eliminó. El DELETE directo sobre
+     * `audits` está revocado en la base; todo borrado pasa por aquí.
+     */
+    async deleteAudit(auditId: string, reason?: string | null): Promise<Record<string, unknown> | null> {
+      if (!database.rpc) throw new Error('Database client must support rpc for audit deletion');
+      const { data, error } = await database.rpc('delete_audit', {
+        p_audit_id: auditId,
+        p_reason: reason ?? null,
+      });
+      if (error) throw new Error(error.message ?? 'No fue posible eliminar la auditoria');
+      const row = Array.isArray(data) ? data[0] : data;
+      return row ?? null;
+    },
   };
 }
 

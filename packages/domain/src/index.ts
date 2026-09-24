@@ -3,7 +3,16 @@ export type UserRole = 'AUDITOR' | 'OWNER';
 
 export type DocumentRole = 'EVIDENCE' | 'HUMAN_DECISION_DOCUMENT' | 'ADJUDICATION_EVIDENCE';
 
-export type AuditRunType = 'AI_BASELINE' | 'HUMAN_DECISION' | 'AI_COMPARISON' | 'AI_RECONCILIATION' | 'FINAL_ADJUDICATION';
+export type AuditRunType =
+  | 'AI_BASELINE'
+  | 'HUMAN_DECISION'
+  | 'AI_COMPARISON'
+  | 'AI_RECONCILIATION'
+  | 'FINAL_ADJUDICATION'
+  | 'BLIND_MACHINE_AUDIT'
+  | 'HUMAN_COMPARISON'
+  | 'AI_DECISION_V1'
+  | 'AI_DECISION_V2';
 export type AuditRunStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
 
 export interface AuditRun {
