@@ -9,8 +9,9 @@ import { DictamenWorkflow } from './DictamenWorkflow';
 import { HumanReviewCard } from './HumanReviewCard';
 import { ManualCommentsPanel } from './ManualCommentsPanel';
 import { RuleGroupList } from './RuleGroupList';
+import { AuditWorkflow } from '../AuditWorkflow';
 
-type InspectorTab = 'dictamen' | 'reglas' | 'comentarios';
+type InspectorTab = 'carga' | 'dictamen' | 'reglas' | 'comentarios';
 
 type TranscriptArtifact = {
   id: string;
@@ -41,6 +42,7 @@ export function AuditWorkspace({
   rules,
   missingItems,
   ruleLabels,
+  factRunId,
 }: {
   audit: AuditHeader;
   status: string;
@@ -57,9 +59,10 @@ export function AuditWorkspace({
   rules: EvaluatedRule[];
   missingItems: MissingItem[];
   ruleLabels: Record<string, string>;
+  factRunId?: string | null;
 }) {
   const [selectedEvidenceId, setSelectedEvidenceId] = useState(evidences[0]?.id ?? '');
-  const [tab, setTab] = useState<InspectorTab>('dictamen');
+  const [tab, setTab] = useState<InspectorTab>(evidences.length > 0 ? 'dictamen' : 'carga');
   const selectedEvidence = evidences.find((evidence) => evidence.id === selectedEvidenceId) ?? evidences[0] ?? null;
   const selectedTranscript = useMemo(() => {
     return transcripts.find((artifact) => artifact.evidenceId === selectedEvidence?.id) ?? transcripts[0] ?? null;
@@ -89,14 +92,14 @@ export function AuditWorkspace({
         <div className="grid grid-cols-[220px_minmax(420px,1fr)_360px] border-b border-line bg-surface-1 text-[11px] text-muted">
           <div className="flex items-center justify-between border-r border-line px-3 py-2"><span className="font-semibold text-ink">Evidencias</span><span>{evidences.length}</span></div>
           <div className="flex items-center gap-5 px-4 py-2"><span>−</span><span>100%</span><span>＋</span><span>‹</span><span>Pág 3 de 7</span><span>›</span><span className="rounded border border-brand/25 bg-brand/10 px-2 py-1 text-brand">Marcador de regla (1)</span></div>
-          <div className="flex items-center gap-1 border-l border-line px-3 py-2">
-            {(['dictamen', 'reglas', 'comentarios'] as InspectorTab[]).map((item) => <button key={item} onClick={() => setTab(item)} className={`rounded-md px-3 py-1.5 text-xs capitalize ${tab === item ? 'border border-line bg-surface-2 text-ink' : 'text-muted hover:text-ink'}`}>{item}</button>)}
+            <div className="flex items-center gap-1 border-l border-line px-3 py-2">
+              {(['carga', 'dictamen', 'reglas', 'comentarios'] as InspectorTab[]).map((item) => <button key={item} onClick={() => setTab(item)} className={`rounded-md px-3 py-1.5 text-xs capitalize ${tab === item ? 'border border-line bg-surface-2 text-ink' : 'text-muted hover:text-ink'}`}>{item}</button>)}
           </div>
         </div>
 
         <div className="grid min-h-0 grid-cols-[220px_minmax(420px,1fr)_360px]">
           <aside className="flex min-h-0 flex-col border-r border-line bg-surface-1">
-            <div className="flex items-center justify-between px-3 py-3 text-xs"><span className="font-semibold text-ink">Archivos</span><Link href={`/auditorias/${audit.id}`} className="text-brand">+ Agregar</Link></div>
+            <div className="flex items-center justify-between px-3 py-3 text-xs"><span className="font-semibold text-ink">Archivos</span><button type="button" onClick={() => setTab('carga')} className="text-brand">+ Agregar</button></div>
             <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2 pb-2">
               {evidences.map((evidence) => <button key={evidence.id} onClick={() => setSelectedEvidenceId(evidence.id)} className={`flex w-full gap-2 rounded-md p-2 text-left transition ${selectedEvidence?.id === evidence.id ? 'bg-surface-3' : 'hover:bg-surface-2'}`}>
                 <span className={`mt-1 grid h-6 w-7 shrink-0 place-items-center rounded text-[10px] font-semibold ${kindColor(evidence.detectedMimeType)}`}>{fileKind(evidence.detectedMimeType)}</span>
@@ -115,6 +118,7 @@ export function AuditWorkspace({
           </main>
 
           <aside className="min-h-0 overflow-y-auto border-l border-line bg-surface-1 p-4">
+            {tab === 'carga' && <UploadInspector auditId={audit.id} factRunId={factRunId ?? undefined} />}
             {tab === 'dictamen' && <DictamenInspector auditId={audit.id} resolution={resolution} evaluation={evaluation} humanReview={humanReview} snapshot={snapshot} documents={documents} hasHumanReview={hasHumanReview} />}
             {tab === 'reglas' && <RulesInspector rules={rules} missingItems={missingItems} ruleLabels={ruleLabels} onSelectEvidence={(id) => setSelectedEvidenceId(id)} />}
             {tab === 'comentarios' && <ManualCommentsPanel auditId={audit.id} comments={manualComments} saved={commentsSaved} />}
@@ -123,6 +127,10 @@ export function AuditWorkspace({
       </div>
     </section>
   );
+}
+
+function UploadInspector({ auditId, factRunId }: { auditId: string; factRunId?: string }) {
+  return <div className="space-y-3"><AuditWorkflow auditId={auditId} factRunId={factRunId} /><p className="rounded-lg border border-brand/20 bg-brand/10 p-3 text-xs leading-5 text-brand">Al seleccionar o arrastrar archivos, la carga inicia automáticamente y después se ejecutan procesamiento, extracción de hechos y evaluación normativa.</p></div>;
 }
 
 function EvidenceViewer({ evidence, utterances, transcriptId }: { evidence: EvidenceRow | null; utterances?: Array<{ speaker?: string; text?: string; start?: number }>; transcriptId?: string }) {
