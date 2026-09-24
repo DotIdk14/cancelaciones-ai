@@ -165,6 +165,49 @@ function RulesInspector({ rules, missingItems, ruleLabels, onSelectEvidence }: {
   return <div className="space-y-4"><div className="rounded-lg border border-line bg-surface-2 p-4"><h2 className="font-semibold text-ink">Reglas evaluadas</h2><RuleGroupList rules={rules} ruleLabels={ruleLabels} /><div className="mt-4 space-y-2 text-xs">{rules.slice(0, 4).map((rule) => <button key={rule.ruleId} onClick={() => onSelectEvidence('local-ev-audio')} className="block w-full rounded border border-line bg-surface-1 p-2 text-left hover:border-brand/40"><span className="font-semibold text-ink">{ruleLabels[rule.ruleId] ?? rule.ruleId}</span><span className="float-right text-success">{rule.status}</span><span className="mt-1 block text-muted">Fuente {rule.source.documentCode} · sección {rule.source.section}</span></button>)}</div></div>{missingItems.length > 0 && <div className="rounded-lg border border-warning/20 bg-warning/10 p-3 text-xs text-warning">{missingItems.length} datos pendientes para cerrar reglas.</div>}</div>;
 }
 
+function ComparisonInspector({ auditId, evidences, auditRuns, humanDecisionExtract, comparison, adjudication, timelineEvents }: { auditId: string; evidences: EvidenceRow[]; auditRuns: AuditRunRecord[]; humanDecisionExtract?: HumanDecisionExtractRecord | null; comparison?: AuditComparisonRecord | null; adjudication?: FinalAdjudicationRecord | null; timelineEvents: TimelineEvent[] }) {
+  const humanDocument = evidences.find((evidence) => evidence.documentRole === 'HUMAN_DECISION_DOCUMENT') ?? null;
+  const humanRun = auditRuns.find((run) => run.runType === 'HUMAN_DECISION');
+  const baseline = auditRuns.find((run) => run.runType === 'AI_BASELINE');
+  return <div className="space-y-4">
+    <div className="rounded-lg border border-line bg-surface-2 p-4">
+      <h2 className="font-semibold text-ink">Comparación IA vs dictamen humano</h2>
+      <p className="mt-2 text-xs leading-5 text-muted">La línea base IA permanece inmutable. El dictamen humano se trata como documento separado y sus afirmaciones sin respaldo quedan marcadas como mencionadas pero no verificadas.</p>
+      <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+        <StatusPill label="AI_BASELINE" value={baseline?.status ?? 'pendiente'} />
+        <StatusPill label="HUMAN_DECISION" value={humanRun?.status ?? 'pendiente'} />
+      </div>
+    </div>
+    <div className="rounded-lg border border-line bg-surface-2 p-4 text-xs">
+      <p className="font-semibold text-ink">Dictamen humano</p>
+      <p className="mt-1 text-muted">{humanDocument ? humanDocument.originalFilename : 'No se ha subido dictamen humano.'}</p>
+      {humanDocument && <div className="mt-3 flex flex-wrap gap-2">
+        <button type="button" onClick={() => postJson(`/api/audits/${auditId}/human-decision/extract`, { evidenceId: humanDocument.id, runId: humanRun?.id })} className="rounded-md bg-brand px-3 py-1.5 font-semibold text-white">Extraer dictamen</button>
+        <button type="button" onClick={() => postJson(`/api/audits/${auditId}/comparison`, {})} className="rounded-md border border-line px-3 py-1.5 font-semibold text-ink">Comparar</button>
+        <button type="button" onClick={() => postJson(`/api/audits/${auditId}/reconciliation`, {})} className="rounded-md border border-line px-3 py-1.5 font-semibold text-ink">Reconciliar</button>
+      </div>}
+    </div>
+    {humanDecisionExtract && <div className="rounded-lg border border-line bg-surface-2 p-4 text-xs"><p className="font-semibold text-ink">Extracción humana</p><p className="mt-2 text-muted">Resolución: <span className="font-semibold text-ink">{humanDecisionExtract.resolution ?? '—'}</span></p><p className="mt-2 text-muted">Claims: {humanDecisionExtract.facts.length}</p></div>}
+    {comparison && <div className={`rounded-lg border p-4 text-xs ${comparison.status === 'MATCH' ? 'border-success/20 bg-success/10 text-success' : 'border-warning/20 bg-warning/10 text-warning'}`}><p className="font-semibold">{comparison.status}{comparison.discrepancyType ? ` · ${comparison.discrepancyType}` : ''}</p><p className="mt-2 leading-5 text-ink">{comparison.explanation}</p><p className="mt-2 text-muted">IA: {comparison.aiOutcome ?? '—'} · Humano: {comparison.humanOutcome ?? comparison.humanResolution ?? '—'}</p>{comparison.unverifiedHumanClaims.length > 0 && <p className="mt-2">{comparison.unverifiedHumanClaims.length} afirmación(es) mencionadas pero no verificadas.</p>}</div>}
+    {adjudication && <div className="rounded-lg border border-brand/20 bg-brand/10 p-4 text-xs text-brand"><p className="font-semibold">Adjudicación final: {adjudication.adjudicationType}</p><p className="mt-2 text-ink">{adjudication.finalOutcome ?? adjudication.comment ?? 'Sin comentario.'}</p></div>}
+    <div className="rounded-lg border border-line bg-surface-2 p-4 text-xs"><p className="font-semibold text-ink">Timeline</p><div className="mt-3 space-y-2">{timelineEvents.slice(-8).map((event) => <div key={event.id} className="rounded border border-line bg-surface-1 p-2"><span className="font-semibold text-ink">{event.eventType}</span><span className="float-right text-muted">{formatDateTime(event.createdAt)}</span></div>)}</div></div>
+  </div>;
+}
+
+function StatusPill({ label, value }: { label: string; value: string }) {
+  return <div className="rounded border border-line bg-surface-1 p-2"><span className="block text-[10px] uppercase text-muted">{label}</span><span className="mt-1 block font-semibold text-ink">{value}</span></div>;
+}
+
+async function postJson(url: string, body: Record<string, unknown>) {
+  const response = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    window.alert(payload.message ?? 'No fue posible ejecutar la acción.');
+    return;
+  }
+  window.location.reload();
+}
+
 function normalizeResolution(outcome?: string | null, status?: string | null) {
   const value = `${outcome ?? status ?? 'Requiere revisión'}`.toUpperCase();
   if (value.includes('PROCEDE')) return value;
