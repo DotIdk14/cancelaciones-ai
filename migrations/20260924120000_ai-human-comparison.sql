@@ -24,7 +24,7 @@ END $$;
 CREATE TABLE IF NOT EXISTS public.audit_runs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   audit_id uuid NOT NULL REFERENCES public.audits(id) ON DELETE CASCADE,
-  run_type text NOT NULL CHECK (run_type IN ('AI_BASELINE', 'HUMAN_DECISION', 'AI_COMPARISON', 'AI_RECONCILIATION', 'FINAL_ADJUDICATION')),
+  run_type text NOT NULL CHECK (run_type IN ('AI_BASELINE', 'HUMAN_DECISION', 'AI_COMPARISON', 'AI_RECONCILIATION', 'FINAL_ADJUDICATION', 'BLIND_MACHINE_AUDIT', 'HUMAN_COMPARISON', 'AI_DECISION_V1', 'AI_DECISION_V2')),
   status text NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED')),
   parent_run_id uuid REFERENCES public.audit_runs(id) ON DELETE SET NULL,
   fact_run_id uuid REFERENCES public.fact_extraction_runs(id) ON DELETE SET NULL,

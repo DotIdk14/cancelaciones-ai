@@ -10,6 +10,7 @@ import { HumanReviewCard } from './HumanReviewCard';
 import { ManualCommentsPanel } from './ManualCommentsPanel';
 import { RuleGroupList } from './RuleGroupList';
 import { AuditWorkflow } from '../AuditWorkflow';
+import { DeleteAuditButton } from '@/components/DeleteAuditButton';
 
 type InspectorTab = 'carga' | 'dictamen' | 'comparacion' | 'reglas' | 'comentarios';
 
@@ -88,7 +89,7 @@ export function AuditWorkspace({
   return (
     <section className="h-screen overflow-hidden bg-background p-2 text-ink">
       <div className="grid h-full grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden rounded-lg border border-line bg-[#0f1319]">
-        <header className="grid grid-cols-[72px_minmax(260px,1fr)_minmax(300px,1.15fr)_220px] gap-2 border-b border-line bg-surface-1 p-2">
+        <header className="grid grid-cols-[72px_minmax(260px,1fr)_minmax(300px,1.15fr)_minmax(240px,300px)] gap-2 border-b border-line bg-surface-1 p-2">
           <Link href="/auditorias" className="inline-flex items-center justify-center rounded-md border border-line bg-surface-2 text-xs font-semibold text-ink hover:bg-white/5">⌂ HOME</Link>
           <div className="rounded-md border border-line bg-surface-2 px-3 py-2">
             <p className="font-mono text-[10px] uppercase tracking-wider text-muted">Nombre: <span className="font-sans font-semibold normal-case text-ink">{audit.displayName ?? 'Expediente de auditoría'}</span></p>
@@ -98,7 +99,10 @@ export function AuditWorkspace({
             <div className="flex items-center justify-between gap-2"><p className="font-mono text-[10px] uppercase tracking-wider text-muted">Número de caso: <span className="font-sans font-semibold text-brand">{audit.externalCaseId ?? audit.id.slice(0, 13)}</span></p><AuditStatusBadge status={status} /></div>
             <p className="mt-1 font-mono text-[10px] text-muted">Ticket: {formatDateTime(audit.createdAt)} <span className="mx-2">•</span> Política: {policyVersion ?? '—'}</p>
           </div>
-          <a href={downloadDoc ? `/api/audits/${audit.id}/dictamen/${downloadDoc.id}/download` : '#dictamen'} className="inline-flex items-center justify-center rounded-md bg-[#5b8cff] px-3 py-2 text-center text-xs font-semibold text-white hover:bg-[#6d99ff]">⇩ Resolución / Descarga del dictamen</a>
+          <div className="flex items-center gap-2">
+            <a href={downloadDoc ? `/api/audits/${audit.id}/dictamen/${downloadDoc.id}/download` : '#dictamen'} className="inline-flex min-w-0 flex-1 items-center justify-center rounded-md bg-[#5b8cff] px-3 py-2 text-center text-xs font-semibold text-white hover:bg-[#6d99ff]">⇩ Resolución / Descarga del dictamen</a>
+            {!demoMode && <DeleteAuditButton auditId={audit.id} auditLabel={audit.displayName ?? undefined} redirectTo="/auditorias" compact />}
+          </div>
         </header>
 
         <div className="grid grid-cols-[220px_minmax(420px,1fr)_360px] border-b border-line bg-surface-1 text-[11px] text-muted">

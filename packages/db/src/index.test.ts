@@ -36,6 +36,27 @@ describe('createAuditRepository', () => {
     expect(list).toHaveLength(1);
     expect(list[0].externalCaseId).toBe('CaVe-SINTETICO');
   });
+
+  it('elimina una auditoria via rpc delete_audit con motivo opcional', async () => {
+    const calls: Array<{ fn: string; args: Record<string, unknown> }> = [];
+    const database = {
+      rpc: async (fn: string, args: Record<string, unknown>) => {
+        calls.push({ fn, args });
+        return {
+          data: [{ audit_id: 'audit_9', status: 'FROZEN', deleted_by: 'user_1' }],
+          error: null,
+        };
+      },
+    };
+
+    const repo = createAuditRepository(database as any);
+    const deleted = await repo.deleteAudit('audit_9', 'Duplicado capturado por error');
+
+    expect(calls).toEqual([
+      { fn: 'delete_audit', args: { p_audit_id: 'audit_9', p_reason: 'Duplicado capturado por error' } },
+    ]);
+    expect(deleted).toEqual({ audit_id: 'audit_9', status: 'FROZEN', deleted_by: 'user_1' });
+  });
 });
 
 describe('createEvidenceRepository', () => {

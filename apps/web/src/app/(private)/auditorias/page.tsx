@@ -1,11 +1,14 @@
 import Link from 'next/link';
 import { listAuditsForCurrentUser } from '@/server/actions/audits';
 import { formatDateTime } from '@/lib/format';
+import { isLocalDemoMode } from '@/server/local-demo';
+import { DeleteAuditButton } from '@/components/DeleteAuditButton';
 
 export const dynamic = 'force-dynamic';
 
 export default async function AuditsPage() {
   const audits = await listAuditsForCurrentUser();
+  const demoMode = isLocalDemoMode();
 
   return (
     <section className="mx-auto max-w-[1520px] px-6 py-8">
@@ -50,7 +53,7 @@ export default async function AuditsPage() {
                 <td className="px-4 py-4"><span className="rounded-md bg-surface-3 px-3 py-1 text-xs font-medium text-muted">{audit.status}</span></td>
                 <td className="px-4 py-4 text-muted">—</td>
                 <td className="px-4 py-4 text-muted">{formatDateTime(audit.createdAt)}</td>
-                <td className="px-4 py-4"><a className="rounded-md bg-surface-3 px-4 py-2 text-sm font-medium text-ink hover:bg-white/10" href={`/auditorias/${audit.id}`}>Ver</a></td>
+                <td className="px-4 py-4"><div className="flex items-center gap-2"><a className="rounded-md bg-surface-3 px-4 py-2 text-sm font-medium text-ink hover:bg-white/10" href={`/auditorias/${audit.id}`}>Ver</a>{!demoMode ? <DeleteAuditButton auditId={audit.id} auditLabel={audit.displayName ?? audit.externalCaseId ?? audit.id} /> : null}</div></td>
               </tr>
             ))}
           </tbody>
