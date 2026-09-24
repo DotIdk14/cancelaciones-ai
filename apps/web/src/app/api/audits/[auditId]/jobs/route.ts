@@ -1,8 +1,9 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { createAuditRepository, createEvidenceRepository, createFactRepository, createJobRepository } from '@cancelaciones/db';
+import { createAuditRepository, createFactRepository, createJobRepository } from '@cancelaciones/db';
 import { stableFingerprint } from '@cancelaciones/domain';
 import { createInsForgeServerClient } from '@/server/insforge/server';
 import { getCurrentUser } from '@/server/auth/session';
+import { enqueueEvidenceProcessingJobs } from '@/server/jobs/enqueue-evidence';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,18 +42,8 @@ export async function POST(request: NextRequest, context: { params: Promise<{ au
     const payload = { auditId, factRunId: run.id, version: 'deterministic-facts-v1' };
     job = await repo.enqueue({ auditId, jobType: 'FACT_EXTRACTION', operationScope: `audit:${auditId}:facts`, idempotencyKey: `facts:${run.id}:v1`, inputFingerprint: stableFingerprint(payload), payload, actorId: user.id });
   } else {
-    const evidences = await createEvidenceRepository(client.database).listByAudit(auditId);
-    const stored = evidences.filter((evidence) => evidence.status === 'STORED');
-    if (stored.length === 0) return NextResponse.json({ error: 'NO_STORED_EVIDENCE', message: 'Primero sube al menos una evidencia almacenada.' }, { status: 409 });
-    const jobs = [];
-    for (const evidence of stored) {
-      const rerun = action === 'RERUN_EVIDENCES';
-      const version = evidence.detectedMimeType.startsWith('image/')
-        ? rerun ? 'vision-extraction-v4' : 'vision-extraction-v3'
-        : rerun ? 'deterministic-text-v2' : 'deterministic-text-v1';
-      const payload = { auditId, evidenceId: evidence.id, sha256: evidence.sha256, version };
-      jobs.push(await repo.enqueue({ auditId, jobType: 'EVIDENCE_PROCESSING', operationScope: `evidence:${evidence.id}:process`, idempotencyKey: `evidence:${evidence.id}:process:${version}`, inputFingerprint: stableFingerprint(payload), payload, evidenceId: evidence.id, actorId: user.id }));
-    }
+    const jobs = await enqueueEvidenceProcessingJobs({ database: client.database, auditId, actorId: user.id, rerun: action === 'RERUN_EVIDENCES' });
+    if (jobs.length === 0) return NextResponse.json({ error: 'NO_STORED_EVIDENCE', message: 'Primero sube al menos una evidencia almacenada.' }, { status: 409 });
     return NextResponse.json({ jobs }, { status: 202 });
   }
 
