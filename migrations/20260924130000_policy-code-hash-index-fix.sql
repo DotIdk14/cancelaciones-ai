@@ -10,9 +10,7 @@ RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 BEGIN
-  IF NEW.policy_code_hash IS NULL OR NEW.policy_code_hash = '' THEN
-    NEW.policy_code_hash = encode(digest(NEW.policy_code, 'sha256'), 'hex');
-  END IF;
+  NEW.policy_code_hash = encode(digest(NEW.policy_code, 'sha256'), 'hex');
   RETURN NEW;
 END;
 $$;

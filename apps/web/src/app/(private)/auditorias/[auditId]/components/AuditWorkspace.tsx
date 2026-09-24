@@ -153,8 +153,22 @@ function EvidenceViewer({ evidence, utterances, transcriptId }: { evidence: Evid
     <div className="flex items-center justify-between border-b border-line pb-3"><h2 className="font-semibold text-ink">▣ Transcripción</h2><div className="flex gap-2 text-[11px]"><span className="rounded bg-surface-3 px-2 py-1">{utterances?.length ?? 0} intervenciones</span><span className="rounded bg-surface-3 px-2 py-1">Whisper Large v3</span><span className="rounded border border-line px-2 py-1">Buscar</span></div></div>
     <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pt-4">{(utterances ?? []).map((u, i) => <div key={`${transcriptId}-${i}`} className={`max-w-[86%] rounded-lg border p-3 text-xs leading-5 ${i % 2 ? 'ml-auto border-white/70 bg-background' : 'border-line bg-surface-2'}`}><div className="mb-2 flex justify-between text-[10px] font-semibold text-muted"><span>{u.speaker ?? 'Participante'}</span><span>{typeof u.start === 'number' ? `${Math.round(u.start / 1000).toString().padStart(2, '0')}:00` : ''}</span></div><p className="text-ink">{u.text}</p></div>)}</div>
   </div>;
-  if (kind === 'IMG') return <div className="grid h-full place-items-center rounded-lg border border-line bg-surface-1"><div className="text-center"><div className="mx-auto mb-4 grid h-40 w-56 place-items-center rounded-lg border border-line bg-surface-2 text-brand">IMG</div><p className="text-sm font-semibold text-ink">{evidence.originalFilename}</p><a className="mt-2 inline-block text-xs text-brand" href={`/api/evidences/${evidence.id}/download`}>Abrir descarga</a></div></div>;
-  return <div className="grid h-full place-items-center rounded-lg border border-line bg-surface-1"><div className="text-center"><div className="mx-auto mb-4 grid h-44 w-36 place-items-center rounded-lg border border-line bg-surface-2 text-danger">{kind}</div><p className="text-sm font-semibold text-ink">{evidence.originalFilename}</p><a className="mt-2 inline-block text-xs text-brand" href={`/api/evidences/${evidence.id}/download`}>Abrir evidencia</a></div></div>;
+  const src = `/api/evidences/${evidence.id}/download`;
+  if (kind === 'IMG') return <div className="flex h-full min-h-0 flex-col rounded-lg border border-line bg-surface-1"><EvidenceToolbar evidence={evidence} src={src} />
+    <div className="grid min-h-0 flex-1 place-items-center overflow-hidden bg-[#0d1117] p-4">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={`${src}?inline=1`} alt={evidence.originalFilename} className="max-h-full max-w-full object-contain shadow-sm" />
+    </div>
+  </div>;
+  if (kind === 'PDF' || kind === 'TXT') return <div className="flex h-full min-h-0 flex-col rounded-lg border border-line bg-surface-1"><EvidenceToolbar evidence={evidence} src={src} /><iframe src={`${src}?inline=1`} title={evidence.originalFilename} className="min-h-0 w-full flex-1" /></div>;
+  return <div className="grid h-full place-items-center rounded-lg border border-line bg-surface-1"><div className="text-center"><div className="mx-auto mb-4 grid h-44 w-36 place-items-center rounded-lg border border-line bg-surface-2 text-danger">{kind}</div><p className="text-sm font-semibold text-ink">{evidence.originalFilename}</p><div className="mt-3 flex justify-center gap-2"><a className="rounded-md border border-line px-3 py-1.5 text-xs font-semibold text-ink hover:bg-white/5" href={`${src}?inline=1`} target="_blank" rel="noreferrer">Ver en el navegador</a><a className="rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-white" href={`${src}?download=1`}>Descargar</a></div></div></div>;
+}
+
+function EvidenceToolbar({ evidence, src }: { evidence: EvidenceRow; src: string }) {
+  return <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-3">
+    <div className="min-w-0"><p className="truncate text-sm font-semibold text-ink">{evidence.originalFilename}</p><p className="mt-0.5 text-[11px] text-muted">{evidence.detectedMimeType} · {formatSize(evidence.sizeBytes)}</p></div>
+    <div className="flex shrink-0 gap-2"><a className="rounded-md border border-line px-3 py-1.5 text-xs font-semibold text-ink hover:bg-white/5" href={`${src}?inline=1`} target="_blank" rel="noreferrer">Abrir en pestaña</a><a className="rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-white" href={`${src}?download=1`}>Descargar</a></div>
+  </div>;
 }
 
 function DictamenInspector({ auditId, resolution, evaluation, humanReview, snapshot, documents, hasHumanReview }: { auditId: string; resolution: string; evaluation?: PolicyEvaluationShape | null; humanReview?: HumanReviewRecord | null; snapshot?: SnapshotRecord | null; documents?: DictamenDocumentRecord[]; hasHumanReview: boolean }) {

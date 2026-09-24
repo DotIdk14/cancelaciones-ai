@@ -203,6 +203,26 @@ export function AuditWorkflow({ auditId, factRunId, skipAutoResume }: { auditId:
     }
   }, [auditId, factRunId, router, state]);
 
+  const retryAnalysis = useCallback(async () => {
+    if (state !== 'error') return;
+    setState('processing');
+    setError('');
+    setMessage('Reintentando el analisis con las evidencias ya almacenadas…');
+    try {
+      const jobs = await refreshQueue();
+      const hasActive = jobs.some((job) => activeStatuses.has(job.status));
+      if (hasActive) {
+        await waitVisible(1200);
+        await waitForJobs();
+      }
+      await finishPipeline();
+    } catch (cause) {
+      setState('error');
+      setError(cause instanceof Error ? cause.message : 'Ocurrió un error durante el análisis.');
+      setMessage('No se completó el análisis.');
+    }
+  }, [finishPipeline, refreshQueue, state, waitForJobs]);
+
   function onInputChange(event: React.ChangeEvent<HTMLInputElement>) {
     void run(Array.from(event.target.files ?? []));
     event.target.value = '';
@@ -238,7 +258,9 @@ export function AuditWorkflow({ auditId, factRunId, skipAutoResume }: { auditId:
       {state !== 'idle' && state !== 'error' && state !== 'done' && <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full w-1/2 animate-pulse rounded-full bg-brand" /></div>}
       {error && <p className="mt-3 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
       {factRunId && state === 'idle' && <button type="button" onClick={() => void generateDecision()} className="mt-4 block text-sm font-semibold text-brand hover:underline">Generar dictamen con los datos actuales</button>}
-      {(state === 'error' || state === 'done') && <button type="button" onClick={() => { setState('idle'); setError(''); setMessage('Puedes agregar evidencias; no se recalculará el dictamen hasta que lo solicites.'); }} className="mt-4 text-sm font-semibold text-brand hover:underline">{state === 'error' ? 'Intentar de nuevo' : 'Agregar evidencias'}</button>}
+      {state === 'idle' && <button type="button" onClick={() => void run([], true)} className="mt-4 block text-sm font-semibold text-brand hover:underline">Procesar evidencias ya cargadas</button>}
+      {state === 'error' && <button type="button" onClick={() => void retryAnalysis()} className="mt-4 text-sm font-semibold text-brand hover:underline">Intentar de nuevo</button>}
+      {state === 'done' && <button type="button" onClick={() => { setState('idle'); setError(''); setMessage('Puedes agregar evidencias; no se recalculará el dictamen hasta que lo solicites.'); }} className="mt-4 text-sm font-semibold text-brand hover:underline">Agregar evidencias</button>}
       {state === 'done' && <button type="button" onClick={() => void run([], true)} className="ml-4 mt-4 text-sm font-semibold text-brand hover:underline">Crear nueva auditoría con evidencias actuales</button>}
     </section>
     );
