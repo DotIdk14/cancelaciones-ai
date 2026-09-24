@@ -21,8 +21,9 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ au
   if (auth.response) return auth.response;
   const repo = createFactRepository(auth.client.database);
   const runs = await repo.listRunsByAudit(auditId);
-  const facts = runs[0] ? await repo.listFactsByRun(runs[0].id) : [];
-  return NextResponse.json({ factRuns: runs, selectedRun: runs[0] ?? null, facts });
+  const selectedRun = runs.find((run) => run.state === 'FROZEN') ?? runs[0] ?? null;
+  const facts = selectedRun ? await repo.listFactsByRun(selectedRun.id) : [];
+  return NextResponse.json({ factRuns: runs, selectedRun, facts });
 }
 
 export async function POST(request: NextRequest, context: { params: Promise<{ auditId: string }> }) {
@@ -36,6 +37,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ au
   const repo = createFactRepository(auth.client.database);
   const run = await repo.findRunById(factRunId);
   if (!run || run.auditId !== auditId) return NextResponse.json({ error: 'FACT_RUN_NOT_FOUND', message: 'Fact Run no encontrado para esta auditoria.' }, { status: 404 });
+  if (run.state === 'FROZEN') return NextResponse.json({ factRun: run, reused: true }, { status: 200 });
   const facts = await repo.listFactsByRun(run.id);
   if (facts.length === 0) return NextResponse.json({ error: 'FACT_RUN_EMPTY', message: 'No se puede congelar un Fact Run sin facts.' }, { status: 409 });
   await repo.freezeRun(run.id);
