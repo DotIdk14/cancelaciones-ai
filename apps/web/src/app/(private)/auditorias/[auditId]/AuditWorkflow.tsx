@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 type WorkflowState = 'idle' | 'uploading' | 'processing' | 'extracting' | 'evaluating' | 'done' | 'error';
@@ -8,13 +8,15 @@ type QueueJob = { id: string; jobType: string; status: string; progress: number;
 
 const activeStatuses = new Set(['QUEUED', 'RUNNING', 'RETRY_SCHEDULED']);
 
-export function AuditWorkflow({ auditId, factRunId }: { auditId: string; factRunId?: string }) {
+export function AuditWorkflow({ auditId, factRunId, skipAutoResume }: { auditId: string; factRunId?: string; skipAutoResume?: boolean }) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
+  const resumedRef = useRef(false);
   const [state, setState] = useState<WorkflowState>('idle');
   const [message, setMessage] = useState('Arrastra aquí los archivos del expediente.');
   const [error, setError] = useState('');
   const [dragging, setDragging] = useState(false);
+
   const refreshQueue = useCallback(async () => {
     const response = await fetch(`/api/audits/${auditId}/jobs`, { cache: 'no-store' });
     const data = await response.json();
@@ -39,6 +41,80 @@ export function AuditWorkflow({ auditId, factRunId }: { auditId: string; factRun
     }
     throw new Error('La cola no terminó dentro del tiempo esperado. Revisa el detalle de jobs.');
   }, [refreshQueue]);
+
+  /**
+   * Pipeline final compartido: extrae hechos, espera la cola, congela el fact
+   * run y evalúa la política. Lo usan el flujo manual (run) y el auto-resume.
+   */
+  const finishPipeline = useCallback(async () => {
+    setState('extracting');
+    setMessage('Extrayendo hechos para preparar el dictamen…');
+    const factsResponse = await fetch(`/api/audits/${auditId}/jobs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: 'action=EXTRACT_FACTS',
+    });
+    const factsData = await factsResponse.json();
+    if (!factsResponse.ok) throw new Error(factsData.message ?? 'No fue posible extraer los hechos.');
+    await waitForJobs();
+
+    const runsResponse = await fetch(`/api/audits/${auditId}/fact-runs`, { cache: 'no-store' });
+    const runsData = await runsResponse.json();
+    const run = runsData.selectedRun as { id: string; state: string } | null;
+    if (!run) throw new Error('No se creó el análisis de hechos.');
+    if (run.state !== 'FROZEN') {
+      const freezeResponse = await fetch(`/api/audits/${auditId}/fact-runs`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: `action=FREEZE&factRunId=${encodeURIComponent(run.id)}`,
+      });
+      if (!freezeResponse.ok) {
+        const freezeData = await freezeResponse.json().catch(() => ({}));
+        throw new Error(freezeData.message ?? 'No fue posible congelar los hechos.');
+      }
+    }
+
+    setState('evaluating');
+    setMessage('Evaluando la política normativa…');
+    const evaluationResponse = await fetch(`/api/audits/${auditId}/policy`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ policyCode: 'GDM_GAM_PRD_MLG_003', policyVersion: '5', factRunId: run.id }),
+    });
+    const evaluationData = await evaluationResponse.json();
+    if (!evaluationResponse.ok) throw new Error(evaluationData.message ?? 'No fue posible generar el dictamen.');
+    setState('done');
+    setMessage(`Dictamen listo: ${evaluationData.evaluation?.suggestedOutcome ?? 'INDETERMINADO'}.`);
+    router.refresh();
+  }, [auditId, router, waitForJobs]);
+
+  /**
+   * Fase 3 — Auto-resume: al montar el workspace, si la cola tiene jobs
+   * pendientes (QUEUED/RUNNING/RETRY_SCHEDULED) se drena con POST
+   * /api/jobs/process y se continúa el pipeline hasta el dictamen. Así una
+   * auditoría creada desde /nueva retoma su procesamiento automáticamente.
+   */
+  useEffect(() => {
+    if (skipAutoResume || resumedRef.current) return;
+    resumedRef.current = true;
+    void (async () => {
+      try {
+        const jobs = await refreshQueue();
+        const hasActive = jobs.some((job) => activeStatuses.has(job.status));
+        if (!hasActive) return;
+        setState('processing');
+        setError('');
+        setMessage('Retomando el procesamiento pendiente del expediente…');
+        await waitForJobs();
+        await finishPipeline();
+      } catch (cause) {
+        setState('error');
+        setError(cause instanceof Error ? cause.message : 'Ocurrió un error durante el análisis.');
+        setMessage('No se completó el análisis.');
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const run = useCallback(async (files: File[], rerun = false) => {
     if ((!files.length && !rerun) || state !== 'idle' && state !== 'error') return;
@@ -66,52 +142,13 @@ export function AuditWorkflow({ auditId, factRunId }: { auditId: string; factRun
       const processData = await processResponse.json();
       if (!processResponse.ok) throw new Error(processData.message ?? 'No fue posible iniciar el procesamiento.');
       await waitForJobs();
-
-      setState('extracting');
-      setMessage('Extrayendo hechos para preparar el dictamen…');
-      const factsResponse = await fetch(`/api/audits/${auditId}/jobs`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/x-www-form-urlencoded' },
-        body: 'action=EXTRACT_FACTS',
-      });
-      const factsData = await factsResponse.json();
-      if (!factsResponse.ok) throw new Error(factsData.message ?? 'No fue posible extraer los hechos.');
-      await waitForJobs();
-
-      const runsResponse = await fetch(`/api/audits/${auditId}/fact-runs`, { cache: 'no-store' });
-      const runsData = await runsResponse.json();
-      const run = runsData.selectedRun as { id: string; state: string } | null;
-      if (!run) throw new Error('No se creó el análisis de hechos.');
-      if (run.state !== 'FROZEN') {
-        const freezeResponse = await fetch(`/api/audits/${auditId}/fact-runs`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/x-www-form-urlencoded' },
-          body: `action=FREEZE&factRunId=${encodeURIComponent(run.id)}`,
-        });
-        if (!freezeResponse.ok) {
-          const freezeData = await freezeResponse.json().catch(() => ({}));
-          throw new Error(freezeData.message ?? 'No fue posible congelar los hechos.');
-        }
-      }
-
-      setState('evaluating');
-      setMessage('Evaluando la política normativa…');
-      const evaluationResponse = await fetch(`/api/audits/${auditId}/policy`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ policyCode: 'GDM_GAM_PRD_MLG_003', policyVersion: '5', factRunId: run.id }),
-      });
-      const evaluationData = await evaluationResponse.json();
-      if (!evaluationResponse.ok) throw new Error(evaluationData.message ?? 'No fue posible generar el dictamen.');
-      setState('done');
-      setMessage(`Dictamen listo: ${evaluationData.evaluation?.suggestedOutcome ?? 'INDETERMINADO'}.`);
-      router.refresh();
+      await finishPipeline();
     } catch (cause) {
       setState('error');
       setError(cause instanceof Error ? cause.message : 'Ocurrió un error durante el análisis.');
       setMessage('No se completó el análisis.');
     }
-  }, [auditId, router, state, waitForJobs]);
+  }, [auditId, state, waitForJobs, finishPipeline]);
 
   const generateDecision = useCallback(async () => {
     if (!factRunId || (state !== 'idle' && state !== 'error' && state !== 'done')) return;

@@ -43,6 +43,7 @@ export function AuditWorkspace({
   missingItems,
   ruleLabels,
   factRunId,
+  demoMode,
 }: {
   audit: AuditHeader;
   status: string;
@@ -60,9 +61,10 @@ export function AuditWorkspace({
   missingItems: MissingItem[];
   ruleLabels: Record<string, string>;
   factRunId?: string | null;
+  demoMode: boolean;
 }) {
   const [selectedEvidenceId, setSelectedEvidenceId] = useState(evidences[0]?.id ?? '');
-  const [tab, setTab] = useState<InspectorTab>(evidences.length > 0 ? 'dictamen' : 'carga');
+  const [tab, setTab] = useState<InspectorTab>(status === 'FROZEN' ? 'dictamen' : 'carga');
   const selectedEvidence = evidences.find((evidence) => evidence.id === selectedEvidenceId) ?? evidences[0] ?? null;
   const selectedTranscript = useMemo(() => {
     return transcripts.find((artifact) => artifact.evidenceId === selectedEvidence?.id) ?? transcripts[0] ?? null;
@@ -118,7 +120,7 @@ export function AuditWorkspace({
           </main>
 
           <aside className="min-h-0 overflow-y-auto border-l border-line bg-surface-1 p-4">
-            {tab === 'carga' && <UploadInspector auditId={audit.id} factRunId={factRunId ?? undefined} />}
+            {tab === 'carga' && <UploadInspector auditId={audit.id} factRunId={factRunId ?? undefined} demoMode={demoMode} />}
             {tab === 'dictamen' && <DictamenInspector auditId={audit.id} resolution={resolution} evaluation={evaluation} humanReview={humanReview} snapshot={snapshot} documents={documents} hasHumanReview={hasHumanReview} />}
             {tab === 'reglas' && <RulesInspector rules={rules} missingItems={missingItems} ruleLabels={ruleLabels} onSelectEvidence={(id) => setSelectedEvidenceId(id)} />}
             {tab === 'comentarios' && <ManualCommentsPanel auditId={audit.id} comments={manualComments} saved={commentsSaved} />}
@@ -129,8 +131,8 @@ export function AuditWorkspace({
   );
 }
 
-function UploadInspector({ auditId, factRunId }: { auditId: string; factRunId?: string }) {
-  return <div className="space-y-3"><AuditWorkflow auditId={auditId} factRunId={factRunId} /><p className="rounded-lg border border-brand/20 bg-brand/10 p-3 text-xs leading-5 text-brand">Al seleccionar o arrastrar archivos, la carga inicia automáticamente y después se ejecutan procesamiento, extracción de hechos y evaluación normativa.</p></div>;
+function UploadInspector({ auditId, factRunId, demoMode }: { auditId: string; factRunId?: string; demoMode?: boolean }) {
+  return <div className="space-y-3"><AuditWorkflow auditId={auditId} factRunId={factRunId} skipAutoResume={demoMode} /><p className="rounded-lg border border-brand/20 bg-brand/10 p-3 text-xs leading-5 text-brand">Al seleccionar o arrastrar archivos, la carga inicia automáticamente y después se ejecutan procesamiento, extracción de hechos y evaluación normativa. Si la auditoría tiene evidencias en cola, el procesamiento se retoma automáticamente al abrir el workspace.</p></div>;
 }
 
 function EvidenceViewer({ evidence, utterances, transcriptId }: { evidence: EvidenceRow | null; utterances?: Array<{ speaker?: string; text?: string; start?: number }>; transcriptId?: string }) {

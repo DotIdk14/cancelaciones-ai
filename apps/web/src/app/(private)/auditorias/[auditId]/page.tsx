@@ -32,6 +32,7 @@ export default async function AuditDetailPage({ params, searchParams }: { params
       dictamenDocuments: demo.dictamenDocuments,
       selectedRun: demo.factRuns[0] ?? null,
       evaluation: demo.evaluation,
+      demoMode: true,
     });
   }
 
@@ -53,10 +54,10 @@ export default async function AuditDetailPage({ params, searchParams }: { params
   const latestEngineRun = await client.database.from('engine_runs').select('*').eq('audit_id', auditId).order('created_at', { ascending: false }).limit(1);
   const evaluation = latestEngineRun.data?.[0]?.evaluation as PolicyEvaluation | undefined;
 
-  return renderAuditDetail({ commentsSaved, audit, manualComments, evidences, artifacts, humanReview, snapshot, dictamenDocuments, selectedRun, evaluation });
+  return renderAuditDetail({ commentsSaved, audit, manualComments, evidences, artifacts, humanReview, snapshot, dictamenDocuments, selectedRun, evaluation, demoMode: false });
 }
 
-function renderAuditDetail({ commentsSaved, audit, manualComments, evidences, artifacts, humanReview, snapshot, dictamenDocuments, selectedRun, evaluation }: {
+function renderAuditDetail({ commentsSaved, audit, manualComments, evidences, artifacts, humanReview, snapshot, dictamenDocuments, selectedRun, evaluation, demoMode }: {
   commentsSaved?: string;
   audit: NonNullable<Awaited<ReturnType<ReturnType<typeof createAuditRepository>['findById']>>>;
   manualComments: Awaited<ReturnType<ReturnType<typeof createAuditManualCommentsRepository>['findByAudit']>>;
@@ -67,6 +68,7 @@ function renderAuditDetail({ commentsSaved, audit, manualComments, evidences, ar
   dictamenDocuments: Awaited<ReturnType<ReturnType<typeof createDictamenDocumentRepository>['listByAudit']>>;
   selectedRun: Awaited<ReturnType<ReturnType<typeof createFactRepository>['listRunsByAudit']>>[number] | null;
   evaluation?: PolicyEvaluation;
+  demoMode: boolean;
 }) {
   const transcripts = artifacts.filter((artifact) => artifact.artifactType === 'audio-transcript' && Array.isArray(artifact.result.utterances));
   return (
@@ -87,6 +89,7 @@ function renderAuditDetail({ commentsSaved, audit, manualComments, evidences, ar
       missingItems={(evaluation?.missingData as import('./components/types').MissingItem[] | undefined) ?? []}
       ruleLabels={ruleLabels}
       factRunId={selectedRun?.id ?? null}
+      demoMode={demoMode}
     />
   );
 }

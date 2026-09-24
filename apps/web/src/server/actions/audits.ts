@@ -6,6 +6,7 @@ import { createAuditRepository } from '@cancelaciones/db';
 import { createInsForgeServerClient } from '@/server/insforge/server';
 import { getCurrentUser } from '@/server/auth/session';
 import { uploadEvidenceFilesForAudit } from '@/server/evidence/upload';
+import { enqueueEvidenceProcessingJobs } from '@/server/jobs/enqueue-evidence';
 import { isLocalDemoMode, LOCAL_DEMO_AUDIT_ID, localDemoAudits } from '@/server/local-demo';
 
 export async function listAuditsForCurrentUser() {
@@ -46,6 +47,10 @@ export async function createAudit(formData: FormData) {
   const storedCount = uploadResults.filter((result) => result.status === 'STORED').length;
 
   if (storedCount === 0) throw new Error('No fue posible almacenar ninguna evidencia.');
+
+  // Encolar el procesamiento de las evidencias almacenadas para que el
+  // workspace pueda retomarlas automaticamente tras el redirect.
+  await enqueueEvidenceProcessingJobs({ database: client.database, auditId: audit.id, actorId: user.id });
 
   revalidatePath('/auditorias');
   redirect(`/auditorias/${audit.id}`);
