@@ -104,7 +104,7 @@ function renderAuditDetail({ commentsSaved, audit, manualComments, evidences, ar
       humanDecisionExtract={humanDecisionExtract}
       comparison={comparison}
       adjudication={adjudication}
-      timelineEvents={timelineEvents}
+      timelineEvents={timelineEvents.map((event) => ({ id: event.id, eventType: event.eventType, actorId: event.actorId, createdAt: event.occurredAt, metadata: event.metadata }))}
     />
   );
 }
