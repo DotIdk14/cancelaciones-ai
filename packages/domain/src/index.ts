@@ -1,6 +1,58 @@
 export type AuditStatus = 'DRAFT' | 'READY' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
 export type UserRole = 'AUDITOR' | 'OWNER';
 
+export type DocumentRole = 'EVIDENCE' | 'HUMAN_DECISION_DOCUMENT' | 'ADJUDICATION_EVIDENCE';
+
+export type AuditRunType = 'AI_BASELINE' | 'HUMAN_DECISION' | 'AI_COMPARISON' | 'AI_RECONCILIATION' | 'FINAL_ADJUDICATION';
+export type AuditRunStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
+
+export interface AuditRun {
+  id: string;
+  auditId: string;
+  runType: AuditRunType;
+  status: AuditRunStatus;
+  parentRunId: string | null;
+  factRunId: string | null;
+  engineRunId: string | null;
+  jobId: string | null;
+  policyCode: string | null;
+  policyVersion: string | null;
+  promptVersion: string | null;
+  model: string | null;
+  provider: string | null;
+  inputFingerprint: string | null;
+  result: Record<string, unknown>;
+  createdBy: string;
+  createdAt: string;
+  completedAt: string | null;
+}
+
+export type HumanClaimClassification = 'VERIFIED_FACT' | 'MENTIONED_IN_HUMAN_DECISION' | 'INFERENCE' | 'MISSING_EVIDENCE' | 'UNKNOWN';
+
+export interface HumanClaim {
+  id: string;
+  statement: string;
+  classification: HumanClaimClassification;
+  source?: string;
+}
+
+export type ComparisonStatus = 'MATCH' | 'DISCREPANCY';
+
+export type DiscrepancyType =
+  | 'MISSING_EVIDENCE'
+  | 'EVIDENCE_INTERPRETATION'
+  | 'POLICY_APPLICATION_DIFFERENCE'
+  | 'DATA_EXTRACTION_ERROR'
+  | 'DATE_INTERPRETATION'
+  | 'HUMAN_USED_EXTERNAL_INFORMATION'
+  | 'AI_PROCESSING_ERROR'
+  | 'POSSIBLE_HUMAN_ERROR'
+  | 'INSUFFICIENT_INFORMATION'
+  | 'SOFTWARE_COVERAGE_GAP'
+  | 'UNKNOWN_DISCREPANCY';
+
+export type FinalAdjudicationType = 'CONFIRM_AI' | 'CONFIRM_HUMAN' | 'BOTH_INCORRECT' | 'INSUFFICIENT_INFORMATION' | 'CUSTOM_FINAL_DECISION';
+
 export interface Audit {
   id: string;
   displayName: string | null;
@@ -23,6 +75,7 @@ export interface Evidence {
   storageBucket: string;
   storageKey: string | null;
   status: EvidenceStatus;
+  documentRole: DocumentRole;
   uploadedBy: string;
   createdAt: string;
   updatedAt: string;
@@ -99,7 +152,7 @@ export interface Job {
   createdAt: string;
 }
 
-export type JobType = 'METADATA_PROBE' | 'EVIDENCE_PROCESSING' | 'FACT_EXTRACTION';
+export type JobType = 'METADATA_PROBE' | 'EVIDENCE_PROCESSING' | 'FACT_EXTRACTION' | 'HUMAN_DECISION_EXTRACTION' | 'AI_RECONCILIATION';
 export type JobStatus = 'QUEUED' | 'RUNNING' | 'RETRY_SCHEDULED' | 'SUCCEEDED' | 'FAILED' | 'CANCELLATION_REQUESTED' | 'CANCELLED';
 export type JobErrorKind = 'TRANSIENT' | 'PERMANENT' | 'CANCELLED';
 

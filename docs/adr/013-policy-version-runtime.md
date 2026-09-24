@@ -12,11 +12,12 @@ una corrida histórica porque exista una versión más reciente. El default visi
 para nuevas auditorías puede ser V5, pero sigue siendo un valor seleccionable y
 persistido.
 
-`engine_runs` conserva `policy_code`, `policy_version`, `rules_fingerprint`,
-`facts_fingerprint` y la evaluación serializada. La unicidad lógica usa la
-auditoría, facts, policy y fingerprint para evitar duplicar una misma corrida.
-El endpoint valida que la auditoría pertenezca al usuario antes de leer o crear
-una corrida.
+`engine_runs` conserva `policy_code`, `policy_version`, `policy_code_hash`,
+`rules_fingerprint`, `facts_fingerprint` y la evaluación serializada. La
+unicidad lógica usa la auditoría, facts, hash determinista de `policy_code`, y
+fingerprint para evitar duplicar una misma corrida sin indexar el texto completo
+en btree. El endpoint valida que la auditoría pertenezca al usuario antes de
+leer o crear una corrida.
 
 ## Consecuencias
 

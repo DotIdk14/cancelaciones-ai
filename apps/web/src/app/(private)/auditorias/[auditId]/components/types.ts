@@ -44,6 +44,49 @@ export interface EvidenceRow {
   sizeBytes: number;
   sha256: string | null;
   status: 'PENDING' | 'STORED' | string;
+  documentRole?: 'EVIDENCE' | 'HUMAN_DECISION_DOCUMENT' | 'ADJUDICATION_EVIDENCE' | string;
+}
+
+export interface AuditRunRecord {
+  id: string;
+  runType: string;
+  status: string;
+  jobId: string | null;
+  result: Record<string, unknown>;
+  createdAt: string;
+  completedAt: string | null;
+}
+
+export interface HumanDecisionExtractRecord {
+  id: string;
+  runId: string;
+  evidenceId: string | null;
+  resolution: string | null;
+  decisionDate: string | null;
+  facts: Array<{ id: string; statement: string; classification: string; source?: string }>;
+  externalInformation: string[];
+  createdAt: string;
+}
+
+export interface AuditComparisonRecord {
+  id: string;
+  status: 'MATCH' | 'DISCREPANCY' | string;
+  discrepancyType: string | null;
+  explanation: string | null;
+  aiOutcome: string | null;
+  humanOutcome: string | null;
+  humanResolution: string | null;
+  unverifiedHumanClaims: Array<{ statement: string; classification: string }>;
+  missingEvidence: string[];
+  createdAt: string;
+}
+
+export interface FinalAdjudicationRecord {
+  id: string;
+  adjudicationType: string;
+  finalOutcome: string | null;
+  comment: string | null;
+  createdAt: string;
 }
 
 export interface EvidenceSelectionRecord {

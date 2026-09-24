@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { formatDateTime } from '@/lib/format';
-import type { DictamenDocumentRecord, EvaluatedRule, EvidenceRow, HumanReviewRecord, MissingItem, PolicyEvaluationShape, SnapshotRecord } from './types';
+import type { AuditComparisonRecord, AuditRunRecord, DictamenDocumentRecord, EvaluatedRule, EvidenceRow, FinalAdjudicationRecord, HumanDecisionExtractRecord, HumanReviewRecord, MissingItem, PolicyEvaluationShape, SnapshotRecord, TimelineEvent } from './types';
 import { AuditStatusBadge } from './AuditStatusBadge';
 import { DictamenWorkflow } from './DictamenWorkflow';
 import { HumanReviewCard } from './HumanReviewCard';
@@ -11,7 +11,7 @@ import { ManualCommentsPanel } from './ManualCommentsPanel';
 import { RuleGroupList } from './RuleGroupList';
 import { AuditWorkflow } from '../AuditWorkflow';
 
-type InspectorTab = 'carga' | 'dictamen' | 'reglas' | 'comentarios';
+type InspectorTab = 'carga' | 'dictamen' | 'comparacion' | 'reglas' | 'comentarios';
 
 type TranscriptArtifact = {
   id: string;
@@ -44,6 +44,11 @@ export function AuditWorkspace({
   ruleLabels,
   factRunId,
   demoMode,
+  auditRuns = [],
+  humanDecisionExtract,
+  comparison,
+  adjudication,
+  timelineEvents = [],
 }: {
   audit: AuditHeader;
   status: string;
@@ -62,6 +67,11 @@ export function AuditWorkspace({
   ruleLabels: Record<string, string>;
   factRunId?: string | null;
   demoMode: boolean;
+  auditRuns?: AuditRunRecord[];
+  humanDecisionExtract?: HumanDecisionExtractRecord | null;
+  comparison?: AuditComparisonRecord | null;
+  adjudication?: FinalAdjudicationRecord | null;
+  timelineEvents?: TimelineEvent[];
 }) {
   const [selectedEvidenceId, setSelectedEvidenceId] = useState(evidences[0]?.id ?? '');
   const [tab, setTab] = useState<InspectorTab>(status === 'FROZEN' ? 'dictamen' : 'carga');
@@ -95,7 +105,7 @@ export function AuditWorkspace({
           <div className="flex items-center justify-between border-r border-line px-3 py-2"><span className="font-semibold text-ink">Evidencias</span><span>{evidences.length}</span></div>
           <div className="flex items-center gap-5 px-4 py-2"><span>−</span><span>100%</span><span>＋</span><span>‹</span><span>Pág 3 de 7</span><span>›</span><span className="rounded border border-brand/25 bg-brand/10 px-2 py-1 text-brand">Marcador de regla (1)</span></div>
             <div className="flex items-center gap-1 border-l border-line px-3 py-2">
-              {(['carga', 'dictamen', 'reglas', 'comentarios'] as InspectorTab[]).map((item) => <button key={item} onClick={() => setTab(item)} className={`rounded-md px-3 py-1.5 text-xs capitalize ${tab === item ? 'border border-line bg-surface-2 text-ink' : 'text-muted hover:text-ink'}`}>{item}</button>)}
+              {(['carga', 'dictamen', 'comparacion', 'reglas', 'comentarios'] as InspectorTab[]).map((item) => <button key={item} onClick={() => setTab(item)} className={`rounded-md px-3 py-1.5 text-xs capitalize ${tab === item ? 'border border-line bg-surface-2 text-ink' : 'text-muted hover:text-ink'}`}>{item === 'comparacion' ? 'comparación' : item}</button>)}
           </div>
         </div>
 
@@ -122,6 +132,7 @@ export function AuditWorkspace({
           <aside className="min-h-0 overflow-y-auto border-l border-line bg-surface-1 p-4">
             {tab === 'carga' && <UploadInspector auditId={audit.id} factRunId={factRunId ?? undefined} demoMode={demoMode} />}
             {tab === 'dictamen' && <DictamenInspector auditId={audit.id} resolution={resolution} evaluation={evaluation} humanReview={humanReview} snapshot={snapshot} documents={documents} hasHumanReview={hasHumanReview} />}
+            {tab === 'comparacion' && <ComparisonInspector auditId={audit.id} evidences={evidences} auditRuns={auditRuns} humanDecisionExtract={humanDecisionExtract} comparison={comparison} adjudication={adjudication} timelineEvents={timelineEvents} />}
             {tab === 'reglas' && <RulesInspector rules={rules} missingItems={missingItems} ruleLabels={ruleLabels} onSelectEvidence={(id) => setSelectedEvidenceId(id)} />}
             {tab === 'comentarios' && <ManualCommentsPanel auditId={audit.id} comments={manualComments} saved={commentsSaved} />}
           </aside>
