@@ -10,10 +10,15 @@ export async function middleware(request: NextRequest) {
     return response;
   }
 
-  await updateSession({ requestCookies: request.cookies, responseCookies: response.cookies });
+  const session = await updateSession({
+    baseUrl: process.env.NEXT_PUBLIC_INSFORGE_URL,
+    anonKey: process.env.NEXT_PUBLIC_INSFORGE_ANON_KEY,
+    requestCookies: request.cookies,
+    responseCookies: response.cookies,
+  });
 
   const isPrivatePath = privatePrefixes.some((prefix) => request.nextUrl.pathname.startsWith(prefix));
-  const hasAccessToken = request.cookies.has('insforge_access_token');
+  const hasAccessToken = request.cookies.has('insforge_access_token') || Boolean(session.accessToken);
 
   if (isPrivatePath && !hasAccessToken) {
     return NextResponse.redirect(new URL('/login', request.url));
