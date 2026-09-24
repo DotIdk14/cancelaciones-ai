@@ -3,9 +3,15 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { createAuthActions } from '@insforge/sdk/ssr';
+import { getInsForgeEnv } from '@/server/config/env';
 
 export async function signIn(formData: FormData) {
-  const auth = createAuthActions({ cookies: await cookies() });
+  const env = getInsForgeEnv();
+  const auth = createAuthActions({
+    baseUrl: env.NEXT_PUBLIC_INSFORGE_URL,
+    anonKey: env.NEXT_PUBLIC_INSFORGE_ANON_KEY,
+    cookies: await cookies(),
+  });
   const email = String(formData.get('email') ?? '');
   const password = String(formData.get('password') ?? '');
   const { data, error } = await auth.signInWithPassword({ email, password });
@@ -18,7 +24,12 @@ export async function signIn(formData: FormData) {
 }
 
 export async function signOut() {
-  const auth = createAuthActions({ cookies: await cookies() });
+  const env = getInsForgeEnv();
+  const auth = createAuthActions({
+    baseUrl: env.NEXT_PUBLIC_INSFORGE_URL,
+    anonKey: env.NEXT_PUBLIC_INSFORGE_ANON_KEY,
+    cookies: await cookies(),
+  });
   await auth.signOut();
   redirect('/login');
 }
