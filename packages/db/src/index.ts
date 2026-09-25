@@ -684,10 +684,52 @@ export function createFactRepository(database: DatabaseClient) {
       return mapFactRun(data);
     },
 
+    /**
+     * Congela un Fact Run recorriendo la máquina de estados LEGAL.
+     *
+     * Antes este método hacía `DRAFT -> FROZEN` en un solo `UPDATE`, que es
+     * exactamente lo que `guard_fact_run_transition` (migración
+     * 20260925120000, §10) prohíbe: `FACT_RUN_STATE_TRANSITION_FORBIDDEN`. Con
+     * esa migración aplicada, `POST /api/audits/[auditId]/fact-runs` y el
+     * fixture de `/api/dev/synthetic-case` recibirían 500. Por eso el
+     * recorrido es `DRAFT -> PROCESSING -> FROZEN`, un paso legal por UPDATE.
+     *
+     * NO sella snapshot. El camino que sella es
+     * `freezeFactRunWithSnapshot` (apps/web), que usa `freeze_fact_run_v1` y
+     * calcula el `integrity_hash` en el servidor. Este método queda como la vía
+     * legal mínima para quien no necesita el snapshot, y como la degradación
+     * explícita cuando el RPC todavía no existe.
+     */
     async freezeRun(runId: string): Promise<FactExtractionRun> {
-      const { data, error } = await database.from('fact_extraction_runs').update({ state: 'FROZEN', frozen_at: new Date().toISOString() }).eq('id', runId).eq('state', 'DRAFT').select(runColumns).single();
-      if (error || !data) throw new Error(error?.message ?? 'No fue posible congelar fact run');
-      return mapFactRun(data);
+      const current = await database
+        .from('fact_extraction_runs')
+        .select('id,state')
+        .eq('id', runId)
+        .limit(1);
+      if (current.error) throw new Error(current.error.message ?? 'No fue posible leer fact run');
+      const state = (current.data?.[0] as { state?: string } | undefined)?.state;
+      if (state !== 'DRAFT' && state !== 'PROCESSING') throw new Error(`FACT_RUN_NOT_FREEZABLE: ${state ?? 'NOT_FOUND'}`);
+
+      if (state === 'DRAFT') {
+        const toProcessing = await database
+          .from('fact_extraction_runs')
+          .update({ state: 'PROCESSING' })
+          .eq('id', runId)
+          .eq('state', 'DRAFT')
+          .select(runColumns)
+          .single();
+        if (toProcessing.error || !toProcessing.data) throw new Error(toProcessing.error?.message ?? 'No fue posible congelar fact run');
+      }
+
+      const frozen = await database
+        .from('fact_extraction_runs')
+        .update({ state: 'FROZEN', frozen_at: new Date().toISOString() })
+        .eq('id', runId)
+        .eq('state', 'PROCESSING')
+        .select(runColumns)
+        .single();
+      if (frozen.error || !frozen.data) throw new Error(frozen.error?.message ?? 'No fue posible congelar fact run');
+      return mapFactRun(frozen.data);
     },
 
     async listFactsByRun(runId: string): Promise<StoredFact[]> {

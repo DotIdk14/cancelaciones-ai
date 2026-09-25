@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { createAuditRepository, createEvidenceRepository, createFactRepository, createJobRepository, type DatabaseClient } from '@cancelaciones/db';
 import { stableFingerprint, type ClaimedJob } from '@cancelaciones/domain';
 import { extractFactsFromArtifacts } from '@/server/facts/extract';
+import { freezeFactRunWithSnapshot } from '@/server/facts/fact-run-snapshot';
 import { getServerEnv } from '@/server/config/env';
 import { blobToText } from '@/server/jobs/blob-text';
 import { runHumanDecisionExtraction } from '@/server/human-decision/service';
@@ -20,6 +21,14 @@ type JobHandler = (context: HandlerContext, job: ClaimedJob) => Promise<void>;
 
 const POLICY_CODE = 'GDM_GAM_PRD_MLG_003';
 const POLICY_VERSION = '5';
+/**
+ * `document_id` en `policy_source_registry` (migración 20260925120000, §11).
+ * `freeze_fact_run_v1` y `create_derived_fact_run_v1` lo exigen con
+ * `POLICY_SOURCE_NOT_REGISTERED`: ONLY_OWNER_PROVIDED_POLICY_SOURCES, no se
+ * congela con una fuente que el propietario no haya registrado. Es el mismo
+ * valor que usa el E2E de la fundación de política.
+ */
+const POLICY_SOURCE_ID = 'gdm-gam-prd-mlg-003-local-unverified';
 
 async function updateAuditStatus(database: DatabaseClient, auditId: string, status: 'PROCESSING' | 'COMPLETED' | 'FAILED') {
   const { error } = await database.from('audits').update({ status }).eq('id', auditId);
@@ -173,6 +182,18 @@ const evidenceProcessing: JobHandler = async (context, job) => {
   await enqueueFactExtractionIfReady(context, job.auditId, await actorForAudit(context.database, job.auditId, job.payload));
 };
 
+/**
+ * C1 / Step 7: el congelado pasa por `freeze_fact_run_v1`, que sella el snapshot
+ * de hechos efectivos y pasa el run a FROZEN en la MISMA transacción, con el
+ * `integrity_hash` calculado en el servidor. Antes este handler hacía un
+ * `UPDATE fact_extraction_runs SET state='FROZEN'` a pelo: sin snapshot, y con
+ * la migración aplicada sería un FROZEN que no se puede volver a sellar.
+ *
+ * `freezeFactRunWithSnapshot` degradea solo cuando el RPC NO EXISTE (la
+ * migración aún no está aplicada), y avisa con un código estable. Un error de
+ * negocio del RPC sube al handler y el job queda en retry: no se escribe un
+ * FROZEN sin motivo registrado.
+ */
 const factExtraction: JobHandler = async (context, job) => {
   const runId = String(job.payload.factRunId ?? '');
   const factsRepo = createFactRepository(context.database);
@@ -183,8 +204,13 @@ const factExtraction: JobHandler = async (context, job) => {
   const facts = extractFactsFromArtifacts({ auditId: run.auditId, runId: run.id, artifacts });
   const existingFacts = await factsRepo.listFactsByRun(run.id);
   if (existingFacts.length === 0) await factsRepo.insertFacts(facts);
-  const freeze = await context.database.from('fact_extraction_runs').update({ state: 'FROZEN', frozen_at: new Date().toISOString() }).eq('id', run.id);
-  if (freeze.error) throw new Error(freeze.error.message ?? 'FACT_RUN_FREEZE_FAILED');
+  await freezeFactRunWithSnapshot({
+    database: context.database,
+    factRunId: run.id,
+    actorId: await actorForAudit(context.database, run.auditId, job.payload),
+    policySourceId: POLICY_SOURCE_ID,
+    run,
+  });
   await createJobRepository(context.database).complete(job.jobId, context.workerId, 100);
   await enqueueAuditEvaluation(context, run.auditId, run.id, await actorForAudit(context.database, run.auditId, job.payload));
 };

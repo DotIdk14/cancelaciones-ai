@@ -1,7 +1,7 @@
 import { stableFingerprint } from '@cancelaciones/domain';
 import { describe, expect, it } from 'vitest';
 import { evaluatePolicy } from '@cancelaciones/policy-engine';
-import { mapStoredFactsToPolicyFacts, validateFrozenFactRun } from './frozen-fact-run';
+import { mapSnapshotFactsToPolicyFacts, mapStoredFactsToPolicyFacts, validateFrozenFactRun } from './frozen-fact-run';
 import type { FactExtractionRun, StoredFact } from '@cancelaciones/db';
 
 const frozenRun: FactExtractionRun = {
@@ -44,5 +44,38 @@ describe('frozen fact run policy integration', () => {
     const second = evaluatePolicy({ policyCode: 'GDM_GAM_PRD_MLG_003', policyVersion: '5', facts: policyFacts });
     expect(second.factsFingerprint).toBe(first.factsFingerprint);
     expect(second.rulesFingerprint).toBe(first.rulesFingerprint);
+  });
+});
+
+describe('adapter del snapshot congelado (Step 6)', () => {
+  it('reproduce el mismo array de hechos, y por tanto la misma huella, que la ruta legacy', () => {
+    const legacy = mapStoredFactsToPolicyFacts(facts);
+    const fromSnapshot = mapSnapshotFactsToPolicyFacts([
+      { id: 'fact-1', type: 'contact.effectiveContact', value: false, source: { evidenceId: 'evidence-1', artifactId: 'artifact-1', page: 1 }, extractionConfidence: 0.9 },
+    ]);
+
+    expect(fromSnapshot).toEqual(legacy);
+    expect(stableFingerprint(fromSnapshot)).toBe(stableFingerprint(legacy));
+  });
+
+  it('conserva un valor corregido a proposito, sin reinterpretarlo', () => {
+    const corrected = mapSnapshotFactsToPolicyFacts([
+      { id: 'fact-1', type: 'contact.effectiveContact', value: true, source: { evidenceId: 'evidence-1', artifactId: 'artifact-1', page: 1 }, extractionConfidence: 0.9 },
+    ]);
+    expect(corrected[0].value).toBe(true);
+    expect(stableFingerprint(corrected)).not.toBe(stableFingerprint(mapStoredFactsToPolicyFacts(facts)));
+  });
+
+  it('rechaza un snapshot mal formado en vez de devolver hechos silenciosamente distintos', () => {
+    expect(() => mapSnapshotFactsToPolicyFacts('no-es-un-array')).toThrow('FROZEN_SNAPSHOT_PAYLOAD_INVALID');
+    expect(() => mapSnapshotFactsToPolicyFacts([{ type: 'x', value: 1 }])).toThrow('FROZEN_SNAPSHOT_PAYLOAD_INVALID');
+    expect(() => mapSnapshotFactsToPolicyFacts([{ id: 'x', value: 1 }])).toThrow('FROZEN_SNAPSHOT_PAYLOAD_INVALID');
+    expect(() => mapSnapshotFactsToPolicyFacts([{ id: 'x', type: 'y' }])).toThrow('FROZEN_SNAPSHOT_PAYLOAD_INVALID');
+    expect(() => mapSnapshotFactsToPolicyFacts([null])).toThrow('FROZEN_SNAPSHOT_PAYLOAD_INVALID');
+  });
+
+  it('tolera campos opcionales ausentes sin inventar valores', () => {
+    const minimal = mapSnapshotFactsToPolicyFacts([{ id: 'fact-2', type: 'student.level', value: null }]);
+    expect(minimal[0]).toEqual({ id: 'fact-2', type: 'student.level', value: null });
   });
 });
