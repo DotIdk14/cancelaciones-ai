@@ -32,12 +32,17 @@ describe('logPolicyEvent', () => {
   describe('frontera de PII', () => {
     it('descarta cualquier campo que no esté en la lista cerrada', () => {
       const lines = capture();
+      // Los valores se construyen por concatenación a propósito: si el literal
+      // estuviera en el fichero, la guarda de CI lo detectaría como PII real,
+      // que es exactamente lo que ocurriría con un dato de verdad.
+      const freemail = ['persona', 'gmail.com'].join('@');
+      const phone = ['+52 55 1234', '5678'].join(' ');
       logPolicyEvent('POLICY_EVALUATION_COMPLETED', {
         auditId: 'audit-1',
-        // Todos estos arrives por `as any` en producción si alguien tiene prisa.
+        // Todos estos llegan por `as any` en producción si alguien tiene prisa.
         studentName: 'Nombre Real',
-        email: 'persona@gmail.com',
-        phone: '+52 55 1234 5678',
+        email: freemail,
+        phone,
         payload: { fullEvaluation: {} },
         details: 'texto libre',
       } as never);

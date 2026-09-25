@@ -139,9 +139,9 @@ Measured with `git grep` across all tracked files after the change:
 | Value | Occurrences before | After |
 |---|---|---|
 | `Ana Elena Ruiz Romero` (student name) | 4 across 3 files | **0** |
-| `ruzromeroae@gmail.com` | 2 | **0** |
-| `+526461938482` | 4 | **0** |
-| `5589770707`, `5592522985`, `5592522986`, `5536841474` | 4 | **0** |
+| `ruz…@gmail.com` (correo real, enmascarado) | 2 | **0** |
+| `+52 646 … 8482` (telefono real, enmascarado) | 4 | **0** |
+| cuatro telefonos reales (+52 55 89…707, +52 55 92…985, +52 55 92…986, +52 55 36…474), enumerados en el commit 59025e7 | 4 | **0** |
 
 Files sanitised, structure preserved (UUIDs, JSON structure, SQL shape untouched):
 
@@ -189,21 +189,21 @@ git filter-repo --dry-run \
 
 # expressions.txt (one per line, literal replacement):
 #   Ana Elena Ruiz Romero==>Estudiante Prueba
-#   ruzromeroae@gmail.com==>student.synthetic@example.invalid
-#   +526461938482==>+52 55 0000 0000
-#   5589770707==>55 0000 0000
-#   5592522985==>55 0000 0000
-#   5592522986==>55 0000 0000
-#   5536841474==>55 0000 0000
+#   <correo-real-enmascarado>==>student.synthetic@example.invalid
+#   <telefono-real-enmascarado>==>+52 55 0000 0000
+#   55 89…707==>55 0000 0000   # enmascarado; el valor real esta en el commit 59025e7
+#   55 92…985==>55 0000 0000   # enmascarado
+#   55 92…986==>55 0000 0000   # enmascarado
+#   55 36…474==>55 0000 0000   # enmascarado
 
 # 2. Coordinate: close open PRs, tell collaborators to re-clone.
 # 3. Force-push every affected branch above.
 # 4. Ask GitHub Support to expire the cached views of the old refs.
 
 # 5. Verify nothing real remains:
-git log --all -S'ruzromeroae' --oneline     # expect: no output
-git log --all -S'Ana Elena Ruiz Romero' --oneline
-git log --all -S'5589770707' --oneline
+git log --all -S'<correo-real>' --oneline     # expect: no output
+git log --all -S'<nombre-real>' --oneline
+git log --all -S'<telefono-real>' --oneline
 ```
 
 Until step 3 completes, **HEAD is clean but the repository is not**. Treat the repo
@@ -302,7 +302,7 @@ Foundation. They are pre-existing schema recorded late. Foundation is applied on
 | DEV appkey | `4pw4jdzv-cif` |
 | DEV instance | `nano` |
 | DEV data | 0 audits, 0 facts, 0 runs, 4 test users |
-| CLI auth | `ianjarquin1403@gmail.com` (github) |
+| CLI auth | cuenta de GitHub del propietario (correo enmascarado a proposito: el repositorio es publico) |
 | CLI version | `@insforge/cli` 0.2.8 |
 | `db import` | **FORBIDDEN** with the project key |
 | `db query` | single `SELECT` only; multi-statement and `DO` blocks rejected |
