@@ -105,6 +105,60 @@ function factToStoredShape(fact: Fact): DerivedFact {
   };
 }
 
+/**
+ * Forma que `create_derived_fact_run_v1` espera en `p_facts`.
+ *
+ * MEDIDO contra el backend, no inferido: el RPC inserta los hechos con
+ * `f->>'fact_type'`, `f->>'classification'`, `f->'value'`, `f->>'source_ref'` y
+ * `f->>'confidence'`, y `DerivedFact` usa `factType` y `sourceRef`. Ninguna de
+ * las dos grafías coincide, así que la derivación por RPC fallaba con
+ * `value in column "fact_type" of relation "facts" violates not-null constraint`.
+ *
+ * POR QUÉ EMITE LAS DOS GRAFÍAS Y NO SÓLO LA DEL SERVIDOR
+ * El mismo array `p_facts` tiene DOS consumidores con contratos distintos:
+ *
+ *   1. El `INSERT INTO public.facts` del RPC, que lee las claves de COLUMNA
+ *      (`fact_type`, `source_ref`, `confidence`).
+ *   2. El snapshot, porque el RPC guarda `p_facts` VERBATIM en
+ *      `fact_run_frozen_snapshots.facts`. Y ese snapshot lo lee después
+ *      `mapSnapshotFactsToPolicyFacts`
+ *      (apps/web/src/server/policy/frozen-fact-run.ts:107), que exige
+ *      `id`, `type` y `value`, y lanza `FROZEN_SNAPSHOT_PAYLOAD_INVALID` si
+ *      `type` falta.
+ *
+ * Es decir: un payload sólo snake_case arregla (1) y rompe (2), dejando un
+ * Fact Run derivado sellado e ilegible. Un payload sólo canónico arregla (2) y
+ * deja (1) fallando. Por eso se emiten ambas, y la clave canónica es la que
+ * manda para el motor.
+ *
+ * LO QUE NO HACE
+ *   - No cambia la representación interna del dominio. `DerivedFact` sigue siendo
+ *     camelCase; esto sólo se aplica en el borde del RPC.
+ *   - No toca `value`, `classification` ni `confidence`: se copian tal cual, así
+ *     que ninguna propiedad normativa se altera en el transporte.
+ *   - No toca ninguna huella. `canonicalFactsFingerprint` y
+ *     `effectiveFactsFingerprint` se calculan en otro sitio, sobre los `Fact[]`
+ *     canónicos, no sobre este payload. La forma del payload no puede mover una
+ *     huella.
+ *   - No inventa ids ni evidencia: `id` es el del hecho del padre, que es
+ *     justamente lo que da trazabilidad a la corrección.
+ */
+export function toDerivedFactRpcPayload(facts: DerivedFact[]): Array<Record<string, unknown>> {
+  return facts.map((fact) => ({
+    // Canónico: es lo que lee el motor a través del snapshot.
+    id: fact.id,
+    type: fact.factType,
+    value: fact.value,
+    source: fact.sourceRef,
+    extractionConfidence: fact.confidence,
+    // Columna: es lo que lee el INSERT del RPC.
+    fact_type: fact.factType,
+    classification: fact.classification,
+    source_ref: fact.sourceRef,
+    confidence: fact.confidence,
+  }));
+}
+
 interface DeriveRpcRow {
   out_derived_fact_run_id?: unknown;
   out_derived_snapshot_id?: unknown;
@@ -202,7 +256,7 @@ export async function deriveFactRunFromReviews(input: {
     const result = await input.database.rpc(DERIVE_FACT_RUN_RPC, {
       p_parent_fact_run_id: parent.id,
       p_derivation_reason: derivationReason,
-      p_facts: derivedFacts,
+      p_facts: toDerivedFactRpcPayload(derivedFacts),
       p_provenance: provenance,
       p_policy_source_id: input.policySourceId,
       p_extractor_version: extractorVersion,
