@@ -1,3 +1,7 @@
+export * from './evaluation-envelope';
+export * from './shadow-engine';
+export * from './source-registry';
+
 import { stableFingerprint } from '@cancelaciones/domain';
 
 export * from './comparison';
