@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { canonicalFingerprintV1 } from '@cancelaciones/domain';
-import type { StoredFact, JobArtifact } from '@cancelaciones/db';
+import { createPolicyFoundationRepository, type AiDecisionV1Snapshot, type DatabaseClient, type StoredFact, type JobArtifact } from '@cancelaciones/db';
 import {
   adjudicate, evaluatePolicy, validateCandidateDecision,
   type AdjudicatedResult, type CandidateDecision, type PolicyValidation,
@@ -8,6 +8,7 @@ import {
 import { buildEvidenceGraph, graphStats, graphToPolicyFacts } from './evidence-graph';
 import { runEvidenceInterpreter, type EvidenceInterpreterResult, type FactCandidate } from './evidence-interpreter';
 import { runPolicyReasoner } from './reasoner';
+import { buildAiDecisionV1Snapshot } from './ai-decision-snapshot';
 import {
   assertBlindManifestComplete,
   assertBlindReferencesValid,
@@ -78,6 +79,15 @@ export type BlindAuditResult = AiDecisionV1Record | BlindAuditFailure;
 
 type CompletionFn = (input: { system: string; user: string; json: true }) => Promise<{ content: string; provider: string; model: string }>;
 type InterpreterFetcher = (input: { auditId: string; artifacts: JobArtifact[]; storedFacts: StoredFact[] }) => Promise<EvidenceInterpreterResult>;
+
+/** Inyecciones opcionales del runner BLIND (test / shadow). */
+export type BlindMachineAuditOptions = {
+  candidateFetcher?: () => Promise<CandidateDecision>;
+  interpreterFetcher?: InterpreterFetcher;
+  graphFetcher?: typeof buildEvidenceGraph;
+  complete?: CompletionFn;
+  promptVersionOverride?: string | null;
+};
 
 function hashOf(value: unknown): string {
   return createHash('sha256').update(canonicalFingerprintV1(value)).digest('hex');
@@ -219,13 +229,7 @@ export function isBlindAuditFailure(result: BlindAuditResult): result is BlindAu
   return 'ok' in result && result.ok === false;
 }
 
-export async function runBlindMachineAudit(input: BlindMachineAuditInput & {
-  candidateFetcher?: () => Promise<CandidateDecision>;
-  interpreterFetcher?: InterpreterFetcher;
-  graphFetcher?: typeof buildEvidenceGraph;
-  complete?: CompletionFn;
-  promptVersionOverride?: string | null;
-}): Promise<BlindAuditResult> {
+export async function runBlindMachineAudit(input: BlindMachineAuditInput & BlindMachineAuditOptions): Promise<BlindAuditResult> {
   const { auditId, factRunId, policyCode, policyVersion, storedFacts, artifacts, evidencesForSanitization } = input;
   const createdAt = new Date().toISOString();
   const manifest: BlindInputManifestV1 = buildBlindInputManifest(input);
@@ -414,4 +418,107 @@ export async function runBlindMachineAudit(input: BlindMachineAuditInput & {
     exclusions: exclusionView(sanitizationResult.excluded),
   };
   return record;
+}
+
+// ---------------------------------------------------------------------------
+// Task 8 — persistencia durable del snapshot AI_DECISION_V1
+// ---------------------------------------------------------------------------
+
+/**
+ * Razón de sistema para un fallo de persistencia. Reutiliza el código que ya
+ * existe en el motor (`PERSISTENCE_ERROR`); no se inventa uno nuevo.
+ */
+export const AI_DECISION_V1_PERSISTENCE_ERROR = 'PERSISTENCE_ERROR' as const;
+
+export interface BlindMachineAuditPersistenceOptions {
+  database: DatabaseClient;
+  policySourceId: string;
+  engineVersion: string;
+  extractorVersion: string;
+}
+
+export interface BlindMachineAuditPersisted {
+  status: 'PERSISTED';
+  snapshot: AiDecisionV1Snapshot;
+  record: AiDecisionV1Record;
+}
+
+export interface BlindMachineAuditPersistenceFailure {
+  status: typeof AI_DECISION_V1_PERSISTENCE_ERROR;
+  reasonCode: typeof AI_DECISION_V1_PERSISTENCE_ERROR;
+  message: string;
+  inputFingerprint: string;
+  createdAt: string;
+}
+
+export type RunAndPersistBlindMachineAuditResult =
+  | BlindMachineAuditPersisted
+  | BlindMachineAuditPersistenceFailure
+  | { status: 'AUDIT_FAILURE'; failure: BlindAuditFailure };
+
+/**
+ * Wrapper explícito y NO productivo: corre la auditoría BLIND, construye el
+ * snapshot durable sólo si la auditoría tiene éxito y lo agrega (append-only).
+ *
+ * Un fallo de base de datos produce `PERSISTENCE_ERROR` y NUNCA un outcome
+ * oficial: en ese caso el resultado no lleva `record` ni `snapshot`, de modo que
+ * el llamador no pueda tomar la decisión de máquina como válida.
+ *
+ * No registrar esta función en routes ni en jobs: la tabla
+ * `ai_decision_snapshots` todavía no existe y el Extraction/Shadow sigue
+ * desconectado del pipeline y de la API/UI oficial.
+ */
+export async function runAndPersistBlindMachineAudit(
+  input: BlindMachineAuditInput & BlindMachineAuditOptions & BlindMachineAuditPersistenceOptions,
+): Promise<RunAndPersistBlindMachineAuditResult> {
+  const result = await runBlindMachineAudit(input);
+  if (isBlindAuditFailure(result)) return { status: 'AUDIT_FAILURE', failure: result };
+
+  const snapshot = buildAiDecisionV1Snapshot({
+    auditId: input.auditId,
+    factRunId: input.factRunId,
+    policyCode: input.policyCode,
+    policyVersion: input.policyVersion,
+    policySourceId: input.policySourceId,
+    engineVersion: input.engineVersion,
+    promptVersion: result.promptVersion,
+    extractorVersion: input.extractorVersion,
+    provider: result.provider,
+    model: result.model,
+    inputFingerprint: result.inputFingerprint,
+    decisionSnapshot: {
+      candidate: result.candidate,
+      validation: result.validation,
+      adjudication: result.adjudication,
+    },
+    ruleTraceSnapshot: {
+      verdict: result.validation.verdict,
+      validatedBy: result.validation.validatedBy,
+      ruleRefs: result.candidate.ruleRefs,
+      evaluatedRules: result.adjudication.evaluatedRules,
+      trace: result.adjudication.trace,
+    },
+    evidenceSnapshot: {
+      evidenceRefs: result.candidate.evidenceRefs,
+      evidenceGaps: result.adjudication.evidenceGaps,
+      graph: result.adjudication.graph,
+      exclusions: result.exclusions,
+      inputFingerprint: result.inputFingerprint,
+    },
+    createdAt: result.createdAt,
+  });
+
+  try {
+    await createPolicyFoundationRepository(input.database).appendAiDecisionV1(snapshot);
+  } catch (error) {
+    return {
+      status: AI_DECISION_V1_PERSISTENCE_ERROR,
+      reasonCode: AI_DECISION_V1_PERSISTENCE_ERROR,
+      message: error instanceof Error ? error.message : 'No fue posible persistir el snapshot de decisión AI',
+      inputFingerprint: result.inputFingerprint,
+      createdAt: result.createdAt,
+    };
+  }
+
+  return { status: 'PERSISTED', snapshot, record: result };
 }

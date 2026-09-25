@@ -35,3 +35,6 @@ tmp-render-smoke/
 
 .vercel
 .env*
+
+# SDD: rastreadores de progreso locales de los agentes.
+.superpowers/
