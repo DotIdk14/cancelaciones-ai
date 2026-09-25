@@ -36,7 +36,7 @@ export async function enqueueEvidenceProcessingJobs(input: {
       : input.rerun
         ? 'deterministic-text-v2'
         : 'deterministic-text-v1';
-    const payload = { auditId: input.auditId, evidenceId: evidence.id, sha256: evidence.sha256, version };
+    const payload = { auditId: input.auditId, evidenceId: evidence.id, sha256: evidence.sha256, version, actorId: input.actorId };
     const job = await repository.enqueue({
       auditId: input.auditId,
       jobType: 'EVIDENCE_PROCESSING',

@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
 import { stableFingerprint } from '@cancelaciones/domain';
 import type { StoredFact, JobArtifact } from '@cancelaciones/db';
-import type { EvidenceInterpreterResult, FactCandidate } from './evidence-interpreter';
 import {
   adjudicate, evaluatePolicy, validateCandidateDecision,
   type AdjudicatedResult, type CandidateDecision, type PolicyValidation,
@@ -50,27 +49,16 @@ export interface BlindMachineAuditInput {
 
 /** Resultado de la auditoría a ciegas (éxito V1). */
 export interface AiDecisionV1Record {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   decisionVersion: typeof AI_DECISION_V1;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   aiDecisionHash: string;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   inputFingerprint: string;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   promptVersion: string | null;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   model: string | null;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   provider: string | null;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   candidate: CandidateDecision;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   validation: PolicyValidation;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   adjudication: AdjudicatedResult;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   createdAt: string;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   exclusions: SanitizationExclusion[];
 }
 
