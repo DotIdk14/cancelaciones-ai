@@ -10,7 +10,7 @@ import type { DatabaseClient } from '@cancelaciones/db';
  * Si el read model empezara a "completar" lo que el motor no persistió,
  * devolvería una explicación con apariencia de evidencia que en realidad es una
  * segunda evaluación. Y como esa segunda evaluación puede discrepar de la
- * original, dej we'd be 並存的 dos verdades sobre por qué se decidió. Por eso
+ * original, dejíamos dos verdades sobre por qué se decidió. Por eso
  * aquí se prueba que los huecos se DECLARAN.
  */
 

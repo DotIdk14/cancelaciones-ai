@@ -2,11 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { decideDrainAction, shouldRetryProcess, type QueueJobView } from '@/server/jobs/queue-drain';
 
 type WorkflowState = 'idle' | 'uploading' | 'processing' | 'extracting' | 'evaluating' | 'done' | 'error';
-type QueueJob = { id: string; jobType: string; status: string; progress: number; attemptCount?: number; maxAttempts?: number; lastErrorCode?: string | null; lastErrorMessage?: string | null };
-
-const activeStatuses = new Set(['QUEUED', 'RUNNING', 'RETRY_SCHEDULED']);
+type QueueJob = QueueJobView;
 
 async function readJson(response: Response) {
   const text = await response.text();
@@ -39,17 +38,54 @@ export function AuditWorkflow({ auditId, factRunId, skipAutoResume }: { auditId:
     return jobs ?? [];
   }, [auditId]);
 
+  /**
+   * Drena la cola. POSTea a /api/jobs/process SÓLO cuando hay un job
+   * realmente reclamable (QUEUED).
+   *
+   * ANTES: `activeStatuses` incluía RUNNING y RETRY_SCHEDULED, así que un job
+   * en backoff hacía que esta función repitiera el POST cada ~700 ms hasta
+   * agotar 60 iteraciones. Con `finishPipeline` llamando otra vez a
+   * `waitForJobs`, eran ~120 POSTs por montaje de página, todos con HTTP 200.
+   * Incidente del 2026-09-25, auditoría 4956e983.
+   *
+   * AHORA: la decisión vive en `decideDrainAction`, que es una función pura y
+   * está cubierta por `queue-drain.test.ts`. Aquí no hay ninguna condición de
+   * estado que decidir, sólo polling y llamadas.
+   */
   const waitForJobs = useCallback(async () => {
     for (let attempt = 0; attempt < 60; attempt += 1) {
       const jobs = await refreshQueue();
-      const failed = jobs.find((job) => job.status === 'FAILED');
-      if (failed) throw new Error(failed.lastErrorMessage ?? `No se pudo procesar ${failed.jobType}.`);
-      const active = jobs.some((job) => activeStatuses.has(job.status));
-      if (!active) return;
-      const processResponse = await fetch('/api/jobs/process', { method: 'POST' });
-      if (!processResponse.ok) {
-        const processData = await readJson(processResponse);
-        throw new Error(String(processData.message ?? 'No fue posible ejecutar el siguiente job.'));
+      const action = decideDrainAction(jobs);
+
+      if (action.kind === 'failed') {
+        throw new Error(action.job.lastErrorMessage ?? `No se pudo procesar ${action.job.jobType}.`);
+      }
+      if (action.kind === 'done') return;
+
+      if (action.kind === 'process') {
+        const processResponse = await fetch('/api/jobs/process', { method: 'POST' });
+        if (!processResponse.ok) {
+          const processData = await readJson(processResponse);
+          throw new Error(String(processData.message ?? 'No fue posible ejecutar el siguiente job.'));
+        }
+        // El 200 por sí solo NO significa "sigue". Sólo `processed` lo significa.
+        const result = await readJson(processResponse);
+        if (!shouldRetryProcess(result.status as string | undefined)) {
+          // processed=0, already_running, retry_scheduled, terminal_failure o el
+          // interruptor de coste apagado: en todos esos casos NO se repite.
+          return;
+        }
+        continue;
+      }
+
+      // action.kind === 'wait': hay un job RUNNING o en backoff. Se consulta y
+      // ya está. Volver a POSTear aquí es lo que provocaba el incidente.
+      if (action.reason === 'RETRY_SCHEDULED') {
+        const scheduled = jobs.find((job) => job.status === 'RETRY_SCHEDULED') as (QueueJob & { availableAt?: string | null }) | undefined;
+        const availableAt = scheduled?.availableAt ? Date.parse(scheduled.availableAt) : Number.NaN;
+        const waitMs = Number.isFinite(availableAt) ? Math.min(Math.max(availableAt - Date.now(), 0), 5_000) : 2_000;
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
+        continue;
       }
       await new Promise((resolve) => setTimeout(resolve, 700));
     }
@@ -127,8 +163,18 @@ export function AuditWorkflow({ auditId, factRunId, skipAutoResume }: { auditId:
     void (async () => {
       try {
         const jobs = await refreshQueue();
-        const hasActive = jobs.some((job) => activeStatuses.has(job.status));
-        if (!hasActive) return;
+        // "Hay trabajo" y "el cliente debe pedir que se procese" ya no son la
+        // misma cosa. Un job RUNNING o en backoff NO justifica seguir: se
+        // consulta, y su worker o su backoff se encargan.
+        const action = decideDrainAction(jobs);
+        if (action.kind === 'done' || action.kind === 'failed') {
+          if (action.kind === 'failed') {
+            setState('error');
+            setError(action.job.lastErrorMessage ?? `No se pudo procesar ${action.job.jobType}.`);
+            return;
+          }
+          return;
+        }
         setState('processing');
         setError('');
         setMessage('Retomando el procesamiento pendiente del expediente…');
@@ -210,8 +256,8 @@ export function AuditWorkflow({ auditId, factRunId, skipAutoResume }: { auditId:
     setMessage('Reintentando el analisis con las evidencias ya almacenadas…');
     try {
       const jobs = await refreshQueue();
-      const hasActive = jobs.some((job) => activeStatuses.has(job.status));
-      if (hasActive) {
+      const action = decideDrainAction(jobs);
+      if (action.kind !== 'done') {
         await waitVisible(1200);
         await waitForJobs();
       }
