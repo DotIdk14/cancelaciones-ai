@@ -73,25 +73,6 @@ const POTENTIAL_HUMAN_KEYWORDS = [
   'Resultado', 'resultado', 'decision', 'resolución final',
 ];
 
-/** Extrae todo el texto legible de un artifact para análisis de heurísticas. */
-function extractAllTextFromArtifact(artifact: { result: unknown; evidenceId: string; content?: string }): string {
-  if (!artifact.result) return '';
-  if (artifact.content) return artifact.content;
-
-  const result = artifact.result;
-  if (typeof result === 'string') return result;
-  if (typeof result === 'object' && 'text' in result) return String((result as { text: unknown }).text);
-  if (typeof result === 'object' && 'transcript' in result) return String((result as { transcript: unknown }).transcript);
-
-  // Intentar extraer de extractedFacts o descripción
-  if (typeof result === 'object') {
-    const r = result as Record<string, unknown>;
-    if (r.raw_text) return String(r.raw_text);
-    if (r.description) return String(r.description);
-  }
-  return '';
-}
-
 /**
  * Ejecuta el sanitizador ciego sobre una lista de evidencias.
  * Sólo permite evidencias con document_role = 'EVIDENCE' o sin rol definido.

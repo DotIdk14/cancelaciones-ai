@@ -15,18 +15,6 @@ function jobArtifact(id: string, text: string, extra: Record<string, unknown> = 
   };
 }
 
-const _caveEvidenceTexts = {
-  studentLevel: 'Estudiante',
-  studentName: 'Ana Elena Ruiz Romero',
-  studentEnrollment: 'UTEL-2026-001',
-  effectiveContact: 'SIN CONTACTO EFECTIVO',
-  callAttempts: '45 llamadas observadas; fuente complete',
-  writtenInteractions: '32 interacciones escritas observadas; fuente complete',
-  classroomActivities: 'Sin actividad academica',
-  classroomGrades: 'No existen calificaciones en el bimestre inicial',
-  lastCourseAccess: 'NEVER',
-};
-
 describe('CaVe-30591 E2E BLIND TEST (a partir de evidencia raw)', () => {
   it('debe comenzar desde artifacts raw y no desde storedFacts preconstruidos', async () => {
     // Artifacts raw que simulan evidencia pre-decision (SIN dictamen humano)

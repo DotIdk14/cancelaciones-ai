@@ -1,9 +1,11 @@
 import { createRefreshAuthRouter } from '@insforge/sdk/ssr';
 import { getInsForgeEnv } from '@/server/config/env';
 
-const env = getInsForgeEnv();
-
-export const { POST } = createRefreshAuthRouter({
-  baseUrl: env.NEXT_PUBLIC_INSFORGE_URL,
-  anonKey: env.NEXT_PUBLIC_INSFORGE_ANON_KEY,
-});
+export async function POST(request: Request) {
+  const env = getInsForgeEnv();
+  const router = createRefreshAuthRouter({
+    baseUrl: env.NEXT_PUBLIC_INSFORGE_URL,
+    anonKey: env.NEXT_PUBLIC_INSFORGE_ANON_KEY,
+  });
+  return router.POST(request);
+}

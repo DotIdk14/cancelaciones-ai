@@ -54,6 +54,8 @@ export async function createAudit(formData: FormData) {
 
   if (storedCount === 0) throw new Error('No fue posible almacenar ninguna evidencia.');
 
+  await client.database.from('audits').update({ status: 'PROCESSING' }).eq('id', audit.id);
+
   // Encolar el procesamiento de las evidencias almacenadas para que el
   // workspace pueda retomarlas automaticamente tras el redirect.
   await enqueueEvidenceProcessingJobs({ database: client.database, auditId: audit.id, actorId: user.id });
