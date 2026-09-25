@@ -612,7 +612,9 @@ apliegue a DEV.
 **Ningún secreto se imprimió.** Cuando hubo que confirmar un hecho de entorno se
 reportaron únicamente el hostname y el appkey del proyecto, que no son credenciales.
 
-**Lo que queda sin verificar, y no debe leerse como verificado:**
+**Lo que queda sin verificar, y no debe leerse como verificado** — con una única
+excepción, la última fila, que se **midió** el 2026-09-25 y se lee en R-1 sin cambiar
+el veredicto de `DB VALIDATION`:
 
 | Afirmación | Estado real |
 |---|---|
@@ -621,13 +623,14 @@ reportaron únicamente el hostname y el appkey del proyecto, que no son credenci
 | La ACL deja a `authenticated` sin `UPDATE`/`DELETE` | `BLOCKED` — la sonda que lo comprobaría es `policy_foundation_acl_probe` y no se ha invocado |
 | Los RPC funcionan | `BLOCKED` — ninguno llamado contra un Postgres |
 | Las políticas RLS dejan pasar/denegar lo correcto | `BLOCKED` |
-| **La detección de "objeto ausente" reconoce cómo signaler el backend real que falta una tabla o un RPC** | **`BLOCKED` — ver R-1 más abajo. Supuesto, no verificado.** |
+| **La detección de "objeto ausente" reconoce cómo signaler el backend real que falta una tabla o un RPC** | **`MEDIDO` 2026-09-25 — ver R-1 más abajo. Las tres formas que ve producción se reconocen; el hueco de la denegación RLS bajo sesión sigue sin medirse.** |
 
-#### R-1 La detección de degradación rests sobre una suposición NO verificada
+#### R-1 La detección de degradación: MEDIDA contra el backend real
 
-**Éste es el riesgo abierto más grande de la fase y merece nombre propio.**
+**Este era el riesgo abierto más grande de la fase. Dejó de serlo por medición, y lo
+que queda no es un "supuesto": es un hueco concreto y nombrado.**
 
-`apps/web/src/server/facts/foundation-objects.ts:104` (`isFoundationObjectMissing`) es
+`apps/web/src/server/facts/foundation-objects.ts:178` (`isFoundationObjectMissing`) es
 la función que decide "este objeto de la migración no está en la base de datos". Lo
 hace comparando el `code` y el `message` del error contra un conjunto de patrones
 (`PGRST20[245]`, `42P01`, `42883`, `42703`, `could not find the table|function|column`,
@@ -635,47 +638,105 @@ hace comparando el `code` y el `message` del error contra un conjunto de patrone
 `function <nombre> does not exist`, `undefined_(table|function|column|object)`,
 `Unsupported rpc …`).
 
-**De dónde salen esos patrones, y por qué no son evidencia:** salen de la convención
-de PostgREST/Postgres y de los fakes locales de este repositorio —
-`apps/web/src/server/facts/foundation-fake-db.ts` y el `DurableDb` de
+**De dónde salían esos patrones antes de esta medición, y por qué eran sólo
+convención:** de la convención de PostgREST/Postgres y de los fakes locales de este
+repositorio — `apps/web/src/server/facts/foundation-fake-db.ts` y el `DurableDb` de
 `apps/web/src/server/jobs/audit-queue.e2e.test.ts`, que hardcodean exactamente esas
-cadenas. **Ninguna prueba los ha contrastado contra el backend real de InsForge.**
+cadenas. **Este reporte lo declaraba así, y la afirmación era correcta: ninguna
+prueba los contrastaba contra el backend real de InsForge.**
 
-**Por qué esto sostiene toda la fase:** cada camino nuevo de Tasks 8–10 detecta primero
-si su objeto existe y, si no, degrada al comportamiento previo. Como la migración
-**no está aplicada**, hoy esos objetos están ausentes de verdad, así que **cada
-llamada de producción pasa por esta función y depende de ella para no romperse**. No
-es un componente más: es, hoy, lo único que mantiene el pipeline de evaluación en pie.
+**Qué se midió, y cómo (`2026-09-25`).** Una sonda de **sólo lectura** (`select` y
+`rpc`, sin DDL ni DML) contra el proyecto real de InsForge
+(`4pw4jdzv.us-west.insforge.app`), construida con el cliente de esta misma app
+(`createServerClient` de `@insforge/sdk/ssr`, baseUrl + anon key de `apps/web/.env`,
+camino anon-key). Cuerpos observados, verbatim:
 
-**Qué pasa si la suposición es falsa.** Si el backend real señala una tabla o función
-ausente con una forma distinta, `isFoundationObjectMissing` devuelve `false`, no
-degrada y el error se propaga. Consecuencias concretas, por lectura de código:
+| Sondeo | HTTP | Cuerpo observado | ¿Reconocida? |
+|---|---|---|---|
+| `from('fact_run_frozen_snapshots')…` — tabla ausente | `404` | `{"code":"42P01","details":null,"hint":null,"message":"relation \"public.fact_run_frozen_snapshots\" does not exist"}` | **sí** |
+| `from('fact_extraction_runs').select('parent_fact_run_id')` — columna ausente | `400` | `{"code":"42703","details":null,"hint":null,"message":"column fact_extraction_runs.parent_fact_run_id does not exist"}` | **sí** |
+| `rpc('__probe__')` — RPC ausente | `404` | `{"code":"PGRST202","details":"…no matches were found in the schema cache.","hint":null,"message":"Could not find the function … in the schema cache"}` | **sí** |
+| `from('fact_extraction_runs').select('id').limit(1)` — **control** | `200` | `[]` | — |
 
-- `readFrozenSnapshot` (`apps/web/src/server/facts/fact-run-snapshot.ts:211`) lanza y
-  la lectura del snapshot congelado aborta.
-- `persistPolicyEvaluationAtomically`
-  (`apps/web/src/server/policy/evaluation-persistence.ts:131`) lanza
-  `ENGINE_RUN_INSERT_FAILED`: el pipeline de evaluación de producción se rompe, o el
-  job reintenta indefinidamente.
+El control importa tanto como las otras tres filas: demuestra que auth, conectividad
+y el camino de PostgREST funcionan, así que las tres primeras son **ausencias
+reales**, no una sonda que falla. `isFoundationObjectMissing` devuelve `true` para las
+tres, emparejando por `code` (`42P01`, `42703`, `PGRST202`). Los cuerpos observados
+quedan fijados literalmente en `apps/web/src/server/facts/fact-run-snapshot.test.ts`:
+un refactor que rompa el reconocimiento rompe la suite, no producción.
 
-**Qué la resolvería:** aplicar la migración **elimina** esta dependencia para la lectura
-del snapshot congelado y para los caminos RPC, porque los objetos dejan de faltar y
-la detección deja de ser la puerta que decide entre degradar y romper. **Verificar que
-los patrones coinciden con lo que emite el backend requiere credenciales DEV**, que es
-justo lo que la fase no tiene (`BLOCKED`, ver §24 y el reporte de recovery §13).
+**Por qué esto sostenía toda la fase, y por qué ya no es una apuesta.** Cada camino
+nuevo de Tasks 8–10 detecta primero si su objeto existe y, si no, degrada al
+comportamiento previo. Como la migración **no está aplicada**, hoy esos objetos están
+ausentes de verdad, así que **cada llamada de producción pasa por esta función**. Es,
+hoy, lo único que mantiene el pipeline de evaluación en pie — y la medición dice que
+esa puerta abre como se suponía.
+
+**Corrección de una afirmación anterior, que era FALSA.** Este reporte y la cabecera
+del módulo afirmaban que `error.code` era siempre `undefined` y que, por tanto, los
+patrones de `code` eran inertes. **No es así:** en el camino `from()`/`rpc()` el error
+es un objeto **plano** (`constructor.name === "Object"`, claves propias exactamente
+`["code","details","hint","message"]`) que produce `@supabase/postgrest-js` al parsear
+el cuerpo crudo de la respuesta, y ahí `code` **viene poblado** con el código de
+Postgres/PostgREST. `InsForgeError` —que expone `.error` y ningún `.code`— lo usan
+sólo los caminos del SDK que **no** son PostgREST (auth, storage, edge functions). Por
+eso las tres formas medidas se reconocen principalmente por su `code`. Consecuencia
+menor de la medición: el patrón `/column "[^"]+" does not exist/i` resultó **muerto**
+como emparejador de `message`, porque Postgres emite el nombre de columna sin comillas
+(`column fact_extraction_runs.parent_fact_run_id does not exist`). Se deja en su sitio
+—es inocuo, porque la rama de `code` `42703` ya devuelve `true`— y cambiarlo sin que la
+medición lo obligue sería tocar código que funciona.
+
+**Consecuencias concretas: una estaba mal y se corrige.** Antes se afirmaba, por lectura
+de código, que `readFrozenSnapshot` (`apps/web/src/server/facts/fact-run-snapshot.ts:211`)
+lanzaba y que la lectura del snapshot congelado abortaba. **No lanza:** con el cuerpo
+real `42P01` casa la línea 210, devuelve `{ row: null, tableAbsent: true }` y
+`getFrozenEffectiveFacts` degrada a `source: 'LEGACY_REVIEW_APPLIED'` con
+`persistenceError: null` y un `console.warn` grepable (`FROZEN_SNAPSHOT_TABLE_ABSENT`).
+El pipeline de evaluación **no se rompe**. Está medido y fijado en tests.
+
+La otra consecuencia sigue en pie y sigue **sin remedir**:
+`persistPolicyEvaluationAtomically`
+(`apps/web/src/server/policy/evaluation-persistence.ts:130-131`) lanza
+`ENGINE_RUN_INSERT_FAILED` si su RPC no se reconoce. Esa es **lectura de código, no
+evidencia**: no se ha ejecutado. En la práctica la forma 3 medida (`PGRST202`) sí se
+reconoce, con lo que ese camino degradaría en vez de lanzar, pero no se ha comprobado
+y no se afirma que se haya comprobado.
+
+**El hueco honesto que queda abierto.** La sonda corrió por el camino **anon-key, sin
+sesión de usuario**. **NO se midió la forma de un fallo de PERMISIÓN (denegación RLS)
+bajo sesión autenticada**, así que no se afirma ninguna cobertura sobre ese caso. Es
+coherente con que una denegación RLS llegue como error de negocio (`42501`) y por tanto
+NO ausencia, pero eso es **inferencia** a partir de los tests locales, no medición. Las
+formas que no aparecen en la tabla (`PGRST204/205`, `42883`, el texto `Unsupported rpc
+…` de los fakes locales) siguen sin estar medidas: proceden de la convención.
+
+**Qué NO cambia con esto, y es lo importante: la mitigación real sigue siendo APLICAR
+LA MIGRACIÓN.** Reconocer la forma del error no es la mitigación: es lo que evita que
+un `false` rompa el pipeline **mientras la migración siga sin aplicarse**. La migración
+**elimina** la dependencia para la lectura del snapshot congelado y para los caminos
+RPC, en lugar de confiar en reconocer la forma, y debe venir acompañada de verificación
+en DEV, que la fase no tiene (`BLOCKED`, ver §24 y el reporte de recovery §13). Por eso
+**`DB VALIDATION` sigue `BLOCKED` en todo lo demás** y esta fila no se sube de estado:
+la migración continúa sin aplicarse, ningún trigger, ACL, política RLS ni RPC se ha
+ejecutado, y ningún E2E ha corrido contra una base de datos real. Lo medido fue la
+**forma del error de ausencia**, no el SQL.
 
 **Lo que deliberadamente NO se hizo:** ampliar la lista de patrones para "cubrir más
-casos". Reconocer una forma de error que no se puede observar contra el backend real
-no es endurecer la detección, es adivinar, y convertiría un fallo ruidoso en una
-degradación silenciosa. Ante la duda, la función propaga (`UNKNOWN_IS_NOT_FALSE`, R-3).
+casos". Las tres formas que ve producción están medidas; añadir una forma más sin
+medirla contra el backend real no es endurecer la detección, es adivinar, y
+convertiría un fallo ruidoso en una degradación silenciosa. Ante la duda, la función
+propaga (`UNKNOWN_IS_NOT_FALSE`, R-3).
 
 La primera ejecución real (`test:policy-foundation:dev-e2e` con credenciales DEV)
-reportará probablemente alguna discrepancia de forma o tipo. **Es exactamente por eso
-que la migración no se aplicó a ciegas.**
+reportará probablemente alguna discrepancia —de forma, de tipo o de cobertura de
+permisos—. **Es exactamente por eso que la migración no se aplicó a ciegas.**
 
 **Comandos que NO se ejecutaron en toda la fase:** `npx @insforge/cli` (ningún
 subcomando, incluido `db migrations list`, `new` y `up`), `psql`, cualquier cliente de
-base de datos, cualquier conexión de red a una base de datos.
+base de datos, cualquier DDL o DML. La única conexión de red a la base de datos fue la
+sonda de **sólo lectura** descrita arriba —tres `select`/`rpc` de objeto ausente y un
+control—, por el cliente de la propia app y el camino anon-key: no modificó nada.
 
 ## 25. Normative Divergences Discovered
 
