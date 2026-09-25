@@ -9,6 +9,7 @@ import { DictamenWorkflow } from './DictamenWorkflow';
 import { HumanReviewCard } from './HumanReviewCard';
 import { ManualCommentsPanel } from './ManualCommentsPanel';
 import { DecisionTracePanel } from './DecisionTracePanel';
+import { AuditCostPanel } from './AuditCostPanel';
 import { RuleGroupList } from './RuleGroupList';
 import { AuditWorkflow } from '../AuditWorkflow';
 import { DeleteAuditButton } from '@/components/DeleteAuditButton';
@@ -140,7 +141,7 @@ export function AuditWorkspace({
             {tab === 'comparacion' && <ComparisonInspector auditId={audit.id} evidences={evidences} auditRuns={auditRuns} humanDecisionExtract={humanDecisionExtract} comparison={comparison} adjudication={adjudication} timelineEvents={timelineEvents} />}
             {tab === 'reglas' && <RulesInspector rules={rules} missingItems={missingItems} ruleLabels={ruleLabels} onSelectEvidence={(id) => setSelectedEvidenceId(id)} />}
             {tab === 'comentarios' && <ManualCommentsPanel auditId={audit.id} comments={manualComments} saved={commentsSaved} />}
-            {tab === 'trazabilidad' && <DecisionTracePanel auditId={audit.id} />}
+            {tab === 'trazabilidad' && <div className='space-y-4'><DecisionTracePanel auditId={audit.id} /><AuditCostPanel auditId={audit.id} /></div>}
           </aside>
         </div>
       </div>
