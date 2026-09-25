@@ -1,3 +1,5 @@
+export * from './policy-foundation';
+
 export type AuditStatus = 'DRAFT' | 'READY' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
 export type UserRole = 'AUDITOR' | 'OWNER';
 

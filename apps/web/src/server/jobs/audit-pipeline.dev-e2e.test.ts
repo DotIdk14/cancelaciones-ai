@@ -98,7 +98,8 @@ describe('AUDIT PIPELINE DEV INFRA E2E', () => {
       expect(engineRuns.data).toHaveLength(1);
       expect(ruleResults.data?.length ?? 0).toBeGreaterThan(0);
       expect(reports.data).toHaveLength(1);
-      expect(jobsReloaded.every((job) => job.status === 'COMPLETED' || job.status === 'SUCCEEDED')).toBe(true);
+      const jobStatuses = jobsReloaded.map((job) => String(job.status));
+      expect(jobStatuses.every((status) => status === 'COMPLETED' || status === 'SUCCEEDED')).toBe(true);
 
       const anonymous = createClient({ baseUrl: env.baseUrl, anonKey: env.anonKey });
       const unauthorized = await anonymous.database.from('audits').select('id').eq('id', audit.id).limit(1);

@@ -107,6 +107,9 @@ class DurableDb {
     if (fn === 'claim_next_job') {
       const job = this.table('jobs').find((row) => row.status === 'QUEUED');
       if (!job) return { data: null, error: null };
+      if (!isRow(job) || !isFiniteNumber(job.attempt_count) || !isFiniteNumber(job.max_attempts)) {
+        throw new Error('INVALID_DURABLE_JOB_ROW');
+      }
       job.status = 'PROCESSING';
       job.attempt_count += 1;
       job.worker_id = args.p_worker_id;
@@ -129,6 +132,9 @@ class DurableDb {
     }
     if (fn === 'schedule_job_retry') {
       const job = this.table('jobs').find((row) => row.id === args.p_job_id);
+      if (!isRow(job) || !isFiniteNumber(job.attempt_count) || !isFiniteNumber(job.max_attempts)) {
+        throw new Error('INVALID_DURABLE_JOB_ROW');
+      }
       Object.assign(job, { status: job.attempt_count >= job.max_attempts ? 'FAILED' : 'QUEUED', last_error_code: args.p_error_code, last_error_message_sanitized: args.p_error_message_sanitized });
       await this.flush();
       return { data: null, error: null };
@@ -156,6 +162,14 @@ class DurableStorage {
 }
 
 function now() { return new Date().toISOString(); }
+
+function isRow(value: Row | undefined): value is Row {
+  return typeof value === 'object' && value !== null;
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
 
 describe('AUDIT QUEUE E2E', () => {
   let root = '';
