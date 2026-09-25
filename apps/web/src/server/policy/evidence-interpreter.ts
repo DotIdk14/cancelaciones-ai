@@ -3,99 +3,6 @@ import type { Fact } from '@cancelaciones/policy-engine';
 import type { JobArtifact } from '@cancelaciones/db';
 import { POLICY_FACT_INVENTORY } from '@cancelaciones/policy-engine';
 
-const LOW_CONFIDENCE_THRESHOLD = 0.5;
-
-/** Extrae un fact_type de un valor crudo (texto) usando patrones simples. */
-function tryExtractFactFromRaw(value: unknown, factType: string): { success: boolean; value: unknown; confidence: number; observedText: string } | null {
-  if (value === null || value === undefined || typeof value === 'object' && Array.isArray(value)) return null;
-
-  const text = typeof value === 'string' ? value : String(value);
-  const lower = text.toLowerCase();
-
-  // student.name
-  if (factType === 'student.name') {
-    const match = text.match(/(?:NOMBRE|ESTUDIANTE)\s*[:=-]\s*([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ .'-]{3,})/i);
-    if (match) return { success: true, value: match[1], confidence: 0.8, observedText: match[0] };
-  }
-
-  // student.level
-  if (factType === 'student.level') {
-    const match = text.match(/NIVEL\s*[:=-]\s*(LICENCIATURA|POSGRADO|BACHILLERATO)/i);
-    if (match) return { success: true, value: match[1], confidence: 0.9, observedText: match[0] };
-    // check plain values
-    if (text.toUpperCase() === 'LICENCIATURA' || text.toUpperCase() === 'POSGRADO' || text.toUpperCase() === 'BACHILLERATO')
-      return { success: true, value: text.toUpperCase(), confidence: 0.7, observedText: text };
-  }
-
-  // student.enrollment
-  if (factType === 'student.enrollment') {
-    const match = text.match(/(?:MATR[IÍ]CULA|MATRICULA|ID\s+ALUMNO)\s*[:=-]\s*([A-Z0-9-]+)/i);
-    if (match) return { success: true, value: match[1], confidence: 0.8, observedText: match[0] };
-  }
-
-  // academic.lastCourseAccess
-  if (factType === 'academic.lastCourseAccess') {
-    const lt = lower;
-    if (/nunca|never/.test(lt)) return { success: true, value: 'NEVER', confidence: 0.85, observedText: 'Sin acceso registrado' };
-    if (/siempre|always/.test(lt)) return { success: true, value: 'ALWAYS', confidence: 0.85, observedText: 'Acceso permanente' };
-    // try "Último acceso: X"
-    const m = text.match(/(?:Último|Last)\s+acceso\s*[:=-]\s*(\w+)/i);
-    if (m) return { success: true, value: m[1], confidence: 0.7, observedText: m[0] };
-  }
-
-  // classroom.hasActivities
-  if (factType === 'classroom.hasActivities') {
-    const lt = lower;
-    if (/con\s+actividad/.test(lt)) return { success: true, value: true, confidence: 0.9, observedText: 'Presencia de actividades' };
-    if (/sin\s+actividad|no hay actividad/.test(lt)) return { success: true, value: false, confidence: 0.9, observedText: 'Sin actividades registradas' };
-  }
-
-  // classroom.hasGrades
-  if (factType === 'classroom.hasGrades') {
-    const lt = lower;
-    // patterns indicating grades exist
-    const gradePatterns = [
-      /calificaciones?\s+en\s+el\s+bimestre/i,
-      /califications?\s+in\s+the\s+bimester/i,
-      /existen\s+calificaciones/i,
-      /califications?\s+presentes/i,
-      /no hay notas|sin notas/i,
-    ];
-    const hasGrades = gradePatterns.some(p => p.test(lt));
-    if (hasGrades) return { success: true, value: true, confidence: 0.8, observedText: 'Calificaciones en bimestre inicial' };
-    // patterns indicating no grades
-    const noGradePatterns = [
-      /no\s+calificaciones|sin\s+calificaciones/i,
-      /no hay grade|no grade found/i,
-    ];
-    const noGrades = noGradePatterns.some(p => p.test(lt));
-    if (noGrades) return { success: true, value: false, confidence: 0.8, observedText: 'Sin calificaciones en bimestre inicial' };
-  }
-
-  // contact.effectiveContact
-  if (factType === 'contact.effectiveContact') {
-    const lt = lower;
-    if (/contacto\s+efectiv/.test(lt) || /effective\s+contact/.test(lt))
-      return { success: true, value: true, confidence: 0.9, observedText: 'Contacto efectivo detectado' };
-    if (/no\s+contacto\s+efectiv|sin\s+contacto\s+efectiv|sin\s+contacto\s+efectivo/.test(lt) || /no\s+efectivo/.test(lt))
-      return { success: true, value: false, confidence: 0.9, observedText: 'Sin contacto efectivo' };
-  }
-
-  // contact.callAttempts
-  if (factType === 'contact.callAttempts') {
-    const countMatch = text.match(/(?:LLAMADAS?|CALLS?)\s*[:=-]\s*(\d+)/i);
-    if (countMatch) return { success: true, value: Number(countMatch[1]), confidence: 0.7, observedText: `${countMatch[1]} llamadas` };
-  }
-
-  // contact.writtenInteractions
-  if (factType === 'contact.writtenInteractions') {
-    const countMatch = text.match(/(?:INTERACCIONES?|WRITTEN?)\s*[:=-]\s*(\d+)/i);
-    if (countMatch) return { success: true, value: Number(countMatch[1]), confidence: 0.7, observedText: `${countMatch[1]} interacciones escritas` };
-  }
-
-  return null;
-}
-
 /** Extrae texto observable de un artifact JobArtifact usando extractedFacts o texto. */
 function extractObservedTextFromArtifact(artifact: { result: unknown }, factType: string): string | null {
   const result = artifact.result;
@@ -185,7 +92,7 @@ export async function runEvidenceInterpreter(input: {
   storedFacts?: StoredFact[];
   complete?: () => Promise<{ content: string; provider: string; model: string }>;
 }): Promise<EvidenceInterpreterResult> {
-  const { auditId, artifacts, storedFacts, complete } = input;
+  const { artifacts, storedFacts } = input;
   const candidates: FactCandidate[] = [];
   const fallbacks: Array<{ factType: string; reason: string; artifactId: string }> = [];
   const warnings: string[] = [];
@@ -227,13 +134,10 @@ export async function runEvidenceInterpreter(input: {
 
     for (const factType of neededFactTypes) {
       let foundInArtifact = false;
-      let usedArtifactId = '';
-
       for (const [artId, artifact] of artifactMap) {
         const observed = extractObservedTextFromArtifact(artifact, factType);
         if (observed) {
           foundInArtifact = true;
-          usedArtifactId = artId;
 
           let confidence = 0.7;
           if (artifact.result && typeof artifact.result === 'object') {
