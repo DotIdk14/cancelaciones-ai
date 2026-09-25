@@ -8,11 +8,12 @@ import { AuditStatusBadge } from './AuditStatusBadge';
 import { DictamenWorkflow } from './DictamenWorkflow';
 import { HumanReviewCard } from './HumanReviewCard';
 import { ManualCommentsPanel } from './ManualCommentsPanel';
+import { DecisionTracePanel } from './DecisionTracePanel';
 import { RuleGroupList } from './RuleGroupList';
 import { AuditWorkflow } from '../AuditWorkflow';
 import { DeleteAuditButton } from '@/components/DeleteAuditButton';
 
-type InspectorTab = 'carga' | 'dictamen' | 'comparacion' | 'reglas' | 'comentarios';
+type InspectorTab = 'carga' | 'dictamen' | 'comparacion' | 'reglas' | 'comentarios' | 'trazabilidad';
 
 type TranscriptArtifact = {
   id: string;
@@ -139,6 +140,7 @@ export function AuditWorkspace({
             {tab === 'comparacion' && <ComparisonInspector auditId={audit.id} evidences={evidences} auditRuns={auditRuns} humanDecisionExtract={humanDecisionExtract} comparison={comparison} adjudication={adjudication} timelineEvents={timelineEvents} />}
             {tab === 'reglas' && <RulesInspector rules={rules} missingItems={missingItems} ruleLabels={ruleLabels} onSelectEvidence={(id) => setSelectedEvidenceId(id)} />}
             {tab === 'comentarios' && <ManualCommentsPanel auditId={audit.id} comments={manualComments} saved={commentsSaved} />}
+            {tab === 'trazabilidad' && <DecisionTracePanel auditId={audit.id} />}
           </aside>
         </div>
       </div>

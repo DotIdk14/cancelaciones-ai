@@ -40,6 +40,35 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
     return NextResponse.json({ error: 'FORBIDDEN', message: 'No puede eliminar esta auditoria.' }, { status: 403 });
   }
 
+  // Preflight de inmutabilidad. NO define la política de archivado: esa decisión
+  // sigue siendo del propietario (REQUIRES_OWNER_DECISION: AUDIT_ARCHIVAL_STATE).
+  // Lo que hace aquí es evitar una operación que ya sabemos que va a fallar.
+  //
+  // Con la migración Policy Foundation aplicada, `delete_audit` borra la fila de
+  // `audits` y deja que el FK arrastre en CASCADE. La cascada choca con los
+  // triggers de append-only y aborta:
+  //   fact_run_frozen_snapshots_append_only
+  //     -> ai_decision_snapshots_append_only
+  //     -> audit_evaluation_envelopes_append_only
+  //     -> facts_guard_frozen_run_mutation
+  // Medido contra el backend, no inferido.
+  //
+  // Sin este chequeo, el usuario recibiría un 500 sin explicación. Con él, recibe
+  // un 409 que dice qué pasó y por qué. La diferencia no es cosmética: un 500
+  // parece un fallo del sistema y un 409 es una respuesta.
+  const immutability = await readImmutabilityBlock(client, auditId);
+  if (immutability.blocked) {
+    return NextResponse.json(
+      {
+        error: 'AUDIT_IMMUTABLE',
+        message: 'Esta auditoria ya contiene una evaluacion inmutable y no puede eliminarse por esta via.',
+        detail: immutability.reasons,
+        ownerDecision: 'AUDIT_ARCHIVAL_STATE',
+      },
+      { status: 409 },
+    );
+  }
+
   // Juntamos las llaves de storage antes del borrado en DB (ya no existirán después).
   const storageKeys = await collectStorageKeys(client, auditId);
 
@@ -53,8 +82,32 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
   return NextResponse.json({ deleted: deleted ?? { auditId } }, { status: 200 });
 }
 
-async function readReason(request: NextRequest): Promise<string | null> {
-  try {
+/**
+ * Detecta si la auditoría tiene algo que la hace indeletable por la vía actual.
+ * Sólo LEE. No intenta el borrado para "ver si falla": probar un borrado real
+ * para descubrir que falla sería precisamente el borrado.
+ */
+async function readImmutabilityBlock(
+  client: Awaited<ReturnType<typeof createInsForgeServerClient>>,
+  auditId: string,
+): Promise<{ blocked: boolean; reasons: string[] }> {
+  const reasons: string[] = [];
+  const count = async (table: string, column: string): Promise<number> => {
+    try {
+      const { data, error } = await client.database.from(table).select('id').eq(column, auditId).limit(1);
+      if (error) return 0;
+      return (data ?? []).length;
+    } catch {
+      return 0;
+    }
+  };
+  if (await count('fact_run_frozen_snapshots', 'audit_id')) reasons.push('fact_run_frozen_snapshots');
+  if (await count('ai_decision_snapshots', 'audit_id')) reasons.push('ai_decision_snapshots');
+  if (await count('audit_evaluation_envelopes', 'audit_id')) reasons.push('audit_evaluation_envelopes');
+  return { blocked: reasons.length > 0, reasons };
+}
+
+async function readReason(request: NextRequest): Promise<string | null> {  try {
     const body = await request.json();
     if (body && typeof body === 'object' && typeof (body as Record<string, unknown>).reason === 'string') {
       const reason = (body as Record<string, unknown>).reason as string;
