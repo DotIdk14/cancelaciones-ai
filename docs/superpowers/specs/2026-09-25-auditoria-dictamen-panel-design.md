@@ -156,8 +156,13 @@ Orden de resolución:
    actual. Evita duplicar extracciones cuando el botón se pulsa dos veces seguidas.
 2. `REUSE_FROZEN` — un run `FROZEN` cuyo conjunto de artefactos coincide. Los hechos siguen
    vigentes: no se re-extrae. Es el caso que hoy cumple `DO_NOT_REPROCESS_AI_UNNECESSARILY`.
+   Aun así se reencola `AUDIT_EVALUATION`, porque pudo cambiar `fact_reviews` sin que cambiara
+   la evidencia.
 3. `CREATE` — no hay run vigente. Se crea uno nuevo; `staleFrozen` referencia el anterior para
    trazabilidad.
+
+Un run en `DRAFT|PROCESSING` cuyo conjunto de artefactos **no** coincide se trata como `CREATE`:
+está obsoleto y no debe reutilizarse.
 
 ### Comparación del conjunto de artefactos
 
