@@ -1309,6 +1309,146 @@ export function createDictamenDocumentRepository(database: DatabaseClient) {
 }
 
 // ---------------------------------------------------------------------------
+// Policy Foundation — AI_DECISION_V1 durable e inmutable (append-only)
+// ---------------------------------------------------------------------------
+
+/** Código de error cuando la identidad (audit, version, input fingerprint) ya existe. */
+export const AI_DECISION_V1_ALREADY_EXISTS = 'AI_DECISION_V1_ALREADY_EXISTS' as const;
+
+export const AI_DECISION_SNAPSHOTS_TABLE = 'ai_decision_snapshots' as const;
+
+/**
+ * Snapshot durable de una decisión de máquina. `hash` cubre TODOS los campos
+ * anteriores; la fila es append-only y jamás se actualiza ni se borra.
+ */
+export interface AiDecisionV1Snapshot {
+  auditId: string;
+  factRunId: string;
+  decisionVersion: 'AI_DECISION_V1';
+  policyCode: string;
+  policyVersion: string;
+  policySourceId: string;
+  engineVersion: string;
+  promptVersion: string | null;
+  extractorVersion: string;
+  provider: string | null;
+  model: string | null;
+  inputFingerprint: string;
+  decisionSnapshot: Record<string, unknown>;
+  ruleTraceSnapshot: Record<string, unknown>;
+  evidenceSnapshot: Record<string, unknown>;
+  createdAt: string;
+  hash: string;
+}
+
+interface AiDecisionV1SnapshotRow {
+  audit_id: string;
+  fact_run_id: string;
+  decision_version: AiDecisionV1Snapshot['decisionVersion'];
+  policy_code: string;
+  policy_version: string;
+  policy_source_id: string;
+  engine_version: string;
+  prompt_version: string | null;
+  extractor_version: string;
+  provider: string | null;
+  model: string | null;
+  input_fingerprint: string;
+  decision_snapshot: Record<string, unknown>;
+  rule_trace_snapshot: Record<string, unknown>;
+  evidence_snapshot: Record<string, unknown>;
+  created_at: string;
+  hash: string;
+}
+
+const aiDecisionV1SnapshotColumns = 'audit_id,fact_run_id,decision_version,policy_code,policy_version,policy_source_id,engine_version,prompt_version,extractor_version,provider,model,input_fingerprint,decision_snapshot,rule_trace_snapshot,evidence_snapshot,created_at,hash';
+
+function mapAiDecisionV1Snapshot(row: AiDecisionV1SnapshotRow): AiDecisionV1Snapshot {
+  return {
+    auditId: row.audit_id,
+    factRunId: row.fact_run_id,
+    decisionVersion: row.decision_version,
+    policyCode: row.policy_code,
+    policyVersion: row.policy_version,
+    policySourceId: row.policy_source_id,
+    engineVersion: row.engine_version,
+    promptVersion: row.prompt_version,
+    extractorVersion: row.extractor_version,
+    provider: row.provider,
+    model: row.model,
+    inputFingerprint: row.input_fingerprint,
+    decisionSnapshot: row.decision_snapshot,
+    ruleTraceSnapshot: row.rule_trace_snapshot,
+    evidenceSnapshot: row.evidence_snapshot,
+    createdAt: row.created_at,
+    hash: row.hash,
+  };
+}
+
+/** 23505 = unique_violation de Postgres: la restricción de identidad ya se cumplió. */
+function isUniqueViolation(error: { code?: string | null; message?: string | null } | null | undefined): boolean {
+  if (!error) return false;
+  if (error.code === '23505') return true;
+  return (error.message ?? '').includes('duplicate key value violates unique constraint');
+}
+
+/**
+ * Persistencia de los fundamentos de política.
+ *
+ * `appendAiDecisionV1` es de uso explícito: no hay caller productivo. La
+ * identidad (audit_id, decision_version, input_fingerprint) se comprueba antes
+ * de insertar y además se traduce la violación de unicidad del servidor, de
+ * modo que la fila existente nunca se sobrescribe.
+ */
+export function createPolicyFoundationRepository(database: DatabaseClient) {
+  return {
+    async appendAiDecisionV1(snapshot: AiDecisionV1Snapshot): Promise<AiDecisionV1Snapshot> {
+      const { data: existing, error: readError } = await database
+        .from(AI_DECISION_SNAPSHOTS_TABLE)
+        .select(aiDecisionV1SnapshotColumns)
+        .eq('audit_id', snapshot.auditId)
+        .eq('decision_version', snapshot.decisionVersion)
+        .eq('input_fingerprint', snapshot.inputFingerprint)
+        .limit(1);
+
+      if (readError) throw new Error(readError.message ?? 'No fue posible leer el snapshot de decisión AI');
+      if (Array.isArray(existing) && existing.length > 0) throw new Error(AI_DECISION_V1_ALREADY_EXISTS);
+
+      const { data, error } = await database
+        .from(AI_DECISION_SNAPSHOTS_TABLE)
+        .insert([{
+          audit_id: snapshot.auditId,
+          fact_run_id: snapshot.factRunId,
+          decision_version: snapshot.decisionVersion,
+          policy_code: snapshot.policyCode,
+          policy_version: snapshot.policyVersion,
+          policy_source_id: snapshot.policySourceId,
+          engine_version: snapshot.engineVersion,
+          prompt_version: snapshot.promptVersion,
+          extractor_version: snapshot.extractorVersion,
+          provider: snapshot.provider,
+          model: snapshot.model,
+          input_fingerprint: snapshot.inputFingerprint,
+          decision_snapshot: snapshot.decisionSnapshot,
+          rule_trace_snapshot: snapshot.ruleTraceSnapshot,
+          evidence_snapshot: snapshot.evidenceSnapshot,
+          created_at: snapshot.createdAt,
+          hash: snapshot.hash,
+        }])
+        .select(aiDecisionV1SnapshotColumns)
+        .single();
+
+      if (error) {
+        if (isUniqueViolation({ code: error.code ?? null, message: error.message ?? null })) throw new Error(AI_DECISION_V1_ALREADY_EXISTS);
+        throw new Error(error.message ?? 'No fue posible guardar el snapshot de decisión AI');
+      }
+      if (!data) throw new Error('No fue posible guardar el snapshot de decisión AI');
+      return mapAiDecisionV1Snapshot(data);
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Phase 9 — Comparación IA vs Dictamen humano
 // ---------------------------------------------------------------------------
 

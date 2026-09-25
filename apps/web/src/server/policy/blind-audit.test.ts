@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto';
 import { canonicalFingerprintV1 } from '@cancelaciones/domain';
-import type { JobArtifact } from '@cancelaciones/db';
+import type { DatabaseClient, JobArtifact } from '@cancelaciones/db';
 import { describe, expect, it, vi } from 'vitest';
-import { blindCanonicalInputV1, isBlindAuditResultV1, isBlindAuditFailure, runBlindMachineAudit } from './blind-audit';
+import { blindCanonicalInputV1, isBlindAuditResultV1, isBlindAuditFailure, runAndPersistBlindMachineAudit, runBlindMachineAudit } from './blind-audit';
+import { hashAiDecisionV1Snapshot } from './ai-decision-snapshot';
 import { runEvidenceInterpreter } from './evidence-interpreter';
 import { compareBlindAuditWithHuman } from './comparison-blind';
 
@@ -622,5 +623,153 @@ describe('CaVe-30591 E2E BLIND TEST (a partir de evidencia raw)', () => {
     expect(isBlindAuditFailure(result)).toBe(true);
     if (isBlindAuditFailure(result)) expect(result.kind).toBe('BLIND_INPUT_INVALID');
     expect(interpreterCalled).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 8 — wrapper explicito y NO productivo: runAndPersistBlindMachineAudit
+// ---------------------------------------------------------------------------
+
+interface WrapperFakeOptions {
+  insertError?: { code: string; message: string } | null;
+}
+
+function createWrapperFakeDatabase(options: WrapperFakeOptions = {}) {
+  const rows: Array<Record<string, unknown>> = [];
+  const matches = (row: Record<string, unknown>, filters: Array<[string, unknown]>): boolean =>
+    filters.every(([column, value]) => row[column] === value);
+
+  const database: DatabaseClient = {
+    from(table: string) {
+      if (table !== 'ai_decision_snapshots') throw new Error(`TABLA NO ESPERADA: ${table}`);
+      const filters: Array<[string, unknown]> = [];
+      const selectChain = {
+        select: () => selectChain,
+        eq: (column: string, value: unknown) => {
+          filters.push([column, value]);
+          return selectChain;
+        },
+        limit: async () => ({ data: rows.filter((row) => matches(row, filters)), error: null }),
+      };
+      return {
+        select: () => selectChain,
+        insert: (payload: Array<Record<string, unknown>>) => {
+          const insertChain = {
+            select: () => insertChain,
+            single: async () => {
+              if (options.insertError) return { data: null, error: options.insertError };
+              rows.push(...payload);
+              return { data: payload[0] ?? null, error: null };
+            },
+          };
+          return insertChain;
+        },
+      };
+    },
+  };
+
+  return { database, rows };
+}
+
+const wrapperPersistenceOptions = {
+  policySourceId: 'policy-source-1',
+  engineVersion: 'policy-engine-5.8.0',
+  extractorVersion: 'deterministic-v1',
+};
+
+function successfulBlindAuditInput() {
+  return {
+    auditId: 'audit-blind-persist',
+    factRunId: 'fact-run-1',
+    policyCode: 'GDM_GAM_PRD_MLG_003',
+    policyVersion: '5',
+    storedFacts: [],
+    artifacts: [jobArtifact('a-safe', 'Sin contacto efectivo observado')],
+    evidencesForSanitization: [{ evidenceId: 'evidence-a-safe', document_role: 'EVIDENCE' as const, artifactId: 'a-safe' }],
+    interpreterFetcher: async () => ({
+      candidates: [extractedCandidate()],
+      fallbacks: [],
+      coverage: {},
+      warnings: [],
+    }),
+    candidateFetcher: async () => candidate,
+  };
+}
+
+describe('runAndPersistBlindMachineAudit (wrapper no productivo)', () => {
+  it('persiste el snapshot completo sólo cuando la auditoría tiene éxito', async () => {
+    const fake = createWrapperFakeDatabase();
+
+    const result = await runAndPersistBlindMachineAudit({ ...successfulBlindAuditInput(), ...wrapperPersistenceOptions, database: fake.database });
+
+    expect(result.status).toBe('PERSISTED');
+    if (result.status !== 'PERSISTED') return;
+    expect(fake.rows).toHaveLength(1);
+    expect(result.snapshot).toEqual({
+      auditId: 'audit-blind-persist',
+      factRunId: 'fact-run-1',
+      decisionVersion: 'AI_DECISION_V1',
+      policyCode: 'GDM_GAM_PRD_MLG_003',
+      policyVersion: '5',
+      policySourceId: 'policy-source-1',
+      engineVersion: 'policy-engine-5.8.0',
+      promptVersion: null,
+      extractorVersion: 'deterministic-v1',
+      provider: null,
+      model: 'artifact_fallback_mode',
+      inputFingerprint: result.record.inputFingerprint,
+      decisionSnapshot: {
+        candidate: result.record.candidate,
+        validation: result.record.validation,
+        adjudication: result.record.adjudication,
+      },
+      ruleTraceSnapshot: {
+        verdict: result.record.validation.verdict,
+        validatedBy: result.record.validation.validatedBy,
+        ruleRefs: result.record.candidate.ruleRefs,
+        evaluatedRules: result.record.adjudication.evaluatedRules,
+        trace: result.record.adjudication.trace,
+      },
+      evidenceSnapshot: {
+        evidenceRefs: result.record.candidate.evidenceRefs,
+        evidenceGaps: result.record.adjudication.evidenceGaps,
+        graph: result.record.adjudication.graph,
+        exclusions: result.record.exclusions,
+        inputFingerprint: result.record.inputFingerprint,
+      },
+      createdAt: result.record.createdAt,
+      hash: hashAiDecisionV1Snapshot(result.snapshot),
+    });
+  });
+
+  it('no construye snapshot ni persiste cuando la auditoría falla', async () => {
+    const fake = createWrapperFakeDatabase();
+
+    const result = await runAndPersistBlindMachineAudit({
+      ...successfulBlindAuditInput(),
+      ...wrapperPersistenceOptions,
+      database: fake.database,
+      // evidencesForSanitization ausente: BLIND_INPUT_INVALID garantizado.
+      evidencesForSanitization: undefined,
+    });
+
+    expect(result.status).toBe('AUDIT_FAILURE');
+    if (result.status !== 'AUDIT_FAILURE') return;
+    expect(result.failure.kind).toBe('BLIND_INPUT_INVALID');
+    expect(fake.rows).toHaveLength(0);
+  });
+
+  it('devuelve PERSISTENCE_ERROR y ningún outcome oficial cuando la base falla', async () => {
+    const fake = createWrapperFakeDatabase({ insertError: { code: '57014', message: 'connection terminated unexpectedly' } });
+
+    const result = await runAndPersistBlindMachineAudit({ ...successfulBlindAuditInput(), ...wrapperPersistenceOptions, database: fake.database });
+
+    expect(result.status).toBe('PERSISTENCE_ERROR');
+    if (result.status !== 'PERSISTENCE_ERROR') return;
+    expect(result.reasonCode).toBe('PERSISTENCE_ERROR');
+    expect(result.message).toContain('connection terminated unexpectedly');
+    expect(result).not.toHaveProperty('record');
+    expect(result).not.toHaveProperty('snapshot');
+    expect(fake.rows).toHaveLength(0);
   });
 });
