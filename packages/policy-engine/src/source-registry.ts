@@ -1,11 +1,32 @@
 export type PolicySourceStatus = 'CANONICAL' | 'LEGACY' | 'PENDING_VERIFICATION' | 'SUPERSEDED';
 
+/**
+ * Registro de una fuente normativa.
+ *
+ * Los campos de verificación (`effectiveFrom`, `effectiveTo`, `verifiedBy`,
+ * `verifiedAt`, `notes`) son OPCIONALES a propósito: son opcionales porque la
+ * ausencia de evidencia de verificación NO equivale a una fuente canónica
+ * (UNKNOWN_IS_NOT_FALSE) y porque las fuentes locales del repositorio todavía
+ * no han sido verificadas por el propietario. Al ser opcionales, cualquier
+ * llamador existente que construya un `PolicySourceRecord` sin ellos sigue
+ * compilando sin cambios.
+ */
 export interface PolicySourceRecord {
   policyCode: string;
   policyVersion: string;
   documentId: string;
   sha256: string;
   status: PolicySourceStatus;
+  /** Vigencia declarada por el propietario de la fuente; `null` si se desconoce. */
+  effectiveFrom?: string | null;
+  /** Fin de vigencia declarado; `null` si la fuente sigue vigente o se desconoce. */
+  effectiveTo?: string | null;
+  /** Actor que verificó la fuente contra el original oficial; `null` si nadie la verificó. */
+  verifiedBy?: string | null;
+  /** Instante de la verificación; `null` si nadie la verificó. */
+  verifiedAt?: string | null;
+  /** Nota libre del propietario; nunca se interpreta como criterio normativo. */
+  notes?: string | null;
 }
 
 export interface PolicyRuleReference {
