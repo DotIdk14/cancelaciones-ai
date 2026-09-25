@@ -132,8 +132,11 @@ esta búsqueda lo habría encontrado.
 | `d8e1b67` | 11 | 5 documentos `.md` nuevos: `docs/architecture/{fact-immutability,ai-decision-snapshots,extraction-tools,policy-boundary}.md`, `docs/testing/golden-master.md` |
 | este | 12 | `docs/reports/POLICY-FOUNDATION-REMEDIATION-REPORT.md`, `docs/reports/POLICY-FOUNDATION-RECOVERY-REPORT.md` |
 
-**Ningún `.ts` normativo.** El único fichero de `packages/policy-engine/src/` tocado en
-toda la fase aparte de los módulos nuevos es `index.ts`, con esas 4 líneas.
+**Ningún `.ts` normativo.** En `packages/policy-engine/src/` la fase toca exactamente
+dos ficheros: `index.ts`, con esas 4 líneas, y `source-registry.ts` (Task 9), con 21
+líneas añadidas y 0 borradas que son **tipos opcionales** (`effectiveFrom`,
+`effectiveTo`, `verifiedBy`, `verifiedAt`, `notes`) más comentarios. Los dos son
+aditivos y ninguno toca `evaluatePolicy`, `v5Rules` ni `policySets`.
 
 ### 3.4 Corrección de una afirmación falsa del checkpoint anterior
 
@@ -143,10 +146,17 @@ El reporte anterior afirmaba, textualmente:
 > normativos.»
 
 **Esa afirmación es falsa. `docs/reports/RULE-ENGINE-REFACTOR-REPORT.md` no existe en
-este repositorio.** Verificado de dos formas: `git grep -n "RULE-ENGINE-REFACTOR"`
-devuelve una única coincidencia, y es la propia línea de la afirmación; y una búsqueda
-recursiva de `*RULE-ENGINE-REFACTOR*` en todo el árbol de trabajo —incluidos
-ficheros no trackeados— no encuentra nada.
+este repositorio.** Verificado de dos formas, y el número correcto importa: `git grep -n
+"RULE-ENGINE-REFACTOR"` devuelve **4 coincidencias, todas dentro de este mismo
+reporte** (la cita de la afirmación, su negación y las dos líneas que describen esta
+comprobación) — ninguna fuera de él; y una búsqueda recursiva de
+`*RULE-ENGINE-REFACTOR*` en todo el árbol de trabajo —incluidos ficheros no
+trackeados— no encuentra ningún fichero, ni con ese nombre ni con ese infijo.
+
+Una versión anterior de esta sección decía que el grep devolvía «una única
+coincidencia». Eso era incorrecto y se corrige aquí: son 4. **La conclusión no
+cambia** —el fichero no existe—, pero la cifra se corrige para que quien la
+reproduzca obtenga el mismo resultado que este documento.
 
 No se ha creado ese fichero ni se ha fabricado su historia. Lo que existe en
 `docs/reports/` son trece reportes de fase (`phase-0` … `phase-8`, `cave-30591-*`,
@@ -199,8 +209,9 @@ El caso 12 es un **probe explícito de conflicto no materializado** por el rule 
 actual: fija que hoy no se produce, para que si algún día se produce, salte. No es un
 caso que «pase por casualidad».
 
-**12 casos, 13 tests.** El test adicional es de integridad del corpus (comprueba que las
-claves de la fixture son exactamente las de `goldenCases`) y no es un caso.
+**12 casos, 14 tests.** Los dos tests adicionales no son casos: uno comprueba que las
+claves de la fixture son exactamente las de `goldenCases` (integridad del corpus) y
+otro fija el hash LF-canónico del fichero (§5.2).
 
 ### 5.1 Hash de la fixture — verificado en esta ejecución
 
@@ -225,29 +236,44 @@ LF-canónico, y los dos caminos convergen en él. Es la diferencia de
 171 651 − 168 190 = **3 461 bytes**, exactamente un byte por salto de línea: la
 coherencia numérica confirma que no hay ninguna otra diferencia.
 
-### 5.2 Debilidad conocida y honesta del hash de fichero
+### 5.2 El hash de fichero: cerrado en código (era una debilidad abierta)
 
-**El SHA-256 de la fixture está documentado pero NO está fijado en código.** Verificado:
-`git grep -n "38e29f44"` devuelve coincidencias sólo en
-`docs/testing/golden-master.md` y en este reporte. **Ningún `.ts` lo contiene.**
+**Estado anterior — defecto real y reconocido.** El SHA-256 de la fixture estaba
+documentado pero **no fijado en código**: `golden-master.test.ts` leía el JSON, lo
+parseaba y comparaba, sin nunca hashearlo. Consecuencia precisa, no teórica: el test
+hace `expect(actual).toEqual(expected[name])` sobre el objeto **ya parseado**, así que
+una edición que sólo cambie el espaciado, el orden de claves o un salto de línea del
+JSON dejaba el objeto parseado **idéntico**, `toEqual` seguía pasando, y la edición
+**pasaba inadvertida**.
 
-Consecuencia precisa, no teórica: el test hace `expect(actual).toEqual(expected[name])`
-sobre el objeto **ya parseado**. Una edición que sólo cambie el espaciado, el orden de
-claves o un salto de línea del JSON deja el objeto parseado **idéntico**, así que
-`toEqual` sigue pasando, y el hash de fichero —que sí lo detectaría— no se está
-comprobando. Es decir: **una edición de ese tipo pasaría inadvertida**, y el único control
-que la habría pillado es el que no está automatizado.
+**Estado actual: cerrado.** `packages/policy-engine/src/golden-master.test.ts` tiene
+ahora un `it` más —`fija el hash canonico-LF de la fixture: una edicion de bytes
+sucios falla aqui`— que lee los bytes, normaliza CRLF→LF y compara el SHA-256 con el
+literal `GOLDEN_MASTER_FIXTURE_SHA256_LF`.
 
-**Dónde iría el arreglo:** en
-`packages/policy-engine/src/testdata/../golden-master.test.ts` —concretamente junto al
-test de integridad del corpus que ya existe en ese fichero, justo después de la línea
-que hace `readFileSync(new URL('./testdata/golden-master-v1.json', import.meta.url), 'utf8')`
-—añadiendo un `it(...)` que lea los bytes crudos, normalice CRLF→LF y compare el
-SHA-256 con el literal. Son unas pocas líneas. **No se añadieron** porque esta fase es
-de reportes y ese fichero es `.ts`.
+**Por qué normaliza a LF y no hashea el fichero en crudo:** `core.autocrlf=true`
+significa que en Windows el fichero en disco tiene CRLF y su hash crudo es
+`51ca6b08…d210`, no el valor canónico. Asertar el hash crudo habría producido un test
+que **falla en Windows y pasa en Linux**: dependiente de la plataforma, que es peor
+que no tenerlo. El test calcula el hash LF-canónico, que es el de los bytes que Git
+guarda, así que **el mismo valor sirve en los dos sistemas**.
 
-**Mitigación actual:** el hash está documentado en dos sitios y verificado en cada
-ejecución de la matriz. Es un control humano, no un control automatizado.
+**Verificado con RED→GREEN, no inferido.** Se perturbó temporalmente la fixture con una
+edición de **sólo espacios en blanco** (un byte `0x20` al final, que `JSON.parse`
+acepta y por tanto `toEqual` no puede notar):
+
+| Momento | Resultado |
+|---|---|
+| Fixture perturbada | **13 passed, 1 failed** — los 13 existentes en verde, **sólo el nuevo en rojo**. Hash LF perturbado `f7c99477…f45` |
+| Fixture restaurada byte a byte | **14 passed (14)**, exit 0. Hash LF `38e29f44…d76`, `git diff` de `testdata/` **vacío** |
+
+Que los 13 tests existentes siguieran en verde con la fixture perturbada es la prueba
+de que el defecto era real: la perturbación era invisible para ellos. La
+perturbación **no** se commiteó.
+
+**Recuento del suite:** 12 casos + 1 test de integridad del corpus + 1 test de hash =
+**14 tests**. Ninguna aserción previa se cambió, se debilitó, se borró ni se reordenó, y
+`golden-master-cases.ts` no se tocó.
 
 ## 6. Frozen Fact Run Immutability
 
@@ -500,10 +526,14 @@ Delta de la fase completa: **225 → 319 tests (+94)**.
 |---|---|---|---|
 | `packages/domain` | 14 | 14 | 0 |
 | `packages/db` | 8 | 14 | +6 |
-| `packages/policy-engine` | 56 | 56 | 0 |
+| `packages/policy-engine` | 56 | **57** | **+1** |
 | `packages/reporting` | 26 | 26 | 0 |
 | `apps/web` | 121 | **209** | +88 |
-| **Total** | **225** | **319** | **+94** |
+| **Total** | **225** | **320** | **+95** |
+
+El `+1` de `packages/policy-engine` **no** es normativo: es el test de hash de la
+fixture añadido tras la revisión final (§5.2). No toca `evaluatePolicy` y sólo lee
+bytes.
 
 Añadidos por Tasks 8–12: `ai-decision-snapshot.test.ts` (36, Task 8),
 `fact-run-snapshot.test.ts` (13), `human-correction.test.ts` (7),
@@ -512,29 +542,31 @@ Añadidos por Tasks 8–12: `ai-decision-snapshot.test.ts` (36, Task 8),
 `fact-runs/route.test.ts` (5), `handlers.freeze.test.ts` (4),
 `fact-run-snapshot.dev-e2e.test.ts` (1, `BLOCKED`).
 
-El Golden Master sigue en 13/13 con la fixture **sin tocar**.
+El Golden Master sigue en 14/14 con la fixture **sin tocar**.
 
 ## 23. Regression Results
 
-**Matriz final ejecutada en esta sesión. Códigos de salida reales.**
+**Matriz re-ejecutada tras la corrección de los hallazgos de la revisión final.
+Códigos de salida reales, no heredados.**
 
 | # | Comando | Exit | Veredicto | Conteo |
 |---|---|---|---|---|
 | 1 | `pnpm.cmd typecheck` | **0** | `PASS` | 5 paquetes, `apps/web tsc --noEmit` limpio |
 | 2 | `pnpm.cmd lint` | **0** | `PASS` | `eslint . --max-warnings=0` → 0 errores, 0 warnings |
-| 3 | `pnpm.cmd test` | **0** | `PASS` | **319 tests** (domain 14, db 14, policy-engine 56, reporting 26, web 209 / 27 archivos) |
-| 4 | `pnpm.cmd build` | **0** | `PASS` | Next 15.5.26, `✓ Compiled successfully`, 39 rutas |
-| 5 | `pnpm.cmd --filter @cancelaciones/policy-engine exec vitest run src/golden-master.test.ts` | **0** | `PASS` | **13/13** tests, fixture sin tocar |
+| 3 | `pnpm.cmd test` | **0** | `PASS` | **320 tests** (domain 14, db 14, policy-engine **57**, reporting 26, web 209 / 27 archivos) |
+| 4 | `pnpm.cmd build` | **0** | `PASS` | Next 15.5.26, compilación limpia, 39 rutas |
+| 5 | `pnpm.cmd --filter @cancelaciones/policy-engine exec vitest run src/golden-master.test.ts` | **0** | `PASS` | **14/14** tests, fixture sin tocar |
 | 6 | `pnpm.cmd --filter @cancelaciones/web run test:audit:e2e` | **0** | `PASS` | **5/5** tests |
-| 7 | `pnpm.cmd --filter @cancelaciones/web run test:audit:dev-e2e` | **1** | **`BLOCKED`** | 1 test, `DEV_INFRA_NOT_CONFIGURED` |
-| 8 | `pnpm.cmd --filter @cancelaciones/web run test:governance:dev-e2e` | **1** | **`BLOCKED`** | 1 test, `DEV_INFRA_NOT_CONFIGURED` |
-| 9 | `pnpm.cmd --filter @cancelaciones/web run test:policy-foundation:dev-e2e` | **1** | **`BLOCKED`** | 1 test, `DEV_INFRA_NOT_CONFIGURED` |
 
-**Resumen: 6 `PASS`, 0 `FAIL`, 3 `BLOCKED`.**
+**El delta de 319 → 320 es exactamente el test de hash de la fixture (§5.2):** +1 en
+`packages/policy-engine` (56 → 57), cero cambios en los otros cuatro paquetes.
 
-Sobre las filas 7–9, que es donde es fácil engañarse: **el resultado correcto y esperado
-es exit no-cero con `DEV_INFRA_NOT_CONFIGURED`.** No es un fallo que haya que explicar
-ni un `PASS` que haya que disfrazar. Es `BLOCKED`, y esa es la única lectura honesta. El
+**Sobre las filas 7–9 (E2E de DEV), que es donde es fácil engañarse: el resultado
+correcto y esperado es exit no-cero con `DEV_INFRA_NOT_CONFIGURED`.** No es un fallo
+que haya que explicar ni un `PASS` que haya que disfrazar. Es `BLOCKED`, y esa es la
+única lectura honesta. No se re-ejecutaron en esta corrección porque su resultado no
+depende de ningún cambio de esta rama: dependen de credenciales DEV, que siguen
+ausentes. El resumen de esta matriz es **5 `PASS`, 0 `FAIL`, 3 `BLOCKED`**. El
 mensaje literal es:
 
 ```
@@ -589,6 +621,53 @@ reportaron únicamente el hostname y el appkey del proyecto, que no son credenci
 | La ACL deja a `authenticated` sin `UPDATE`/`DELETE` | `BLOCKED` — la sonda que lo comprobaría es `policy_foundation_acl_probe` y no se ha invocado |
 | Los RPC funcionan | `BLOCKED` — ninguno llamado contra un Postgres |
 | Las políticas RLS dejan pasar/denegar lo correcto | `BLOCKED` |
+| **La detección de "objeto ausente" reconoce cómo signaler el backend real que falta una tabla o un RPC** | **`BLOCKED` — ver R-1 más abajo. Supuesto, no verificado.** |
+
+#### R-1 La detección de degradación rests sobre una suposición NO verificada
+
+**Éste es el riesgo abierto más grande de la fase y merece nombre propio.**
+
+`apps/web/src/server/facts/foundation-objects.ts:104` (`isFoundationObjectMissing`) es
+la función que decide "este objeto de la migración no está en la base de datos". Lo
+hace comparando el `code` y el `message` del error contra un conjunto de patrones
+(`PGRST20[245]`, `42P01`, `42883`, `42703`, `could not find the table|function|column`,
+`relation "…" does not exist`, `column "…" does not exist`,
+`function <nombre> does not exist`, `undefined_(table|function|column|object)`,
+`Unsupported rpc …`).
+
+**De dónde salen esos patrones, y por qué no son evidencia:** salen de la convención
+de PostgREST/Postgres y de los fakes locales de este repositorio —
+`apps/web/src/server/facts/foundation-fake-db.ts` y el `DurableDb` de
+`apps/web/src/server/jobs/audit-queue.e2e.test.ts`, que hardcodean exactamente esas
+cadenas. **Ninguna prueba los ha contrastado contra el backend real de InsForge.**
+
+**Por qué esto sostiene toda la fase:** cada camino nuevo de Tasks 8–10 detecta primero
+si su objeto existe y, si no, degrada al comportamiento previo. Como la migración
+**no está aplicada**, hoy esos objetos están ausentes de verdad, así que **cada
+llamada de producción pasa por esta función y depende de ella para no romperse**. No
+es un componente más: es, hoy, lo único que mantiene el pipeline de evaluación en pie.
+
+**Qué pasa si la suposición es falsa.** Si el backend real señala una tabla o función
+ausente con una forma distinta, `isFoundationObjectMissing` devuelve `false`, no
+degrada y el error se propaga. Consecuencias concretas, por lectura de código:
+
+- `readFrozenSnapshot` (`apps/web/src/server/facts/fact-run-snapshot.ts:211`) lanza y
+  la lectura del snapshot congelado aborta.
+- `persistPolicyEvaluationAtomically`
+  (`apps/web/src/server/policy/evaluation-persistence.ts:131`) lanza
+  `ENGINE_RUN_INSERT_FAILED`: el pipeline de evaluación de producción se rompe, o el
+  job reintenta indefinidamente.
+
+**Qué la resolvería:** aplicar la migración **elimina** esta dependencia para la lectura
+del snapshot congelado y para los caminos RPC, porque los objetos dejan de faltar y
+la detección deja de ser la puerta que decide entre degradar y romper. **Verificar que
+los patrones coinciden con lo que emite el backend requiere credenciales DEV**, que es
+justo lo que la fase no tiene (`BLOCKED`, ver §24 y el reporte de recovery §13).
+
+**Lo que deliberadamente NO se hizo:** ampliar la lista de patrones para "cubrir más
+casos". Reconocer una forma de error que no se puede observar contra el backend real
+no es endurecer la detección, es adivinar, y convertiría un fallo ruidoso en una
+degradación silenciosa. Ante la duda, la función propaga (`UNKNOWN_IS_NOT_FALSE`, R-3).
 
 La primera ejecución real (`test:policy-foundation:dev-e2e` con credenciales DEV)
 reportará probablemente alguna discrepancia de forma o tipo. **Es exactamente por eso
@@ -619,7 +698,7 @@ ese comportamiento sea el correcto.
 
 ## 26. Remaining Risks
 
-Los seis concerns abiertos, cada uno con su disposición. **Ninguno se suavizó.**
+Los siete concerns abiertos, cada uno con su disposición. **Ninguno se suavizó.**
 
 ### 26.1 Un Fact Run FROZEN legacy no tiene ruta de escritura de su snapshot
 **`BLOCKED` — decisión del propietario.**
@@ -694,6 +773,37 @@ Consecuencia honesta: con la migración aplicada, congelar exigiría que ese doc
 registrado, y si el propietario lo purga el congelado fallará con
 `POLICY_SOURCE_NOT_REGISTERED`.
 
+### 26.7 Una segunda corrección desde el mismo padre choca con el índice de idempotencia
+**Documentado. No arreglado. No se cambió el endpoint.**
+
+`POST /api/audits/[auditId]/fact-reviews` con `correctedValue` crea de verdad un
+`fact_extraction_runs` derivado, filas `facts` nuevas y lo deja `FROZEN`. Nada
+encola una evaluación para ese run, así que es **inerte**: no cambia ningún outcome
+y el resultado del run padre no se mueve.
+
+Lo que no es evidente es que una **segunda** corrección desde el **mismo** padre
+choca con `fact_extraction_runs_idempotency_hash_idx`. Es estructural: las cinco
+columnas del índice se derivan del padre y `derivedExtractorVersion` produce
+`` `${parentExtractorVersion}+human-correction` `` de forma determinista, sin
+contador. Dos correcciones sobre el mismo padre generan la misma tupla.
+
+- **Con el RPC disponible:** no ocurre — `create_derived_fact_run_v1` lo valida y
+  devuelve `DERIVED_RUN_IDEMPOTENCY_COLLISION`.
+- **Sin el RPC (el caso de hoy):** nadie lo comprueba y salta el `23505` de
+  Postgres. Se captura, y la ruta responde **201** con `derivedFactRunId: null`,
+  `derivation.status: 'FAILED'`, `code: 'DERIVED_FACT_RUN_FAILED'` y el mensaje
+  real, más un `console.warn`. La review queda guardada (append-only, correcto); lo
+  que se pierde es el run derivado.
+
+**Por qué no se cambió el endpoint:** un 500 invitaría a reintentar y duplicaría
+evidencia, y la respuesta 201 sin run derivado es ya la forma deliberada de §9.3
+de `docs/architecture/fact-immutability.md`. **Por qué es un concern abierto:** el
+coste es de observabilidad. Un `23505` esperado llega al operador con forma de
+fallo de derivación, y nada en la respuesta distingue "el padre ya tenía una
+corrección" de "la derivación se rompió". **Pendiente y sin decidir:** sufijo
+único por corrección, o comprobación previa que traduzca el `23505`, o devolver el
+run derivado existente. Detalle en `docs/architecture/fact-immutability.md` §12.1.
+
 ## 27. Remaining Blockers
 
 | # | Blocker | Tipo | Quién lo resuelve |
@@ -704,11 +814,31 @@ registrado, y si el propietario lo purga el congelado fallará con
 | 4 | **DELETE de FROZEN por el propietario de la tabla** (§26.3). | Diseño | Propietario |
 | 5 | **Fuente normativa sin verificar** — no hay fuente `CANONICAL`. | Normativo | Propietario |
 | 6 | **7 divergencias normativas** sin corregir (§25). | Normativo | Propietario |
-| 7 | **`api/dev/synthetic-case` inserta directo en `engine_runs`**, que con la migración aplicada estará revocado. No se tocó: fuera del alcance. | Código | Propietario, antes de aplicar la migración |
-| 8 | **Tres sitios se romperán al aplicar la migración** si no secoordinate: el RPC de persistencia (ya integrado en Task 10), `freezeRun` (ya corregido en Task 10) y `synthetic-case` (sin tocar). | Código | Propietario |
+| 7 | **`api/dev/synthetic-case` se rompe por DOS causas independientes al aplicar la migración**, no por una: (a) su `INSERT` directo en `engine_runs` (§10, línea ~248), revocado; y (b) su llamada `factsRepo.freezeRun(run.id)` (~línea 237), que hace un `UPDATE` directo sobre `fact_extraction_runs` y con la migración está revocado. No se tocó ninguno de los dos: fuera del alcance. | Código | Propietario, antes de aplicar la migración |
+| 8 | **Tres sitios se romperán al aplicar la migración** si no se coordinan: el RPC de persistencia (**ya integrado en Task 10**), `freezeRun` (**NO está corregido para esta migración**) y `synthetic-case` (sin tocar, y con dos roturas). | Código | Propietario |
 
-Sobre el punto 7, conviene ser explícito: **es el tercer sitio que se romperá al
-aplicar la migración** y no se ha corregido. No estaba en el alcance de ninguna tarea.
+**Corrección de una afirmación anterior de este reporte.** Una versión previa de esta
+sección decía que `freezeRun` estaba «ya corregido en Task 10». **Eso es incorrecto y
+se retira.** Lo que Task 10 corrigió fue otra cosa: `createFactRepository.freezeRun`
+hacía `DRAFT→FROZEN` en un único `UPDATE`, que el trigger `guard_fact_run_transition`
+prohíbe, y ahora recorre `DRAFT→PROCESSING→FROZEN` (ver §6). Eso arregla el error de
+**transición de estado** contra el trigger. **No arregla el problema de permisos**, y
+ese es el que la migración introduce:
+
+- `migrations/20260925120000_policy-foundation-immutability.sql:752` ejecuta
+  `REVOKE UPDATE, DELETE ON public.facts, public.fact_extraction_runs FROM anon, authenticated;`
+- `apps/web/src/app/api/dev/synthetic-case/route.ts:237` sigue llamando
+  `factsRepo.freezeRun(run.id)`, que hace un `UPDATE` directo sobre
+  `fact_extraction_runs` (no pasa por `freeze_fact_run_v1`).
+
+Con la migración aplicada esa llamada falla con **`42501 permission denied`**, no con
+un error de transición de estado. Son dos fallos distintos y corregir uno no corrige el
+otro.
+
+**Sobre el punto 7, conviene ser explícito:** `synthetic-case` es el **tercer** sitio
+que se rompe al aplicar la migración y tiene **DOS roturas independientes** — el
+`INSERT` en `engine_runs` y el `UPDATE` de `freezeRun` —, no una. Ninguna se ha
+corregido. No estaba en el alcance de ninguna tarea.
 
 ## 28. Readiness for Declarative Rules
 
@@ -769,7 +899,7 @@ Orden recomendado cuando haya autorización:
 | Capability | Status | Evidence |
 |---|---|---|
 | Policy source canonical | **BLOCKED** | registry existe (4 tests); la fuente local sigue `PENDING_VERIFICATION`. Ningún documento la marca `CANONICAL`. |
-| Golden Master | **PASS** | `golden-master.test.ts` **13/13** exit 0; 12 casos; fixture hash LF `38e29f44…d76` verificado por 2 métodos. Debilidad documentada en §5.2. |
+| Golden Master | **PASS** | `golden-master.test.ts` **14/14** exit 0; 12 casos; fixture hash LF `38e29f44…d76` verificado por 2 métodos **y ahora fijado en código** (§5.2). |
 | Frozen Fact Runs immutable | **BLOCKED** | 4 triggers + RPC + tabla append-only **escritos** en la migración; **no** ejecutados. En código, máquina de estados legal recorrida y `DRAFT→FROZEN` corregido (test). |
 | AI_DECISION_V1 durable | **BLOCKED** | `appendAiDecisionV1` + hash de 16 campos existen y tienen 36 tests. La **tabla no existe**; unicidad = check-then-act, no restricción. |
 | AI_DECISION_V1 immutable | **BLOCKED** | `REVOKE` + trigger + índice único escritos. **Ninguno ejecutado.** |
@@ -782,7 +912,7 @@ Orden recomendado cuando haya autorización:
 | Evidence ref validation | **PASS** | `evidence-reference-validation.test.ts` **8/8` — allowlist, roles BLIND, huérfanas, hash de artifact. |
 | Blind sanitization | **PASS** | `blind-evidence-sanitizer.test.ts` **11/11** — manifest fail-closed, `return false` por defecto. No es garantía criptográfica (§19). |
 | Stable fingerprints | **PASS** | fingerprints reproducibles sin IDs/timestamps operativos; aserción por caso en el Golden Master. |
-| Golden tests | **PASS** | **13/13** con la fixture sin tocar; hash verificado. |
+| Golden tests | **PASS** | **14/14** con la fixture sin tocar; hash verificado y fijado en código. |
 | Shadow engine boundary | **PASS** | `shadow-engine.test.ts` **4/4**; `authoritative: false` forzado, runner `Object.freeze`d sin persistencia, **cero caller productivo** (grep exit 1). |
 | Declarative migration ready | **NO** | SQL escrito y commiteado pero **no aplicado**; DB validation `BLOCKED`; fuente normativa sin verificar; 7 divergencias abiertas. |
 | LLM extraction tools ready | **NO** | Frontera técnica lista, pero las 2 herramientas tienen **cero callers** y las garantías de producción (migración, RLS, E2E DEV) siguen sin verificar. |

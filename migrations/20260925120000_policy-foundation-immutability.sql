@@ -142,6 +142,13 @@ LANGUAGE plpgsql
 AS $$
 BEGIN
   RAISE EXCEPTION 'POLICY_SOURCE_APPEND_ONLY: %', OLD.document_id;
+  -- INALCANZABLE: el RAISE de arriba siempre aborta la sentencia. El RETURN
+  -- está sólo para que plpgsql no pueda alcanzar el final de la función si algún
+  -- día se cambiara el RAISE por un aviso; sin él, ese día el trigger fallaría
+  -- con "control reached end of trigger procedure". En DELETE, NEW es NULL y
+  -- `RETURN NEW` cancelaría la operación, que es justo lo que quiere un trigger
+  -- append-only.
+  RETURN NEW;
 END;
 $$;
 
@@ -737,16 +744,32 @@ FOR EACH ROW EXECUTE FUNCTION public.guard_audit_run_append_only();
 --
 -- !!! IMPACTO CRÍTICO QUE DEBE LEER EL PROPIETARIO !!!
 -- `engine_runs` y `engine_rule_results` tienen `GRANT SELECT, INSERT` a
--- `authenticated` desde migrations/20260924101000_phase-6-policy-engine.sql:32,
--- y `runPolicyEngineForAudit` los inscribe directamente
--- (apps/web/src/server/policy/evaluation.ts:58 y :74). Revocar INSERT deja la
--- única escritura en `persist_policy_evaluation_v1`, pero `evaluation.ts` TODAVÍA
--- no usa ese RPC: hasta que Task 10 lo cablee, el motor normativo dejará de
--- registrar corridas al aplicar esta migración. Se deja el revoke porque el plan
--- lo exige y porque mientras tanto existe una ruta de escritura duplicada
--- (DO_NOT_DUPLICATE_IMPLEMENTATIONS), pero la migración NO debe aplicarse antes
--- de que Task 10 esté integrada. La alternativa (dividir el revoke en una
--- migración posterior) queda a decisión del propietario.
+-- `authenticated` desde migrations/20260924101000_phase-6-policy-engine.sql:32.
+-- Revocar INSERT deja la única escritura en `persist_policy_evaluation_v1`.
+--
+-- ACTUALIZADO (Task 10, `5e7201f`): la integración YA está hecha. La escritura
+-- de motor vive ahora en `apps/web/src/server/policy/evaluation-persistence.ts`,
+-- que llama a `persist_policy_evaluation_v1` (línea ~113) y, con detección de
+-- disponibilidad, degrada a los dos INSERT directos de siempre si el RPC no
+-- existe. `runPolicyEngineForAudit` ya no escribe: delega íntegro en ese módulo
+-- (apps/web/src/server/policy/evaluation.ts:86). Por tanto la ruta duplicada
+-- (DO_NOT_DUPLICATE_IMPLEMENTATIONS) ya no es un riesgo de producción: el
+-- INSERT directo queda como degradación declarada, con aviso grepeable, y no
+-- como camino normal.
+--
+-- LO QUE SIGUE SIENDO CRÍTICO: la degradación no está verificada contra el
+-- backend real. La detección de "el objeto no existe" (los códigos
+-- PostgREST/Postgres de `isFoundationObjectMissing` en
+-- apps/web/src/server/facts/foundation-objects.ts) se validó sólo contra fakes
+-- locales, nunca contra InsForge. Con la migración sin aplicar, esa función es
+-- lo único que mantiene el pipeline registrando corridas. Ver
+-- docs/reports/POLICY-FOUNDATION-REMEDIATION-REPORT.md §24 (riesgo R-1).
+--
+-- Y CONSTA QUE QUEDA FUERA: `apps/web/src/app/api/dev/synthetic-case/route.ts`
+-- sigue insertando directo en `engine_runs` (~línea 248) y sigue llamando
+-- `factsRepo.freezeRun` (~línea 237), que hace un UPDATE directo revocado por la
+-- línea siguiente. Son DOS roturas independientes de esa ruta dev, no una. No se
+-- tocaron (fuera del alcance de la fase).
 -- =============================================================================
 REVOKE INSERT, UPDATE, DELETE ON public.engine_runs, public.engine_rule_results FROM anon, authenticated;
 REVOKE UPDATE, DELETE ON public.facts, public.fact_extraction_runs FROM anon, authenticated;

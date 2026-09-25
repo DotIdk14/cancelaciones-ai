@@ -673,3 +673,62 @@ aplicadas) y por lectura comparada, **no por ejecución**. El E2E
 `apps/web/src/server/policy/fact-run-snapshot.dev-e2e.test.ts` está escrito para
 ser la primera ejecución real, y hoy no puede correr: **`BLOCKED`** por
 `DEV_INFRA_NOT_CONFIGURED`.
+
+---
+
+## 12. Limitaciones conocidas y pendientes
+
+Lo que sigue no está arreglado. Se documenta para que nadie lo descubra en
+producción, y **no se ha cambiado el comportamiento de ningún endpoint** para
+taparlo.
+
+### 12.1 Una corrección humana crea filas de verdad, y no esinerte
+
+`POST /api/audits/[auditId]/fact-reviews` con `correctedValue` no es hoy una
+anotación pasiva: materializa un **`fact_extraction_runs` derivado** más sus
+**filas `facts`** y lo deja `FROZEN`
+(`deriveFactRunFromReviews`, `apps/web/src/server/facts/human-correction.ts:143`).
+Con la migración sin aplicar lo hace con `INSERT`/`UPDATE` directos
+(`human-correction.ts:259-298`); con ella, vía `create_derived_fact_run_v1`.
+
+**Eso no cambia ningún outcome hoy, y conviene decir por qué:** nadie encola una
+evaluación para el run derivado. `runPolicyEngineForAudit` no se llama desde la
+ruta de correcciones, así que el run derivado queda sin `engine_run` y el
+resultado del run padre no se mueve. Es inerte a propósito: `AI_EXTRACTS` y
+`POLICY_ENGINE_DECIDES` siguen siendo responsabilidades separadas y una
+corrección no puede decidir nada (§9.2).
+
+**El efecto secundario que no es evidente:** una **segunda** corrección desde el
+**mismo padre** choca contra el índice único de idempotencia
+`fact_extraction_runs_idempotency_hash_idx (audit_id, policy_code_hash,
+policy_version, extractor_version, artifact_set_fingerprint_hash)`. La razón es
+estructural, no un accidente: las cinco columnas se derivan del padre y la
+`extractor_version` derivada es **determinista** —
+`derivedExtractorVersion` (`human-correction.ts`) devuelve exactamente
+`` `${parentExtractorVersion}+human-correction` ``, sin contador ni sufijo
+variable. Dos correcciones sobre el mismo padre producen, por tanto, la misma
+tupla.
+
+Cuando el RPC está disponible esto no ocurre: `create_derived_fact_run_v1` lo
+detecta antes y devuelve el error legible
+`DERIVED_RUN_IDEMPOTENCY_COLLISION` (§6.2). Cuando el RPC **no** está —el caso
+de hoy, con la migración sin aplicar— no hay nadie que lo compruebe y el
+`INSERT` choca con el `23505` de Postgres.
+
+**Cómo se manifiesta:** el error se captura en el `catch` de la ruta y la
+respuesta es **HTTP 201** con `derivedFactRunId: null`, `derivation.status:
+'FAILED'`, `code: 'DERIVED_FACT_RUN_FAILED'` y el mensaje real de Postgres, más
+un `console.warn`
+(`apps/web/src/app/api/audits/[auditId]/fact-reviews/route.ts:101-108`). La
+review queda guardada y es append-only, que es lo correcto; lo que se pierde es
+el run derivado.
+
+**Por qué está así y no se cambió:** un 500 invitaría al cliente a reintentar y
+duplicaría evidencia (§9.3). El coste real es de **observabilidad**: un `23505`
+esperado llega al operador como si fuera un fallo de derivación, y nada en la
+respuesta distingue "el padre ya tenía una corrección" de "la derivación se
+rompió". **Pendiente, no decidido:** o un sufijo único por corrección en
+`extractor_version` (rompe la reproducibilidad del índice), o una comprobación
+previo que traduzca el `23505` a un código propio, o devolver el run derivado ya
+existente. Ninguna de las tres está implementada y **ninguna se ha decidido aquí**:
+cambia la semántica de la idempotencia.

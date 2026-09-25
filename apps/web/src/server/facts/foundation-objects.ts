@@ -24,9 +24,53 @@
  * confundieran los dos, un fallo de autorización se disfrazaría de "funciona
  * bien porque cayó al camino viejo", que es exactamente la clase de bug que
  * borra evidencia de máquina sin dejar rastro.
+ *
+ * ============================================================================
+ * SUPUESTO NO VERIFICADO — LA MAYOR DEPENDENCIA DE PRODUCCIÓN DE LA FASE
+ * ============================================================================
+ * `MISSING_OBJECT_PATTERNS` (abajo) decide "este objeto de DB está ausente"
+ * comparando el `code`/`message` del error contra un conjunto de formas que
+ * provienen de:
+ *   1. la CONVENCIÓN de PostgREST/Postgres (`PGRST202/204/205`, `42P01`,
+ *      `42883`, `42703`, `relation "…" does not exist`, …), y
+ *   2. los fakes locales de este repo
+ *      (`apps/web/src/server/facts/foundation-fake-db.ts` y el `DurableDb` de
+ *      `apps/web/src/server/jobs/audit-queue.e2e.test.ts`), que hardcodean
+ *      exactamente esas cadenas.
+ *
+ * **NUNCA se ha confirmado contra el backend real de InsForge.** La migración
+ * 20260925120000_policy-foundation-immutability.sql NO está aplicada, así que
+ * hoy todo camino nuevo está ciego a los objetos de la migración y depende
+ * ENTERO de esta función para degradar en vez de romper. Si el backend real
+ * señala una tabla o función ausente con una forma distinta, NO degrada: lanza.
+ * Consecuencias concretas verificadas por lectura:
+ *   - `readFrozenSnapshot` (`apps/web/src/server/facts/fact-run-snapshot.ts`)
+ *     lanza y la evaluación aborta antes de evaluarse.
+ *   - `persistPolicyEvaluationAtomically`
+ *     (`apps/web/src/server/policy/evaluation-persistence.ts`) lanza
+ *     `ENGINE_RUN_INSERT_FAILED` y el pipeline de evaluación de producción se
+ *     rompe, o el job reintenta indefinidamente.
+ *
+ * Mitigación real: APLICAR LA MIGRACIÓN elimina esta dependencia para la
+ * lectura del snapshot congelado y para los caminos RPC, porque los objetos
+ * dejan de faltar. Verificarla exige credenciales DEV, que la fase no tiene
+ * (`docs/reports/POLICY-FOUNDATION-RECOVERY-REPORT.md` §13).
+ *
+ * DELIBERADAMENTE NO se ha ampliado la lista de patrones: reconocer una forma
+ * de error que no se puede observar contra el backend real no es endurecer la
+ * detección, es adivinar. `UNKNOWN_IS_NOT_FALSE` y R-3 manda: ante la duda se
+ * propaga el error, no se degrada en silencio.
  */
 
-/** Códigos de error de PostgREST/Postgres que significan "el objeto no está". */
+/**
+ * Formas de error que se interpretan como "el objeto no está".
+ *
+ * OJO: este conjunto NO está verificado contra el backend real de InsForge. Ver
+ * el bloque "SUPUESTO NO VERIFICADO" de la cabecera de este fichero. Las formas
+ * proceden de la convención de PostgREST/Postgres y de los fakes locales, y son
+ * la única razón por la que producción sigue funcionando con la migración sin
+ * aplicar.
+ */
 const MISSING_OBJECT_PATTERNS: readonly RegExp[] = [
   // PostgREST: PGRST202 = función ausente del schema cache,
   // PGRST204 = columna ausente, PGRST205 = tabla ausente.
@@ -56,6 +100,11 @@ export interface FoundationErrorLike {
  * `true` SÓLO cuando el servidor (o el fake local) dice que el objeto no
  * existe. Ante la duda devuelve `false`: preferimos propagar un error a
  * degradar en silencio.
+ *
+ * ADVERTENCIA: este es el ÚNICO punto de decisión de toda la fase. Los códigos
+ * que reconoce son un SUPUESTO NO VERIFICADO contra el backend real de
+ * InsForge (ver la cabecera de este fichero). Con la migración sin aplicar, un
+ * `false` aquí no degrada: rompe el pipeline de evaluación en producción.
  */
 export function isFoundationObjectMissing(_fn: string, error: FoundationErrorLike | null | undefined): boolean {
   if (!error) return false;
