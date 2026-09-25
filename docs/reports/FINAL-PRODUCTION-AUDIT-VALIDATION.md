@@ -6,10 +6,117 @@
 
 ---
 
-## 1. Environment
+## 0. Fase 2 — con sesión autenticada real (estado final)
+
+El OWNER aportó credenciales. Con `signInWithPassword` se obtuvo un JWT de
+usuario real y se **reanudó la auditoría del incidente con `auth.uid()` del
+creador**. Esto cierra el gate que la fase 1 no pudo cerrar.
+
+### 0.1 Qué se demostró
 
 ```text
-Repository        DotIdk14/cancelaciones-ai
+usuario          0014bb52-…  (dueño de la auditoría 4956e983)
+```
+
+Reanudación real, con el mismo Fact Run y los artifacts existentes:
+
+```text
+reclamado: FACT_EXTRACTION  (job 3d1a7aad…, attempt 1)  -> SUCCEEDED
+reclamado: AUDIT_EVALUATION  (job 8bf0c44a…, attempt 1)  -> SUCCEEDED
+reclamado: REPORT_GENERATION (job 5ddef9b4…, attempt 1)  -> SUCCEEDED
+cola vacía
+```
+
+Estado del ciclo de vida, ya **cerrado**:
+
+| Requisito | Evidencia | Veredicto |
+|---|---|---|
+| `PROCESSING → FROZEN` por la vía real | `state=FROZEN`, `frozen_at=2026-09-25T22:38:30Z` | **PASS** |
+| Snapshot sellado | `fact_count=7`, `integrity_hash=488ce64cb380608f` | **PASS** |
+| Fingerprint efectivo | `262587319c252538` | **PASS** |
+| `AUDIT_EVALUATION` completa | `engine_runs` 1, `status=COMPLETED`, `outcomeStatus=INDETERMINATE` | **PASS** |
+| `REPORT_GENERATION` completa | `SUCCEEDED` | **PASS** |
+| Las 6 evidencias NO se reprocesan | `attempt_count` sigue en **1** | **PASS** |
+| Facts sin duplicar | **8** | **PASS** |
+| Reanudación sin tocar lo sellado | artifacts previos reutilizados | **PASS** |
+
+### 0.2 Decision Trace con contenido real
+
+```text
+engineRunId      e31fecf0-c6ce-42d5-82c9-8a633ac79994
+decisionStatus   INDETERMINATE
+outcomeStatus    INDETERMINATE
+suggestedOutcome (ninguno)
+rules 3   facts 7   coverageGaps 12
+missingFacts     classroom.hasGrades, contact.effectiveContact, classroom.hasActivities
+diagnostics      MISSING_EVIDENCE(3) MISSING_FACT(3) POLICY_COVERAGE_GAP(12) RULE_EVALUATION_PATH(3)
+envelope         audit-evaluation-envelope-v1
+```
+
+`INDETERMINATE` es la **respuesta correcta**: sin nota final ni fecha de reintegro
+no hay hechos suficientes para pronunciarse. El motor está aplicando
+`UNKNOWN_IS_NOT_FALSE`.
+
+### 0.3 Ruta de coste: demostrada por dentro
+
+No se extrajo la clave de OpenRouter de producción para una prueba local —sería un
+riesgo innecesario—. La ruta **nuestra** sí se validó de extremo a extremo:
+
+```text
+record_ai_usage_v1  (16 parámetros)          -> OK
+fila escrita en ai_usage                     -> OK
+buildAuditCostSummary                          -> knownCostUsd=0.000616
+                                                 providerCallCount=1
+                                                 providers=OPENROUTER
+```
+
+`RPC → ai_usage → resumen` funciona, con atribución de proveedor y clasificación
+conocido/desconocido.
+
+### 0.4 Dos defectos reales encontrados
+
+Ambos están en la **telemetría de coste**, ninguno en el motor normativo.
+
+**Defecto A — la fuente del coste no se persiste.**
+`ai_usage` **no tiene columna `cost_source`**. `record_ai_usage_v1` recibe
+`p_cost_source`, lo **valida** contra `PROVIDER_REPORTED | CALCULATED |
+ESTIMATED | UNKNOWN`… y lo **descarta**. El requisito de registrar la fuente del
+coste no se cumple de forma duradera.
+
+**Defecto B — un coste desconocido es imposible de registrar.**
+`ai_usage.estimated_cost_usd` y `unit_price_usd` son `NOT NULL`, así que un uso
+sin coste conocido se rechaza:
+
+```text
+record_ai_usage_v1(estimated_cost_usd = NULL)  -> ERROR 23502 (not_null_violation)
+```
+
+Pero `buildAuditCostSummary` cuenta `unknownCostEvents` contando filas con
+`estimated_cost_usd IS NULL`, una condición que **nunca puede darse**. El cubo
+"coste desconocido" es código muerto: el guard de coste **no puede expresar
+incertidumbre**, que es justo la propiedad de seguridad que se pidió.
+
+### 0.5 Lo que sigue sin demostrarse
+
+| Gate | Por qué |
+|---|---|
+| Una llamada real a OpenRouter/AssemblyAI | requiere la clave de proveedor, que solo existe en Vercel y no se ha extraído a propósito |
+| Conteos de Network en navegador | la app autentica por **cookies** (`createServerClient({ cookies })`), no por cabecera `Authorization`; un JWT no abre las rutas HTTP |
+
+Para `image/*` y `audio/*` la ruta de proveedor **sí** está cableada: la imagen
+sintética se subió por `uploadEvidenceFilesForAudit` real, se encoló por
+`enqueueEvidenceProcessingJobs` real, y el job entró al handler y se detuvo **solo**
+en la validación de configuración por falta de clave.
+
+La llamada real se producirá sola cuando el OWNER suba su auditoría: `pdf` y
+`word` pasan por `blobToText` local a propósito (sin proveedor), `image` va a
+OpenRouter y `audio` a AssemblyAI.
+
+---
+
+
+```text
+Repository        Dot idk14/cancelaciones-ai
 Branch            main
 HEAD              6d0402c  (guard de contrato; antes 74e1757)
 origin/main       6d0402c
@@ -20,6 +127,13 @@ DB target         InsForge  Cancelaciones / 4pw4jdzv  (PRODUCCIÓN)
 
 El handoff decía `3c59291`. Medido: el deploy vivo era `74e1757` (3c59291 más el
 commit del informe). Corrección menor, sin impacto.
+
+> Esta fase tuvo **dos partes**. La primera (secciones 1 a 14) se ejecutó sin
+> sesión de usuario. La segunda, documentada en **§0**, se ejecutó con una
+> sesión autenticada real y cambia el veredicto de varios gates. El §0 va primero
+> porque es el estado final.
+
+## 1. Environment
 
 ## 2. Schema Contract Verification
 
@@ -116,7 +230,11 @@ Y lo que ese resultado **demuestra**, que es lo importante:
 | No hay `RETRY_SCHEDULED → RUNNING → RETRY_SCHEDULED` por el mismo error | el job pasó a `FAILED` y se quedó | **PASS** |
 | Facts idempotentes | siguen siendo **8**, sin duplicados | PASS |
 | El Fact Run no se corrompió | sigue en `PROCESSING`, ningún estado inválido | PASS |
-| `PROCESSING → FROZEN` por la vía real | **NO** — `AUTH_REQUIRED` | **FAIL** |
+| `PROCESSING → FROZEN` por la vía real | **NO** — `AUTH_REQUIRED` | **FAIL** → **SUPERADO en §0.1** |
+
+> **SUPERADO en la fase 2.** Con sesión autenticada real el freeze se autorizó y
+> el run llegó a `FROZEN` con snapshot. Ver §0.1. El `FAIL` de arriba se
+> conservaba porque documenta fielmente lo que ocurría sin sesión.
 
 El `AUTH_ERROR` no es un defecto del pipeline: `freeze_fact_run_v1` exige
 `auth.uid()` y lo estoy ejecutando con la clave de servicio, sin sesión de
@@ -140,10 +258,13 @@ toca los artifacts existentes.
 
 **NO MEDIDO.** Requiere navegador con sesión.
 
-No existe sesión autenticada en este entorno: el `NEXT_PUBLIC_INSFORGE_ANON_KEY`
-de producción responde `401 AUTH_UNAUTHORIZED` en el gateway, y no hay forma de
-obtener un JWT de usuario sin credenciales. Todo lo que se puede afirmar sin
-mentir es lo de §12.
+El `NEXT_PUBLIC_INSFORGE_ANON_KEY` de producción responde `401` en el gateway, así
+que sin credenciales no hay sesión. En la fase 2 (§0) se obtuvo un JWT real, pero
+**no abre las rutas HTTP**: la app construye el cliente de servidor con
+`createServerClient({ cookies })`, es decir, autentica **por cookie**, no por
+cabecera `Authorization`. Con un JWT en la cabecera las rutas seguirían viendo
+una sesión vacía. Por eso este gate necesita un navegador de verdad y no se puede
+automatizar desde aquí. Procedimiento en §12.
 
 ## 6. Job State Transitions
 
@@ -163,6 +284,9 @@ Los 6 `EVIDENCE_PROCESSING` nunca entraron en `RUNNING`: su `attempt_count`
 sigue en 1.
 
 ## 7. Fact Run Lifecycle
+
+> **SUPERADO en la fase 2.** El resultado final es `FROZEN` con snapshot sellado.
+> Ver §0.1. Se conserva el estado observado en la fase 1.
 
 ```text
 initial : PROCESSING
@@ -193,6 +317,13 @@ en producción.** Está probada en tests (19 casos, incluido el caso
 `SUBMITTED`→`RESULT_UNKNOWN`) pero no con una llamada real.
 
 ## 9. AI Usage
+
+> **Actualizado en §0.3.** La escritura de uso **sí funciona**:
+> `record_ai_usage_v1` (16 parámetros) → fila en `ai_usage` → resumen con
+> `knownCostUsd=0.000616`, `providerCallCount=1`, `providers=OPENROUTER`. El
+> `0 filas` de esta sección era falta de una llamada real de proveedor, no un
+> fallo del mecanismo. **Pero** las §§0.4 A y B muestran que la fuente del coste
+> no se persiste y que un coste desconocido no se puede registrar.
 
 ```text
 rows        : 0
@@ -285,40 +416,47 @@ Fixture sin tocar
 
 ## 14. Remaining Risks
 
+Actualizado tras la fase 2 (§0).
+
 | # | Riesgo | Estado |
 |---|---|---|
 | 1 | **Regresión de navegador sin validar** | **OWNER_ACTION**, procedimiento en §12 |
-| 2 | **`PROCESSING → FROZEN` no demostrado end-to-end** | bloqueado por falta de sesión |
-| 3 | **`ai_usage` sin demostrar con una llamada real** | se demuestra al subir la primera auditoría nueva |
-| 4 | Idempotencia de operación pagada sin demostrar en producción | probada en tests, no en ejecución |
-| 5 | El `FACT_EXTRACTION` original quedó `FAILED` 3/3 | reencolado como `QUEUED`; el original se conserva como registro |
-| 6 | Coste de AssemblyAI seguirá siendo `NULL` sin pricing configurado | requiere pricing versionado |
-| 7 | Token de Vercel expuesto en conversación | **rotar** |
-| 8 | Historial Git con PII del estudiante | `OWNER_ACTION` |
-| 9 | `HUMAN_CORRECTION_PARENT_SEMANTICS`, `AUDIT_ARCHIVAL_STATE` | de otras fases |
+| 2 | **Defecto A: `ai_usage` no persiste `cost_source`** | **BUG ABIERTO**, requiere migración |
+| 3 | **Defecto B: coste desconocido imposible de registrar** | **BUG ABIERTO**, `unknownCostEvents` es código muerto |
+| 4 | Idempotencia de operación pagada sin demostrar en producción | probada en tests; la tabla salió vacía |
+| 5 | Coste de AssemblyAI seguirá siendo `NULL` sin pricing configurado | requiere pricing versionado |
+| 6 | El `FACT_EXTRACTION` original quedó `FAILED` 3/3 | reencolado y **completado** en la fase 2; el original se conserva como registro |
+| 7 | Credenciales de InsForge aportadas en conversación | **rotar** |
+| 8 | Token de Vercel expuesto en conversación | **rotar** |
+| 9 | Historial Git con PII del estudiante | **OWNER_ACTION** |
+| 10 | `HUMAN_CORRECTION_PARENT_SEMANTICS`, `AUDIT_ARCHIVAL_STATE` | de otras fases |
 
 ## 15. Final Gate
 
 ```text
-schema contract guard PASS .............. SI
-AI processing ON ........................ SI
+schema contract guard PASS .............. SI  (37 invariantes, Postgres real)
+AI processing ON ........................ SI  (config verificada)
 no runaway POST loop .................... PARCIAL (logica probada; red sin medir)
-FACT_EXTRACTION completes ............... SI (SUCCEEDED en su camino, FAILED por
-                                          autorizacion, no por logica)
-PROCESSING -> FROZEN real ............... NO
-no duplicate provider paid operation ... SI (0 operaciones; vacio, no negativo)
+FACT_EXTRACTION completes ............... SI  (SUCCEEDED con sesion real)
+PROCESSING -> FROZEN real ............... SI  (FROZEN + snapshot sellado)
+no duplicate provider paid operation ... VACIO (0 operaciones; no negativo)
 ai_usage > 0 si hubo proveedor pagado ... N/A (no hubo proveedor pagado)
-cost endpoint works ..................... SI
-Decision Trace works .................... SI (endpoint; sin contenido nuevo)
-authenticated browser/network PASS ..... NO
-Golden Master unchanged ................ SI
+cost write path works ................... SI  (RPC -> ai_usage -> resumen)
+cost source persisted ................... NO  (Defecto A)
+unknown cost representable .............. NO  (Defecto B)
+Decision Trace works .................... SI  (con contenido real)
+authenticated browser/network PASS ..... NO  (requiere navegador)
+Golden Master unchanged ................ SI  (14/14, hash MATCH)
 normative engine unchanged ............. SI
 ```
 
-Tres de los doce criteria no quedan demostrados, y los tres por la **misma
-causa**: no existe sesión autenticada en este entorno. No es una limitación del
-codigo del pipeline, que es lo que esta fase audita; es una limitacion del
-entorno desde el que se opera.
+Tres criteria siguen sin demostrarse y uno nuevo aparece **fallido**:
+
+- **Navegador/red**: requiere un navegador real; la app autentica por cookies.
+- **Llamada real de proveedor**: se producirá al subir la primera auditoría con
+  imagen o audio. `pdf`/`word` son locales por diseño.
+- **Defecto A y Defecto B**: no son bloqueos de entorno, son **bugs reales** de
+  la telemetría de coste, encontrados al ejercitar la ruta con sesión.
 
 Por eso:
 
@@ -326,16 +464,19 @@ Por eso:
 READY FOR OWNER TO UPLOAD A NEW AUDIT: NO
 ```
 
-No porque la aplicación no esté lista —creo que lo está— sino porque declarar
-`YES` exigiría marcar `PASS` un gate de red que no he medido, y el §13 de la
-instrucción es explícito: **no marcar PASS sin evidencia**.
+No por el pipeline: el ciclo de vida completo se ha ejecutado de extremo a
+extremo contra producción y ha funcionado. Es por **no medir un gate de red** y
+por **no poder afirmar PASS sobre costes** mientras el guard de coste sea incapaz
+de registrar tanto el origen como la incertidumbre. El §13 de la instrucción es
+explícito: no marcar PASS sin evidencia.
 
 Lo que sí es cierto y accionable desde ya mismo:
 
-- La aplicación está desplegada, estable y sin errores 500.
-- La auditoría `4956e983` está **reencolada y lista** para reanudarse: al abrirla
-  el OWNER, con su sesión, el pipeline continuará desde `PROCESSING` usando los
-  artifacts existentes **sin reprocesar las 6 evidencias** — eso ya está probado.
-- El OWNER puede subir una auditoría nueva y sería la prueba que falta: una
-  llamada real de proveedor writing en `ai_usage`, un `PROCESSING → FROZEN`
-  completo, y los conteos de Network del §12.
+- La auditoría `4956e983` está **completa**: `FROZEN`, evaluada, con reporte y
+  Decision Trace con contenido. Ya no necesita que el OWNER la reanude.
+- Las 6 evidencias **no se reprocesaron**: `attempt_count` en 1, verificado con
+  sesión real.
+- El OWNER puede subir una auditoría nueva: producirá la llamada real de
+  proveedor, y con ella los conteos de Network del §12.
+- **Antes de confiar en el panel de coste**, hay que arreglar los defectos A y B.
+
