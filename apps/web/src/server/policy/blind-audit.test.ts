@@ -62,7 +62,7 @@ describe('CaVe-30591 E2E BLIND TEST (a partir de evidencia raw)', () => {
   it('debe comenzar desde artifacts raw y no desde storedFacts preconstruidos', async () => {
     // Artifacts raw que simulan evidencia pre-decision (SIN dictamen humano)
     const artifacts: JobArtifact[] = [
-      jobArtifact('a1', 'ESTUDIANTE: Ana Elena Ruiz Romero\nNIVEL: Estudiante\nMATRÍCULA: UTEL-2026-001\nSIN CONTACTO EFECTIVO\n45 llamadas observadas; fuente complete\n32 interacciones escritas observadas; fuente complete\nSin actividad academica\nNo existen calificaciones en el bimestre inicial\nNEVER'),
+      jobArtifact('a1', 'ESTUDIANTE: Estudiante Prueba\nNIVEL: Estudiante\nMATRÍCULA: UTEL-2026-001\nSIN CONTACTO EFECTIVO\n45 llamadas observadas; fuente complete\n32 interacciones escritas observadas; fuente complete\nSin actividad academica\nNo existen calificaciones en el bimestre inicial\nNEVER'),
       jobArtifact('a2', 'Transcripción adicional de evidencias visuales'),
     ];
 
@@ -773,3 +773,4 @@ describe('runAndPersistBlindMachineAudit (wrapper no productivo)', () => {
     expect(fake.rows).toHaveLength(0);
   });
 });
+

@@ -25,7 +25,7 @@ Two raw artifacts were provided, containing only pre-decision evidence (no human
 
 ### Key Evidence in Artifact `a1`:
 
-- **Student**: Ana Elena Ruiz Romero
+- **Student**: Estudiante Prueba
 - **Level**: Estudiante
 - **Enrollment**: UTEL-2026-001
 - **Contact**: SIN CONTACTO EFECTIVO (45 llamadas, 32 escrituras)
@@ -52,7 +52,7 @@ The Evidence Interpreter extracted the following fact candidates from the artifa
 
 | Fact Type | Value | Confidence | Method |
 |---|---|---|---|
-| student.name | Ana Elena Ruiz Romero | 0.8 | deterministic (storedFacts fallback not used) |
+| student.name | Estudiante Prueba | 0.8 | deterministic (storedFacts fallback not used) |
 | student.level | Estudiante | 0.9 | deterministic |
 | student.enrollment | UTEL-2026-001 | 0.8 | deterministic |
 | contact.effectiveContact | false | 0.9 | artifact_fallback |
