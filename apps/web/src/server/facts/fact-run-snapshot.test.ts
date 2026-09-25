@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { FactExtractionRun } from '@cancelaciones/db';
+import type { DatabaseClient, FactExtractionRun } from '@cancelaciones/db';
 import { stableFingerprint } from '@cancelaciones/domain';
 import { FoundationFakeDb, missingFunctionError, type FakeRow } from './foundation-fake-db';
 import { freezeFactRunWithSnapshot, getFrozenEffectiveFacts, isFoundationObjectMissing } from './fact-run-snapshot';
@@ -74,6 +74,219 @@ describe('detección de disponibilidad de la fundación de política', () => {
     expect(isFoundationObjectMissing('freeze_fact_run_v1', { message: 'POLICY_SOURCE_NOT_REGISTERED: x' })).toBe(false);
     expect(isFoundationObjectMissing('freeze_fact_run_v1', { message: 'JWT expired' })).toBe(false);
     expect(isFoundationObjectMissing('freeze_fact_run_v1', null)).toBe(false);
+  });
+});
+
+// ============================================================================
+// MEDICIÓN REAL — 2026-09-25
+// ============================================================================
+// Sonda de SOLO LECTURA contra el proyecto real de producción
+// (`https://4pw4jdzv.us-west.insforge.app`) con el cliente que construye esta
+// misma app (`createServerClient` de `@insforge/sdk/ssr`, baseUrl + anon key de
+// `apps/web/.env`, camino anon-key). Los cuerpos de abajo son VERBATIM.
+//
+// CONTROL: `from('fact_extraction_runs').select('id').limit(1)` → HTTP 200, `[]`.
+// Auth, conectividad y el camino de PostgREST funcionan, así que los tres
+// errores siguientes son AUSENCIAS REALES y no una sonda que falla.
+//
+// Lo que fijan estos tests y por qué importa: `MISSING_OBJECT_PATTERNS` es la
+// ÚNICA razón por la que producción no se rompe con la migración sin aplicar.
+// Si un refactor deja de reconocer estas formas, el resultado NO es un test
+// rojo: es un pipeline de evaluación caído en producción. Que falle aquí, no
+// allí, es el objetivo.
+//
+// LÍMITE HONESTO: la sonda corrió por el camino anon-key, SIN sesión de
+// usuario. La forma de una denegación RLS bajo sesión autenticada NO está
+// medida. El caso `42501` de abajo es una GUARDA sobre la inferencia, no
+// evidencia del backend real.
+
+/**
+ * Cuerpo de error tal y como lo entrega `@supabase/postgrest-js` al parsear la
+ * respuesta cruda de PostgREST: un objeto PLANO, no una `InsForgeError`.
+ */
+type ObservedPostgrestError = {
+  code: string;
+  details: string | null;
+  hint: string | null;
+  message: string;
+};
+
+/** 1) TABLA ausente — `from('fact_run_frozen_snapshots').select(…).eq(…).limit(1)` → HTTP 404. */
+const OBSERVED_MISSING_TABLE: ObservedPostgrestError = {
+  code: '42P01',
+  details: null,
+  hint: null,
+  message: 'relation "public.fact_run_frozen_snapshots" does not exist',
+};
+
+/** 2) COLUMNA ausente — `from('fact_extraction_runs').select('parent_fact_run_id')` → HTTP 400. */
+const OBSERVED_MISSING_COLUMN: ObservedPostgrestError = {
+  code: '42703',
+  details: null,
+  hint: null,
+  message: 'column fact_extraction_runs.parent_fact_run_id does not exist',
+};
+
+/** 3) RPC ausente — `rpc('__probe__')` → HTTP 404. */
+const OBSERVED_MISSING_RPC: ObservedPostgrestError = {
+  code: 'PGRST202',
+  details: 'Searched for the function public.__probe__ without parameters or with a single unnamed json/jsonb parameter, but no matches were found in the schema cache.',
+  hint: null,
+  message: 'Could not find the function public.__probe__ without parameters in the schema cache',
+};
+
+// Respuestas AUTORITATIVAS que NO son ausencia. Misma forma de cuerpo que los
+// anteriores, porque llegan por el mismo camino; lo que las diferencia es que el
+// objeto SÍ existe y el servidor tiene algo que decir.
+const BUSINESS_AUTH_REQUIRED: ObservedPostgrestError = { code: 'P0001', details: null, hint: null, message: 'AUTH_REQUIRED' };
+const BUSINESS_FORBIDDEN: ObservedPostgrestError = { code: 'P0001', details: null, hint: null, message: 'FORBIDDEN' };
+const BUSINESS_FROZEN_SNAPSHOT_MISSING: ObservedPostgrestError = { code: 'P0001', details: null, hint: null, message: 'FROZEN_SNAPSHOT_MISSING' };
+/** `PGRST116` NO está en `PGRST20[245]`: pedir 1 fila y recibir N no es ausencia. */
+const OBSERVED_MULTIPLE_ROWS: ObservedPostgrestError = {
+  code: 'PGRST116',
+  details: 'Results contain 2 rows, application/vnd.pgrst.object+json requires 1 row',
+  hint: null,
+  message: 'JSON object requested, multiple (or no) rows returned',
+};
+
+interface ObservedReadErrorQuery {
+  select(columns?: string): ObservedReadErrorQuery;
+  eq(column: string, value: unknown): ObservedReadErrorQuery;
+  order(column: string, options?: { ascending?: boolean }): ObservedReadErrorQuery;
+  limit(count: number): Promise<{ data: null; error: ObservedPostgrestError }>;
+  single(): Promise<{ data: null; error: ObservedPostgrestError }>;
+}
+
+/**
+ * Inyección de error de LECTURA para un solo caso: una tabla responde con un
+ * cuerpo REAL medido en vez de con el mensaje del fake.
+ *
+ * `foundation-fake-db.ts` NO se toca (fuera del alcance de esta corrección) y
+ * ningún fake existente se debilita: esto no cambia `FoundationFakeDb`, sólo lo
+ * envuelve y sustituye la respuesta de `fact_run_frozen_snapshots`. Delega todo
+ * lo demás, para que el camino legacy siga calculando con datos de verdad.
+ */
+class ObservedReadErrorDb implements DatabaseClient {
+  constructor(
+    private readonly inner: FoundationFakeDb,
+    private readonly error: ObservedPostgrestError,
+  ) {}
+
+  from(table: string) {
+    if (table !== 'fact_run_frozen_snapshots') return this.inner.from(table);
+    const error = this.error;
+    const query: ObservedReadErrorQuery = {
+      select: () => query,
+      eq: () => query,
+      order: () => query,
+      limit: () => Promise.resolve({ data: null, error }),
+      single: () => Promise.resolve({ data: null, error }),
+    };
+    return query;
+  }
+
+  rpc(fn: string, args: Record<string, unknown> = {}) {
+    return this.inner.rpc(fn, args);
+  }
+}
+
+describe('formas de objeto ausente MEDIDAS contra el backend real (2026-09-25)', () => {
+  it('reconoce como AUSENCIA las tres formas observadas (42P01, 42703, PGRST202)', () => {
+    expect(isFoundationObjectMissing('fact_run_frozen_snapshots', OBSERVED_MISSING_TABLE)).toBe(true);
+    expect(isFoundationObjectMissing('fact_extraction_runs', OBSERVED_MISSING_COLUMN)).toBe(true);
+    expect(isFoundationObjectMissing('__probe__', OBSERVED_MISSING_RPC)).toBe(true);
+  });
+
+  it('la forma medida es un objeto PLANO de @supabase/postgrest-js, no una InsForgeError', () => {
+    // REGISTRO DE LA SONDA, no comportamiento productivo: lo que se congela
+    // aquí es la FORMA que devolvió el backend, para que quede escrito por qué
+    // `error.code` se lee en esta ruta. El razonamiento anterior de la cabecera
+    // ("code siempre undefined") venía de mirar `InsForgeError`, que sólo usan
+    // los caminos del SDK que NO son PostgREST. Si algún día estos cuerpos
+    // cambian de forma, este test lo delata y obliga a remedir.
+    for (const observed of [OBSERVED_MISSING_TABLE, OBSERVED_MISSING_COLUMN, OBSERVED_MISSING_RPC]) {
+      expect(observed.constructor.name).toBe('Object');
+      expect(Object.keys(observed)).toEqual(['code', 'details', 'hint', 'message']);
+      expect(typeof observed.code).toBe('string');
+      expect(observed.code.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('sin `code`, el mensaje de la TABLA ausente sigue casando: los patrones de message están vivos', () => {
+    expect(isFoundationObjectMissing('fact_run_frozen_snapshots', { message: OBSERVED_MISSING_TABLE.message })).toBe(true);
+  });
+
+  it('sin `code`, el mensaje del RPC ausente sigue casando: los patrones de message están vivos', () => {
+    expect(isFoundationObjectMissing('__probe__', { message: OBSERVED_MISSING_RPC.message })).toBe(true);
+  });
+
+  it('sin `code`, el mensaje de la COLUMNA ausente NO casa: lo lleva exclusivamente el 42703', () => {
+    // Lo que es REALMENTE cierto, no lo que convendría. Postgres emite el
+    // nombre de columna SIN comillas, así que `/column "[^"]+" does not
+    // exist/i` no casa, y ningún otro patrón de `message` casa tampoco. Este
+    // cuerpo lo reconoce el `code` `42703` y sólo el `code`. No se "arregla"
+    // aquí: se documenta, para que nadie confunda message-cubre-todo con
+    // "la detección es robusta por mensajes".
+    expect(isFoundationObjectMissing('fact_extraction_runs', { message: OBSERVED_MISSING_COLUMN.message })).toBe(false);
+    expect(isFoundationObjectMissing('fact_extraction_runs', { ...OBSERVED_MISSING_COLUMN, code: 'UNKNOWN_CODE' })).toBe(false);
+  });
+
+  it('AUSENCIA ≠ FALLO: los errores de negocio y de infraestructura NO degradan', () => {
+    expect(isFoundationObjectMissing('persist_policy_evaluation_v1', BUSINESS_AUTH_REQUIRED)).toBe(false);
+    expect(isFoundationObjectMissing('persist_policy_evaluation_v1', BUSINESS_FORBIDDEN)).toBe(false);
+    expect(isFoundationObjectMissing('freeze_fact_run_v1', BUSINESS_FROZEN_SNAPSHOT_MISSING)).toBe(false);
+    // PGRST116 = "results contain N rows" cuando se pidió un único objeto. Es
+    // una respuesta autoritativa del servidor, no una ausencia: degradar aquí
+    // devolvería un hecho inventado.
+    expect(isFoundationObjectMissing('fact_run_frozen_snapshots', OBSERVED_MULTIPLE_ROWS)).toBe(false);
+    // Denegación de permiso. INFERENCIA, NO MEDICIÓN: la sonda corrió por el
+    // camino anon-key y no se observó ninguna denegación RLS. Lo medido es que
+    // la forma que este repo asume para ella (`42501`) NO es ausencia, y este
+    // test congela esa frontera para que nadie la afloje.
+    expect(isFoundationObjectMissing('fact_run_frozen_snapshots', { code: '42501', message: 'permission denied for table fact_run_frozen_snapshots' })).toBe(false);
+    // Fallo de red: no hay cuerpo, no hay código. Ante la duda se propaga.
+    expect(isFoundationObjectMissing('fact_run_frozen_snapshots', { message: 'fetch failed' })).toBe(false);
+    expect(isFoundationObjectMissing('fact_run_frozen_snapshots', null)).toBe(false);
+  });
+
+  it('el patrón MUERTO de columna no casa con el mensaje real (guarda de regresión)', () => {
+    // MEDIDO: el patrón `/column "[^"]+" does not exist/i`, que sigue en
+    // `MISSING_OBJECT_PATTERNS`, es INERTE contra el backend real porque las
+    // comillas nunca aparecen. Se deja a propósito (el `code` 42703 ya resuelve),
+    // pero quien intente "arreglarlo" tiene aquí la forma verdadera.
+    const deadPattern = /column "[^"]+" does not exist/i;
+    expect(deadPattern.test(OBSERVED_MISSING_COLUMN.message)).toBe(false);
+    // El patrón en sí está bien construido: casa con la forma CON comillas. Lo
+    // que no existe en producción es esa forma.
+    expect(deadPattern.test('ERROR: column "fact_extraction_runs.parent_fact_run_id" does not exist')).toBe(true);
+  });
+
+  it('con el cuerpo REAL de tabla ausente degrada sin lanzar y avisa (readFrozenSnapshot)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const inner = new FoundationFakeDb();
+    seedRun(inner);
+    seedFacts(inner);
+    inner.table('fact_reviews').push(review({ fact_id: 'fact-contact' }));
+    const db = new ObservedReadErrorDb(inner, OBSERVED_MISSING_TABLE);
+
+    // Si `readFrozenSnapshot` LANZARA —como afirmaba la cabecera antes de la
+    // medición— esta línea reventaría el test con el mensaje real de InsForge.
+    const result = await getFrozenEffectiveFacts({ database: db, auditId: AUDIT_ID, factRunId: RUN_ID, run: frozenRun });
+
+    expect(result.source).toBe('LEGACY_REVIEW_APPLIED');
+    expect(result.degradation).toBe('FROZEN_SNAPSHOT_TABLE_ABSENT');
+    expect(result.persistenceError).toBeNull();
+    expect(result.persisted).toBe(false);
+    expect(result.snapshotId).toBeNull();
+    // El cálculo sigue siendo el de HOY: los tres hechos, con la review
+    // retrospective aplicada. Degradar no puede cambiar el resultado.
+    expect(result.facts.map((fact) => fact.id)).toEqual(['fact-level', 'fact-login', 'fact-contact']);
+    expect(result.facts.find((fact) => fact.id === 'fact-contact')?.value).toBe(true);
+    // La degradación NO es silenciosa: código estable grepable.
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('FROZEN_SNAPSHOT_TABLE_ABSENT'));
+    // Y no intenta sellar nada sobre una tabla que no existe.
+    expect(inner.writesOn('fact_run_frozen_snapshots')).toEqual([]);
+    warn.mockRestore();
   });
 });
 
