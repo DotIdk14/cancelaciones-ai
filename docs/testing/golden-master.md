@@ -108,7 +108,8 @@ Sólo el Golden Master:
 pnpm --filter @cancelaciones/policy-engine exec vitest run src/golden-master.test.ts
 ```
 
-Resultado esperado: **13 passed (13)**. No hay nada que preparar: no usa base de
+Resultado esperado: **14 passed (14)** — 12 casos + el test de integridad del
+corpus + el test de hash del §4.2. No hay nada que preparar: no usa base de
 datos, ni red, ni variables de entorno, ni credenciales.
 
 Está incluido en el `test` raíz (`pnpm test` → `pnpm -r test`) y por tanto en
@@ -152,27 +153,39 @@ $lfBytes = [System.Text.Encoding]::UTF8.GetBytes($lf)
 Ambos caminos deben dar `38e29f44…d76`. Un hash crudo distinto en Windows **no**
 indica que la fixture haya cambiado.
 
-### 4.2 Debilidad conocida, escrita aquí a propósito
+### 4.2 El hash a nivel de archivo AHORA está fijado en código
 
-**El SHA-256 a nivel de archivo está documentado pero NO está fijado en código.**
-`golden-master.test.ts` lee el JSON, lo parsea y compara — nunca lo hashea. Una
-búsqueda de `38e29f44` en el repositorio sólo encuentra menciones en
-documentación.
+**Estado: `PASS`.** `golden-master.test.ts` contiene un `it` adicional
+(`fija el hash canonico-LF de la fixture: una edicion de bytes sucios falla aqui`)
+que lee los bytes del fichero, normaliza CRLF→LF y compara el SHA-256 con el
+valor del §4. El literal vive en el test como
+`GOLDEN_MASTER_FIXTURE_SHA256_LF`.
 
-Consecuencia concreta y real: **una edición de sólo espacios en blanco, o un
-reordenamiento de claves del JSON, pasaría inadvertida** si preserva los
-`PolicyEvaluation` por caso, porque `toEqual` no distingue el orden de las
-claves de un objeto y el contenido es el mismo. El hash del §4.1 es la única
-detección, y hoy la hace una persona, no un test.
+**Por qué normaliza a LF y no hashea el fichero en crudo:** el repositorio tiene
+`core.autocrlf=true`, así que en Windows el fichero en disco tiene CRLF y su
+hash crudo es `51ca6b08…d210`. Asertar el hash crudo daría un test que **falla
+en Windows y pasa en Linux** — un test dependiente de la plataforma, que es
+peor que no tenerlo. El valor canónico es el de los bytes que Git guarda, y por
+eso el test normaliza antes de hashear. El mismo valor funciona en los dos
+sistemas.
 
-Mitigación disponible sin tocar el motor: añadir un `it` en
-`golden-master.test.ts` que lea los bytes, normalice CRLF→LF y compare con el
-valor fijado. **No se ha hecho**, y no se ha hecho a propósito en esta tarea de
-documentación: el archivo de test es código, y la brief de esta tarea es
-documentación. Queda como follow-up de una línea.
+**Qué detectaba y no detectaba.** Antes de este cambio, el resto del fichero
+compara el objeto **ya parseado** (`toEqual`), que no distingue el orden de las
+claves de un JSON ni el espaciado. Una edición de sólo espacios en blanco, o un
+reordenamiento de claves que preserve los `PolicyEvaluation` por caso, **pasaba
+inadvertida**; el hash del §4.1 era la única detección y la hacía una persona, no
+un test. Ese hueco está cerrado.
 
-Lo que **sí** está fijado en código, y por tanto **sí** detecta cambios
-semánticos:
+**Verificado, no inferido:** se perturbó temporalmente la fixture con una
+edición de **sólo espacios en blanco** (un byte `0x20` al final, que
+`JSON.parse` acepta). Resultado: **13 tests existentes en verde y sólo el nuevo
+en rojo**, que es exactamente el comportamiento buscado — el nuevo test detecta
+lo que `toEqual` no puede. Después se restauró la fixture byte a byte y se
+comprobó que su SHA-256 LF-canónico vuelve a ser `38e29f44…d76` y que `git
+status --short` no la muestra modificada. La perturbación **no** se commiteó.
+
+Lo que **también** está fijado en código, y por tanto detecta cambios
+**semánticos**:
 
 - La identidad del corpus: los nombres de `goldenCases` deben coincidir
   exactamente con las claves de la fixture.
@@ -366,12 +379,14 @@ Nunca como efecto secundario de "arreglar un test que fallaba".
 | Un cambio en la construcción de `factsFingerprint` o `rulesFingerprint` | El contenido de un `Fact` mal construido **fuera** de los 12 casos |
 | Un alta o baja de casos desalineada con la fixture | Un cambio en el **código de tests** del motor que no toque `evaluatePolicy` |
 | Reordenar los hechos de un caso | Un cambio en `mapStoredFactsToPolicyFacts` o `mapSnapshotFactsToPolicyFacts` **fuera** de los casos del corpus (verificado aparte por `evaluation.test.ts` y `frozen-fact-run.test.ts`) |
-| Un espaciado/reordenamiento de claves de la fixture | **Un espaciado o reordenamiento de claves de la fixture**: no lo detecta ningún test (§4.2) |
+| Un espaciado/reordenamiento de claves de la fixture | *(ninguna fila: esto ya no es una debilidad, está cerrado en §4.2)* |
 
-La última fila es la única debilidad real del mecanismo, y está escrita aquí
-en vez de en una nota al pie porque `AGENTS.md` no admite notas al pie para
-limitaciones: una limitación no declarada como declarada de forma prominente es, a
-efectos de auditoría, una limitación oculta.
+La última fila de la tabla es ahora la de "Un cambio en el **código de tests**
+del motor que no toque `evaluatePolicy`". La debilidad que sí existía —el
+espaciado y el reordenamiento de claves de la fixture pasar inadvertidos— está
+**cerrada** desde §4.2, y se cierra con la fila de arriba, no con una nota al
+pie: `AGENTS.md` no admite notas al pie para limitaciones, pero una limitación
+que ya no existe sí merece Constar que se cerró y con qué evidencia.
 
 ---
 
@@ -379,11 +394,11 @@ efectos de auditoría, una limitación oculta.
 
 | Comprobación | Resultado |
 |---|---|
-| `pnpm --filter @cancelaciones/policy-engine test` | **13 passed (13)**, fixture sin tocar |
+| `pnpm --filter @cancelaciones/policy-engine test` | **14 passed (14)**, fixture sin tocar |
 | `sha256` LF-normalizado de la fixture | `38e29f441498b72137fcb6bda49b0aa00ff6f4f898c2c7f6504b46a378ea0d76` — **coincide** |
 | `core.autocrlf` | `true` (por eso el hash crudo en Windows difiere, §4.1) |
 | Modo auto-update | **no existe**, y está prohibido construirlo (§6) |
-| SHA-256 de archivo fijado en código | **no** (§4.2) |
+| SHA-256 de archivo fijado en código | **sí**, y verificado con RED→GREEN (§4.2) |
 | Ningún caso validado contra la fuente oficial del propietario | **ninguno**; todos `synthetic: true`, `notes: 'Behavior lock; not normative truth.'` |
 | Fuente local `GDM_GAM_PRD_MLG_003` | `PENDING_VERIFICATION`; **nunca** `CANONICAL` |
 | Divergencias normativas marcadas | 5.7.e, 5.8.a y la formalización de las 11 secciones: `REQUIRES_OWNER_DECISION` |

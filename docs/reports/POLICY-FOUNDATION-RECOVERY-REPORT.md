@@ -223,10 +223,14 @@ Baseline en el recovery, y estado final de esta fase:
 | Momento | Resultado |
 |---|---|
 | Recovery (`ed5ddb4`) | `pnpm test` PASS — **225 tests / 30 archivos / 0 skipped** |
-| Cierre de la fase (HEAD) | `pnpm test` PASS — **319 tests**: domain 14, db 14, policy-engine 56, reporting 26, web 209 (27 archivos) |
+| Cierre de la fase (`723460f`) | `pnpm test` PASS — **319 tests**: domain 14, db 14, policy-engine 56, reporting 26, web 209 (27 archivos) |
+| Tras la revisión final (HEAD) | `pnpm test` PASS — **320 tests**: domain 14, db 14, policy-engine **57**, reporting 26, web 209 (27 archivos) |
 
-Delta de la fase: **+94 tests**. Reparto: Task 8 +36 (`ai-decision-snapshot.test.ts`),
-Task 10 +49 (web 160→209, db 8→14).
+Delta de la fase: **+94 tests** hasta `723460f`, y **+95** en HEAD. Reparto: Task 8
++36 (`ai-decision-snapshot.test.ts`), Task 10 +49 (web 160→209, db 8→14), y la
+corrección posterior a la revisión **+1**: el test que fija el hash de la fixture
+(`packages/policy-engine/src/golden-master.test.ts`, 56→57). Ese +1 **no es
+normativo**: no toca `evaluatePolicy`, sólo lee bytes del fichero JSON.
 
 Las tres suites DEV están **excluidas del script `test` de `apps/web` por diseño**, no
 por descuido. El script las excluye explícitamente:
@@ -249,7 +253,7 @@ contra la base falsa durable local.
 | Capacidad | Estado en el recovery | Evidencia |
 |---|---|---|
 | Policy source canonical | `BLOCKED` | registry existe (4 tests); la fuente local sigue `PENDING_VERIFICATION` |
-| Golden Master | `PASS` | 13 tests; fixture hash LF canónico verificado |
+| Golden Master | `PASS` | 13 tests en el recovery; **14 en HEAD**; fixture hash LF canónico verificado y **fijado en código** |
 | Frozen Fact Runs immutable | `NOT_STARTED` | sin migración, sin trigger, sin RPC |
 | AI_DECISION_V1 durable | `NOT_STARTED` | sin tabla, sin repositorio |
 | AI_DECISION_V1 immutable | `NOT_STARTED` | sin garantía DB |
@@ -262,7 +266,7 @@ contra la base falsa durable local.
 | Evidence ref validation | `PASS` | 8 tests de referencias inventadas |
 | Blind sanitization | `PASS` | 11 tests de manifest fail-closed |
 | Stable fingerprints | `PASS` | fingerprints sin IDs/timestamps operativos |
-| Golden tests | `PASS` | suite de una pasada, 13 tests |
+| Golden tests | `PASS` | suite de una pasada, 13 tests en el recovery / 14 en HEAD |
 | Shadow engine boundary | `PASS` | API no autoritativa, 4 tests |
 | Declarative migration ready | **NO** | falta DB inmutable y validación real |
 | LLM extraction tools ready | **NO** | falta persistencia y DEV E2E |
@@ -330,21 +334,43 @@ Cómo se probó, que es lo que importa (afirmar "cero" sin método no vale nada)
    `index.ts:209`. Los tres existen, y el cuerpo de `evaluatePolicy` es byte-idéntico
    al de `410275e`.
 
-3. **El Golden Master no se movió.** 13/13 con la fixture sin tocar, y su hash
-   LF-canónico sigue siendo `38e29f44…d76` (§14 y el reporte de remediación §5).
+3. **El Golden Master no se movió.** 14/14 en HEAD con la fixture **sin tocar**, y su
+   hash LF-canónico sigue siendo `38e29f44…d76` (§14 y el reporte de remediación §5).
+   A 13/13 iba en `723460f`; el test 14 es el que fija ese hash, añadido por la
+   revisión final, y su purpose es precisamente que una edición de la fixture **no**
+   pueda pasar inadvertida.
 
 4. **Los fallos de DEV no son regresiones.** `test:audit:dev-e2e` y
    `test:governance:dev-e2e` fallan con `DEV_INFRA_NOT_CONFIGURED`, pero fallaban
    **antes** de la remediación: el guard `requireDevEnv` es byte-idéntico al de
    `410275e`. Predican la fase, no la causan.
 
-5. **Ningún archivo normativo aparece en el diff de ninguna tarea de la fase.** El
-   único archivo de `packages/policy-engine/src/` que aparece es `index.ts`, con esas
-   4 líneas.
+5. **Ningún archivo normativo aparece en el diff de ninguna tarea de la fase.**
+   Aparecen **dos** archivos de `packages/policy-engine/src/`, y conviene nombrarlos
+   los dos con su alcance real, porque uno no es normativo:
+   - **`index.ts`**, con esas 4 líneas (`export * from` de los módulos nuevos de
+     Tasks 2–4 más una línea en blanco, en la cabecera). Cero líneas del cuerpo
+     normativo tocadas.
+   - **`source-registry.ts`** (Task 9, `5a889a9`), **21 líneas añadidas y 0
+     borradas**. Es un cambio **puramente aditivo de tipos opcionales**:
+     `effectiveFrom`, `effectiveTo`, `verifiedBy`, `verifiedAt` y `notes`, más sus
+     comentarios. **No contiene código de ejecución ni toca ningún camino de
+     evaluación**: `PolicySourceRecord` sigue teniendo exactamente los mismos
+     campos obligatorios, `evaluatePolicy` no lo consume y ninguna regla normativa
+     lee esos campos. Sirven para que TypeScript y la tabla SQL
+     `policy_source_registry` coincidan (R-06), porque la migración los declara
+     como columnas nullable.
+
+   **Una versión anterior de este punto decía que `index.ts` era "el único archivo
+   de `packages/policy-engine/src/` que aparece". Eso era falso** y se retira: la
+   afirmación era cierta para las Tasks 8, 10, 11 y 12, pero la Task 9 (`5a889a9`)
+   también modificó `source-registry.ts`. Lo que no cambia es la conclusión, que
+   sigue siendo cero cambios normativos: `source-registry.ts` no participa de
+   `evaluatePolicy`.
 
 ## 13. Environment Blockers
 
-Tres bloqueos, todos de entorno, ninguno de código:
+Cuatro bloqueos, todos de entorno, ninguno de código:
 
 1. **Credenciales InsForge DEV ausentes.** Faltan `INSFORGE_DEV_API_KEY` e
    `INSFORGE_DEV_ACTOR_ID`. El único backend configurado es producción
@@ -367,6 +393,28 @@ Tres bloqueos, todos de entorno, ninguno de código:
    **Efecto:** ningún invariante de trigger, ACL o RLS ha sido ejercitado contra un
    Postgres real. Ese es el agujero de evidencia más grande de la fase, y está
    declarado como tal en lugar de disimulado.
+
+4. **La detección de "objeto de la migración ausente" no está verificada contra el
+   backend real.** `isFoundationObjectMissing`
+   (`apps/web/src/server/facts/foundation-objects.ts:104`) decide si un objeto de la
+   migración falta comparando `code`/`message` contra patrones
+   (`PGRST20[245]`, `42P01`, `42883`, `42703`, `could not find the …`,
+   `relation "…" does not exist`, `Unsupported rpc …`, …).
+   **Esos patrones provienen de la convención de PostgREST/Postgres y de los fakes
+   locales** —`apps/web/src/server/facts/foundation-fake-db.ts` y el `DurableDb` de
+   `apps/web/src/server/jobs/audit-queue.e2e.test.ts`—, que hardcodean esas cadenas
+   exactas. **Nunca se han contrastado contra el backend real de InsForge.**
+   **Efecto:** como la migración no está aplicada, hoy esa función es lo ÚNICO que
+   mantiene el pipeline de evaluación funcionando en producción: cada camino nuevo
+   pasa por ella para degradar en vez de romper. Si el backend real señala la ausencia
+   con otra forma, `readFrozenSnapshot` y `persistPolicyEvaluationAtomically` lanzan
+   (`ENGINE_RUN_INSERT_FAILED`) en vez de degradar.
+   **Resolverlo:** aplicar la migración **elimina** esta dependencia para la lectura del
+   snapshot congelado y para los caminos RPC, porque los objetos dejan de faltar.
+   **Verificar que los patrones coinciden con lo que emite el backend requiere
+   credenciales DEV** — el mismo bloqueo del punto 1. No se amplió la lista de
+   patrones a ciegas: adivinar una forma de error no es endurecer la detección.
+   **Estado: `BLOCKED`.**
 
 ## 14. Normative Blockers
 
@@ -403,7 +451,7 @@ Ninguna divergencia se corrigió. Todas siguen abiertas y todas son del propieta
 | 9 | `5a889a9` | `foundation: add immutable fact run and decision snapshot schema` |
 | 10 | `5e7201f` | `foundation: make fact runs immutable and corrections versioned` |
 | 11 | `d8e1b67` | `foundation: document fact immutability, decision snapshots and tool boundary` |
-| 12 | `H12` | `foundation: complete remediation validation and recovery reports` |
+| 12 | `723460f` | `foundation: complete remediation validation and recovery reports` |
 
 **Qué queda pendiente y no es de esta fase:**
 
@@ -423,7 +471,7 @@ Ninguna divergencia se corrigió. Todas siguen abiertas y todas son del propieta
 
 1. Leer `docs/reports/POLICY-FOUNDATION-RECOVERY-REPORT.md` (este archivo) y
    `docs/reports/POLICY-FOUNDATION-REMEDIATION-REPORT.md`.
-2. `git status --short` y `git log --oneline -6` para confirmar que HEAD es `H12` y que
+2. `git status --short` y `git log --oneline -6` para confirmar que HEAD es `723460f` y que
    el árbol está limpio.
 3. `git diff 410275e..HEAD --numstat -- packages/policy-engine/src/index.ts` — debe dar
    `4  0`. Si no da `4  0`, **algo normativo cambió**: pararse e investigar antes de
