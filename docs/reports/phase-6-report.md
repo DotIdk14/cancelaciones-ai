@@ -444,7 +444,7 @@ Current checks:
 - temporary cloud smoke function deleted: PASS
 - temporary OpenRouter smoke secrets deleted from InsForge after invocation: PASS
 
-Latest check notes: `.env` and `.env.local` are not tracked by Git; repository content search found no `sk-or-v1-` OpenRouter key pattern.
+Latest check notes: `.env` and `.env.local` are not tracked by Git; repository content search found no OpenRouter key pattern in tracked files.
 
 Important warning: an OpenRouter key was pasted into chat during remediation. Treat it as exposed and rotate it. Configure the replacement in the runtime environment, not in committed files or chat transcripts.
 

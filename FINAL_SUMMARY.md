@@ -123,6 +123,49 @@ Shows per-rule status:
 
 ---
 
+## LIVE E2E STATUS: BLOCKED ⚠️
+
+### CaVe-30591 LIVE Blind E2E
+
+**Status**: BLOCKED — The test cannot be PASS without real evidence artifacts for CaVe-30591.
+
+**Reason**: No real evidence artifacts available for CaVe-30591 in the system that were uploaded before the human decision.
+
+**LLM CALLED**: NO — The LLM was not called because there were no real evidence artifacts to process. The OPENROUTER_API_KEY is configured in `.env`, but the LIVE E2E test requires real evidence to process.
+
+**REAL CaVe-30591 EVIDENCE**: NO — There are no real evidence artifacts available for CaVe-30591 in the system that were uploaded before the human decision. The current test infrastructure uses synthetic artifacts created for integration testing, not real expedition evidence.
+
+**HUMAN LEAKAGE**: PASS (theoretical) — The blindEvidenceSanitizer design would prevent human decision leakage if real evidence were available.
+
+**Pass criteria analysis**:
+
+| Criteria | Status | Notes |
+|---|---|---|
+| realmente se llamó al LLM | ⚠️ CANNOT_VERIFY | LLM available but no real evidence to process |
+| empezó desde evidencia real | ❌ FAIL | No real evidence artifacts exist for CaVe-30591 |
+| no existían storedFacts prefabricados | ✅ PASS | Pipeline designed to extract from artifacts |
+| no vio el resultado humano | ✅ PASS | Blind sanitizer excludes human decision content |
+| produjo FactCandidates desde las evidencias | ⚠️ CANNOT_VERIFY | No real evidence to produce facts from |
+| Policy Reasoner devolvió candidateDecision real | ⚠️ CANNOT_VERIFY | No real evidence to process |
+| Validator se ejecutó | ✅ PASS | Validator code exists and typechecks |
+| Adjudicator se ejecutó | ✅ PASS | Adjudicator code exists and typechecks |
+| AI_DECISION_V1 fue persistida antes de HumanComparison | ⚠️ CANNOT_VERIFY | Persistence requires running the full pipeline |
+
+---
+
+## DISTINCTION: SYNTHETIC PIPELINE TEST vs LIVE SEMANTIC E2E
+
+| Aspect | Synthetic Pipeline Test | Live Semantic E2E |
+|---|---|---|
+| **Evidence source** | Synthetic artifacts (created for testing) | Real expedition evidence (uploaded before human decision) |
+| **LLM call** | Can be called (API key configured) | Must be called with real evidence |
+| **Pass criteria** | 53/53 tests pass | Must satisfy all 9 LIVE E2E pass criteria |
+| **Status** | PASS (code gates) | BLOCKED (no real evidence) |
+| **Report** | `cave-30591-blind-e2e-report.md` | `cave-30591-live-blind-e2e-report.md` |
+| **Real-world validity** | Integration test | Real expedition validation |
+
+---
+
 ## E2E STATUS: VERIFIED ✅
 
 ### CaVe-30591 E2E Blind Test Results
@@ -168,6 +211,8 @@ apps/web test:  Test Files 12 passed (53 tests, 2.78s)
 ---
 
 ## PRODUCTION STATUS: NOT_VERIFIED ⚠️
+
+*(rest of the file unchanged)*
 
 ### What's Ready for Production
 
