@@ -139,6 +139,28 @@ class DurableDb {
       await this.flush();
       return { data: null, error: null };
     }
+    if (fn === 'fail_job_permanent') {
+      // Ruta TERMINAL del handler. Antes todo acababa en schedule_job_retry, así
+      // que el fake no la modelaba y reventaba con "Unsupported rpc".
+      const job = this.table('jobs').find((row) => row.id === args.p_job_id);
+      if (!isRow(job)) throw new Error('JOB_NOT_FOUND');
+      Object.assign(job, { status: 'FAILED', last_error_code: args.p_error_code, last_error_message_sanitized: args.p_error_message_sanitized, failed_at: now() });
+      await this.flush();
+      return { data: null, error: null };
+    }
+    if (fn === 'begin_fact_run_processing_v1') {
+      // Transición autoritativa DRAFT -> PROCESSING, con la misma semántica que
+      // la función real: FROZEN responde en vez de fallar, PROCESSING es
+      // idempotente.
+      const run = this.table('fact_extraction_runs').find((row) => row.id === args.p_fact_run_id);
+      if (!isRow(run)) return { data: null, error: { message: 'FACT_RUN_NOT_FOUND' } };
+      const state = String(run.state);
+      if (state === 'FROZEN') return { data: [{ out_fact_run_id: run.id, out_state: 'FROZEN', out_transition: 'ALREADY_FROZEN' }], error: null };
+      if (state === 'PROCESSING') return { data: [{ out_fact_run_id: run.id, out_state: 'PROCESSING', out_transition: 'ALREADY_PROCESSING' }], error: null };
+      Object.assign(run, { state: 'PROCESSING' });
+      await this.flush();
+      return { data: [{ out_fact_run_id: run.id, out_state: 'PROCESSING', out_transition: 'PROCESSING' }], error: null };
+    }
     return { data: null, error: { message: `Unsupported rpc ${fn}` } };
   }
 }
@@ -268,7 +290,11 @@ describe('AUDIT QUEUE E2E', () => {
 
     await executeClaimedJob({ database: db, storage: new DurableStorage(join(root, 'storage')), workerId }, claimed!);
 
-    expect(await repo.listByAudit(audit.id)).toMatchObject([{ id: job.id, status: 'QUEUED', attemptCount: 1, lastErrorCode: 'SYNTHETIC_TRANSIENT_ERROR', lastErrorMessage: 'EVIDENCE_NOT_FOUND' }]);
+    // El código pasó de `SYNTHETIC_TRANSIENT_ERROR` (nombre de un fixture de
+    // test, en producción) a `DEPENDENCY_NOT_READY`, que dice lo que ocurrió:
+    // la evidencia aún no estaba. El comportamiento —retry— no cambia; cambia
+    // la honestidad del etiqueta.
+    expect(await repo.listByAudit(audit.id)).toMatchObject([{ id: job.id, status: 'QUEUED', attemptCount: 1, lastErrorCode: 'DEPENDENCY_NOT_READY', lastErrorMessage: 'EVIDENCE_NOT_FOUND' }]);
     expect(await repo.listArtifactsByAudit(audit.id)).toEqual([]);
     expect(db.table('engine_runs')).toEqual([]);
     expect(db.table('report_snapshots')).toEqual([]);
