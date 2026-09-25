@@ -2,6 +2,14 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { createAuditRepository, createFactRepository } from '@cancelaciones/db';
 import { createInsForgeServerClient } from '@/server/insforge/server';
 import { getCurrentUser } from '@/server/auth/session';
+import { freezeFactRunWithSnapshot } from '@/server/facts/fact-run-snapshot';
+
+/**
+ * `document_id` en `policy_source_registry` (migración 20260925120000, §11).
+ * `freeze_fact_run_v1` lo exige: no se congela con una fuente de política que el
+ * propietario no haya registrado.
+ */
+const POLICY_SOURCE_ID = 'gdm-gam-prd-mlg-003-local-unverified';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,6 +48,17 @@ export async function POST(request: NextRequest, context: { params: Promise<{ au
   if (run.state === 'FROZEN') return NextResponse.json({ factRun: run, reused: true }, { status: 200 });
   const facts = await repo.listFactsByRun(run.id);
   if (facts.length === 0) return NextResponse.json({ error: 'FACT_RUN_EMPTY', message: 'No se puede congelar un Fact Run sin facts.' }, { status: 409 });
-  await repo.freezeRun(run.id);
+  // C1 / Step 7: sella el snapshot con `freeze_fact_run_v1` cuando el RPC existe.
+  // Antes este route llamaba a `repo.freezeRun`, que hacía DRAFT -> FROZEN en un
+  // solo UPDATE: transición que `guard_fact_run_transition` prohíbe. Cuando el
+  // RPC no existe todavía, `freezeFactRunWithSnapshot` recorre la máquina de
+  // estados legal y avisa con un código estable.
+  await freezeFactRunWithSnapshot({
+    database: auth.client.database,
+    factRunId: run.id,
+    actorId: auth.user.id,
+    policySourceId: POLICY_SOURCE_ID,
+    run,
+  });
   return NextResponse.redirect(new URL(`/auditorias/${auditId}`, request.url));
 }

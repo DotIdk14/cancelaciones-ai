@@ -2,7 +2,9 @@ import { createHash } from 'node:crypto';
 import { createAuditRepository, createFactRepository, type DatabaseClient } from '@cancelaciones/db';
 import { evaluatePolicy, type PolicyEvaluation } from '@cancelaciones/policy-engine';
 import { recordBaselineRun } from '@/server/comparison/baseline';
-import { mapStoredFactsToPolicyFacts, validateFrozenFactRun } from './frozen-fact-run';
+import { getFrozenEffectiveFacts } from '@/server/facts/fact-run-snapshot';
+import { validateFrozenFactRun } from './frozen-fact-run';
+import { persistPolicyEvaluationAtomically } from './evaluation-persistence';
 
 function fingerprintHash(value: string): string {
   return createHash('sha256').update(value).digest('hex');
@@ -12,6 +14,45 @@ function policyCodeHash(value: string): string {
   return fingerprintHash(value);
 }
 
+/**
+ * ============================================================================
+ * ORQUESTACIÓN DE LA EVALUACIÓN NORMATIVA
+ * ============================================================================
+ *
+ * Este archivo hace TRES cosas y ninguna más:
+ *   1. Valida que el Fact Run esté FROZEN y pertenezca a esta auditoría y a esta
+ *      versión de política.
+ *   2. Pide los HECHOS EFECTIVOS y se los entrega a `evaluatePolicy`.
+ *   3. Pide la persistencia atómica y registra la corrida AI_BASELINE.
+ *
+ * ============================================================================
+ * POR QUÉ LOS OUTCOMES NO CAMBIAN (Step 6 con la puerta de R-8)
+ * ============================================================================
+ * `evaluatePolicy` es la única fuente de outcomes y no se toca. Lo único que
+ * puede mover un outcome es el array `facts` que recibe, porque
+ * `evaluation.factsFingerprint = stableFingerprint(facts)`. Así que la garantía
+ * se apoya en una sola pregunta: ¿el array es el mismo que antes?
+ *
+ *   - El array lo produce `getFrozenEffectiveFacts`. Sin snapshot, su rama
+ *     legacy ejecuta LITERALMENTE la operación anterior: `mapStoredFactsToPolicyFacts`
+ *     sobre `listFactsByRun`, filtro de la review más reciente con decisión
+ *     `INVALID`, y sustitución de `value` por `corrected_value`. Mismo orden,
+ *     misma consulta, mismo filtro.
+ *   - Con snapshot, el array es el que se selló. Y como la migración aún no
+ *     está aplicada, esa rama es inalcanzable hoy: no hay ningún entorno donde
+ *     pueda cambiar un outcome.
+ *
+ * La aplicación retrospectiva de reviews NO se elimina a secas (eso sí cambiaría
+ * outcomes): se elimina SÓLO en la rama del snapshot, que es exactamente lo que
+ * R-8 manda.
+ *
+ * ============================================================================
+ * C2: la escritura pasa por `persistPolicyEvaluationAtomically`
+ * ============================================================================
+ * La migración revoca `INSERT` sobre `engine_runs` y `engine_rule_results`: el
+ * módulo de persistencia usa `persist_policy_evaluation_v1` cuando existe y cae
+ * a los dos INSERT de hoy cuando no. Aquí ya no hay ni una escritura de motor.
+ */
 export async function runPolicyEngineForAudit(input: {
   database: DatabaseClient;
   auditId: string;
@@ -28,52 +69,41 @@ export async function runPolicyEngineForAudit(input: {
   const validation = validateFrozenFactRun({ auditId: input.auditId, policyCode: input.policyCode, policyVersion: input.policyVersion, run });
   if (!validation.ok) throw new Error(validation.code);
 
-  const storedFacts = await factsRepo.listFactsByRun(validation.run.id);
-  const reviewResult = await input.database.from('fact_reviews').select('fact_id,decision,corrected_value,created_at').eq('audit_id', input.auditId).order('created_at', { ascending: false });
-  if (reviewResult.error) throw new Error(reviewResult.error.message ?? 'FACT_REVIEWS_READ_FAILED');
-  const latestReviews = new Map<string, { decision: string; corrected_value: unknown }>();
-  for (const review of reviewResult.data ?? []) if (!latestReviews.has(review.fact_id)) latestReviews.set(review.fact_id, review);
-
-  const facts = mapStoredFactsToPolicyFacts(storedFacts)
-    .filter((fact) => latestReviews.get(fact.id)?.decision !== 'INVALID')
-    .map((fact) => {
-      const review = latestReviews.get(fact.id);
-      if (!review || review.corrected_value === null || review.corrected_value === undefined) return fact;
-      return { ...fact, value: review.corrected_value };
-    });
+  const effective = await getFrozenEffectiveFacts({
+    database: input.database,
+    auditId: input.auditId,
+    factRunId: validation.run.id,
+    run: validation.run,
+  });
+  const facts = effective.facts;
   if (facts.length === 0) throw new Error('FACT_RUN_EMPTY');
 
   const evaluation = evaluatePolicy({ policyCode: input.policyCode, policyVersion: input.policyVersion, facts });
   const factsFingerprint = fingerprintHash(evaluation.factsFingerprint);
   const rulesFingerprint = fingerprintHash(evaluation.rulesFingerprint);
   const policyHash = policyCodeHash(evaluation.policyCode);
-  const existing = await input.database.from('engine_runs').select('*').eq('audit_id', input.auditId).eq('policy_code_hash', policyHash).eq('policy_version', evaluation.policyVersion).order('created_at', { ascending: false }).limit(20);
-  if (existing.error) throw new Error(existing.error.message ?? 'ENGINE_RUN_READ_FAILED');
-  const matchingRun = existing.data?.find((row: { facts_fingerprint?: string; rules_fingerprint?: string }) => row.facts_fingerprint === factsFingerprint && row.rules_fingerprint === rulesFingerprint);
-  if (matchingRun) {
-    await recordBaselineRun({ database: input.database, auditId: input.auditId, engineRunId: matchingRun.id, factRunId: validation.run.id, policyCode: evaluation.policyCode, policyVersion: evaluation.policyVersion, evaluation, actorId: input.actorId });
-    return { engineRun: matchingRun, evaluation, factsUsed: facts.length, created: false };
-  }
 
-  const inserted = await input.database.from('engine_runs').insert([{
-    audit_id: input.auditId,
-    fact_run_id: validation.run.id,
-    policy_code: evaluation.policyCode,
-    policy_code_hash: policyHash,
-    policy_version: evaluation.policyVersion,
-    rules_fingerprint: rulesFingerprint,
-    facts_fingerprint: factsFingerprint,
-    status: 'COMPLETED',
-    suggested_outcome: evaluation.suggestedOutcome,
-    outcome_status: evaluation.outcomeStatus,
+  const persisted = await persistPolicyEvaluationAtomically({
+    database: input.database,
+    auditId: input.auditId,
+    factRunId: validation.run.id,
+    actorId: input.actorId,
     evaluation,
-  }]).select('*').single();
-  if (inserted.error || !inserted.data) throw new Error(inserted.error?.message ?? 'ENGINE_RUN_INSERT_FAILED');
+    factsFingerprint,
+    rulesFingerprint,
+    policyCodeHash: policyHash,
+  });
 
-  const ruleRows = evaluation.evaluatedRules.map((rule) => ({ engine_run_id: inserted.data.id, rule_id: rule.ruleId, status: rule.status, result: rule }));
-  const ruleInsert = await input.database.from('engine_rule_results').insert(ruleRows);
-  if (ruleInsert.error) throw new Error(ruleInsert.error.message ?? 'ENGINE_RULE_RESULTS_INSERT_FAILED');
+  await recordBaselineRun({
+    database: input.database,
+    auditId: input.auditId,
+    engineRunId: String(persisted.engineRun.id),
+    factRunId: validation.run.id,
+    policyCode: evaluation.policyCode,
+    policyVersion: evaluation.policyVersion,
+    evaluation,
+    actorId: input.actorId,
+  });
 
-  await recordBaselineRun({ database: input.database, auditId: input.auditId, engineRunId: inserted.data.id, factRunId: validation.run.id, policyCode: evaluation.policyCode, policyVersion: evaluation.policyVersion, evaluation, actorId: input.actorId });
-  return { engineRun: inserted.data, evaluation, factsUsed: facts.length, created: true };
+  return { engineRun: persisted.engineRun, evaluation, factsUsed: facts.length, created: persisted.created };
 }
