@@ -153,6 +153,63 @@ interface FactRow {
   created_at: string;
 }
 
+export type RuleLifecycleStatus = 'DRAFT' | 'REVIEW' | 'APPROVED' | 'ACTIVE' | 'RETIRED';
+export type EvidenceRequirementType = 'DOCUMENT' | 'IMAGE' | 'AUDIO' | 'TEXT' | 'SPREADSHEET' | 'PDF' | 'OTHER';
+
+export interface RuleRecord {
+  id: string;
+  ruleKey: string;
+  version: string;
+  name: string;
+  status: RuleLifecycleStatus;
+  createdAt: string;
+}
+
+interface RuleRow {
+  id: string;
+  rule_key: string;
+  version: string;
+  name: string;
+  status: RuleLifecycleStatus;
+  created_at: string;
+}
+
+export interface EvidenceRequirementRecord {
+  id: string;
+  ruleId: string;
+  requirementKey: string;
+  name: string | null;
+  description: string | null;
+  evidenceType: EvidenceRequirementType;
+  evidenceCode: string | null;
+  documentRole: DocumentRole | null;
+  required: boolean;
+  minCount: number;
+  maxCount: number | null;
+  orderIndex: number;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface EvidenceRequirementRow {
+  id: string;
+  rule_id: string;
+  requirement_key: string;
+  name: string | null;
+  description: string | null;
+  evidence_type: EvidenceRequirementType;
+  evidence_code: string | null;
+  document_role: DocumentRole | null;
+  required: boolean;
+  min_count: number;
+  max_count: number | null;
+  order_index: number;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
 function mapAudit(row: AuditRow): Audit {
   return {
     id: row.id,
@@ -239,6 +296,14 @@ function mapFactRun(row: FactExtractionRunRow): FactExtractionRun {
 
 function mapFact(row: FactRow): StoredFact {
   return { id: row.id, auditId: row.audit_id, runId: row.run_id, factType: row.fact_type, classification: row.classification, value: row.value, sourceRef: row.source_ref, confidence: row.confidence === null ? null : Number(row.confidence), createdAt: row.created_at };
+}
+
+function mapRule(row: RuleRow): RuleRecord {
+  return { id: row.id, ruleKey: row.rule_key, version: row.version, name: row.name, status: row.status, createdAt: row.created_at };
+}
+
+function mapEvidenceRequirement(row: EvidenceRequirementRow): EvidenceRequirementRecord {
+  return { id: row.id, ruleId: row.rule_id, requirementKey: row.requirement_key, name: row.name, description: row.description, evidenceType: row.evidence_type, evidenceCode: row.evidence_code, documentRole: row.document_role, required: row.required, minCount: Number(row.min_count), maxCount: row.max_count === null ? null : Number(row.max_count), orderIndex: Number(row.order_index), metadata: row.metadata ?? {}, createdAt: row.created_at, updatedAt: row.updated_at };
 }
 
 export function createAuditRepository(database: DatabaseClient) {
@@ -655,6 +720,131 @@ export function createFactRepository(database: DatabaseClient) {
     async artifactSetFingerprint(auditId: string): Promise<string> {
       const artifacts = await createJobRepository(database).listBaselineArtifactsByAudit(auditId);
       return stableFingerprint(artifacts.map((artifact) => ({ id: artifact.id, type: artifact.artifactType, sha256: artifact.contentSha256, evidenceId: artifact.evidenceId })));
+    },
+  };
+}
+
+const evidenceRequirementTypes = new Set<EvidenceRequirementType>(['DOCUMENT', 'IMAGE', 'AUDIO', 'TEXT', 'SPREADSHEET', 'PDF', 'OTHER']);
+const documentRoles = new Set<DocumentRole>(['EVIDENCE', 'HUMAN_DECISION_DOCUMENT', 'ADJUDICATION_EVIDENCE']);
+
+function validateRequirementInput(input: {
+  requirementKey?: string;
+  evidenceType?: string;
+  documentRole?: string | null;
+  required?: boolean;
+  minCount?: number;
+  maxCount?: number | null;
+  metadata?: Record<string, unknown>;
+}) {
+  if (input.requirementKey !== undefined && input.requirementKey.trim().length === 0) throw new Error('INVALID_REQUIREMENT_KEY');
+  if (input.evidenceType !== undefined && !evidenceRequirementTypes.has(input.evidenceType as EvidenceRequirementType)) throw new Error('INVALID_EVIDENCE_TYPE');
+  if (input.documentRole !== undefined && input.documentRole !== null && !documentRoles.has(input.documentRole as DocumentRole)) throw new Error('INVALID_DOCUMENT_ROLE');
+  if (input.minCount !== undefined && (!Number.isInteger(input.minCount) || input.minCount < 0)) throw new Error('INVALID_MIN_COUNT');
+  if (input.maxCount !== undefined && input.maxCount !== null && (!Number.isInteger(input.maxCount) || input.maxCount < 0)) throw new Error('INVALID_MAX_COUNT');
+  if (input.maxCount !== undefined && input.maxCount !== null && input.minCount !== undefined && input.maxCount < input.minCount) throw new Error('INVALID_COUNT_RANGE');
+  if (input.required === true && input.minCount !== undefined && input.minCount < 1) throw new Error('REQUIRED_MIN_COUNT_MUST_BE_POSITIVE');
+  if (input.metadata !== undefined && (input.metadata === null || Array.isArray(input.metadata) || typeof input.metadata !== 'object')) throw new Error('INVALID_METADATA');
+}
+
+export function createRuleGovernanceRepository(database: DatabaseClient) {
+  const ruleColumns = 'id,rule_key,version,name,status,created_at';
+  const requirementColumns = 'id,rule_id,requirement_key,name,description,evidence_type,evidence_code,document_role,required,min_count,max_count,order_index,metadata,created_at,updated_at';
+
+  return {
+    async createRule(input: { ruleKey: string; version: string; name: string; status?: RuleLifecycleStatus; createdBy?: string | null }): Promise<RuleRecord> {
+      const { data, error } = await database.from('rules').insert([{ rule_key: input.ruleKey, version: input.version, name: input.name, status: input.status ?? 'DRAFT', created_by: input.createdBy ?? null }]).select(ruleColumns).single();
+      if (error || !data) throw new Error(error?.message ?? 'No fue posible crear rule');
+      return mapRule(data);
+    },
+
+    async updateRuleStatus(ruleId: string, status: RuleLifecycleStatus): Promise<RuleRecord> {
+      const { data, error } = await database.from('rules').update({ status }).eq('id', ruleId).select(ruleColumns).single();
+      if (error || !data) throw new Error(error?.message ?? 'No fue posible actualizar rule');
+      return mapRule(data);
+    },
+
+    async listRules(options?: { ruleKey?: string; status?: RuleLifecycleStatus; limit?: number; offset?: number }): Promise<RuleRecord[]> {
+      let query = database.from('rules').select(ruleColumns);
+      if (options?.ruleKey) query = query.eq('rule_key', options.ruleKey);
+      if (options?.status) query = query.eq('status', options.status);
+      if (options?.limit !== undefined) query = query.limit(options.limit);
+      if (options?.offset !== undefined) query = query.range(options.offset, options.offset + ((options.limit ?? 50) - 1));
+      const { data, error } = await query.order('created_at', { ascending: false });
+      if (error) throw new Error(error.message ?? 'No fue posible leer rules');
+      return (data ?? []).map(mapRule);
+    },
+
+    async findRuleById(ruleId: string): Promise<RuleRecord | null> {
+      const { data, error } = await database.from('rules').select(ruleColumns).eq('id', ruleId).limit(1);
+      if (error) throw new Error(error.message ?? 'No fue posible leer rule');
+      return data?.[0] ? mapRule(data[0]) : null;
+    },
+
+    async listEvidenceRequirements(ruleId: string, options?: { limit?: number; offset?: number }): Promise<EvidenceRequirementRecord[]> {
+      let query = database.from('evidence_requirements').select(requirementColumns).eq('rule_id', ruleId);
+      if (options?.limit !== undefined) query = query.limit(options.limit);
+      if (options?.offset !== undefined) query = query.range(options.offset, options.offset + ((options.limit ?? 50) - 1));
+      const { data, error } = await query.order('order_index', { ascending: true }).order('created_at', { ascending: true });
+      if (error) throw new Error(error.message ?? 'No fue posible leer evidence requirements');
+      return (data ?? []).map(mapEvidenceRequirement);
+    },
+
+    async createEvidenceRequirement(input: {
+      ruleId: string;
+      requirementKey: string;
+      name?: string | null;
+      description?: string | null;
+      evidenceType: EvidenceRequirementType;
+      evidenceCode?: string | null;
+      documentRole?: DocumentRole | null;
+      required?: boolean;
+      minCount?: number;
+      maxCount?: number | null;
+      orderIndex?: number;
+      metadata?: Record<string, unknown>;
+    }): Promise<EvidenceRequirementRecord> {
+      const minCount = input.minCount ?? (input.required === false ? 0 : 1);
+      validateRequirementInput({ ...input, minCount });
+      const { data, error } = await database.from('evidence_requirements').insert([{
+        rule_id: input.ruleId,
+        requirement_key: input.requirementKey,
+        name: input.name ?? null,
+        description: input.description ?? null,
+        evidence_type: input.evidenceType,
+        evidence_code: input.evidenceCode ?? null,
+        document_role: input.documentRole ?? null,
+        required: input.required ?? true,
+        min_count: minCount,
+        max_count: input.maxCount ?? null,
+        order_index: input.orderIndex ?? 0,
+        metadata: input.metadata ?? {},
+      }]).select(requirementColumns).single();
+      if (error || !data) throw new Error(error?.message ?? 'No fue posible crear evidence requirement');
+      return mapEvidenceRequirement(data);
+    },
+
+    async updateEvidenceRequirement(requirementId: string, patch: Partial<Omit<EvidenceRequirementRecord, 'id' | 'ruleId' | 'createdAt' | 'updatedAt'>>): Promise<EvidenceRequirementRecord> {
+      validateRequirementInput({ requirementKey: patch.requirementKey, evidenceType: patch.evidenceType, documentRole: patch.documentRole, required: patch.required, minCount: patch.minCount, maxCount: patch.maxCount, metadata: patch.metadata });
+      const payload: Record<string, unknown> = {};
+      if (patch.requirementKey !== undefined) payload.requirement_key = patch.requirementKey;
+      if (patch.name !== undefined) payload.name = patch.name;
+      if (patch.description !== undefined) payload.description = patch.description;
+      if (patch.evidenceType !== undefined) payload.evidence_type = patch.evidenceType;
+      if (patch.evidenceCode !== undefined) payload.evidence_code = patch.evidenceCode;
+      if (patch.documentRole !== undefined) payload.document_role = patch.documentRole;
+      if (patch.required !== undefined) payload.required = patch.required;
+      if (patch.minCount !== undefined) payload.min_count = patch.minCount;
+      if (patch.maxCount !== undefined) payload.max_count = patch.maxCount;
+      if (patch.orderIndex !== undefined) payload.order_index = patch.orderIndex;
+      if (patch.metadata !== undefined) payload.metadata = patch.metadata;
+      const { data, error } = await database.from('evidence_requirements').update(payload).eq('id', requirementId).select(requirementColumns).single();
+      if (error || !data) throw new Error(error?.message ?? 'No fue posible actualizar evidence requirement');
+      return mapEvidenceRequirement(data);
+    },
+
+    async deleteEvidenceRequirement(requirementId: string): Promise<void> {
+      const { error } = await database.from('evidence_requirements').delete().eq('id', requirementId);
+      if (error) throw new Error(error.message ?? 'No fue posible eliminar evidence requirement');
     },
   };
 }

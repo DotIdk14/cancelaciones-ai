@@ -7,7 +7,10 @@
     "build": "next build",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run --exclude src/server/jobs/audit-pipeline.dev-e2e.test.ts --exclude src/server/rules/rule-governance.dev-e2e.test.ts",
+    "test:audit:e2e": "vitest run src/server/jobs/audit-queue.e2e.test.ts",
+    "test:audit:dev-e2e": "vitest run src/server/jobs/audit-pipeline.dev-e2e.test.ts",
+    "test:governance:dev-e2e": "vitest run src/server/rules/rule-governance.dev-e2e.test.ts"
   },
   "dependencies": {
     "@cancelaciones/db": "workspace:*",

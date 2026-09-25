@@ -1,11 +1,14 @@
 import { createHash } from 'node:crypto';
-import { createEvidenceRepository, createFactRepository, createJobRepository, type DatabaseClient } from '@cancelaciones/db';
-import type { ClaimedJob } from '@cancelaciones/domain';
+import { createAuditRepository, createEvidenceRepository, createFactRepository, createJobRepository, type DatabaseClient } from '@cancelaciones/db';
+import { stableFingerprint, type ClaimedJob } from '@cancelaciones/domain';
 import { extractFactsFromArtifacts } from '@/server/facts/extract';
 import { getServerEnv } from '@/server/config/env';
 import { blobToText } from '@/server/jobs/blob-text';
 import { runHumanDecisionExtraction } from '@/server/human-decision/service';
 import { runReconciliationAnalysis } from '@/server/reconciliation/service';
+import { runPolicyEngineForAudit } from '@/server/policy/evaluation';
+import { buildSnapshot } from '@/server/dictamen/service';
+import type { AuthorizedContext } from '@/server/reporting/authz';
 
 interface HandlerContext {
   database: DatabaseClient;
@@ -14,6 +17,53 @@ interface HandlerContext {
 }
 
 type JobHandler = (context: HandlerContext, job: ClaimedJob) => Promise<void>;
+
+const POLICY_CODE = 'GDM_GAM_PRD_MLG_003';
+const POLICY_VERSION = '5';
+
+async function updateAuditStatus(database: DatabaseClient, auditId: string, status: 'PROCESSING' | 'COMPLETED' | 'FAILED') {
+  const { error } = await database.from('audits').update({ status }).eq('id', auditId);
+  if (error) throw new Error(error.message ?? 'No fue posible actualizar estado de auditoria');
+}
+
+async function actorForAudit(database: DatabaseClient, auditId: string, payload: Record<string, unknown>): Promise<string> {
+  if (typeof payload.actorId === 'string' && payload.actorId) return payload.actorId;
+  const audit = await createAuditRepository(database).findById(auditId);
+  if (!audit) throw new Error('AUDIT_NOT_FOUND');
+  return audit.createdBy;
+}
+
+async function enqueueFactExtractionIfReady(context: HandlerContext, auditId: string, actorId: string) {
+  const evidences = await createEvidenceRepository(context.database).listByAudit(auditId);
+  const baseline = evidences.filter((evidence) => evidence.status === 'STORED' && evidence.documentRole === 'EVIDENCE');
+  if (baseline.length === 0) return;
+  const artifacts = await createJobRepository(context.database).listBaselineArtifactsByAudit(auditId);
+  const processed = new Set(artifacts.map((artifact) => artifact.evidenceId).filter(Boolean));
+  if (!baseline.every((evidence) => processed.has(evidence.id))) return;
+
+  const factsRepo = createFactRepository(context.database);
+  const existingRuns = await factsRepo.listRunsByAudit(auditId);
+  const frozen = existingRuns.find((run) => run.state === 'FROZEN');
+  if (frozen) {
+    await enqueueAuditEvaluation(context, auditId, frozen.id, actorId);
+    return;
+  }
+  const active = existingRuns.find((run) => run.state === 'PROCESSING' || run.state === 'DRAFT');
+  const run = active ?? await factsRepo.createRun({ auditId, policyCode: POLICY_CODE, policyVersion: POLICY_VERSION, extractorVersion: 'deterministic-facts-v1', artifactSetFingerprint: await factsRepo.artifactSetFingerprint(auditId), createdBy: actorId });
+  if (run.state === 'DRAFT') await context.database.from('fact_extraction_runs').update({ state: 'PROCESSING' }).eq('id', run.id);
+  const payload = { auditId, factRunId: run.id, version: 'deterministic-facts-v1', actorId };
+  await createJobRepository(context.database).enqueue({ auditId, jobType: 'FACT_EXTRACTION', operationScope: `audit:${auditId}:facts`, idempotencyKey: `facts:${run.id}:v1`, inputFingerprint: stableFingerprint(payload), payload, actorId });
+}
+
+async function enqueueAuditEvaluation(context: HandlerContext, auditId: string, factRunId: string, actorId: string) {
+  const payload = { auditId, factRunId, policyCode: POLICY_CODE, policyVersion: POLICY_VERSION, actorId };
+  await createJobRepository(context.database).enqueue({ auditId, jobType: 'AUDIT_EVALUATION', operationScope: `audit:${auditId}:evaluation:${factRunId}`, idempotencyKey: `evaluation:${auditId}:${factRunId}:${POLICY_CODE}:${POLICY_VERSION}`, inputFingerprint: stableFingerprint(payload), payload, actorId });
+}
+
+async function enqueueReportGeneration(context: HandlerContext, auditId: string, engineRunId: string, actorId: string) {
+  const payload = { auditId, engineRunId, actorId };
+  await createJobRepository(context.database).enqueue({ auditId, jobType: 'REPORT_GENERATION', operationScope: `audit:${auditId}:report:${engineRunId}`, idempotencyKey: `report:${auditId}:${engineRunId}`, inputFingerprint: stableFingerprint(payload), payload, actorId });
+}
 
 const metadataProbe: JobHandler = async (context, job) => {
   const repo = createJobRepository(context.database);
@@ -120,6 +170,7 @@ const evidenceProcessing: JobHandler = async (context, job) => {
     text: analysis.text,
   }, { evidenceId, contentSha256, extractorVersion: extractionVersion, provider: analysis.provider });
   await repo.complete(job.jobId, context.workerId, 100);
+  await enqueueFactExtractionIfReady(context, job.auditId, await actorForAudit(context.database, job.auditId, job.payload));
 };
 
 const factExtraction: JobHandler = async (context, job) => {
@@ -130,8 +181,28 @@ const factExtraction: JobHandler = async (context, job) => {
   // Aislamiento de baseline: solo artifacts de evidencias con rol EVIDENCE.
   const artifacts = await createJobRepository(context.database).listBaselineArtifactsByAudit(run.auditId);
   const facts = extractFactsFromArtifacts({ auditId: run.auditId, runId: run.id, artifacts });
-  await factsRepo.insertFacts(facts);
-  await context.database.from('fact_extraction_runs').update({ state: 'DRAFT' }).eq('id', run.id).eq('state', 'PROCESSING');
+  const existingFacts = await factsRepo.listFactsByRun(run.id);
+  if (existingFacts.length === 0) await factsRepo.insertFacts(facts);
+  const freeze = await context.database.from('fact_extraction_runs').update({ state: 'FROZEN', frozen_at: new Date().toISOString() }).eq('id', run.id);
+  if (freeze.error) throw new Error(freeze.error.message ?? 'FACT_RUN_FREEZE_FAILED');
+  await createJobRepository(context.database).complete(job.jobId, context.workerId, 100);
+  await enqueueAuditEvaluation(context, run.auditId, run.id, await actorForAudit(context.database, run.auditId, job.payload));
+};
+
+const auditEvaluation: JobHandler = async (context, job) => {
+  const auditId = String(job.payload.auditId ?? job.auditId);
+  const factRunId = String(job.payload.factRunId ?? '');
+  const actorId = await actorForAudit(context.database, auditId, job.payload);
+  const result = await runPolicyEngineForAudit({ database: context.database, auditId, actorId, policyCode: POLICY_CODE, policyVersion: POLICY_VERSION, factRunId });
+  await createJobRepository(context.database).complete(job.jobId, context.workerId, 100);
+  await enqueueReportGeneration(context, auditId, String(result.engineRun.id), actorId);
+};
+
+const reportGeneration: JobHandler = async (context, job) => {
+  const auditId = String(job.payload.auditId ?? job.auditId);
+  const actorId = await actorForAudit(context.database, auditId, job.payload);
+  await buildSnapshot({ user: { id: actorId }, client: { database: context.database, storage: context.storage }, auditId } as AuthorizedContext);
+  await updateAuditStatus(context.database, auditId, 'COMPLETED');
   await createJobRepository(context.database).complete(job.jobId, context.workerId, 100);
 };
 
@@ -139,6 +210,8 @@ const handlers: Record<string, JobHandler> = {
   METADATA_PROBE: metadataProbe,
   EVIDENCE_PROCESSING: evidenceProcessing,
   FACT_EXTRACTION: factExtraction,
+  AUDIT_EVALUATION: auditEvaluation,
+  REPORT_GENERATION: reportGeneration,
   HUMAN_DECISION_EXTRACTION: async (context, job) => {
     await runHumanDecisionExtraction({ database: context.database, storage: context.storage }, job);
     await createJobRepository(context.database).complete(job.jobId, context.workerId, 100);
