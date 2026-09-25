@@ -10,7 +10,8 @@
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
-    "guard:ci": "node scripts/ci-guards.mjs"
+    "guard:ci": "node scripts/ci-guards.mjs",
+    "db:verify-contract": "node scripts/verify-db-contract.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
