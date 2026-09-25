@@ -662,6 +662,7 @@ silencioso y dejará residuo en DEV.
 | El `integrity_hash` corresponde a los bytes sellados | `digest(...)` calculado en el servidor dentro del RPC | **`NO APLICADA`** |
 | Una corrección deja el padre intacto | `create_derived_fact_run_v1` no hace `UPDATE` al padre + `PARENT_FACT_RUN_MUTATED` en cliente | **`NO APLICADA`** (la parte de aplicación, verificada por test unitario) |
 | Los outcomes no cambian mientras no haya snapshot | rama `LEGACY_REVIEW_APPLIED` byte-equivalente | **aplicada** (verificada por test) |
+| **La detección de AUSENCIA reconoce las tres formas que ve producción** | `isFoundationObjectMissing` emparejando por `code` (`42P01`, `42703`, `PGRST202`) | **`MEDIDA` 2026-09-25** contra el InsForge real (§11.1) |
 | Un run `FROZEN` legacy no tiene ruta de escritura de su snapshot | §8 | **hueco abierto, `REQUIRES_OWNER_DECISION`** |
 | `delete_audit` fallará con fact run `FROZEN` | §10 | **hueco abierto, `REQUIRES_OWNER_DECISION`** |
 
@@ -673,6 +674,48 @@ aplicadas) y por lectura comparada, **no por ejecución**. El E2E
 `apps/web/src/server/policy/fact-run-snapshot.dev-e2e.test.ts` está escrito para
 ser la primera ejecución real, y hoy no puede correr: **`BLOCKED`** por
 `DEV_INFRA_NOT_CONFIGURED`.
+
+### 11.1 Lo único que sí se midió: la forma del error de AUSENCIA
+
+**Una excepción a "nada verificado por ejecución", y no mueve `DB VALIDATION`.**
+
+La puerta de §7.1 se midió el **2026-09-25** con una sonda de **sólo lectura**
+(`select`/`rpc`, sin DDL ni DML) contra el proyecto real de InsForge
+(`4pw4jdzv.us-west.insforge.app`), construida con el cliente de esta misma app
+(`createServerClient` de `@insforge/sdk/ssr`, baseUrl + anon key, camino
+**anon-key**). Formas observadas, verbatim:
+
+| Sondeo | HTTP | `code` | ¿Reconocida? |
+|---|---|---|---|
+| `from('fact_run_frozen_snapshots')…` — tabla ausente | `404` | `42P01` (`relation "public.fact_run_frozen_snapshots" does not exist`) | **sí** |
+| `from('fact_extraction_runs').select('parent_fact_run_id')` — columna ausente | `400` | `42703` (`column fact_extraction_runs.parent_fact_run_id does not exist`) | **sí** |
+| `rpc('__probe__')` — RPC ausente | `404` | `PGRST202` (`…no matches were found in the schema cache.`) | **sí** |
+| `from('fact_extraction_runs').select('id').limit(1)` — **control** | `200` | — (`[]`) | — |
+
+El control prueba que auth, conectividad y el camino de PostgREST funcionan, así que
+las tres primeras filas son ausencias **reales**. `isFoundationObjectMissing` las
+reconoce las tres, y los cuerpos observados están fijados literalmente en
+`apps/web/src/server/facts/fact-run-snapshot.test.ts`: un refactor que rompa el
+reconocimiento rompe la suite, no producción. Con ello se corrigen dos afirmaciones
+anteriores: que `error.code` era siempre `undefined` (**falso**: en `from()`/`rpc()`
+el error es el objeto plano que produce `@supabase/postgrest-js`, con
+`["code","details","hint","message"]`), y que `readFrozenSnapshot` lanzaba con la
+tabla ausente (**falso**: degrada a `LEGACY_REVIEW_APPLIED` con
+`FROZEN_SNAPSHOT_TABLE_ABSENT`).
+
+**Lo que la medición NO cubre:** la sonda corrió **sin sesión de usuario**, así
+que **la forma de una denegación RLS bajo sesión autenticada no está medida** y no
+se afirma cobertura sobre ella. Las formas que no aparecen en la tabla
+(`PGRST204/205`, `42883`, `Unsupported rpc …`) siguen procediendo de la convención
+y de los fakes.
+
+**Y con esto la mitigación real no cambia: sigue siendo APLICAR LA MIGRACIÓN.**
+Reconocer la forma del error sólo evita la rotura *mientras* la migración no esté
+aplicada; la migración elimina la dependencia en lugar de confiar en reconocer la
+forma, y necesita verificación en DEV, que sigue `BLOCKED`. Ningún trigger, ACL,
+política RLS ni RPC de este documento se ha ejecutado, y ningún E2E ha corrido contra
+una base de datos real. Detalle completo en
+`docs/reports/POLICY-FOUNDATION-REMEDIATION-REPORT.md` §24 (R-1).
 
 ---
 
