@@ -33,6 +33,17 @@
 
 export type PolicyLogEvent =
   | 'FACT_RUN_SELECTED'
+  | 'FACT_RUN_PROCESSING_STARTED'
+  | 'FACT_RUN_PROCESSING_RESUMED'
+  | 'FACT_RUN_ALREADY_FROZEN'
+  | 'FACT_RUN_FROZEN'
+  | 'JOB_CLAIMED'
+  | 'JOB_COMPLETED'
+  | 'JOB_RETRY_SCHEDULED'
+  | 'JOB_TERMINAL_FAILURE'
+  | 'PROVIDER_OPERATION_STARTED'
+  | 'PROVIDER_OPERATION_SUCCEEDED'
+  | 'PROVIDER_OPERATION_FAILED'
   | 'FROZEN_FACTS_LOADED'
   | 'POLICY_EVALUATION_STARTED'
   | 'POLICY_EVALUATION_COMPLETED'
@@ -50,10 +61,15 @@ export type PolicyLogEvent =
  * comodidad: obliga a decidir si ese dato puede estar en un log.
  */
 export interface PolicyLogFields {
-  auditId?: string;
-  factRunId?: string;
-  engineRunId?: string;
-  ruleId?: string;
+  // `null` se acepta a propósito: los ids vienen de datos opcionales y escribir
+  // `x ?? undefined` en cada llamada sólo mueve el problema. El filtro de
+  // ejecución los descarta igual que los `undefined`.
+  auditId?: string | null;
+  jobId?: string | null;
+  attemptId?: string | null;
+  factRunId?: string | null;
+  engineRunId?: string | null;
+  ruleId?: string | null;
   reasonCode?: string;
   code?: string;
   stage?: string;
@@ -72,7 +88,7 @@ export interface PolicyLogFields {
 }
 
 const ALLOWED = new Set<keyof PolicyLogFields>([
-  'auditId', 'factRunId', 'engineRunId', 'ruleId', 'reasonCode', 'code', 'stage',
+  'auditId', 'jobId', 'attemptId', 'factRunId', 'engineRunId', 'ruleId', 'reasonCode', 'code', 'stage',
   'policyCode', 'policyVersion', 'decisionStatus', 'outcomeStatus', 'suggestedOutcome',
   'extractorVersion', 'factsFingerprint', 'rulesFingerprint', 'transport', 'degradation',
   'factCount', 'durationMs',

@@ -41,6 +41,23 @@ class JobFakeDb extends FoundationFakeDb {
       this.insert('job_retries', { job_id: args.p_job_id, error_code: args.p_error_code, message: args.p_error_message_sanitized });
       return { data: null, error: null };
     }
+    // `failPermanent` es ahora la ruta TERMINAL del handler. Antes todo error
+    // acababa en `schedule_job_retry`, así que el fake no lo modelaba.
+    if (fn === 'fail_job_permanent') {
+      this.insert('job_retries', { job_id: args.p_job_id, error_code: args.p_error_code, message: args.p_error_message_sanitized, terminal: true });
+      return { data: null, error: null };
+    }
+    // Transición autoritativa DRAFT -> PROCESSING. El fake la modela con la
+    // misma semántica que la función real: FROZEN no es error, y PROCESSING es
+    // idempotente.
+    if (fn === 'begin_fact_run_processing_v1') {
+      const run = this.table('fact_extraction_runs').find((row) => row.id === args.p_fact_run_id) as { id: string; state: string } | undefined;
+      if (!run) return { data: null, error: { message: 'FACT_RUN_NOT_FOUND' } };
+      if (run.state === 'FROZEN') return { data: [{ out_fact_run_id: run.id, out_state: 'FROZEN', out_transition: 'ALREADY_FROZEN' }], error: null };
+      if (run.state === 'PROCESSING') return { data: [{ out_fact_run_id: run.id, out_state: 'PROCESSING', out_transition: 'ALREADY_PROCESSING' }], error: null };
+      run.state = 'PROCESSING';
+      return { data: [{ out_fact_run_id: run.id, out_state: 'PROCESSING', out_transition: 'PROCESSING' }], error: null };
+    }
     return super.rpc(fn, args);
   }
 }
@@ -93,14 +110,25 @@ describe('handler FACT_EXTRACTION — congelado con snapshot (Step 7 / C1)', () 
     warn.mockRestore();
   });
 
-  it('sin la migración y con el run en DRAFT camina DRAFT -> PROCESSING -> FROZEN', async () => {
+  it('sin la migración y con el run en DRAFT: la transición pasa por el RPC autoritativo y el run queda FROZEN', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const db = new JobFakeDb();
     seed(db, 'DRAFT');
 
     await executeClaimedJob({ database: db, workerId: 'w-1' }, job);
 
-    expect(db.writesOn('fact_extraction_runs').map((write) => (write.values[0] as { state?: string }).state).filter(Boolean)).toEqual(['PROCESSING', 'FROZEN']);
+    // ANTES: el handler escribía DRAFT -> PROCESSING con un UPDATE suelto, y
+    // sólo lo hacía en el camino LOCAL, después de intentar el RPC. Por eso,
+    // en cuanto el RPC existía, la transición desaparecía y el freeze fallaba
+    // con FACT_RUN_NOT_PROCESSING: DRAFT (incidente del 2026-09-25).
+    //
+    // AHORA: la transición es de `begin_fact_run_processing_v1`, y el handler
+    // sólo escribe FROZEN. Un solo sitio decide DRAFT -> PROCESSING.
+    expect(db.writesOn('fact_extraction_runs').map((write) => (write.values[0] as { state?: string }).state).filter(Boolean)).toEqual(['FROZEN']);
+    expect(db.table('fact_extraction_runs')[0].state).toBe('FROZEN');
+    // Y lo importante: nunca DRAFT -> FROZEN en un solo paso, que es lo que
+    // guard_fact_run_transition prohíbe.
+    expect(db.writesOn('fact_extraction_runs').some((write) => (write.values[0] as { state?: string }).state === 'PROCESSING')).toBe(false);
     vi.restoreAllMocks();
   });
 

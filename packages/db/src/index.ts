@@ -738,6 +738,29 @@ export function createFactRepository(database: DatabaseClient) {
       return (data ?? []).map(mapFact);
     },
 
+    /**
+     * Borra los facts de un Fact Run que NO esté FROZEN.
+     *
+     * Existe para la convergencia de la extracción: si un intento anterior
+     * dejó el conjunto a medias, la identidad real de un fact extraído es "el
+     * conjunto completo del run", así que se reemplaza en vez de acumular.
+     *
+     * El trigger `facts_guard_frozen_run_mutation` impide hacer esto sobre un
+     * run FROZEN, y no se intenta eludir: un run congelado tiene snapshot
+     * sellado, que es la fuente de verdad, y sus facts ya no se tocan. Por eso
+     * el método filtra por estado en lugar de confiar en que el llamadorqedó bien.
+     */
+    async deleteFactsByRun(runId: string): Promise<number> {
+      const { data, error } = await database.from('fact_extraction_runs').select('id,state').eq('id', runId).limit(1);
+      if (error) throw new Error(error.message ?? 'No fue posible leer el Fact Run');
+      const state = (data ?? [])[0] as { state?: string } | undefined;
+      if (!state) throw new Error('FACT_RUN_NOT_FOUND');
+      if (state.state === 'FROZEN') throw new Error('FACT_RUN_ALREADY_FROZEN: no se modifican los facts de un run sellado');
+      const { error: deleteError } = await database.from('facts').delete().eq('run_id', runId);
+      if (deleteError) throw new Error(deleteError.message ?? 'No fue posible limpiar los facts del run');
+      return 0;
+    },
+
     async findFactById(factId: string): Promise<StoredFact | null> {
       const { data, error } = await database.from('facts').select(factColumns).eq('id', factId).limit(1);
       if (error) throw new Error(error.message ?? 'No fue posible leer el dato');
