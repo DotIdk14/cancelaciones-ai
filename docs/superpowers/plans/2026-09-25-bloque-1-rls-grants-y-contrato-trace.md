@@ -28,6 +28,7 @@
 |---|---|
 | `migrations/20260926090000_fix-rls-grants-engine-fact.sql` | Otorga los `GRANT` faltantes en las 4 tablas. Aditiva. |
 | `scripts/verify-rls-grants.sql` | Verificación read-only de paridad política/privilegio. |
+| `packages/domain/src/policy-outcome.ts` | Vocabulario normativo `Outcome` / `OutcomeStatus`, movido desde `policy-engine`. Re-exportado por el motor. |
 | `packages/domain/src/decision-trace.ts` | Tipos del contrato del trace. Sin lógica. |
 | `packages/domain/src/index.ts` | Re-exporta el contrato. |
 
@@ -181,8 +182,12 @@ git commit -m "fix(db): alinear GRANT con políticas RLS en tablas de engine y f
 - Modificar: `packages/domain/src/index.ts`
 
 **Interfaces:**
-- Consume: `Outcome` y `OutcomeStatus` de `packages/policy-engine` (fuente de verdad normativa).
+- Consume: `Outcome` y `OutcomeStatus`, que se **mueven** a este paquete (ver nota de ciclo abajo).
 - Produce: `DecisionTrace`, `NormativeBlock`, `EstimateBlock`, `ConfidenceLevel`. El Bloque 3 los consume para construir el artefacto, y el Bloque 2 para servirlo.
+
+**Ciclo de dependencias (descubierto durante la ejecución).** El plan original hacía que `domain` importara de `policy-engine`. Eso crearía un ciclo: `policy-engine/src/index.ts:5` ya importa `stableFingerprint` de `@cancelaciones/domain`, y `domain` es hoy un nodo hoja sin dependencias. La dirección correcta es la inversa: **`Outcome` y `OutcomeStatus` se mueven a `domain`**, que es donde pertenece el vocabulario normativo, y `policy-engine` los re-exporta. Así `policy-engine → domain` se mantiene, ambos paquetes siguen hablando los mismos tipos y no hay ciclo.
+
+**Corrección obligatoria: `DETERMINATE` no existe.** El enum real es `DETERMINED`. Usar el literal correcto; `DETERMINATE` produce `TS2322` en typecheck.
 
 **Contexto.** El trace tiene dos bloques deliberadamente separados. `normative` nunca se relaja; `estimate` nunca se disfraza de dictamen. Cuando el caso cierra, `estimate` es `null` y no hay contradicción posible. Esta separación es requisito de diseño, no estilo.
 
@@ -236,12 +241,12 @@ describe('DecisionTrace', () => {
     expect(trace.estimate?.resolution).toBe('CANCELACION_VENTA');
   });
 
-  it('admite normativo DETERMINATE con estimate null', () => {
+  it('admite normativo DETERMINED con estimate null', () => {
     const trace: DecisionTrace = {
       ...baseAudit,
       policy: { code: 'GDM_GAM_PRD_MLG_003', version: '5', rulesFingerprint: 'rf', factsFingerprint: 'ff' },
       normative: {
-        status: 'DETERMINATE',
+        status: 'DETERMINED',
         resolution: 'CANCELACION_VENTA',
         decisiveRules: ['R-04'],
         blockingRules: [],
@@ -278,10 +283,10 @@ Crea `packages/domain/src/decision-trace.ts`:
  *  - `normative` es la autoridad. Nunca se relaja para forzar un cierre.
  *  - `estimate` acompaña al resultado probable. Nunca se disfraza de dictamen.
  *
- * Cuando `normative.status === 'DETERMINATE'`, `estimate` DEBE ser `null`.
+ * Cuando `normative.status === 'DETERMINED'`, `estimate` DEBE ser `null`.
  * Esa es la invariante que impide que una estimación se lea como dictamen.
  */
-import type { Outcome, OutcomeStatus } from '@cancelaciones/policy-engine';
+import type { Outcome, OutcomeStatus } from './policy-outcome';
 
 export type ConfidenceLevel = 'ALTA' | 'MEDIA' | 'BAJA';
 export type HumanReviewFlag = 'REQUIRED' | 'RECOMMENDED' | 'NOT_REQUIRED';
