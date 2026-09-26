@@ -68,7 +68,20 @@ class Query {
 }
 
 class DurableDb {
-  data: Record<string, Row[]> = { audits: [], evidences: [], audit_log: [], jobs: [], job_attempts: [], job_artifacts: [], fact_extraction_runs: [], facts: [], fact_reviews: [], engine_runs: [], engine_rule_results: [], audit_runs: [], human_reviews: [], audit_manual_comments: [], audit_evidence_selection: [], report_snapshots: [], dictamen_documents: [] };
+  data: Record<string, Row[]> = {
+    audits: [], evidences: [], audit_log: [], jobs: [], job_attempts: [], job_artifacts: [],
+    fact_extraction_runs: [], fact_run_frozen_snapshots: [], facts: [], fact_reviews: [],
+    policy_source_registry: [{
+      document_id: 'gdm-gam-prd-mlg-003-local-unverified',
+      policy_code: 'GDM_GAM_PRD_MLG_003',
+      policy_version: 'UNVERIFIED_LOCAL',
+      status: 'PENDING_VERIFICATION',
+      effective_from: '2026-01-01',
+    }],
+    engine_runs: [], engine_rule_results: [], audit_evaluation_envelopes: [],
+    audit_runs: [], human_reviews: [], audit_manual_comments: [], audit_evidence_selection: [],
+    report_snapshots: [], dictamen_documents: [],
+  };
 
   constructor(private readonly file: string) {}
   from(table: string) { return new Query(this, table); }
@@ -139,6 +152,100 @@ class DurableDb {
       await this.flush();
       return { data: null, error: null };
     }
+    if (fn === 'freeze_fact_run_v1') {
+      // Réplica de la función oficial: sella con snapshot e integrity_hash y
+      // exige run PROCESSING con hechos ya persistidos y fuente registrada.
+      const run = this.table('fact_extraction_runs').find((row) => row.id === args.p_fact_run_id);
+      if (!run) return { data: null, error: { message: 'FACT_RUN_NOT_FOUND' } };
+      if (run.state !== 'PROCESSING') return { data: null, error: { message: `FACT_RUN_NOT_PROCESSING: ${run.state}` } };
+      if (!Array.isArray(args.p_facts) || args.p_facts.length === 0) return { data: null, error: { message: 'FACT_RUN_EMPTY' } };
+      const registered = this.table('policy_source_registry').some((row) => row.document_id === args.p_policy_source_id);
+      if (!registered) return { data: null, error: { message: `POLICY_SOURCE_NOT_REGISTERED: ${args.p_policy_source_id}` } };
+      const persisted = this.table('facts').filter((row) => row.run_id === run.id).length;
+      if (args.p_fact_count !== persisted) return { data: null, error: { message: 'FACT_COUNT_MISMATCH' } };
+      const frozenAt = now();
+      const snapshot = this.insert('fact_run_frozen_snapshots', {
+        audit_id: run.audit_id,
+        fact_run_id: run.id,
+        facts: args.p_facts,
+        provenance: args.p_provenance,
+        fact_reviews_snapshot: args.p_fact_reviews_snapshot,
+        extractor_version: run.extractor_version,
+        policy_source_id: args.p_policy_source_id,
+        canonical_facts_fingerprint: args.p_canonical_facts_fingerprint,
+        effective_facts_fingerprint: args.p_effective_facts_fingerprint,
+        fact_count: persisted,
+        integrity_hash: `test-integrity-${snapshotIntegritySeed(run.id)}`,
+        frozen_at: frozenAt,
+      });
+      Object.assign(run, { state: 'FROZEN', frozen_at: frozenAt, effective_facts_fingerprint: args.p_effective_facts_fingerprint });
+      await this.flush();
+      return { data: [snapshot], error: null };
+    }
+    if (fn === 'persist_policy_evaluation_v1') {
+      // Réplica de la frontera oficial: exige fact run FROZEN con snapshot y es
+      // idempotente por (audit, facts, policy, version, rules).
+      const run = this.table('fact_extraction_runs').find((row) => row.id === args.p_fact_run_id);
+      if (!run) return { data: null, error: { message: 'FACT_RUN_NOT_FOUND' } };
+      if (run.audit_id !== args.p_audit_id) return { data: null, error: { message: 'FACT_RUN_AUDIT_MISMATCH' } };
+      if (run.state !== 'FROZEN') return { data: null, error: { message: `FACT_RUN_NOT_FROZEN: ${run.state}` } };
+      if (!this.table('fact_run_frozen_snapshots').some((row) => row.fact_run_id === run.id)) {
+        return { data: null, error: { message: 'FROZEN_SNAPSHOT_MISSING' } };
+      }
+      const policyCodeHash = `hash-${args.p_policy_code}`;
+      const existing = this.table('engine_runs').find((row) => row.audit_id === args.p_audit_id
+        && row.facts_fingerprint === args.p_facts_fingerprint
+        && row.policy_code_hash === policyCodeHash
+        && row.policy_version === args.p_policy_version
+        && row.rules_fingerprint === args.p_rules_fingerprint);
+      const engineRun = existing ?? this.insert('engine_runs', {
+        audit_id: args.p_audit_id,
+        fact_run_id: args.p_fact_run_id,
+        policy_code: args.p_policy_code,
+        policy_code_hash: policyCodeHash,
+        policy_version: args.p_policy_version,
+        rules_fingerprint: args.p_rules_fingerprint,
+        facts_fingerprint: args.p_facts_fingerprint,
+        owner_precedence_version: args.p_owner_precedence_version ?? null,
+        status: 'COMPLETED',
+        suggested_outcome: args.p_suggested_outcome,
+        outcome_status: args.p_outcome_status,
+        evaluation: args.p_evaluation,
+      });
+      for (const rule of (args.p_evaluated_rules ?? []) as Row[]) {
+        const ruleId = String(rule.rule_id);
+        if (this.table('engine_rule_results').some((row) => row.engine_run_id === engineRun.id && row.rule_id === ruleId)) continue;
+        this.insert('engine_rule_results', { engine_run_id: engineRun.id, rule_id: ruleId, status: rule.status, result: rule.result ?? {} });
+      }
+      const envelope = this.table('audit_evaluation_envelopes').find((row) => row.engine_run_id === engineRun.id)
+        ?? this.insert('audit_evaluation_envelopes', {
+          audit_id: args.p_audit_id,
+          engine_run_id: engineRun.id,
+          fact_run_id: args.p_fact_run_id,
+          schema_version: 'audit-evaluation-envelope-v1',
+          envelope: args.p_envelope,
+          envelope_hash: args.p_envelope_hash,
+          facts_fingerprint: args.p_facts_fingerprint,
+          rules_fingerprint: args.p_rules_fingerprint,
+          created_by: args.p_created_by ?? null,
+        });
+      const baseline = this.table('audit_runs').find((row) => row.engine_run_id === engineRun.id && row.run_type === 'AI_BASELINE')
+        ?? this.insert('audit_runs', {
+          audit_id: args.p_audit_id,
+          run_type: 'AI_BASELINE',
+          status: 'COMPLETED',
+          engine_run_id: engineRun.id,
+          fact_run_id: args.p_fact_run_id,
+          policy_code: args.p_policy_code,
+          policy_version: args.p_policy_version,
+          input_fingerprint: args.p_facts_fingerprint,
+          result: args.p_evaluation,
+          created_by: args.p_created_by ?? null,
+          completed_at: now(),
+        });
+      await this.flush();
+      return { data: [{ out_engine_run_id: engineRun.id, out_created: !existing, out_envelope_id: envelope.id, out_baseline_run_id: baseline.id }], error: null };
+    }
     return { data: null, error: { message: `Unsupported rpc ${fn}` } };
   }
 }
@@ -169,6 +276,10 @@ function isRow(value: Row | undefined): value is Row {
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
+}
+
+function snapshotIntegritySeed(factRunId: string): string {
+  return factRunId.slice(0, 8);
 }
 
 describe('AUDIT QUEUE E2E', () => {
@@ -220,8 +331,26 @@ describe('AUDIT QUEUE E2E', () => {
     expect(artifacts[0].result.text).toContain('ALUMNO SINTETICO');
     expect(reload.table('fact_extraction_runs')).toMatchObject([{ audit_id: audit.id, state: 'FROZEN' }]);
     expect(reload.table('facts').map((row) => row.fact_type)).toEqual(expect.arrayContaining(['student.level', 'contact.effectiveContact', 'classroom.hasLogin', 'classroom.hasEvaluationMode']));
+    // El sellado pasa por `freeze_fact_run_v1`: sin snapshot no puede haber
+    // evaluación, y `persist_policy_evaluation_v1` lo exige. Un `update` crudo
+    // del estado no dejaría ninguno de los dos.
+    expect(reload.table('fact_run_frozen_snapshots')).toHaveLength(1);
+    expect(reload.table('fact_run_frozen_snapshots')[0]).toMatchObject({
+      fact_run_id: reload.table('fact_extraction_runs')[0].id,
+      policy_source_id: 'gdm-gam-prd-mlg-003-local-unverified',
+      integrity_hash: expect.any(String),
+    });
     expect(reload.table('engine_runs')).toHaveLength(1);
     expect(reload.table('engine_rule_results').length).toBeGreaterThan(0);
+    // La frontera oficial escribe además el envelope 1:1 con el engine_run.
+    expect(reload.table('audit_evaluation_envelopes')).toHaveLength(1);
+    expect(reload.table('audit_evaluation_envelopes')[0]).toMatchObject({
+      engine_run_id: reload.table('engine_runs')[0].id,
+      schema_version: 'audit-evaluation-envelope-v1',
+    });
+    expect(reload.table('audit_runs').filter((row) => row.run_type === 'AI_BASELINE')).toHaveLength(1);
+    // El evento de auditoría se conserva: la función oficial no lo escribe.
+    expect(reload.table('audit_log').filter((row) => row.event_type === 'AI_BASELINE_COMPLETED')).toHaveLength(1);
     expect(reload.table('report_snapshots')).toHaveLength(1);
     expect(reload.table('audits')[0]).toMatchObject({ id: audit.id, status: 'COMPLETED' });
     const evaluation = reload.table('engine_runs')[0].evaluation as { suggestedOutcome?: string | null; evaluatedRules?: unknown[] };

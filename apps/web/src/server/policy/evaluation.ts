@@ -1,15 +1,11 @@
 import { createHash } from 'node:crypto';
 import { createAuditRepository, createFactRepository, type DatabaseClient } from '@cancelaciones/db';
-import { evaluatePolicy, type PolicyEvaluation } from '@cancelaciones/policy-engine';
-import { recordBaselineRun } from '@/server/comparison/baseline';
+import { evaluatePolicy, toAuditEvaluationEnvelopeV1, type PolicyEvaluation } from '@cancelaciones/policy-engine';
+import { recordBaselineCompletedEvent } from '@/server/comparison/baseline';
 import { mapStoredFactsToPolicyFacts, validateFrozenFactRun } from './frozen-fact-run';
 
 function fingerprintHash(value: string): string {
   return createHash('sha256').update(value).digest('hex');
-}
-
-function policyCodeHash(value: string): string {
-  return fingerprintHash(value);
 }
 
 export async function runPolicyEngineForAudit(input: {
@@ -46,34 +42,58 @@ export async function runPolicyEngineForAudit(input: {
   const evaluation = evaluatePolicy({ policyCode: input.policyCode, policyVersion: input.policyVersion, facts });
   const factsFingerprint = fingerprintHash(evaluation.factsFingerprint);
   const rulesFingerprint = fingerprintHash(evaluation.rulesFingerprint);
-  const policyHash = policyCodeHash(evaluation.policyCode);
-  const existing = await input.database.from('engine_runs').select('*').eq('audit_id', input.auditId).eq('policy_code_hash', policyHash).eq('policy_version', evaluation.policyVersion).order('created_at', { ascending: false }).limit(20);
-  if (existing.error) throw new Error(existing.error.message ?? 'ENGINE_RUN_READ_FAILED');
-  const matchingRun = existing.data?.find((row: { facts_fingerprint?: string; rules_fingerprint?: string }) => row.facts_fingerprint === factsFingerprint && row.rules_fingerprint === rulesFingerprint);
-  if (matchingRun) {
-    await recordBaselineRun({ database: input.database, auditId: input.auditId, engineRunId: matchingRun.id, factRunId: validation.run.id, policyCode: evaluation.policyCode, policyVersion: evaluation.policyVersion, evaluation, actorId: input.actorId });
-    return { engineRun: matchingRun, evaluation, factsUsed: facts.length, created: false };
+
+  // La decisión de máquina se persiste SIEMPRE por la función oficial
+  // `persist_policy_evaluation_v1`. El INSERT directo en `engine_runs` /
+  // `engine_rule_results` está revocado para el rol cliente: con la misma
+  // credencial que recibe el navegador era posible forjar la decisión que el
+  // Dictamen lee como oficial (ver migraciones/20260926120000). La función es
+  // idempotente y además valida actor, fact run FROZEN con snapshot, y
+  // coherencia audit/run, por lo que la idempotencia no se reimplementa aquí.
+  const envelope = toAuditEvaluationEnvelopeV1(evaluation);
+  const envelopeHash = fingerprintHash(JSON.stringify(envelope));
+  if (!input.database.rpc) throw new Error('Database client must support rpc to persist the machine decision');
+  const persisted = await input.database.rpc('persist_policy_evaluation_v1', {
+    p_audit_id: input.auditId,
+    p_fact_run_id: validation.run.id,
+    p_policy_code: evaluation.policyCode,
+    p_policy_version: evaluation.policyVersion,
+    p_rules_fingerprint: rulesFingerprint,
+    p_facts_fingerprint: factsFingerprint,
+    p_suggested_outcome: evaluation.suggestedOutcome,
+    p_outcome_status: evaluation.outcomeStatus,
+    p_evaluation: evaluation,
+    p_evaluated_rules: evaluation.evaluatedRules.map((rule) => ({
+      rule_id: rule.ruleId,
+      status: rule.status,
+      result: rule,
+    })),
+    p_envelope: envelope,
+    p_envelope_hash: envelopeHash,
+    p_owner_precedence_version: null,
+    p_created_by: input.actorId,
+  });
+  if (persisted.error) throw new Error(persisted.error.message ?? 'ENGINE_RUN_PERSIST_FAILED');
+  const row = (Array.isArray(persisted.data) ? persisted.data[0] : persisted.data) as
+    | { out_engine_run_id?: string; out_created?: boolean; out_baseline_run_id?: string | null }
+    | null;
+  const engineRunId = row?.out_engine_run_id;
+  if (typeof engineRunId !== 'string' || engineRunId === '') throw new Error('ENGINE_RUN_PERSIST_NO_ID');
+
+  const engineRun = await input.database.from('engine_runs').select('*').eq('id', engineRunId).single();
+  if (engineRun.error || !engineRun.data) throw new Error(engineRun.error?.message ?? 'ENGINE_RUN_READ_FAILED');
+
+  // `persist_policy_evaluation_v1` registra el baseline AI_BASELINE pero no
+  // escribe el evento de auditoría; se conserva aquí para no perder la traza.
+  if (row?.out_created) {
+    await recordBaselineCompletedEvent({
+      database: input.database,
+      auditId: input.auditId,
+      runId: row.out_baseline_run_id ?? null,
+      engineRunId,
+      evaluation,
+      actorId: input.actorId,
+    });
   }
-
-  const inserted = await input.database.from('engine_runs').insert([{
-    audit_id: input.auditId,
-    fact_run_id: validation.run.id,
-    policy_code: evaluation.policyCode,
-    policy_code_hash: policyHash,
-    policy_version: evaluation.policyVersion,
-    rules_fingerprint: rulesFingerprint,
-    facts_fingerprint: factsFingerprint,
-    status: 'COMPLETED',
-    suggested_outcome: evaluation.suggestedOutcome,
-    outcome_status: evaluation.outcomeStatus,
-    evaluation,
-  }]).select('*').single();
-  if (inserted.error || !inserted.data) throw new Error(inserted.error?.message ?? 'ENGINE_RUN_INSERT_FAILED');
-
-  const ruleRows = evaluation.evaluatedRules.map((rule) => ({ engine_run_id: inserted.data.id, rule_id: rule.ruleId, status: rule.status, result: rule }));
-  const ruleInsert = await input.database.from('engine_rule_results').insert(ruleRows);
-  if (ruleInsert.error) throw new Error(ruleInsert.error.message ?? 'ENGINE_RULE_RESULTS_INSERT_FAILED');
-
-  await recordBaselineRun({ database: input.database, auditId: input.auditId, engineRunId: inserted.data.id, factRunId: validation.run.id, policyCode: evaluation.policyCode, policyVersion: evaluation.policyVersion, evaluation, actorId: input.actorId });
-  return { engineRun: inserted.data, evaluation, factsUsed: facts.length, created: true };
+  return { engineRun: engineRun.data, evaluation, factsUsed: facts.length, created: Boolean(row?.out_created) };
 }

@@ -47,12 +47,41 @@ export async function recordBaselineRun(input: {
     createdBy: input.actorId,
   });
 
+  await recordBaselineCompletedEvent({
+    database: input.database,
+    auditId: input.auditId,
+    runId: run.id,
+    engineRunId: input.engineRunId,
+    evaluation: input.evaluation,
+    actorId: input.actorId,
+  });
+
+  return { created: true, runId: run.id };
+}
+
+/**
+ * Evento de auditoría del baseline. Vive aparte de `recordBaselineRun` porque
+ * la frontera oficial `persist_policy_evaluation_v1` ya inserta la corrida
+ * AI_BASELINE y, al hacerlo, la traza del evento corresponde a quien la
+ * selló. Sin esta separación, reconectar la persistencia a la función oficial
+ * haría perder el evento y con él la trazabilidad de la decisión.
+ */
+export async function recordBaselineCompletedEvent(input: {
+  database: DatabaseClient;
+  auditId: string;
+  runId: string | null;
+  engineRunId: string;
+  evaluation: PolicyEvaluation;
+  actorId: string;
+}): Promise<void> {
   await createAuditLogRepository(input.database).record({
     auditId: input.auditId,
     eventType: 'AI_BASELINE_COMPLETED',
     actorId: input.actorId,
-    metadata: { runId: run.id, engineRunId: input.engineRunId, outcome: input.evaluation.suggestedOutcome },
+    metadata: {
+      runId: input.runId,
+      engineRunId: input.engineRunId,
+      outcome: input.evaluation.suggestedOutcome,
+    },
   });
-
-  return { created: true, runId: run.id };
 }

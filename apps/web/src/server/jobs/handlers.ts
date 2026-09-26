@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { createAuditRepository, createEvidenceRepository, createFactRepository, createJobRepository, type DatabaseClient } from '@cancelaciones/db';
-import { stableFingerprint, type ClaimedJob } from '@cancelaciones/domain';
+import { canonicalFingerprintV1, stableFingerprint, type ClaimedJob } from '@cancelaciones/domain';
 import { extractFactsFromArtifacts } from '@/server/facts/extract';
 import { getServerEnv } from '@/server/config/env';
 import { blobToText } from '@/server/jobs/blob-text';
@@ -173,6 +173,29 @@ const evidenceProcessing: JobHandler = async (context, job) => {
   await enqueueFactExtractionIfReady(context, job.auditId, await actorForAudit(context.database, job.auditId, job.payload));
 };
 
+/**
+ * ONLY_OWNER_PROVIDED_POLICY_SOURCES: resuelve el documento normativo vigente
+ * desde el registro del propietario. No hay constante con el `document_id` en
+ * el código para que un cambio de documento sea una decisión del owner y no un
+ * edit silencioso. Si no hay fuente registrada, el sellado falla.
+ */
+async function resolveRegisteredPolicySourceId(database: DatabaseClient, policyCode: string): Promise<string> {
+  if (!database.rpc) throw new Error('Database client must support rpc to seal a fact run');
+  const { data, error } = await database
+    .from('policy_source_registry')
+    .select('document_id,policy_version,status')
+    .eq('policy_code', policyCode)
+    .order('effective_from', { ascending: false })
+    .limit(5);
+  if (error) throw new Error(error.message ?? 'POLICY_SOURCE_LOOKUP_FAILED');
+  const registered = (data ?? []).find((row: { status?: string | null }) => row.status === 'VERIFIED' || row.status === 'PENDING_VERIFICATION');
+  const documentId = registered?.document_id;
+  if (typeof documentId !== 'string' || documentId.trim() === '') {
+    throw new Error(`POLICY_SOURCE_NOT_REGISTERED: ${policyCode}`);
+  }
+  return documentId;
+}
+
 const factExtraction: JobHandler = async (context, job) => {
   const runId = String(job.payload.factRunId ?? '');
   const factsRepo = createFactRepository(context.database);
@@ -183,7 +206,48 @@ const factExtraction: JobHandler = async (context, job) => {
   const facts = extractFactsFromArtifacts({ auditId: run.auditId, runId: run.id, artifacts });
   const existingFacts = await factsRepo.listFactsByRun(run.id);
   if (existingFacts.length === 0) await factsRepo.insertFacts(facts);
-  const freeze = await context.database.from('fact_extraction_runs').update({ state: 'FROZEN', frozen_at: new Date().toISOString() }).eq('id', run.id);
+  // Se sella lo que realmente quedó persistido, no lo que la extracción quiso
+  // producir: el snapshot es la evidencia de referencia y su conteo lo contrasta
+  // la función oficial contra la tabla `facts`.
+  const persistedFacts = await factsRepo.listFactsByRun(run.id);
+  if (persistedFacts.length === 0) throw new Error('FACT_RUN_EMPTY');
+  const reviews = await context.database
+    .from('fact_reviews')
+    .select('fact_id,decision,corrected_value,created_at')
+    .eq('audit_id', run.auditId)
+    .order('created_at', { ascending: true });
+  if (reviews.error) throw new Error(reviews.error.message ?? 'FACT_REVIEWS_READ_FAILED');
+  const factReviewsSnapshot = (reviews.data ?? []).map((review: { fact_id: string; decision: string; corrected_value: unknown; created_at: string }) => ({
+    factId: review.fact_id,
+    decision: review.decision,
+    correctedValue: review.corrected_value ?? null,
+    createdAt: review.created_at,
+  }));
+  // ONLY_OWNER_PROVIDED_POLICY_SOURCES: el documento no lo decide el código.
+  // Se resuelve contra el registro normative; si el propietario no lo registró,
+  // el sellado falla en vez de congelar contra una fuente inventada.
+  const policySourceId = await resolveRegisteredPolicySourceId(context.database, POLICY_CODE);
+  // En este punto el run se sella recién extraído, sin revisiones humanas
+  // incorporadas: por eso fingerprint canónico y efectivo coinciden. Toda
+  // revisión posterior produce un run derivado con `create_derived_fact_run_v1`,
+  // que es el mecanismo previsto para eso.
+  const factsFingerprint = canonicalFingerprintV1(persistedFacts);
+  if (!context.database.rpc) throw new Error('Database client must support rpc to seal a fact run');
+  const freeze = await context.database.rpc('freeze_fact_run_v1', {
+    p_fact_run_id: run.id,
+    p_facts: persistedFacts,
+    p_provenance: {
+      factRunId: run.id,
+      extractorVersion: run.extractorVersion,
+      policyCode: POLICY_CODE,
+      sealedFrom: 'fact_extraction_job',
+    },
+    p_policy_source_id: policySourceId,
+    p_canonical_facts_fingerprint: factsFingerprint,
+    p_effective_facts_fingerprint: factsFingerprint,
+    p_fact_reviews_snapshot: factReviewsSnapshot,
+    p_fact_count: persistedFacts.length,
+  });
   if (freeze.error) throw new Error(freeze.error.message ?? 'FACT_RUN_FREEZE_FAILED');
   await createJobRepository(context.database).complete(job.jobId, context.workerId, 100);
   await enqueueAuditEvaluation(context, run.auditId, run.id, await actorForAudit(context.database, run.auditId, job.payload));
