@@ -128,9 +128,34 @@ Reubicado desde `server/policy/evidence-interpreter.ts` (hoy muerto) a un módul
 Reglas duras:
 
 - Solo produce hechos **presentes en los artefactos**. Nada inferido sin respaldo textual.
-- Si no encuentra nada, devuelve vacío. El caso permanece `INDETERMINATE`.
 - No puede crear hechos que no estén en `POLICY_FACT_INVENTORY`.
 - Su salida se convierte en facts y se **re-evalúa con las mismas reglas**. Si las reglas se cierran, el caso se cierra normativamente de verdad. Si no, sigue `INDETERMINATE` con mejor base probabilística.
+
+### 3.2.1 Protocolo de esfuerzo máximo antes de aceptar `INDETERMINATE`
+
+Un `INDETERMINATE` solo es honesto si se ha **agotado** la extracción disponible. El estado actual del repositorio no cumple esta condición: `INDETERMINATE` aparece por falta de búsqueda, no por falta de evidencia. Este protocolo hace que el estado sea creíble.
+
+**Escalonado de intentos.** Antes de fijar el estado normativo, se ejecutan pasadas sucesivas, cada una más específica que la anterior:
+
+| Pasada | Estrategia | Objetivo |
+|---|---|---|
+| 0 | Extracción determinista sobre texto plano y tablas. | Hechos evidentes sin IA. |
+| 1 | Intérprete de evidencia sobre los artefactos completos, con el inventario de hechos como guía. | Condiciones `UNKNOWN` que la pasada 0 no vio. |
+| 2 | Para cada `missingFact` aún abierto, relectura **dirigida** del artefacto más probable para ese hecho. | Cerrar facts concretos que la pasada 1 no encontró. |
+| 3 | Reanálisis de los artefactos no textuales (imagen, audio) que no se habían priorizado inicialmente, con umbrales de confianza más estrictos. | Evidencia en formatos no textuales. |
+| 4 | Re-evaluación normativa completa y recalculo de la distribución. | Cierre real si las reglas ya se satisfacen. |
+
+El ciclo termina cuando ninguna pasada produce un hecho nuevo, o cuando se agota el presupuesto de intentos (máximo **5 pasadas**, con tope de coste registrado en `ai_usage`).
+
+**Criterio de saturación.** `INDETERMINATE` solo se fija si, tras el agotamiento:
+
+- Cada `missingFact` de cada regla bloqueante tiene al menos un intento registrado, con su artefacto y su resultado.
+- Ninguna pasada produjo hechos nuevos en la iteración final.
+- El reporte de saturación se persiste en el Decision Trace.
+
+**Qué no se hace nunca.** Un hecho no pasa de `UNKNOWN` a `TRUE` o `FALSE` porque una regla lo requiera. Invertir el sentido de la condición para cerrar el caso es fabricar evidencia, y está prohibido por la restricción normativa. El protocolo puede dejar el estado abierto; no puede mentir sobre él.
+
+**Consecuencia observable:** un `INDETERMINATE` emitido tras este protocolo significa "se buscó en toda la evidencia disponible y no se encontró lo que el procedimiento exige". Eso es una afirmación defendible frente al procedimiento actual, donde significa "nunca se buscó".
 
 ### 3.3 Componente 2 — `estimateResolution`
 
@@ -304,6 +329,8 @@ Si el trace debería existir pero falló, la UI lo dice claramente y el error qu
 **UI:** el botón rojo aparece junto al resultado y descarga JSON válido; con el componente presente pero fallando, muestra el estado de indisponibilidad.
 
 **Jobs:** existe un test que falla si se detecta un loop de `POST /api/jobs/process`.
+
+**Esfuerzo máximo (anti-maquillage):** tests que fallan si el sistema fija `INDETERMINATE` sin haber ejecutado el escalonado de pasadas; test que verifica que el reporte de saturación se persiste; test de que cada `missingFact` bloqueante tiene al menos un intento registrado; test de que un hecho nunca se marca `TRUE`/`FALSE` sin evidencia directa que lo respalde.
 
 **Login:** la aplicación abre el dashboard directamente, sin redirección.
 
