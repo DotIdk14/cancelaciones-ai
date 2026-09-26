@@ -1,6 +1,17 @@
+/**
+ * Contratos de hechos observables y canonicalización determinista.
+ *
+ * INFRAESTRUCTURA. Describe *cómo se registra y sella* un hecho extraído, nunca
+ * qué debe concluirse normativamente. Las reglas de la V2 no se derivan de aquí.
+ */
+
+/** Estado epistémico del hecho, tal como lo observa la extracción. */
 export type FactState = 'OBSERVED' | 'INFERRED' | 'UNKNOWN' | 'CONTRADICTORY';
+
+/** Método por el que se obtuvo el hecho. */
 export type ExtractionMethod = 'DETERMINISTIC' | 'LLM' | 'HUMAN' | 'IMPORTED';
 
+/** Procedencia verificable de un hecho: evidencia, artifact y extractor. */
 export interface FactProvenanceV1 {
   evidenceId: string;
   artifactId?: string;
@@ -27,19 +38,15 @@ export interface ExtractionToolOutputV1 {
   facts: ExtractedFactV1[];
 }
 
-export interface ShadowPolicyResult {
-  authoritative: false;
-  source: 'DECLARATIVE_SHADOW';
-  evaluation: unknown;
-}
-
 const OPERATIONAL_FINGERPRINT_FIELDS = ['createdAt', 'updatedAt', 'completedAt', 'executionId', 'runId'] as const;
 export const CANONICALIZATION_VERSION = 'canonicalization-v1';
 
+/** Canonicaliza claves recursivamente y en orden estable de code points. */
 export function canonicalizeV1(value: unknown): unknown {
   return canonicalizeValue(value, false);
 }
 
+/** Huella canónica para sellar hechos. Excluye campos operacionales. */
 export function canonicalFingerprintV1(value: unknown): string {
   return JSON.stringify(canonicalizeValue(value, true)) ?? 'null';
 }

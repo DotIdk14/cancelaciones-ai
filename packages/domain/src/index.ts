@@ -1,4 +1,4 @@
-export * from './policy-foundation';
+export * from './fact-contracts';
 
 export type AuditStatus = 'DRAFT' | 'READY' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
 export type UserRole = 'AUDITOR' | 'OWNER';
@@ -37,32 +37,6 @@ export interface AuditRun {
   createdAt: string;
   completedAt: string | null;
 }
-
-export type HumanClaimClassification = 'VERIFIED_FACT' | 'MENTIONED_IN_HUMAN_DECISION' | 'INFERENCE' | 'MISSING_EVIDENCE' | 'UNKNOWN';
-
-export interface HumanClaim {
-  id: string;
-  statement: string;
-  classification: HumanClaimClassification;
-  source?: string;
-}
-
-export type ComparisonStatus = 'MATCH' | 'DISCREPANCY';
-
-export type DiscrepancyType =
-  | 'MISSING_EVIDENCE'
-  | 'EVIDENCE_INTERPRETATION'
-  | 'POLICY_APPLICATION_DIFFERENCE'
-  | 'DATA_EXTRACTION_ERROR'
-  | 'DATE_INTERPRETATION'
-  | 'HUMAN_USED_EXTERNAL_INFORMATION'
-  | 'AI_PROCESSING_ERROR'
-  | 'POSSIBLE_HUMAN_ERROR'
-  | 'INSUFFICIENT_INFORMATION'
-  | 'SOFTWARE_COVERAGE_GAP'
-  | 'UNKNOWN_DISCREPANCY';
-
-export type FinalAdjudicationType = 'CONFIRM_AI' | 'CONFIRM_HUMAN' | 'BOTH_INCORRECT' | 'INSUFFICIENT_INFORMATION' | 'CUSTOM_FINAL_DECISION';
 
 export interface Audit {
   id: string;
@@ -128,23 +102,6 @@ export interface Fact<T = unknown> {
   value: T;
   source: ProvenanceRef;
   extractionConfidence?: number;
-}
-
-export interface EngineRun {
-  id: string;
-  auditId: string;
-  policyVersion: string;
-  rulesVersion: string;
-  decisionStatus?: 'READY_TO_APPROVE' | 'REVIEW_REQUIRED' | 'CONFLICTED' | 'INDETERMINATE';
-  createdAt: string;
-}
-
-export interface AIUsage {
-  auditId: string;
-  provider: string;
-  operation: string;
-  estimatedCost: number;
-  currency: string;
 }
 
 export interface Job {
@@ -267,5 +224,3 @@ export function buildEvidenceStorageKey(input: { auditId: string; evidenceId: st
   return `audits/${input.auditId}/originals/${input.evidenceId}/${sanitizeFilename(input.safeFilename)}`;
 }
 
-export * from './policy-outcome';
-export * from './decision-trace';

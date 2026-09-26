@@ -3,10 +3,9 @@ import {
   canonicalFingerprintV1,
   canonicalizeV1,
   type ExtractedFactV1,
-  type ShadowPolicyResult,
-} from './policy-foundation';
+} from './fact-contracts';
 
-describe('policy foundation contracts', () => {
+describe('fact contracts', () => {
   it('no convierte UNKNOWN en false', () => {
     const fact: ExtractedFactV1<unknown> = {
       factType: 'classroom.hasGrades',
@@ -43,13 +42,5 @@ describe('policy foundation contracts', () => {
       .toEqual({ keep: 'sí', nested: { keep: 'sí' } });
   });
 
-  it('marca shadow como no autoritativo', () => {
-    const result: ShadowPolicyResult = {
-      authoritative: false,
-      source: 'DECLARATIVE_SHADOW',
-      evaluation: null,
-    };
-    expect(result.authoritative).toBe(false);
-  });
 
 });
