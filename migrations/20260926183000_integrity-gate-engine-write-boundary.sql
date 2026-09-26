@@ -1,3 +1,31 @@
+-- ============================================================================
+-- RECONCILIACION DEL LEDGER (sin cambio de contenido normativo)
+--
+-- Fichero original del repositorio: migrations/20260926120000_integrity-gate-
+--   engine-write-boundary.sql
+-- Version original en el repositorio: 20260926120000
+-- Version registrada en el ledger del backend: 20260926183000
+--
+-- El archivo se creo en el repositorio con la version 20260926120000, pero el
+-- scaffold de la CLI (`db migrations new`) genera su propio timestamp y fue el
+-- que quedo registrado y aplicado en el ledger como 20260926183000. El
+-- contenido aplicado es el mismo; solo divergia el numero.
+--
+-- Se renombra el fichero a la version del ledger conservando la original en
+-- esta cabecera, que es el mismo criterio que ya se aplico a las migraciones
+-- 20260925090300, 20260925090600 y 20260925090800. No se altera ninguna
+-- sentencia del cuerpo y no se crea una segunda migracion equivalente: existe
+-- un unico fichero para una unica version.
+--
+-- Con esto `repo migration history` y `DEV migration history` coinciden en
+-- version y nombre, y `db migrations up` deja de intentar reaplicar este
+-- archivo. Migraciones del ledger que siguen sin existir en el repositorio,
+-- documentadas y fuera del alcance de seguridad de este gate:
+--   20260925120000, 20260925140000, 20260925150000, 20260925160000,
+--   20260925161000, 20260925200000
+-- Las invariantes de seguridad de 20260925120000 ya estan reproducidas en
+-- migrations/20260926190000_fact-run-immutability-reproducible.sql
+-- ============================================================================
 -- INTEGRITY GATE: frontera de escritura de la decisión de máquina.
 --
 -- Contexto verificado empíricamente en DEV (2026-09-26): con un JWT de

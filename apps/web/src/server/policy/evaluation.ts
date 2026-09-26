@@ -47,7 +47,7 @@ export async function runPolicyEngineForAudit(input: {
   // `persist_policy_evaluation_v1`. El INSERT directo en `engine_runs` /
   // `engine_rule_results` está revocado para el rol cliente: con la misma
   // credencial que recibe el navegador era posible forjar la decisión que el
-  // Dictamen lee como oficial (ver migraciones/20260926120000). La función es
+  // Dictamen lee como oficial (ver migraciones/20260926183000). La función es
   // idempotente y además valida actor, fact run FROZEN con snapshot, y
   // coherencia audit/run, por lo que la idempotencia no se reimplementa aquí.
   const envelope = toAuditEvaluationEnvelopeV1(evaluation);

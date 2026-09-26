@@ -157,6 +157,7 @@ class DurableDb {
       // exige run PROCESSING con hechos ya persistidos y fuente registrada.
       const run = this.table('fact_extraction_runs').find((row) => row.id === args.p_fact_run_id);
       if (!run) return { data: null, error: { message: 'FACT_RUN_NOT_FOUND' } };
+      if (typeof run.id !== 'string') return { data: null, error: { message: 'FACT_RUN_ID_INVALID' } };
       if (run.state !== 'PROCESSING') return { data: null, error: { message: `FACT_RUN_NOT_PROCESSING: ${run.state}` } };
       if (!Array.isArray(args.p_facts) || args.p_facts.length === 0) return { data: null, error: { message: 'FACT_RUN_EMPTY' } };
       const registered = this.table('policy_source_registry').some((row) => row.document_id === args.p_policy_source_id);
