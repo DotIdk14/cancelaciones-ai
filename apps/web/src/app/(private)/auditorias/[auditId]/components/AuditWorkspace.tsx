@@ -3,16 +3,14 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { formatDateTime } from '@/lib/format';
-import type { AuditComparisonRecord, AuditRunRecord, DictamenDocumentRecord, EvaluatedRule, EvidenceRow, FinalAdjudicationRecord, HumanDecisionExtractRecord, HumanReviewRecord, MissingItem, PolicyEvaluationShape, SnapshotRecord, TimelineEvent } from './types';
+import type { DictamenDocumentRecord, EvidenceRow } from './types';
 import { AuditStatusBadge } from './AuditStatusBadge';
-import { DictamenWorkflow } from './DictamenWorkflow';
-import { HumanReviewCard } from './HumanReviewCard';
 import { ManualCommentsPanel } from './ManualCommentsPanel';
-import { RuleGroupList } from './RuleGroupList';
 import { AuditWorkflow } from '../AuditWorkflow';
 import { DeleteAuditButton } from '@/components/DeleteAuditButton';
+import { AUDIT_ENGINE_NOT_IMPLEMENTED } from '@/server/audit-engine/boundary';
 
-type InspectorTab = 'carga' | 'dictamen' | 'comparacion' | 'reglas' | 'comentarios';
+type InspectorTab = 'carga' | 'motor' | 'comentarios';
 
 type TranscriptArtifact = {
   id: string;
@@ -32,59 +30,30 @@ export function AuditWorkspace({
   status,
   evidences,
   transcripts,
-  evaluation,
-  policyVersion,
+  factRunId,
+  extractorVersion,
   manualComments,
   commentsSaved,
-  humanReview,
-  snapshot,
   documents,
-  hasHumanReview,
-  rules,
-  missingItems,
-  ruleLabels,
-  factRunId,
-  demoMode,
-  auditRuns = [],
-  humanDecisionExtract,
-  comparison,
-  adjudication,
-  timelineEvents = [],
 }: {
   audit: AuditHeader;
   status: string;
   evidences: EvidenceRow[];
   transcripts: TranscriptArtifact[];
-  evaluation?: PolicyEvaluationShape | null;
-  policyVersion?: string | null;
+  factRunId?: string | null;
+  extractorVersion?: string | null;
   manualComments: Parameters<typeof ManualCommentsPanel>[0]['comments'];
   commentsSaved?: boolean;
-  humanReview?: HumanReviewRecord | null;
-  snapshot?: SnapshotRecord | null;
   documents?: DictamenDocumentRecord[];
-  hasHumanReview: boolean;
-  rules: EvaluatedRule[];
-  missingItems: MissingItem[];
-  ruleLabels: Record<string, string>;
-  factRunId?: string | null;
-  demoMode: boolean;
-  auditRuns?: AuditRunRecord[];
-  humanDecisionExtract?: HumanDecisionExtractRecord | null;
-  comparison?: AuditComparisonRecord | null;
-  adjudication?: FinalAdjudicationRecord | null;
-  timelineEvents?: TimelineEvent[];
 }) {
   const [selectedEvidenceId, setSelectedEvidenceId] = useState(evidences[0]?.id ?? '');
-  const [tab, setTab] = useState<InspectorTab>(status === 'FROZEN' ? 'dictamen' : 'carga');
+  const [tab, setTab] = useState<InspectorTab>('motor');
   const selectedEvidence = evidences.find((evidence) => evidence.id === selectedEvidenceId) ?? evidences[0] ?? null;
   const selectedTranscript = useMemo(() => {
     return transcripts.find((artifact) => artifact.evidenceId === selectedEvidence?.id) ?? transcripts[0] ?? null;
   }, [selectedEvidence?.id, transcripts]);
   const utterances = selectedTranscript?.result.utterances as Array<{ speaker?: string; text?: string; start?: number }> | undefined;
-  const resolution = normalizeResolution(evaluation?.suggestedOutcome, evaluation?.decisionStatus ?? evaluation?.outcomeStatus);
-  const finalDoc = documents?.find((doc) => doc.kind === 'FINAL');
-  const draftDoc = documents?.find((doc) => doc.kind === 'DRAFT');
-  const downloadDoc = finalDoc ?? draftDoc;
+  const downloadDoc = documents?.find((doc) => doc.kind === 'FINAL') ?? documents?.find((doc) => doc.kind === 'DRAFT');
 
   return (
     <section className="h-screen overflow-hidden bg-background p-2 text-ink">
@@ -97,19 +66,23 @@ export function AuditWorkspace({
           </div>
           <div className="rounded-md border border-line bg-surface-2 px-3 py-2">
             <div className="flex items-center justify-between gap-2"><p className="font-mono text-[10px] uppercase tracking-wider text-muted">Número de caso: <span className="font-sans font-semibold text-brand">{audit.externalCaseId ?? audit.id.slice(0, 13)}</span></p><AuditStatusBadge status={status} /></div>
-            <p className="mt-1 font-mono text-[10px] text-muted">Ticket: {formatDateTime(audit.createdAt)} <span className="mx-2">•</span> Política: {policyVersion ?? '—'}</p>
+            <p className="mt-1 font-mono text-[10px] text-muted">Ticket: {formatDateTime(audit.createdAt)} <span className="mx-2">•</span> Extracción: {extractorVersion ?? '—'}</p>
           </div>
           <div className="flex items-center gap-2">
-            <a href={downloadDoc ? `/api/audits/${audit.id}/dictamen/${downloadDoc.id}/download` : '#dictamen'} className="inline-flex min-w-0 flex-1 items-center justify-center rounded-md bg-[#5b8cff] px-3 py-2 text-center text-xs font-semibold text-white hover:bg-[#6d99ff]">⇩ Resolución / Descarga del dictamen</a>
-            {!demoMode && <DeleteAuditButton auditId={audit.id} auditLabel={audit.displayName ?? undefined} redirectTo="/auditorias" compact />}
+            {downloadDoc ? (
+              <a href={`/api/audits/${audit.id}/dictamen/${downloadDoc.id}/download`} className="inline-flex min-w-0 flex-1 items-center justify-center rounded-md bg-[#5b8cff] px-3 py-2 text-center text-xs font-semibold text-white hover:bg-[#6d99ff]">⇩ Descargar documento</a>
+            ) : (
+              <span className="inline-flex min-w-0 flex-1 cursor-not-allowed items-center justify-center rounded-md border border-line bg-surface-2 px-3 py-2 text-center text-xs font-semibold text-muted" title="No existe ningún dictamen: el motor de auditoría no está implementado">⇩ Sin documento</span>
+            )}
+            <DeleteAuditButton auditId={audit.id} auditLabel={audit.displayName ?? undefined} redirectTo="/auditorias" compact />
           </div>
         </header>
 
         <div className="grid grid-cols-[220px_minmax(420px,1fr)_360px] border-b border-line bg-surface-1 text-[11px] text-muted">
           <div className="flex items-center justify-between border-r border-line px-3 py-2"><span className="font-semibold text-ink">Evidencias</span><span>{evidences.length}</span></div>
-          <div className="flex items-center gap-5 px-4 py-2"><span>−</span><span>100%</span><span>＋</span><span>‹</span><span>Pág 3 de 7</span><span>›</span><span className="rounded border border-brand/25 bg-brand/10 px-2 py-1 text-brand">Marcador de regla (1)</span></div>
-            <div className="flex items-center gap-1 border-l border-line px-3 py-2">
-              {(['carga', 'dictamen', 'comparacion', 'reglas', 'comentarios'] as InspectorTab[]).map((item) => <button key={item} onClick={() => setTab(item)} className={`rounded-md px-3 py-1.5 text-xs capitalize ${tab === item ? 'border border-line bg-surface-2 text-ink' : 'text-muted hover:text-ink'}`}>{item === 'comparacion' ? 'comparación' : item}</button>)}
+          <div className="flex items-center gap-3 px-4 py-2"><span className="rounded border border-warning/25 bg-warning/10 px-2 py-1 text-warning">{AUDIT_ENGINE_NOT_IMPLEMENTED}</span></div>
+          <div className="flex items-center gap-1 border-l border-line px-3 py-2">
+            {(['motor', 'carga', 'comentarios'] as InspectorTab[]).map((item) => <button key={item} onClick={() => setTab(item)} className={`rounded-md px-3 py-1.5 text-xs capitalize ${tab === item ? 'border border-line bg-surface-2 text-ink' : 'text-muted hover:text-ink'}`}>{item}</button>)}
           </div>
         </div>
 
@@ -123,9 +96,6 @@ export function AuditWorkspace({
                 <span className="mt-2 h-1.5 w-1.5 rounded-full bg-success" />
               </button>)}
             </div>
-            {selectedEvidence && fileKind(selectedEvidence.detectedMimeType) === 'AUD' && <div className="border-t border-line p-3 text-[11px]">
-              <p className="font-semibold text-ink">🔊 Reproductor de Audio</p><p className="mt-2 truncate text-muted">{selectedEvidence.originalFilename}</p><div className="mt-3 h-1 rounded bg-surface-3"><div className="h-full w-2/3 rounded bg-brand" /></div><div className="mt-3 flex gap-2"><button>◌</button><button>▶</button><span className="rounded bg-surface-3 px-2 py-1">1.0x</span><span className="ml-auto rounded border border-brand/20 bg-brand/10 px-2 py-1 text-brand">Regla 5.2</span></div>
-            </div>}
             <div className="border-t border-line px-3 py-2 text-[10px] text-muted"><span className="text-success">●</span> Almacenamiento seguro <span className="float-right">SHA-256</span></div>
           </aside>
 
@@ -134,10 +104,8 @@ export function AuditWorkspace({
           </main>
 
           <aside className="min-h-0 overflow-y-auto border-l border-line bg-surface-1 p-4">
-            {tab === 'carga' && <UploadInspector auditId={audit.id} factRunId={factRunId ?? undefined} demoMode={demoMode} />}
-            {tab === 'dictamen' && <DictamenInspector auditId={audit.id} resolution={resolution} evaluation={evaluation} humanReview={humanReview} snapshot={snapshot} documents={documents} hasHumanReview={hasHumanReview} />}
-            {tab === 'comparacion' && <ComparisonInspector auditId={audit.id} evidences={evidences} auditRuns={auditRuns} humanDecisionExtract={humanDecisionExtract} comparison={comparison} adjudication={adjudication} timelineEvents={timelineEvents} />}
-            {tab === 'reglas' && <RulesInspector rules={rules} missingItems={missingItems} ruleLabels={ruleLabels} onSelectEvidence={(id) => setSelectedEvidenceId(id)} />}
+            {tab === 'motor' && <AuditEngineInspector factRunId={factRunId ?? null} />}
+            {tab === 'carga' && <UploadInspector auditId={audit.id} factRunId={factRunId ?? undefined} />}
             {tab === 'comentarios' && <ManualCommentsPanel auditId={audit.id} comments={manualComments} saved={commentsSaved} />}
           </aside>
         </div>
@@ -146,8 +114,58 @@ export function AuditWorkspace({
   );
 }
 
-function UploadInspector({ auditId, factRunId, demoMode }: { auditId: string; factRunId?: string; demoMode?: boolean }) {
-  return <div className="space-y-3"><AuditWorkflow auditId={auditId} factRunId={factRunId} skipAutoResume={demoMode} /><p className="rounded-lg border border-brand/20 bg-brand/10 p-3 text-xs leading-5 text-brand">Al seleccionar o arrastrar archivos, la carga inicia automáticamente y después se ejecutan procesamiento, extracción de hechos y evaluación normativa. Si la auditoría tiene evidencias en cola, el procesamiento se retoma automáticamente al abrir el workspace.</p></div>;
+/**
+ * Inspector de la frontera del motor.
+ *
+ * Muestra el estado real del sistema: la ingestion de evidencia funciona, pero
+ * no existe motor normativo. No hay reglas, resultados ni acciones que
+ * pretendan resolver un caso.
+ */
+function AuditEngineInspector({ factRunId }: { factRunId: string | null }) {
+  return (
+    <div className="space-y-4" id="motor">
+      <div className="rounded-lg border border-warning/25 bg-warning/10 p-4">
+        <p className="font-mono text-[10px] uppercase tracking-wider text-warning">Estado del sistema</p>
+        <p className="mt-2 text-sm font-black uppercase tracking-wide text-warning">{AUDIT_ENGINE_NOT_IMPLEMENTED}</p>
+        <p className="mt-3 text-xs leading-5 text-ink">
+          La carga, el procesamiento y la extracción de hechos están disponibles. La evaluación normativa
+          no está implementada: este sistema no emite dictámenes, resoluciones ni decisiones de deserción.
+        </p>
+      </div>
+      <div className="rounded-lg border border-line bg-surface-2 p-4 text-xs">
+        <p className="font-semibold text-ink">Pipeline disponible</p>
+        <ol className="mt-3 space-y-2 text-muted">
+          <li>1. Ingesta de evidencia (archivos, hashes, procedencia)</li>
+          <li>2. Procesamiento y transcripción</li>
+          <li>3. Extracción de hechos observables</li>
+        </ol>
+        <p className="mt-4 border-t border-line pt-3 font-semibold text-warning">Detenido en este punto.</p>
+        <ol className="mt-2 space-y-2 text-muted">
+          <li>4. Árbol de decisión normativo — no implementado</li>
+          <li>5. Resultado normativo y dictamen — no implementado</li>
+        </ol>
+      </div>
+      {factRunId && (
+        <div className="rounded-lg border border-line bg-surface-2 p-4 text-xs">
+          <p className="font-semibold text-ink">Hechos extraídos</p>
+          <p className="mt-2 text-muted">Run de extracción: <span className="font-mono text-[10px] text-ink">{factRunId}</span></p>
+          <p className="mt-2 text-muted">Los hechos son evidencia estructurada, no una decisión. Ninguna regla normativa se ha aplicado.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function UploadInspector({ auditId, factRunId }: { auditId: string; factRunId?: string }) {
+  return (
+    <div className="space-y-3">
+      <AuditWorkflow auditId={auditId} factRunId={factRunId} />
+      <p className="rounded-lg border border-brand/20 bg-brand/10 p-3 text-xs leading-5 text-brand">
+        Al seleccionar o arrastrar archivos, la carga inicia automáticamente y después se ejecutan el procesamiento
+        y la extracción de hechos. La evaluación normativa está deshabilitada: no forma parte de este pipeline.
+      </p>
+    </div>
+  );
 }
 
 function EvidenceViewer({ evidence, utterances, transcriptId }: { evidence: EvidenceRow | null; utterances?: Array<{ speaker?: string; text?: string; start?: number }>; transcriptId?: string }) {
@@ -173,65 +191,6 @@ function EvidenceToolbar({ evidence, src }: { evidence: EvidenceRow; src: string
     <div className="min-w-0"><p className="truncate text-sm font-semibold text-ink">{evidence.originalFilename}</p><p className="mt-0.5 text-[11px] text-muted">{evidence.detectedMimeType} · {formatSize(evidence.sizeBytes)}</p></div>
     <div className="flex shrink-0 gap-2"><a className="rounded-md border border-line px-3 py-1.5 text-xs font-semibold text-ink hover:bg-white/5" href={`${src}?inline=1`} target="_blank" rel="noreferrer">Abrir en pestaña</a><a className="rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-white" href={`${src}?download=1`}>Descargar</a></div>
   </div>;
-}
-
-function DictamenInspector({ auditId, resolution, evaluation, humanReview, snapshot, documents, hasHumanReview }: { auditId: string; resolution: string; evaluation?: PolicyEvaluationShape | null; humanReview?: HumanReviewRecord | null; snapshot?: SnapshotRecord | null; documents?: DictamenDocumentRecord[]; hasHumanReview: boolean }) {
-  return <div id="dictamen" className="space-y-4"><div className="rounded-lg border border-line bg-surface-2 p-4"><p className="font-mono text-[10px] uppercase text-muted">Resultado motor políticas</p><div className="mt-2 rounded-md border border-warning/20 bg-warning/10 p-3 text-center text-sm font-black uppercase tracking-wide text-warning">{resolution}</div><p className="mt-3 text-xs leading-5 text-ink">{evaluation?.suggestedReason ?? 'Aún no hay resolución generada.'}</p><p className="mt-2 text-[11px] text-muted">Política aplicada: {evaluation?.policyCode ?? 'GDM_GAM_PRD_MLG_003'} V{evaluation?.policyVersion ?? '—'}</p></div><HumanReviewCard auditId={auditId} review={humanReview} machineOutcome={evaluation?.suggestedOutcome ?? null} /><DictamenWorkflow auditId={auditId} snapshot={snapshot} documents={documents} hasHumanReview={hasHumanReview} /></div>;
-}
-
-function RulesInspector({ rules, missingItems, ruleLabels, onSelectEvidence }: { rules: EvaluatedRule[]; missingItems: MissingItem[]; ruleLabels: Record<string, string>; onSelectEvidence: (id: string) => void }) {
-  return <div className="space-y-4"><div className="rounded-lg border border-line bg-surface-2 p-4"><h2 className="font-semibold text-ink">Reglas evaluadas</h2><RuleGroupList rules={rules} ruleLabels={ruleLabels} /><div className="mt-4 space-y-2 text-xs">{rules.slice(0, 4).map((rule) => <button key={rule.ruleId} onClick={() => onSelectEvidence('local-ev-audio')} className="block w-full rounded border border-line bg-surface-1 p-2 text-left hover:border-brand/40"><span className="font-semibold text-ink">{ruleLabels[rule.ruleId] ?? rule.ruleId}</span><span className="float-right text-success">{rule.status}</span><span className="mt-1 block text-muted">Fuente {rule.source.documentCode} · sección {rule.source.section}</span></button>)}</div></div>{missingItems.length > 0 && <div className="rounded-lg border border-warning/20 bg-warning/10 p-3 text-xs text-warning">{missingItems.length} datos pendientes para cerrar reglas.</div>}</div>;
-}
-
-function ComparisonInspector({ auditId, evidences, auditRuns, humanDecisionExtract, comparison, adjudication, timelineEvents }: { auditId: string; evidences: EvidenceRow[]; auditRuns: AuditRunRecord[]; humanDecisionExtract?: HumanDecisionExtractRecord | null; comparison?: AuditComparisonRecord | null; adjudication?: FinalAdjudicationRecord | null; timelineEvents: TimelineEvent[] }) {
-  const humanDocument = evidences.find((evidence) => evidence.documentRole === 'HUMAN_DECISION_DOCUMENT') ?? null;
-  const humanRun = auditRuns.find((run) => run.runType === 'HUMAN_DECISION');
-  const baseline = auditRuns.find((run) => run.runType === 'AI_BASELINE');
-  return <div className="space-y-4">
-    <div className="rounded-lg border border-line bg-surface-2 p-4">
-      <h2 className="font-semibold text-ink">Comparación IA vs dictamen humano</h2>
-      <p className="mt-2 text-xs leading-5 text-muted">La línea base IA permanece inmutable. El dictamen humano se trata como documento separado y sus afirmaciones sin respaldo quedan marcadas como mencionadas pero no verificadas.</p>
-      <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-        <StatusPill label="AI_BASELINE" value={baseline?.status ?? 'pendiente'} />
-        <StatusPill label="HUMAN_DECISION" value={humanRun?.status ?? 'pendiente'} />
-      </div>
-    </div>
-    <div className="rounded-lg border border-line bg-surface-2 p-4 text-xs">
-      <p className="font-semibold text-ink">Dictamen humano</p>
-      <p className="mt-1 text-muted">{humanDocument ? humanDocument.originalFilename : 'No se ha subido dictamen humano.'}</p>
-      {humanDocument && <div className="mt-3 flex flex-wrap gap-2">
-        <button type="button" onClick={() => postJson(`/api/audits/${auditId}/human-decision/extract`, { evidenceId: humanDocument.id, runId: humanRun?.id })} className="rounded-md bg-brand px-3 py-1.5 font-semibold text-white">Extraer dictamen</button>
-        <button type="button" onClick={() => postJson(`/api/audits/${auditId}/comparison`, {})} className="rounded-md border border-line px-3 py-1.5 font-semibold text-ink">Comparar</button>
-        <button type="button" onClick={() => postJson(`/api/audits/${auditId}/reconciliation`, {})} className="rounded-md border border-line px-3 py-1.5 font-semibold text-ink">Reconciliar</button>
-      </div>}
-    </div>
-    {humanDecisionExtract && <div className="rounded-lg border border-line bg-surface-2 p-4 text-xs"><p className="font-semibold text-ink">Extracción humana</p><p className="mt-2 text-muted">Resolución: <span className="font-semibold text-ink">{humanDecisionExtract.resolution ?? '—'}</span></p><p className="mt-2 text-muted">Claims: {humanDecisionExtract.facts.length}</p></div>}
-    {comparison && <div className={`rounded-lg border p-4 text-xs ${comparison.status === 'MATCH' ? 'border-success/20 bg-success/10 text-success' : 'border-warning/20 bg-warning/10 text-warning'}`}><p className="font-semibold">{comparison.status}{comparison.discrepancyType ? ` · ${comparison.discrepancyType}` : ''}</p><p className="mt-2 leading-5 text-ink">{comparison.explanation}</p><p className="mt-2 text-muted">IA: {comparison.aiOutcome ?? '—'} · Humano: {comparison.humanOutcome ?? comparison.humanResolution ?? '—'}</p>{comparison.unverifiedHumanClaims.length > 0 && <p className="mt-2">{comparison.unverifiedHumanClaims.length} afirmación(es) mencionadas pero no verificadas.</p>}</div>}
-    {adjudication && <div className="rounded-lg border border-brand/20 bg-brand/10 p-4 text-xs text-brand"><p className="font-semibold">Adjudicación final: {adjudication.adjudicationType}</p><p className="mt-2 text-ink">{adjudication.finalOutcome ?? adjudication.comment ?? 'Sin comentario.'}</p></div>}
-    <div className="rounded-lg border border-line bg-surface-2 p-4 text-xs"><p className="font-semibold text-ink">Timeline</p><div className="mt-3 space-y-2">{timelineEvents.slice(-8).map((event) => <div key={event.id} className="rounded border border-line bg-surface-1 p-2"><span className="font-semibold text-ink">{event.eventType}</span><span className="float-right text-muted">{formatDateTime(event.createdAt)}</span></div>)}</div></div>
-  </div>;
-}
-
-function StatusPill({ label, value }: { label: string; value: string }) {
-  return <div className="rounded border border-line bg-surface-1 p-2"><span className="block text-[10px] uppercase text-muted">{label}</span><span className="mt-1 block font-semibold text-ink">{value}</span></div>;
-}
-
-async function postJson(url: string, body: Record<string, unknown>) {
-  const response = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-  if (!response.ok) {
-    const payload = await response.json().catch(() => ({}));
-    window.alert(payload.message ?? 'No fue posible ejecutar la acción.');
-    return;
-  }
-  window.location.reload();
-}
-
-function normalizeResolution(outcome?: string | null, status?: string | null) {
-  const value = `${outcome ?? status ?? 'Requiere revisión'}`.toUpperCase();
-  if (value.includes('PROCEDE')) return value;
-  if (value.includes('OBS')) return 'OBSERVACIÓN REQUERIDA';
-  if (value.includes('REVIEW') || value.includes('REVIS')) return 'REQUIERE REVISIÓN';
-  return value;
 }
 
 function fileKind(mimeType?: string | null) { const mime = mimeType?.toLowerCase() ?? ''; if (mime.includes('pdf')) return 'PDF'; if (mime.includes('image')) return 'IMG'; if (mime.includes('audio')) return 'AUD'; if (mime.includes('sheet') || mime.includes('excel')) return 'XLS'; if (mime.includes('word') || mime.includes('document')) return 'DOC'; if (mime.includes('text')) return 'TXT'; return 'FILE'; }

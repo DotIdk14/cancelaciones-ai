@@ -47,7 +47,7 @@ async function cleanup(client: ReturnType<typeof createClient>, auditId: string)
 }
 
 describe('AUDIT PIPELINE DEV INFRA E2E', () => {
-  it('ejecuta pipeline completo contra InsForge DEV real con storage y queue reales', async () => {
+  it('ejecuta la capa de infraestructura contra InsForge DEV real y se detiene en la frontera del motor', async () => {
     const env = requireDevEnv();
     const client = createAdminClient({ baseUrl: env.baseUrl, apiKey: env.apiKey });
     const actorId = env.actorId;
@@ -89,15 +89,18 @@ describe('AUDIT PIPELINE DEV INFRA E2E', () => {
       const facts = await createFactRepository(reloaded.database).listFactsByRun(factRuns[0].id);
       const ruleResults = await reloaded.database.from('engine_rule_results').select('*').eq('engine_run_id', engineRuns.data?.[0]?.id);
 
-      expect(auditReloaded).toMatchObject({ id: audit.id, status: 'COMPLETED' });
+      // Clean slate: la auditoria NO queda COMPLETED porque no existe motor.
+      expect(auditReloaded).toMatchObject({ id: audit.id });
+      expect((auditReloaded as { status?: string }).status).not.toBe('COMPLETED');
       expect(jobsReloaded.filter((job) => job.jobType === 'FACT_EXTRACTION')).toHaveLength(1);
       expect(evidences).toHaveLength(2);
       expect(artifacts).toHaveLength(2);
       expect(factRuns).toMatchObject([{ state: 'FROZEN' }]);
       expect(facts.map((fact) => fact.factType)).toEqual(expect.arrayContaining(['student.level', 'contact.effectiveContact', 'classroom.hasLogin', 'classroom.hasEvaluationMode']));
-      expect(engineRuns.data).toHaveLength(1);
-      expect(ruleResults.data?.length ?? 0).toBeGreaterThan(0);
-      expect(reports.data).toHaveLength(1);
+      // Frontera AUDIT_ENGINE_NOT_IMPLEMENTED: nada normativo se persiste.
+      expect(engineRuns.data).toEqual([]);
+      expect(ruleResults.data).toEqual([]);
+      expect(reports.data).toEqual([]);
       const jobStatuses = jobsReloaded.map((job) => String(job.status));
       expect(jobStatuses.every((status) => status === 'COMPLETED' || status === 'SUCCEEDED')).toBe(true);
 

@@ -1,6 +1,35 @@
+/**
+ * Extraccion determinista de hechos observables desde artifacts.
+ *
+ * INFRAESTRUCTURA: esta capa solo observa y estructura evidencia.
+ * No decide nada normativo (AI_EXTRACTS / POLICY_ENGINE_DECIDES).
+ *
+ * Los tipos de contacto se declaran aqui porque son contrato de extraccion.
+ * El motor normativo fue retirado en la fase clean slate y las reglas de la V2
+ * no deben derivarse de este archivo.
+ */
+export type SourceCompleteness = 'COMPLETE' | 'PARTIAL' | 'UNKNOWN';
+
+/** Referencia de procedencia de un hecho observable. */
+export interface EvidenceRef {
+  evidenceId: string;
+  artifactId: string;
+  sha256?: string;
+}
+
+export interface ContactAttempt {
+  id: string;
+  kind: 'CALL' | 'EMAIL' | 'WHATSAPP' | 'OTHER_WRITTEN' | 'WRITTEN';
+  occurredAt: string;
+  successful?: boolean;
+  status?: string;
+  campaign?: string;
+  evidenceRefs?: EvidenceRef[];
+  confidence?: number;
+}
+
 import { createHash } from 'node:crypto';
 import type { JobArtifact } from '@cancelaciones/db';
-import type { ContactAttempt, SourceCompleteness } from '@cancelaciones/policy-engine';
 
 const CONTACT_RE = /(?:CALL|LLAMADA|WHATSAPP|EMAIL|CORREO)\s*[:#-]?\s*(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}:\d{2}))?/gi;
 

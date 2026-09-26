@@ -8,10 +8,8 @@ import { getCurrentUser } from '@/server/auth/session';
 import { uploadEvidenceFilesForAudit } from '@/server/evidence/upload';
 import { uploadHumanDecisionDocument } from '@/server/human-decision/service';
 import { enqueueEvidenceProcessingJobs } from '@/server/jobs/enqueue-evidence';
-import { isLocalDemoMode, LOCAL_DEMO_AUDIT_ID, localDemoAudits } from '@/server/local-demo';
 
 export async function listAuditsForCurrentUser() {
-  if (isLocalDemoMode()) return localDemoAudits;
   const client = await createInsForgeServerClient();
   const repo = createAuditRepository(client.database);
   return repo.listRecent();
@@ -20,7 +18,6 @@ export async function listAuditsForCurrentUser() {
 export async function createAudit(formData: FormData) {
   const user = await getCurrentUser();
   if (!user) redirect('/login');
-  if (isLocalDemoMode()) redirect(`/auditorias/${LOCAL_DEMO_AUDIT_ID}`);
 
   const cave = String(formData.get('externalCaseId') ?? '').trim();
   const classStartDate = String(formData.get('classStartDate') ?? '').trim();

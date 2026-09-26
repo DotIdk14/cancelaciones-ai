@@ -2,7 +2,6 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { createEvidenceRepository } from '@cancelaciones/db';
 import { createInsForgeServerClient } from '@/server/insforge/server';
 import { getCurrentUser } from '@/server/auth/session';
-import { isLocalDemoMode } from '@/server/local-demo';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,16 +17,6 @@ export async function GET(request: NextRequest, context: { params: Promise<{ evi
   if (!user) return NextResponse.json({ error: 'UNAUTHORIZED', message: 'Sesion requerida.' }, { status: 401 });
 
   const { evidenceId } = await context.params;
-  if (isLocalDemoMode()) {
-    return new NextResponse(`Evidencia demo local: ${evidenceId}\nNo contiene archivo real.`, {
-      headers: {
-        'Content-Type': 'text/plain; charset=utf-8',
-        'Content-Disposition': `attachment; filename="${evidenceId}.txt"`,
-        'Cache-Control': 'private, no-store',
-      },
-    });
-  }
-
   const client = await createInsForgeServerClient();
   const repo = createEvidenceRepository(client.database);
   const evidence = await repo.findStoredById(evidenceId);

@@ -1,14 +1,12 @@
 import Link from 'next/link';
 import { listAuditsForCurrentUser } from '@/server/actions/audits';
 import { formatDateTime } from '@/lib/format';
-import { isLocalDemoMode } from '@/server/local-demo';
 import { DeleteAuditButton } from '@/components/DeleteAuditButton';
 
 export const dynamic = 'force-dynamic';
 
 export default async function AuditsPage() {
   const audits = await listAuditsForCurrentUser();
-  const demoMode = isLocalDemoMode();
 
   return (
     <section className="mx-auto max-w-[1520px] px-6 py-8">
@@ -23,7 +21,7 @@ export default async function AuditsPage() {
             <Link href="/auditorias/nueva" className="rounded-lg bg-ink px-5 py-2.5 text-center text-sm font-semibold text-background hover:bg-white">+ Nueva auditoría</Link>
           </div>
           <div className="flex flex-wrap justify-end gap-2 text-sm">
-            {['Estado: Todos', 'Resultado: Todas', 'Política: Todas', 'Fecha: Todas'].map((filter) => <span key={filter} className="rounded-lg border border-line bg-surface-1 px-3 py-2 text-muted">{filter}</span>)}
+            {['Estado: Todos', 'Fecha: Todas'].map((filter) => <span key={filter} className="rounded-lg border border-line bg-surface-1 px-3 py-2 text-muted">{filter}</span>)}
             <span className="rounded-lg border border-line bg-surface-2 px-3 py-2 text-muted">Limpiar</span>
           </div>
         </div>
@@ -36,7 +34,6 @@ export default async function AuditsPage() {
               <th className="px-4 py-3 font-medium">CaVe</th>
               <th className="px-4 py-3 font-medium">Expediente</th>
               <th className="px-4 py-3 font-medium">Estado</th>
-              <th className="px-4 py-3 font-medium">Resultado</th>
               <th className="px-4 py-3 font-medium">Creada</th>
               <th className="px-4 py-3 font-medium">Acciones</th>
             </tr>
@@ -44,16 +41,15 @@ export default async function AuditsPage() {
           <tbody className="divide-y divide-line">
             {audits.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center text-muted">Aún no hay auditorías.</td>
+                <td colSpan={5} className="px-4 py-10 text-center text-muted">Aún no hay auditorías.</td>
               </tr>
             ) : audits.map((audit) => (
               <tr key={audit.id} className="hover:bg-white/[0.03]">
                 <td className="px-4 py-4"><a className="font-mono font-semibold text-ink hover:text-brand" href={`/auditorias/${audit.id}`}>{audit.externalCaseId ?? 'Sin CaVe'}</a></td>
                 <td className="px-4 py-4"><span className="font-medium text-muted">{audit.displayName ?? 'Sin nombre asignado'}</span><div className="mt-1 font-mono text-xs text-subtle">{audit.id}</div></td>
                 <td className="px-4 py-4"><span className="rounded-md bg-surface-3 px-3 py-1 text-xs font-medium text-muted">{audit.status}</span></td>
-                <td className="px-4 py-4 text-muted">—</td>
                 <td className="px-4 py-4 text-muted">{formatDateTime(audit.createdAt)}</td>
-                <td className="px-4 py-4"><div className="flex items-center gap-2"><a className="rounded-md bg-surface-3 px-4 py-2 text-sm font-medium text-ink hover:bg-white/10" href={`/auditorias/${audit.id}`}>Ver</a>{!demoMode ? <DeleteAuditButton auditId={audit.id} auditLabel={audit.displayName ?? audit.externalCaseId ?? audit.id} /> : null}</div></td>
+                <td className="px-4 py-4"><div className="flex items-center gap-2"><a className="rounded-md bg-surface-3 px-4 py-2 text-sm font-medium text-ink hover:bg-white/10" href={`/auditorias/${audit.id}`}>Ver</a><DeleteAuditButton auditId={audit.id} auditLabel={audit.displayName ?? audit.externalCaseId ?? audit.id} /></div></td>
               </tr>
             ))}
           </tbody>
