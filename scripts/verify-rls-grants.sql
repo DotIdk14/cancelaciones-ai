@@ -1,5 +1,12 @@
--- Verificación read-only de paridad entre políticas RLS y privilegios SQL.
--- No modifica nada. Sale con código 1 si hay divergencias.
+-- Reporte read-only de paridad entre políticas RLS y privilegios SQL del rol
+-- `authenticated`: una fila por (tabla, comando de política) con estado OK/MISSING.
+-- No modifica nada.
+--
+-- NO es un gate. Es un SELECT plano y no controla el código de salida: el runner
+-- `db query` devuelve exit 0 tanto si hay filas MISSING como si hay filas OK, así
+-- que una divergencia no hace fallar nada por sí sola y este archivo no debe
+-- cablearse a CI esperando que corte la build. La propagación de exit code se
+-- implementa en una tarea aparte, cuando esté verificada.
 WITH policy_cmds AS (
   SELECT tablename, cmd
   FROM pg_policies
