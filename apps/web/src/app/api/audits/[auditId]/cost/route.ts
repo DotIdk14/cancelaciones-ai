@@ -36,6 +36,18 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ au
 
   try {
     const summary = await buildAuditCostSummary({ database: client.database, auditId });
+
+    // Un fallo de lectura del ledger NO se devuelve como "coste cero": son dos
+    // afirmaciones distintas, y un 0 aquí affirmaría que se controló el gasto
+    // cuando no se midió nada. Se responde 500 controlado, con el mismo
+    // criterio que usa el resto de la API para un fallo de lectura.
+    if (summary.readFailed) {
+      return NextResponse.json(
+        { error: 'COST_READ_FAILED', message: 'No fue posible leer el coste de esta auditoria.' },
+        { status: 503, headers: { 'cache-control': 'no-store' } },
+      );
+    }
+
     logPolicyEvent('DECISION_TRACE_BUILT', { auditId, code: 'COST_SUMMARY_READ', factCount: summary.providerCallCount, durationMs: elapsed() });
     return NextResponse.json(summary, { headers: { 'cache-control': 'no-store' } });
   } catch {

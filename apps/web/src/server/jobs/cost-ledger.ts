@@ -241,6 +241,16 @@ export interface AuditCostSummary {
   providerCallCount: number;
   providers: string[];
   models: string[];
+  /**
+   * `true` cuando la lectura del ledger FALLÓ y estos campos NO son un dato.
+   *
+   * Existe porque un error de lectura y "no se gastó nada" son afirmaciones
+   * distintas, y confundirlas es exactamente el defecto que este módulo viene a
+   * corregir. Antes, un fallo de lectura devolvía ceros con HTTP 200 y la UI
+   * los pintaba como coste cero: el sistema affirmaba haber medido 0 cuando no
+   * había medido nada. Un 0 falso en un panel de gasto es peor que un error.
+   */
+  readFailed: boolean;
   events: Array<{
     id: string;
     provider: string;
@@ -251,6 +261,13 @@ export interface AuditCostSummary {
     unitType: string | null;
     costUsd: number | null;
     costKnown: boolean;
+    /**
+     * De dónde sale el número. Sin esto, `costUsd` es un número sin procedencia
+     * y no se puede distinguir lo que el proveedor 보고 de lo que supuso el
+     * sistema. Es también lo que impide leer `0` como "gratis" sin poder
+     * preguntar de dónde salió ese cero.
+     */
+    costSource: CostSource | null;
     recordedAt: string | null;
   }>;
 }
@@ -267,16 +284,20 @@ export interface AuditCostSummary {
 export async function buildAuditCostSummary(input: { database: DatabaseClient; auditId: string }): Promise<AuditCostSummary> {
   const empty: AuditCostSummary = {
     auditId: input.auditId, knownCostUsd: 0, unknownCostEvents: 0, providerCallCount: 0,
-    providers: [], models: [], events: [],
+    providers: [], models: [], events: [], readFailed: false,
   };
+  // Fallo de lectura. Se distingue del "no hay uso" y se propaga como error
+  // controlado, no como ceros: quien lo pinte como $0.00 estaría afirmando que
+  // se midió el gasto cuando no se midió.
+  const failed: AuditCostSummary = { ...empty, readFailed: true };
   try {
     const { data, error } = await input.database
       .from('ai_usage')
-      .select('id,provider,operation,model,input_units,output_units,unit_type,estimated_cost_usd,recorded_at')
+      .select('id,provider,operation,model,input_units,output_units,unit_type,estimated_cost_usd,cost_source,provider_request_id,recorded_at')
       .eq('audit_id', input.auditId)
       .order('recorded_at', { ascending: true })
       .limit(500);
-    if (error) return empty;
+    if (error) return failed;
 
     const rows = (data ?? []) as Array<Record<string, unknown>>;
     let known = 0;
@@ -301,6 +322,10 @@ export async function buildAuditCostSummary(input: { database: DatabaseClient; a
         unitType: typeof record.unit_type === 'string' ? record.unit_type : null,
         costUsd: cost,
         costKnown: cost !== null,
+        // `cost_source` es NOT NULL en el esquema, pero se degrada a null en
+        // lugar de inventar: si algún día una fila antigua lo tuviera nulo,
+        // la UI debe decir "procedencia desconocida", no "PROVIDER_REPORTED".
+        costSource: (typeof record.cost_source === 'string' ? record.cost_source : null) as CostSource | null,
         recordedAt: typeof record.recorded_at === 'string' ? record.recorded_at : null,
       };
     });
@@ -312,9 +337,10 @@ export async function buildAuditCostSummary(input: { database: DatabaseClient; a
       providerCallCount: rows.length,
       providers: [...providers].sort(),
       models: [...models].sort(),
+      readFailed: false,
       events,
     };
   } catch {
-    return empty;
+    return failed;
   }
 }
