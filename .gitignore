@@ -38,3 +38,8 @@ tmp-render-smoke/
 
 # SDD: rastreadores de progreso locales de los agentes.
 .superpowers/
+
+# Dumps de esquema y datos de la base real. Un respaldo de produccion puede
+# contener definiciones de funciones y filas reales: no se versiona, y no se
+# publica con el repo.
+.backups/
