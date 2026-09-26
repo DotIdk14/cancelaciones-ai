@@ -2,7 +2,7 @@
 
 **Rama:** `feature/policy-foundation-remediation`
 **Alcance:** toda la historia alcanzable del repositorio (7 ramas + 1 tag)
-**Estado:** `PASS` en los 8 criterios de validación
+**Estado:** local rewrite `PASS`; remote ref replacement `PASS`
 **Este documento no contiene datos personales.** Los valores saneados se identifican
 únicamente por hash SHA-256 truncado.
 
@@ -212,46 +212,62 @@ eliminarse con `git push origin --delete`.
 
 ---
 
-## 8. Pendiente de acción externa
+## 8. Cierre remoto
 
-### 8.1 Force-push — NO ejecutado
+### 8.1 Remote ref replacement — PASS
 
-Las refs remotas **no han sido actualizadas**. El repositorio remoto sigue sirviendo la
-historia con PII. Requiere autorización explícita:
+Fecha de cierre remoto: **2026-09-26**.
 
-```bash
-# Ejecutar solo con autorización expresa del OWNER
-git push --force-with-lease origin \
-  refs/heads/main:refs/heads/main \
-  refs/heads/feature/policy-foundation-remediation:refs/heads/feature/policy-foundation-remediation \
-  refs/heads/feature/policy-foundation-tasks-8-12:refs/heads/feature/policy-foundation-tasks-8-12 \
-  refs/heads/agents/pasted-text-processing:refs/heads/agents/pasted-text-processing \
-  refs/heads/agents/refactor-phase-6-artifacts-validation:refs/heads/agents/refactor-phase-6-artifacts-validation \
-  refs/heads/archive/origin-main:refs/heads/archive/origin-main \
-  refs/heads/archive/origin-feature-remediation:refs/heads/archive/origin-feature-remediation
+Antes de publicar se ejecutó `git fetch origin --prune --tags` y se compararon las refs
+remotas contra los SHAs esperados pre-rewrite. No hubo avance inesperado, por lo que se
+publicó exclusivamente la historia saneada con `--force-with-lease` explícito por ref.
+No se usó `--force`.
+
+| Ref remota | Estado previo verificado | Estado saneado publicado | Resultado |
+|---|---|---|---|
+| `refs/heads/main` | `168d06e503` | `956500aa92` | `PASS` |
+| `refs/heads/feature/policy-foundation-remediation` | `becfa9d4e8` | `422e6f5aac` | `PASS` |
+| `refs/heads/feature/policy-foundation-tasks-8-12` | `080133099b` | `0eaab6ea5c` | `PASS` |
+| `refs/heads/agents/pasted-text-processing` | `a1275bc1f0` | `87ebca5628` | `PASS` |
+| `refs/heads/agents/refactor-phase-6-artifacts-validation` | `855d7b4561` | `247240a4f1` | `PASS` |
+| `refs/heads/archive/origin-main` | ausente | `b6942d53ad` | `PASS` |
+| `refs/heads/archive/origin-feature-remediation` | ausente | `88697bdf93` | `PASS` |
+
+El tag remoto `pre-cleanslate-9479d97` estaba ausente y se dejó ausente. No existe en
+`origin` ninguna ref `refs/tags/pre-cleanslate-9479d97` que apunte a la historia antigua
+con PII. El tag local existe reescrito (`565cca98a0`) para trazabilidad local, pero no se
+publicó.
+
+### 8.2 Verificación remota posterior
+
+Verificación realizada después del push:
+
+- las 7 branches remotas anteriores apuntan a commits saneados;
+- `old_sha_hits=0` para los SHAs antiguos conocidos;
+- `remote_pre-cleanslate_tag_present=False`;
+- `origin` conserva fetch/push en `https://github.com/DotIdk14/cancelaciones-ai`;
+- working tree local limpio antes de documentar este cierre.
+
+Commit usado para la publicación remota de la rama de trabajo:
+
+```
+422e6f5aac01124546296203399fc3a84ccb3b34
 ```
 
-Y el tag por separado:
+Este informe agrega un commit documental posterior al cierre remoto para registrar el
+resultado. Se publica por fast-forward normal sobre la rama
+`feature/policy-foundation-remediation`; el SHA exacto queda trazado en el historial Git.
 
-```bash
-git push --force origin refs/tags/pre-cleanslate-9479d97
-git push origin :refs/tags/pre-cleanslate-9479d97   # si se decide eliminarlo
-```
-
-Se recomienda **eliminar el tag** en lugar de reescribirlo: su propósito era documentar
-el estado previo al clean slate, y ese estado ahora está disponible en las ramas
-`archive/*`.
-
-### 8.2 Purga en el proveedor
+### 8.3 Limitación residual: purga en proveedor
 
 Aunque el force-push se ejecute, el hosting puede conservar los objetos antiguos en
 cachés, backups o clones fork. **No se afirma haber purgado nada en el proveedor**;
 esa verificación está explícitamente fuera del alcance de este reporte.
 
-### 8.3 Artefactos locales con PII — pendientes de destrucción
+### 8.4 Artefactos locales con PII — destruidos
 
-Respaldo previo al rewrite, contiene PII y **debe destruirse** una vez confirmada la
-recepción:
+Los artefactos temporales locales con PII se destruyeron después de validar el rewrite y
+antes de continuar con D6:
 
 ```
 /tmp/opencode/backup/pre-rewrite-all.bundle
@@ -260,6 +276,10 @@ recepción:
 /tmp/opencode/verify-bundle/  (clon con PII)
 /tmp/opencode/rw/             (clon reescrito, sin PII)
 ```
+
+No queda respaldo local del historial contaminado en `/tmp/opencode/backup`,
+`/tmp/opencode/pii`, `/tmp/opencode/pristine`, `/tmp/opencode/verify-bundle` ni
+`/tmp/opencode/rw`.
 
 ---
 
