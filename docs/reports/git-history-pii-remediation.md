@@ -173,7 +173,10 @@ versionado en `HEAD`.
 
 ## 6. Cambios en la historia
 
-| Métrica | Antes | Después |
+Estas cifras describen la operación de rewrite **antes de commitear este informe**. El
+commit documental posterior añade 1 commit nuevo sin PII.
+
+| Métrica | Antes del rewrite | Después del rewrite |
 |---|---|---|
 | Commits alcanzables | 80 | 79 |
 | Refs | 9 | 8 |
