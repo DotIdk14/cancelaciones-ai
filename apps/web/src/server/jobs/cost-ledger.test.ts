@@ -51,6 +51,12 @@ function ledgerFakeDb(initial: Array<Record<string, unknown>> = []) {
       id: row.key, provider: row.p_provider, operation: row.p_operation, model: row.p_model ?? null,
       input_units: row.p_input_units ?? null, output_units: row.p_output_units ?? null,
       unit_type: row.p_unit_type ?? null, estimated_cost_usd: row.p_estimated_cost_usd ?? null,
+      // `cost_source` en la proyección: el RPC real lo persiste (migración
+      // 20260925200000) y el resumen lo lee. Si el doble no lo devolviera, este
+      // suite probaría un mundo donde la fuente del coste se pierde, que es
+      // exactamente el defecto A.
+      cost_source: row.p_cost_source ?? 'UNKNOWN',
+      provider_request_id: row.p_provider_request_id ?? null,
       recorded_at: '2026-09-25T12:00:00.000Z',
     })) : [];
     const api: Record<string, unknown> = {};
@@ -153,6 +159,29 @@ describe('exactly-once del ledger de coste', () => {
     expect(await recordAiUsage({ ...base, attemptId: 'at2' })).toBe(false);
     expect(rows).toHaveLength(1);
   });
+
+  it('envía la fuente del coste al RPC, no solo dentro de `usage`', async () => {
+    // El RPC la validaba y la descartaba: se validaba un parámetro para
+    // perderlo. La prueba de que ahora viaja es que llegue como `p_cost_source`.
+    const { db, rpc } = ledgerFakeDb();
+    await recordAiUsage({
+      database: db, auditId: 'a1', jobId: 'j1', attemptId: 'at1', evidenceId: 'e1',
+      fingerprint: 'fp-1', providerOperationId: 'op-1', usage: usage({ costSource: 'PROVIDER_REPORTED' }),
+    });
+    const call = rpc.mock.calls.find(([fn]) => fn === 'record_ai_usage_v1');
+    expect(call?.[1]).toMatchObject({ p_cost_source: 'PROVIDER_REPORTED' });
+  });
+
+  it('viaja como NULL, no como 0, cuando el coste se desconoce', async () => {
+    // Si esto invirtiera a 0, el ledger afirmaría "gratis" sin saberlo.
+    const { db, rpc } = ledgerFakeDb();
+    await recordAiUsage({
+      database: db, auditId: 'a1', jobId: 'j1', attemptId: 'at1', evidenceId: 'e1',
+      fingerprint: 'fp-u', providerOperationId: 'op-1', usage: usage({ costUsd: null, costSource: 'UNKNOWN' }),
+    });
+    const call = rpc.mock.calls.find(([fn]) => fn === 'record_ai_usage_v1');
+    expect(call?.[1]).toMatchObject({ p_estimated_cost_usd: null, p_unit_price_usd: null, p_cost_source: 'UNKNOWN' });
+  });
 });
 
 describe('lectura del uso real de cada proveedor', () => {
@@ -226,5 +255,44 @@ describe('buildAuditCostSummary', () => {
     expect(summary.knownCostUsd).toBe(0);
     expect(summary.unknownCostEvents).toBe(0);
     expect(summary.providerCallCount).toBe(0);
+    // Cero es un dato LEGÍTIMO aquí: no hay operaciones, luego no hay coste.
+    // Lo que no es legítimo es un cero por fallo de lectura, que es el test de
+    // abajo.
+    expect(summary.readFailed).toBe(false);
+  });
+
+  it('un FALLO DE LECTURA no se presenta como coste cero', async () => {
+    // El defecto más silencioso de esta ruta: la lectura fallaba, la función
+    // devolvía ceros y la ruta los pintaba como "$0.00". Eso afirma que se
+    // midió el gasto cuando no se midió nada: el mismo error que esta fase
+    // viene a corregir, en la capa de lectura.
+    const failing = {
+      from: () => {
+        const api: Record<string, unknown> = {};
+        for (const m of ['select', 'eq', 'order', 'limit']) api[m] = () => api;
+        api.then = (resolve: (v: unknown) => void) => resolve({ data: null, error: { message: 'db down' } });
+        return api;
+      },
+    } as never;
+
+    const summary = await buildAuditCostSummary({ database: failing, auditId: 'a1' });
+    expect(summary.readFailed).toBe(true);
+  });
+
+  it('una excepción en la lectura también se marca como fallo', async () => {
+    const throwing = {
+      from: () => { throw new Error('boom'); },
+    } as never;
+    const summary = await buildAuditCostSummary({ database: throwing, auditId: 'a1' });
+    expect(summary.readFailed).toBe(true);
+  });
+
+  it('expone la procedencia de cada coste, no solo la cifra', async () => {
+    const { db } = ledgerFakeDb();
+    await recordAiUsage({ database: db, auditId: 'a1', jobId: 'j', attemptId: null, evidenceId: null, fingerprint: 'f9', providerOperationId: 'o9', usage: { provider: 'ASSEMBLYAI', operation: 'TRANSCRIPT', model: 'best', inputUnits: 100, outputUnits: null, unitType: 'AUDIO_SECONDS', costUsd: null, costSource: 'UNKNOWN', externalOperationId: 'tr-9' } });
+
+    const summary = await buildAuditCostSummary({ database: db, auditId: 'a1' });
+    expect(summary.events[0].costSource).toBe('UNKNOWN');
+    expect(summary.events[0].costKnown).toBe(false);
   });
 });
