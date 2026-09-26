@@ -30,7 +30,29 @@ interface CostEvent {
   unitType: string | null;
   costUsd: number | null;
   costKnown: boolean;
+  /**
+   * De dónde sale la cifra. Sin esto, un número no tiene procedencia y no se
+   * puede distinguir lo que reportó el proveedor de lo que suponer el sistema.
+   */
+  costSource: string | null;
   recordedAt: string | null;
+}
+
+/**
+ * Etiqueta legible de la procedencia del coste.
+ *
+ * `UNKNOWN` NO se traduce por "estimado": no hubo estimación. Se traduce por
+ * "procedencia desconocida", que es lo que realmente quiere decir, y en
+ * particular NO dice "gratis".
+ */
+function costSourceLabel(source: string | null): string {
+  switch (source) {
+    case 'PROVIDER_REPORTED': return 'reportado por el proveedor';
+    case 'CALCULATED': return 'calculado con pricing configurado';
+    case 'ESTIMATED': return 'estimado explícitamente';
+    case 'UNKNOWN': return 'procedencia del coste desconocida';
+    default: return 'procedencia no registrada';
+  }
 }
 
 interface CostSummary {
@@ -40,6 +62,11 @@ interface CostSummary {
   providerCallCount: number;
   providers: string[];
   models: string[];
+  /**
+   * `true` si el servidor no pudo leer el ledger. Entonces las cifras de arriba
+   * NO son un dato y la UI debe decirlo, en vez de pintar $0.00.
+   */
+  readFailed: boolean;
   events: CostEvent[];
 }
 
@@ -84,14 +111,20 @@ export function AuditCostPanel({ auditId }: { auditId: string }) {
     <h4 className="mb-2 text-xs font-bold uppercase tracking-wide text-muted">Costo IA</h4>
 
     <div className="rounded bg-surface-2 p-2">
-      {summary.unknownCostEvents === 0
-        ? <p className="text-sm font-bold">{usd(summary.knownCostUsd)}</p>
+      {summary.readFailed
+        ? <p className="font-semibold text-red-700">
+            No fue posible leer el coste de esta auditoría. No se muestra ninguna cifra porque no se midió nada.
+          </p>
         : <>
             <p className="text-sm font-bold">{usd(summary.knownCostUsd)} conocidos</p>
-            <p className="mt-0.5 font-semibold text-amber-700">
-              + {summary.unknownCostEvents} {summary.unknownCostEvents === 1 ? 'operación' : 'operaciones'} con coste desconocido
-            </p>
-            <p className="mt-1 text-muted">La cifra conocida no es el total mientras queden operaciones sin coste conocido. No se inventa un total. No se inventa un total.</p>
+            {summary.unknownCostEvents > 0
+              ? <>
+                  <p className="mt-0.5 font-semibold text-amber-700">
+                    + {summary.unknownCostEvents} {summary.unknownCostEvents === 1 ? 'operación' : 'operaciones'} con coste desconocido
+                  </p>
+                  <p className="mt-1 text-muted">La cifra conocida no es el total mientras queden operaciones sin coste conocido. No se inventa un total.</p>
+                </>
+              : <p className="mt-1 text-muted">Todas las operaciones registradas tienen coste conocido.</p>}
           </>}
     </div>
 
@@ -122,6 +155,7 @@ export function AuditCostPanel({ auditId }: { auditId: string }) {
               ? `${event.inputUnits ?? '—'} s de audio`
               : `${event.inputUnits ?? '—'} ${event.unitType ?? 'unidades'}`}
           </p>
+          <p className="text-muted">Origen del coste: {costSourceLabel(event.costSource)}</p>
           {event.recordedAt && <p className="text-muted">{new Date(event.recordedAt).toLocaleString('es-MX')}</p>}
         </div>)}
       </div>
