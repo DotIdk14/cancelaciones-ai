@@ -62,7 +62,7 @@ evaluation.provisionalOnly;    // reglas auxiliares con su desenlace y su ambig√
 evaluation.trace;              // explicaci√≥n completa, con fingerprint
 ```
 
-## Hechos: cinco valores, no dos
+## Hechos: cuatro estados, no booleanos planos
 
 Un hecho no es `true` o `false`. Es `KNOWN`, `UNKNOWN`, `NOT_APPLICABLE` o
 `CONTRADICTED`.

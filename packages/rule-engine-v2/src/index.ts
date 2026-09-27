@@ -84,6 +84,26 @@ export * as temporal from './temporal';
 export { FACT_DEFINITIONS, activityFactForLevel, allFactIds, factDefinition, isKnownFact } from './facts/catalog';
 export { CON_ACTIVIDAD_NIVEL, deriveFacts, SIN_ACTIVIDAD_NIVEL } from './facts/derive';
 
+// Adquisición canónica de hechos
+export {
+  ACQUISITION_CATEGORIES,
+  LEGACY_MAPPING_CLASSIFICATIONS,
+} from './acquisition/types';
+export type {
+  AcquisitionCategory,
+  CanonicalFactAcquisitionEntry,
+  CanonicalFactCandidate,
+  LegacyMappingClassification,
+} from './acquisition/types';
+export { buildCanonicalFactAcquisitionMatrix } from './acquisition/matrix';
+export { candidateToFact, validateCanonicalFactCandidate } from './acquisition/validate';
+export type { ValidatedCanonicalFactCandidate } from './acquisition/validate';
+export { mergeCanonicalFacts } from './acquisition/merge';
+export { buildCanonicalEvaluateAuditInput, validateTemporalContext } from './acquisition/context';
+export type { BuildCanonicalEvaluateAuditInputParams } from './acquisition/context';
+export { relevantMissingFactsForEvaluation } from './acquisition/relevant-missing';
+export type { RelevantMissingFact } from './acquisition/relevant-missing';
+
 // Reglas y nodos
 export { RULES, ruleById, rulesForNode } from './rules/policy';
 export type { DecisionTarget, Rule, RuleKind } from './rules/types';

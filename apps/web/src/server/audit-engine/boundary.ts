@@ -4,9 +4,10 @@
  ## Estado
  *
  * El motor normativo de auditoría **NO ESTÁ CONECTADO**. La V2 del árbol de
- * decisión existe y está verificada (`packages/rule-engine-v2`, 65 reglas), pero
- * todavía no puede recibir el caso real: la tubería persiste otro vocabulario de
- * hechos y no tiene dónde colocar el estado de cinco valores.
+ * decisión existe y está verificada (`packages/rule-engine-v2`, 65 reglas), y ya
+ * existe una capa pura para construir hechos canónicos. La ruta real sigue
+ * cerrada porque todavía no carga un `canonical_fact_run` congelado de la
+ * auditoría subida ni conserva todo el contexto temporal capturado.
  *
  * La distinción importa porque son dos ausencias distintas. Antes de la V2, el
  * motor no existía. Ahora existe y aun así no debe ejecutarse sobre datos que no
@@ -73,37 +74,32 @@ export interface AuditEnginePrecondition {
 /**
  * Precondiciones de la evaluación normativa.
  *
- * Las tres son de datos, no de código: el motor ya sabe evaluar. Se listan por
- * separado de las capacidades no construidas porque son de naturaleza distinta
- * — aquí se puede proceder, y una migración las resuelve — mientras que un
- * dictamen o una adjudicación siguen sin existir como concepto.
+ * No dicen que el motor no exista. Dicen qué falta para que la ruta real use una
+ * corrida canónica verificable en lugar de datos legacy o hechos vacíos.
  */
 export const NORMATIVE_EVALUATION_PRECONDITIONS: readonly AuditEnginePrecondition[] = [
   {
-    code: 'CANONICAL_FACTS_NOT_PERSISTED',
+    code: 'CANONICAL_FACT_PIPELINE_NOT_WIRED_TO_ROUTE',
     detail:
-      'La tabla `facts` guarda el vocabulario heredado (`contact.*`, `student.*`, ' +
-      '`classroom.*`, `academic.*`), que no comparte ningún identificador con los ' +
-      '94 hechos canónicos del motor. Sin esos hechos la evaluación no tiene ' +
-      'insumo, y su respuesta hablaría de la tubería, no del caso.',
+      'Ya existe adquisición canónica pura y un adaptador para mappings EXACT, ' +
+      'pero el job real de evidencia aún no escribe una corrida canónica completa ' +
+      'para la auditoría subida.',
     unblocks: 'normative-evaluation',
   },
   {
-    code: 'FACT_STATE_NOT_PERSISTED',
+    code: 'CANONICAL_FACT_RUN_NOT_LOADED_BY_ROUTE',
     detail:
-      'La tabla `facts` no tiene columna para el estado de cinco valores ' +
-      '(KNOWN / UNKNOWN / NOT_APPLICABLE / CONTRADICTED). Una revisión humana que ' +
-      'marque un hecho como NO APLICABLE o CONTRADICIDO no puede persistirse ni ' +
-      'reproducirse en una reevaluación.',
+      'La ruta `/audit` todavía no selecciona un `canonical_fact_run` congelado, ' +
+      'no reconstruye `EvaluateAuditInput` desde `canonical_facts` y no prueba ' +
+      'la equivalencia con el fixture E2E.',
     unblocks: 'normative-evaluation',
   },
   {
-    code: 'TEMPORAL_CONTEXT_NOT_PERSISTED',
+    code: 'TEMPORAL_CONTEXT_NOT_CAPTURED_FOR_REAL_AUDIT',
     detail:
-      'Ningún dato persistido provee el contexto temporal que las reglas leen ' +
-      'directamente (inicio de ciclo, fecha de solicitud, fecha de ingreso, ' +
-      'inicio del primer ciclo y avance curricular). Las ventanas de ' +
-      'GDM_GAM_PRD_MLG_003 no se podrían calcular.',
+      'El formulario captura fechas operativas, pero la ruta real aún no garantiza ' +
+      'un `TemporalContext` completo y con provenance para inicio de ciclo, fecha ' +
+      'de solicitud, fecha de ingreso, inicio del primer ciclo y avance curricular.',
     unblocks: 'normative-evaluation',
   },
 ];

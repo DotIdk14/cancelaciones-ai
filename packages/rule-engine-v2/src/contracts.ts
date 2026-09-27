@@ -128,6 +128,8 @@ export interface FactProvenance {
   readonly extractionMethod: ExtractionMethod;
   readonly extractorId: string;
   readonly extractorVersion: string;
+  /** Confianza de extracción 0..1. No es soporte normativo ni probabilidad de desenlace. */
+  readonly extractionConfidence?: number;
   /** Texto fuente. Debe ir redactado si contiene PII. */
   readonly sourceText?: string;
 }

@@ -66,7 +66,11 @@ describe('el bloqueo es accionable, no un misterio', () => {
   it('la evaluacion normativa declara sus precondiciones pendientes', () => {
     const conditions = unmetPreconditions('normative-evaluation');
     expect(conditions).toEqual(NORMATIVE_EVALUATION_PRECONDITIONS);
-    expect(conditions.length).toBeGreaterThan(0);
+    expect(conditions.map((condition) => condition.code)).toEqual([
+      'CANONICAL_FACT_PIPELINE_NOT_WIRED_TO_ROUTE',
+      'CANONICAL_FACT_RUN_NOT_LOADED_BY_ROUTE',
+      'TEMPORAL_CONTEXT_NOT_CAPTURED_FOR_REAL_AUDIT',
+    ]);
   });
 
   it('cada precondicion nombra la falta y lo que desbloquea', () => {

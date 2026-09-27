@@ -74,7 +74,7 @@ Verificados por inspección de la tubería real, no supuestos:
 | Código | Hecho verificado | Efecto |
 |---|---|---|
 | `CANONICAL_FACTS_NOT_PERSISTED` | La tabla `facts` guarda el vocabulario heredado (`contact.*`, `student.*`, `classroom.*`, `academic.*`). **Solapamiento con los 94 hechos canónicos: cero.** | El motor no tiene insumo. |
-| `FACT_STATE_NOT_PERSISTED` | `facts` no tiene columna para el estado de cinco valores. `FactProvenance` además exige `extractionState`, `extractionMethod`, `extractorId`, `extractorVersion`, que tampoco tienen sitio. | Una revisión `NOT_APPLICABLE` / `CONTRADICTED` no se persiste ni se reproduce. |
+| `FACT_STATE_NOT_PERSISTED` | `facts` no tiene columna para el estado canónico de cuatro estados. `FactProvenance` además exige `extractionState`, `extractionMethod`, `extractorId`, `extractorVersion`, que tampoco tienen sitio. | Una revisión `NOT_APPLICABLE` / `CONTRADICTED` no se persiste ni se reproduce. |
 | `TEMPORAL_CONTEXT_NOT_PERSISTED` | Ninguna tabla ni hecho canónico provee inicio de ciclo, fecha de solicitud, fecha de ingreso, inicio del primer ciclo ni avance curricular. | Las ventanas del primario no se pueden calcular. |
 
 **Por qué no se ejecutó de todos modos.** Con esos datos, el motor respondería
@@ -87,7 +87,7 @@ canónicos es una decisión interpretativa sobre qué significa cada hecho. Eso 
 del Owner, no del código.
 
 **Qué se necesita para desbloquear.** Una migración que (a) permita persistir
-hechos canónicos con su estado de cinco valores y su procedencia, y (b) exponga
+hechos canónicos con su estado canónico de cuatro estados y su procedencia, y (b) exponga
 el contexto temporal. Ninguna de las dos es un cambio en el motor.
 
 ## 4. Vocabulario de estados

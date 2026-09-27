@@ -202,7 +202,7 @@ El 501 ya no dice «el motor no existe». Publica `unmetPreconditions`:
 | Código | Hecho verificado |
 |---|---|
 | `CANONICAL_FACTS_NOT_PERSISTED` | La tabla `facts` guarda `contact.*`, `student.*`, `classroom.*`, `academic.*`. **Solapamiento con los 94 hechos canónicos: cero.** |
-| `FACT_STATE_NOT_PERSISTED` | `facts` no tiene columna para el estado de cinco valores; `FactProvenance` además exige `extractionState`, `extractionMethod`, `extractorId`, `extractorVersion`, que tampoco tienen sitio. |
+| `FACT_STATE_NOT_PERSISTED` | `facts` no tiene columna para el estado canónico de cuatro estados; `FactProvenance` además exige `extractionState`, `extractionMethod`, `extractorId`, `extractorVersion`, que tampoco tienen sitio. |
 | `TEMPORAL_CONTEXT_NOT_PERSISTED` | Ninguna tabla ni hecho canónico provee inicio de ciclo, fecha de solicitud, fecha de ingreso, inicio del primer ciclo ni avance curricular. |
 
 Se distingue capacidad **no construida** (`CAPABILITY_NOT_IMPLEMENTED`) de
@@ -219,7 +219,7 @@ No se inventó un mapeo heredado → canónico porque traducir «qué significa 
 hecho heredado» es una decisión interpretativa, y es del Owner.
 
 **Qué la desbloquea:** una migración que permita persistir hechos canónicos con
-su estado de cinco valores y su procedencia, y que exponga el contexto temporal.
+su estado canónico de cuatro estados y su procedencia, y que exponga el contexto temporal.
 Ninguna de las dos es un cambio en el motor.
 
 ## N. Verificación por invariante
