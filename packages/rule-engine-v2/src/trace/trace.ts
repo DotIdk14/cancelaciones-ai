@@ -30,6 +30,7 @@ import type {
   ShortCircuitTrace,
   Outcome,
   PolicyConflict,
+  ProvisionalOnlyRule,
   SourceRef,
   TraceEntry,
 } from '../contracts';
@@ -51,6 +52,10 @@ export interface TraceInput {
   readonly allFacts: readonly Fact[];
   readonly shortCircuit: ShortCircuitTrace | null;
   readonly evidences: readonly EvidenceRef[];
+  /** Por qué el estado normativo es el que es. */
+  readonly statusReason: string;
+  /** Reglas que Lennan un desenlace sin autoridad para fijarlo. */
+  readonly provisionalOnly: readonly ProvisionalOnlyRule[];
 }
 
 /** Emisor correlativo de pasos. */
@@ -91,8 +96,16 @@ export function buildTrace(input: TraceInput): {
   traceConflicts(builder, input.policyConflicts);
   traceMissing(builder, input.missingFacts);
   traceCandidates(builder, input.candidateTrace);
-  traceStatus(builder, input.normativeStatus);
-  traceResult(builder, input.normativeStatus, input.normativeOutcome, input.closestOutcome);
+  traceAuthority(builder, input.applications, input.provisionalOnly);
+  traceProvisionalOnly(builder, input.provisionalOnly);
+  traceStatus(builder, input.normativeStatus, input.statusReason, input.provisionalOnly);
+  traceResult(
+    builder,
+    input.normativeStatus,
+    input.normativeOutcome,
+    input.closestOutcome,
+    input.provisionalOnly,
+  );
 
   const entries = builder.build();
   return { entries, fingerprint: fingerprintOf(entries) };
@@ -306,7 +319,12 @@ function traceCandidates(builder: TraceBuilder, candidates: readonly CandidateOu
 }
 
 /** Paso 7: el estado normativo y su motivo. */
-function traceStatus(builder: TraceBuilder, status: NormativeStatus): void {
+function traceStatus(
+  builder: TraceBuilder,
+  status: NormativeStatus,
+  reason: string,
+  provisionalOnly: readonly ProvisionalOnlyRule[],
+): void {
   const explanation: Record<NormativeStatus, string> = {
     DETERMINATE: 'La fuente normativa cierra el caso de forma unívoca.',
     INSUFFICIENT_EVIDENCE:
@@ -314,7 +332,86 @@ function traceStatus(builder: TraceBuilder, status: NormativeStatus): void {
     REQUIRES_HUMAN_REVIEW:
       'El caso alcanza un conflicto o una ambigüedad normativa: la decisión es del Owner.',
   };
-  builder.add('STATUS', status, explanation[status], { value: { status } });
+  const pending = pendingIds(provisionalOnly);
+  builder.add('STATUS', status, `${explanation[status]} ${reason}`, {
+    value: {
+      status,
+      // Motivo específico del módulo de estado, no la explicación genérica del
+      // tipo: la diferencia entre «hay un conflicto» y «una fuente auxiliar
+      // propuso algo que el primario no autoriza» cambia lo que debe hacer el
+      // auditor.
+      reason,
+      pendingAmbiguityIds: pending,
+      provisionalOnlyRuleIds: provisionalOnly.map((rule) => rule.ruleId),
+    },
+  });
+}
+
+/**
+ * Paso 6b: la decisión de autoridad, regla por regla.
+ *
+ * Se emite para cada regla de desenlace que coincidió, no sólo para las
+ * Auxiliares: una regla autoritativa también debe dejar constancia de *por qué*
+ * lo es, o «normativo» sería un hecho sin explicación.
+ */
+function traceAuthority(
+  builder: TraceBuilder,
+  applications: readonly RuleApplication[],
+  provisionalOnly: readonly ProvisionalOnlyRule[],
+): void {
+  const provisionalIds = new Set(provisionalOnly.map((rule) => rule.ruleId));
+  for (const application of applications) {
+    const { rule } = application;
+    if (!application.matched || rule.onMatch.kind !== 'OUTCOME') continue;
+    const outcome = rule.onMatch.outcome;
+    const provisional = provisionalIds.has(rule.ruleId);
+    builder.add(
+      'AUTHORITY',
+      rule.ruleId,
+      provisional
+        ? `«${outcome}» es PROVISIONAL: la regla se apoya en fuentes auxiliares y ` +
+            'GDM_GAM_PRD_MLG_003 no la autoriza a determinar el desenlace.'
+        : `«${outcome}» es NORMATIVO: la regla cita o conecta con la fuente primaria.`,
+      {
+        ruleId: rule.ruleId,
+        sourceRefs: rule.sourceRefs,
+        value: {
+          outcome,
+          isNormative: !provisional,
+          authority: provisional ? 'AUXILIARY_WITHOUT_PRIMARY_GROUNDING' : 'PRIMARY_GROUNDED',
+          primaryGrounding: rule.primaryGrounding ?? null,
+          awaitsAmbiguityIds: rule.awaitsAmbiguityIds ?? [],
+        },
+      },
+    );
+  }
+}
+
+/** Paso 6c: el resumen accionable de lo que impide cerrar el caso. */
+function traceProvisionalOnly(builder: TraceBuilder, provisionalOnly: readonly ProvisionalOnlyRule[]): void {
+  if (provisionalOnly.length === 0) return;
+  const pending = pendingIds(provisionalOnly);
+  builder.add(
+    'PROVISIONAL_ONLY',
+    'pending-authority',
+    `Hay ${provisionalOnly.length} regla(s) de fuente auxiliar proponiendo desenlace sin ` +
+      `grounding en el primario. Ambigüedades del Owner que las desbloquean: ` +
+      `${pending.length > 0 ? pending.join(', ') : 'ninguna declarada'}.`,
+    {
+      value: {
+        rules: provisionalOnly.map((rule) => ({
+          ruleId: rule.ruleId,
+          outcome: rule.outcome,
+          awaitsAmbiguityIds: rule.awaitsAmbiguityIds,
+        })),
+        pendingAmbiguityIds: pending,
+      },
+    },
+  );
+}
+
+function pendingIds(provisionalOnly: readonly ProvisionalOnlyRule[]): readonly string[] {
+  return [...new Set(provisionalOnly.flatMap((rule) => rule.awaitsAmbiguityIds))].sort();
 }
 
 /**
@@ -328,12 +425,21 @@ function traceResult(
   status: NormativeStatus,
   normativeOutcome: Outcome | null,
   closestOutcome: Outcome | null,
+  provisionalOnly: readonly ProvisionalOnlyRule[],
 ): void {
   builder.add('RESULT', 'normative', describeNormative(status, normativeOutcome), {
     value: { status, normativeOutcome },
   });
+  const pending = pendingIds(provisionalOnly);
   builder.add('RESULT', 'provisional', describeProvisional(closestOutcome), {
-    value: { closestOutcome, isNormative: false },
+    value: {
+      closestOutcome,
+      isNormative: false,
+      // Se adjunta al resultado provisional lo que impide convertirlo en
+      // normativo, para que la UI pueda pintar «qué falta» sin recalcular.
+      pendingAmbiguityIds: pending,
+      provisionalOnlyRuleIds: provisionalOnly.map((rule) => rule.ruleId),
+    },
   });
 }
 

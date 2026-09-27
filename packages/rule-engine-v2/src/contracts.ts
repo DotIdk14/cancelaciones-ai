@@ -508,6 +508,16 @@ export type TraceStepKind =
   | 'MISSING_FACT'
   | 'STATUS'
   | 'SHORT_CIRCUIT'
+  /**
+   * Decisión de autoridad: si una regla que propone desenlace puede fijarlo
+   * normativamente o sólo lo propone. Es la decisión que separa lo
+   * normativo de lo provisional, y por eso tiene paso propio: sin él, un
+   * `closestOutcome` aparecería sin explicación de por qué no llegó a ser
+   * `normativeOutcome`.
+   */
+  | 'AUTHORITY'
+  /** Resumen de las reglas provisional-only alcanzadas y lo que falta por cerrar. */
+  | 'PROVISIONAL_ONLY'
   | 'RESULT';
 
 /** Un paso de la traza. La traza completa es la explicación del resultado. */

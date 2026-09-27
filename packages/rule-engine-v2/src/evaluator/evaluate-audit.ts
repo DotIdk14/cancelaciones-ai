@@ -158,6 +158,13 @@ export function evaluateAudit(input: EvaluateAuditInput): AuditEvaluation {
   // 8. Requisitos de evidencia faltantes.
   const missingFacts = collectMissingRequirements({ applications, index });
 
+  // 8b. Reglas de fuente auxiliar que proponen desenlace sin grounding en el
+  //     primario. Se calcula antes de la traza porque la traza debe explicar la
+  //     separación normativo/provisional, no sóloregistrarla.
+  const provisionalOnly = provisionalOnlyRules(
+    effective.filter((application) => application.matched).map((application) => application.rule),
+  );
+
   // 9. Traza.
   const trace = buildTrace({
     applications: resolvedApplications,
@@ -171,6 +178,8 @@ export function evaluateAudit(input: EvaluateAuditInput): AuditEvaluation {
     allFacts,
     shortCircuit,
     evidences: input.evidenceContext.evidences,
+    statusReason: statusDecision.reason,
+    provisionalOnly,
   });
 
   return {
@@ -187,9 +196,7 @@ export function evaluateAudit(input: EvaluateAuditInput): AuditEvaluation {
     trace,
     shortCircuit,
     sourceRefs: collectSourceRefs(applications),
-    provisionalOnly: provisionalOnlyRules(
-      effective.filter((application) => application.matched).map((application) => application.rule),
-    ),
+    provisionalOnly,
   };
 }
 

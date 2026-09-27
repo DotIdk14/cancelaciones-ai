@@ -55,6 +55,15 @@ export interface StatusDecision {
   readonly closestOutcome: Outcome | null;
   readonly alternativeOutcomes: readonly Outcome[];
   readonly assessment: ProvisionalAssessment | null;
+  /**
+   * Por qué este estado y no otro, en una frase.
+   *
+   * Existe porque la UI y el reporte deben poder explicar la escalada sin
+   * recalcularla. Antes de exponerlo, cada rama construía el motivo y lo
+   * descartaba, de modo que la traza decía «REQUIRES_HUMAN_REVIEW» sin decir por
+   * qué: el nivel de detalle que laEvidence exige quedaba atrás.
+   */
+  readonly reason: string;
 }
 
 /**
@@ -79,13 +88,27 @@ export function decideStatus(input: StatusInput): StatusDecision {
   const { policyConflicts, effectiveApplications, candidateTrace, allApplications } = input;
   const precedence = input.declaredPrecedence;
 
+  /**
+   * Reglas de desenlace apoyadas sólo en fuentes auxiliares.
+   *
+   * Se calcula antes de decidir el estado porque sus consecuencias aparecen en
+   * más de una rama: no sólo impide cerrar por sí misma, sino que además cambia
+   * el motivo que se reporta cuando el caso escala por otro motivo.
+   */
+  const ungrounded = effectiveApplications.filter(
+    (application) => application.rule.onMatch.kind === 'OUTCOME' && !isNormativeAuthority(application.rule),
+  );
+
   // 1. Conflicto normativo en el camino alcanzado.
   if (policyConflicts.length > 0) {
     return review(
       policyConflicts,
       candidateTrace,
       input.evidences,
-      'El recorrido alcanzó un conflicto normativo sin resolver.',
+      // El motivo enumera ambas causas. Anunciar sólo el conflicto invita al
+      // auditor a pensar que resolverlo basta, cuando mientras la lectura
+      // auxiliar siga viva el primario no puede cerrar en solitario.
+      'El recorrido alcanzó un conflicto normativo sin resolver.' + ungroundedReason(ungrounded),
     );
   }
 
@@ -131,13 +154,9 @@ export function decideStatus(input: StatusInput): StatusDecision {
   //     pero `normativeOutcome` queda en `null` y el caso escala.
   //
   //     Se comprueba también cuando hay además una propuesta autoritativa: si una
-  //     lectura auxiliar sigue viva, el primario no puede cerrar en solitude, y
+  //     lectura auxiliar sigue viva, el primario no puede cerrar en solitario, y
   //     `UNKNOWN_IS_NOT_FALSE` impide tratar la duda como si no existiera.
-  const ungrounded = effectiveApplications.filter(
-    (application) => application.rule.onMatch.kind === 'OUTCOME' && !isNormativeAuthority(application.rule),
-  );
   if (ungrounded.length > 0) {
-    const pending = pendingAmbiguityIds(ungrounded.map((application) => application.rule));
     const reglas = ungrounded.map((application) => application.rule.ruleId);
     return review(
       [],
@@ -146,7 +165,7 @@ export function decideStatus(input: StatusInput): StatusDecision {
       'Una regla de fuente auxiliar propone un desenlace que GDM_GAM_PRD_MLG_003 no ' +
         'autoriza a determinar. La fuente primaria es la única que fija el desenlace ' +
         'final, de modo que el resultado sólo puede ser provisional.' +
-        (pending.length > 0 ? ` Ambigüedades del Owner pendientes: ${pending.join(', ')}.` : ''),
+        ungroundedReason(ungrounded),
       [...proposals.keys()],
       reglas,
       precedence,
@@ -220,6 +239,25 @@ export function decideStatus(input: StatusInput): StatusDecision {
   );
 }
 
+/**
+ * Motivo compartido por las ramas que escalan por lectura auxiliar.
+ *
+ * Nombra la regla y la ambigüedad que la desbloquearía, para que el motivo sea
+ * accionable en lugar de genérico.
+ */
+function ungroundedReason(ungrounded: readonly RuleApplication[]): string {
+  if (ungrounded.length === 0) return '';
+  const reglas = ungrounded.map((application) => application.rule.ruleId);
+  const pending = pendingAmbiguityIds(ungrounded.map((application) => application.rule));
+  return (
+    ` Además ${reglas.length === 1 ? 'la regla' : 'las reglas'} ${reglas.join(', ')} ` +
+    `${reglas.length === 1 ? 'se apoya' : 'se apoyan'} en fuentes auxiliares que ` +
+    'GDM_GAM_PRD_MLG_003 no autoriza a determinar el desenlace, de modo que resolver ' +
+    'el conflicto no basta para cerrar el caso.' +
+    (pending.length > 0 ? ` Ambigüedades del Owner pendientes: ${pending.join(', ')}.` : '')
+  );
+}
+
 /** `DETERMINATE`: la fuente cierra el caso. */
 function determinate(
   outcome: Outcome,
@@ -230,9 +268,14 @@ function determinate(
   allFacts: readonly Fact[],
 ): StatusDecision {
   const trace = candidateTrace.find((item) => item.outcome === outcome);
+  const support = proposals.get(outcome) ?? [];
   return {
     status: 'DETERMINATE',
     normativeOutcome: outcome,
+    reason:
+      `La fuente normativa fija ${outcome} de forma unívoca: ` +
+      `${support.length} regla(s) autoritativa(s) coinciden y ninguna otra lectura ` +
+      'deja el desenlace en disputa.',
     closestOutcome: outcome,
     alternativeOutcomes: candidateTrace
       .filter((item) => item.outcome !== outcome)
@@ -257,6 +300,7 @@ function insufficient(
     normativeOutcome: null,
     // Provisional, nunca presentado como normativo.
     closestOutcome: outcome,
+    reason,
     alternativeOutcomes: candidateTrace
       .filter((item) => item.outcome !== outcome)
       .map((item) => item.outcome),
@@ -306,6 +350,7 @@ function review(
     status: 'REQUIRES_HUMAN_REVIEW',
     normativeOutcome: null,
     closestOutcome: closest,
+    reason,
     // Si el ranking no produjo candidatos (caso OWNER_DECISION_REQUIRED), los
     // desenlaces en disputa provienen de las reglas que se alcanzaron.
     alternativeOutcomes:
