@@ -10,18 +10,28 @@ import {
   AUDIT_ENGINE_NOT_IMPLEMENTED,
   NORMATIVE_SOURCE_CODE,
   isAuditEngineNotImplemented,
+  unmetPreconditions,
   type AuditEngineCapability,
 } from './boundary';
 
-/** Respuesta 501 para cualquier ruta que requiera un resultado normativo. */
+/**
+ * Respuesta 501 para cualquier ruta que requiera un resultado normativo.
+ *
+ * Incluye las precondiciones pendientes para que quien reciba el error sepa qué
+ * construir, no sólo que algo falta. Un 501 sin ese detalle obliga a investigar;
+ * con él, es una lista de trabajo.
+ */
 export function auditEngineNotImplemented(capability: AuditEngineCapability) {
+  const unmet = unmetPreconditions(capability);
   return NextResponse.json(
     {
       error: AUDIT_ENGINE_NOT_IMPLEMENTED,
       capability,
       normativeSource: NORMATIVE_SOURCE_CODE,
       message:
-        'El motor de auditoría no está implementado. Ninguna auditoría normativa puede ejecutarse en esta fase.',
+        'El motor de auditoría no puede ejecutar esta capacidad todavía. ' +
+        'Ninguna auditoría normativa puede ejecutarse en esta fase.',
+      unmetPreconditions: unmet,
     },
     { status: 501 },
   );

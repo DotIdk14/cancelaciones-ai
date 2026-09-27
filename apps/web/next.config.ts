@@ -7,7 +7,12 @@ const nextConfig: NextConfig = {
       bodySizeLimit: '250mb',
     },
   },
-  transpilePackages: ['@cancelaciones/domain', '@cancelaciones/db', '@cancelaciones/reporting'],
+  transpilePackages: [
+    '@cancelaciones/domain',
+    '@cancelaciones/db',
+    '@cancelaciones/reporting',
+    '@cancelaciones/rule-engine-v2',
+  ],
   distDir: process.env.NEXT_DIST_DIR ?? '.next',
 };
 

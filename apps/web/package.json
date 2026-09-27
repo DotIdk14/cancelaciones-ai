@@ -20,7 +20,8 @@
     "pdf-lib": "1.17.1",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "zod": "^3.25.76"
+    "zod": "^3.25.76",
+    "@cancelaciones/rule-engine-v2": "workspace:*"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.1",
