@@ -313,3 +313,130 @@ resolverse con decisiones del Owner antes de que la Fase 2 pueda producir un
 resultado determinista. Este es el resultado correcto: un motor determinista
 construido sobre ambigüedades no resueltas produciría decisiones correctas por
 azar.
+
+---
+
+# Phase 1.5 — Cobertura con 3 fuentes
+
+> **Phase 1 preservado.** Las secciones 1–9 (cobertura del primario) **no se
+> modifican**. Esta sección mide la cobertura **agregada** de las 3 fuentes.
+> Las métricas absolutas de Phase 1 (158 filas de estado por estado) se conservan tal
+> cual; aquí se recalcula el agregado con denominador explícito.
+
+## 10. Denominador de cobertura
+
+Phase 1 usó 139 enunciados del primario. Phase 1.5 añade 65 enunciados de
+fuentes de apoyo (40 `G-##` + 25 `D53-##`). Denominador agregado: **204**.
+
+| Conjunto | Enunciados | Estado |
+|---|---|---|
+| Primario `N-##` | 139 | sin cambios (hash idéntico) |
+| Glosario `G-##` | 40 | nuevo |
+| D53 `D53-##` | 25 | nuevo |
+| **Total** | **204** | — |
+
+## 11. Cobertura de las fuentes de apoyo
+
+### 11.1 Glosario — 40 enunciados
+
+| Estado | Cantidad | IDs |
+|---|---|---|
+| `COVERED` — definición usada por el árbol | 33 | `G-01`…`G-26`, `G-29`, `G-30`, `G-33`…`G-36` |
+| `COVERED_CON_METRIC` — usada como métrica/medición | 2 | `G-25` (segmentos), `G-17` (semáforo) |
+| `PARTIAL` — el término existe pero su regla depende de fuente ausente | 2 | `G-19` (carta compromiso → `XDC-02`), `G-23` (expediente → `XDC-05`) |
+| `CONFLICTED` — dos documentos dicen cosas distintas | 3 | `G-08` (`XDC-03`), `G-09`+`G-30` (`XDC-04`), `G-13` (`XDC-01`) |
+| `NOT_COVERED` — sin uso decisional | 0 | — |
+
+**Glosario aporta 0 huecos nuevos.** Todos sus términos son definiciones y las
+37 definiciones no-metrónicas se enlazan al árbol. Los 3 `CONFLICTED` son
+conflictos **entre** documentos, no huecos del Glosario.
+
+### 11.2 D53 — 25 enunciados
+
+| Estado | Cantidad | IDs |
+|---|---|---|
+| `COVERED` — nodo del subárbol D53 | 16 | `D53-01`…`D53-04`, `D53-06`…`D53-11`, `D53-14`, `D53-16`, `D53-18`…`D53-21`, `D53-24` |
+| `COVERED_NON_DECISIONAL` — operativo/comercial, no cambia desenlace | 4 | `D53-05` (transición declarada), `D53-12`, `D53-13`, `D53-17` |
+| `CONFLICTED` | 1 | `D53-17` (ventana de CV → `XDC-01`) |
+| `DEFERRED_UNAVAILABLE_SOURCE` | 3 | `D53-22` (Anexo 2), `D53-23` (Anexo 1), `D53-25` (enlace de glosario, resuelto) |
+| `NOT_COVERED` | 1 | `D53-20` (monto de descuento: sin efecto en desenlace) |
+
+**D53 cierra 16 reglas que en Phase 1 no eran ejecutables** (todo el subárbol
+documental: aplicabilidad, responsable, plazo 6 meses, 50%, cierre de bimestre,
+apócrifo, persistencia de la decisión).
+
+## 12. Impacto en los 10 huecos de Phase 1
+
+| Hueco | Estado Phase 1.5 | Efecto |
+|---|---|---|
+| `GAP-COV-01` | **CERRADO** | La Glosario resuelve las 14 definiciones que Phase 1 marcó faltantes. Sin hubs de definición. |
+| `GAP-COV-02` | **CERRADO** | Las 8 formas de CV de la matriz tienen ahora definición textual (`G-13`, p.7) con 3 motivos. |
+| `GAP-COV-03` | **CERRADO** | D53 da la definición operativa de aplicabilidad, plazo, cierre y responsable. |
+| `GAP-COV-04` | `PARTIAL` | Tipos de ingreso definidos (`G-22`, p.28) pero sin proceso de admisión asociado (referenciado, no disponible). |
+| `GAP-COV-05` | `DEFERRED` | El conjunto de documentos sigue en anexos no disponibles (`XDC-05`). |
+| `GAP-COV-06` | **DEFERRED** | Depende de anexos de retención (Anexo 2/4) no disponibles. |
+| `GAP-COV-07` | `DEFERRED` | Depende de los Owner decisions de `XDC-01`…`XDC-04`. |
+| `GAP-COV-08` | `DEFERRED` | Golden cases dependen de decisiones de Owner. |
+| `GAP-COV-09` | **EMPEORADO** | Phase 1: 26 enunciados con conectividad indeterminada. Phase 1.5: +9 conflictos entre documentos, 6 de ellos en ramas de árbol. |
+| `GAP-COV-10` | **EMPEORADO** | Phase 1: 17 enunciados sin desenlace. Phase 1.5: +4 (`G-19`, `G-08`, `G-09`, `D53-17`) cuyo desenlace depende de otro documento. |
+
+**Balance de huecos:** 3 cerrados · 2 parciales · 4 diferidos · 1 empeorado.
+Ningún hueco se cerró **por inferencia**: los 3 cierres son por texto exacto.
+
+## 13. Cambios en el perfil de blocking
+
+| Categoría | Phase 1 | Phase 1.5 | Δ |
+|---|---|---|---|
+| Ambigüedades re-evaluadas | 28 | 28 | — |
+| `RESOLVED_BY_NEW_SOURCE` | — | 1 | +1 |
+| `PARTIALLY_RESOLVED` | — | 5 | +5 |
+| `STILL_REQUIRES_OWNER_DECISION` | 14 | 13 | −1 |
+| `DEFERRED_UNAVAILABLE_SOURCE` | 0 | 2 | +2 |
+| `NON_BLOCKING` | 14 | 7 | −7 |
+| `CROSS_DOCUMENT_CONFLICT` (nuevos) | 0 | 9 | +9 |
+| Ambigüedades nuevas | — | 3 | +3 |
+| **Preguntas al Owner** | **14** | **15** | **+1** |
+
+**Reducción real de bloqueo: 1 de 14.** No 13. La aparente reducción viene de
+reclasificar 4 ambigüedades como `DEFERRED_UNAVAILABLE_SOURCE` (fuera de alcance
+por instrucción) y 7 como `NON_BLOCKING`, no de resolverlas. **Las tres
+ambigüedades de contradicción hardest** (`AMB-CON-01`, `02`, `03`) siguen
+intactas: ninguna fuente nueva las toca.
+
+## 14. Las 15 preguntas que bloquean un motor determinista
+
+| # | ID | Por qué bloquea |
+|---|---|---|
+| 1 | `XDC-01` | La ventana de CV tiene 3 valores incompatibles; afecta toda rama CV |
+| 2 | `XDC-02` | Plazo de carta compromiso: 2 vs 6 meses |
+| 3 | `XDC-03` | Anclaje del plazo de 6 meses: ingreso vs ciclo |
+| 4 | `XDC-04` | Duración de bimestre contradictoria; alinea umbrales incompatibles |
+| 5 | `AMB-TEM-07` | ¿El 50% de avance sigue vigente? |
+| 6 | `XDC-05` | Expediente completo no determinable sin Anexo 1 |
+| 7 | `XDC-09` | Carta manifiesto ≠ carta compromiso? |
+| 8 | `AMB-LOG-02` | Polaridad de 5.8.a contradice 5.8.i |
+| 9 | `AMB-CON-03` | `N-46` vs `N-52` |
+| 10 | `AMB-CON-02` | Doble ruta de escalamiento 5.6.f |
+| 11 | `AMB-CON-01` | `N-33` vs `N-27` |
+| 12 | `AMB-CON-05` | Reglas que difieren por campus, no declaradas |
+| 13 | `AMB-CON-04` (res.) | Estándar de «de manera tácita» |
+| 14 | `AMB-EXT-04` (res.) | «Decisión 35 en tiempo y forma» sin definir |
+| 15 | `AMB-TEM-05` | Deserción: 30 días hábiles vs 30 días |
+
+**Las 15 son preguntas de Owner.** Ninguna se resuelve con las 3 fuentes
+disponibles. El motor no puede arrancar.
+
+## 15. Conclusión de cobertura Phase 1.5
+
+Las fuentes de apoyo **aportaron 65 enunciados y 40 definiciones** que Phase 1
+no tenía. Eso cierra 3 huecos de definición y hace ejecutable todo el subárbol
+documental D53.
+
+**Pero la cobertura no se mejoró en lo decisionional.** Los 9 conflictos
+`XDC` son todos de **ventanas, plazos y anclajes de reloj** — exactamente el tipo
+de defecto que Phase 1 señaló como el riesgo mayor. Con 2 documentos adicionales
+que usan la misma terminología con duraciones distintas, el problema de umbrales
+temporales **se agravó** en vez de resolverse.
+
+`READY_FOR_OWNER_REVIEW`. No `READY_FOR_PHASE_2`: las 15 preguntas son
+determinantes y ninguna fuente disponible las responde.

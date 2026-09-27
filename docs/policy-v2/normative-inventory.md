@@ -505,3 +505,135 @@ historial no es estable** y no debe usarse para citar.
 El documento establece **cinco** desenlaces distintos, no un conjunto cerrado de
 tres. Cualquier motor futuro debe derivar su catálogo de esta tabla y no de
 ninguna lista heredada.
+
+---
+
+# Phase 1.5 — Inventario de las fuentes de apoyo
+
+> **Phase 1 preservado.** Los `N-01`…`N-139` anteriores describen el primario
+> `GDM_GAM_PRD_MLG_003` v5 y **no se modifican**. Commit: `4f6fad7`.
+>
+> Los enunciados nuevos usan **espacio de ID propio** para que la procedencia sea
+> inequívoca: `G-##` = Glosario, `D53-##` = Procedimiento D53. No se renumeran los
+> `N-##` porque un `G-01` no es un enunciado del primario.
+>
+> Clasificación: `definition` (define), `condition` (si…entonces), `requirement`
+> (obligación), `temporal` (ventana/plazo), `procedure` (acción), `scope`
+> (alcance), `exception` (excepción), `indicator` (medición),
+> `counterevidence` (impide un desenlace).
+
+## 13. Fuente 3 — Glosario de operación escolar (`G-##`)
+
+SHA-256 `de15e50b…63e9f5` · 30 páginas · sin código, versión ni fecha propia.
+Sección interna del documento entre paréntesis; la página es el índice PDF.
+
+| ID | Sección (pág.) | p. | Tipo | Enunciado | Enlace |
+|---|---|---|---|---|---|
+| `G-01` | Alumno (6) | 6 | `definition` | «Alumno de nuevo ingreso: aquel que ha sido registrado por primera vez en un plan de estudios.» | `D53-01` |
+| `G-02` | Alumno (6) | 6 | `definition` | «Alumno futuro: aquel que ya se encuentra inscrito, cuenta con expediente digital cargado en SIU y está en espera de la fecha de inicio de ciclo.» | `XDC-07` |
+| `G-03` | Alumno (6) | 6 | `definition` | «Alumno regular: aquel que cumple con las características al tener su documentación completa, estar al corriente con sus colegiaturas, no haber reprobado materias y no haber solicitado baja.» | `XDC-06` |
+| `G-04` | Alumno (6) | 6 | `definition` | «Alumno irregular: aquel que no ha entregado documentos, cuenta con adeudo, ha reprobado materias y ha solicitado baja en algún momento de su vida universitaria.» | `XDC-06` |
+| `G-05` | Alumno (6) | 6 | `definition` | «Alumno (MA): persona inscrita en un plan de estudios con matrícula vigente (cuenta con decisión 35).» | `G-18` |
+| `G-06` | Alumno (6) | 6 | `definition` | «Baja: estatus que inactiva los servicios ofrecidos por la institución al alumno.» | `D53-09` |
+| `G-07` | Alumno (6) | 6 | `definition` | «Baja definitiva (BD): alumno que decide suspender de manera permanente sus estudios.» | `D53-10` |
+| `G-08` | Alumno (6) | 6 | `definition` | «Baja por falta de documentos: transcurridos 6 meses posteriores al inicio del primer ciclo académico del alumno.» | `XDC-03` |
+| `G-09` | Alumno (6) | 6 | `definition` | «Baja por inactividad (BTI): alumno que no ingresó al Aula Virtual durante dos periodos previos.» | `XDC-04` |
+| `G-10` | Alumno (6) | 6 | `definition` | «Baja temporal (BT): alumno que decide suspender por un tiempo definido sus estudios.» | `G-11` |
+| `G-11` | Alumno (7) | 9 | `definition` | «Reingreso: estatus de alumno que decide retomar su plan de estudios después de tener al menos un periodo con estatus de baja.» | `D53-13` |
+| `G-12` | Alumno (7) | 9 | `definition` | «Reversión de baja: proceso a petición del alumno con un estatus de baja aplicado durante el periodo en curso y que solicita reactivar su matrícula.» | `AMB-CON-06` |
+| `G-13` | Alumno (7) | 7 | `definition` | «Cancelación de venta (CV): proceso para alumnos de nuevo ingreso mediante el cual se inactiva su matrícula de acuerdo a los lineamientos, se solicita dentro de las primeras 2 semanas del ciclo o cuando sea solicitado por el alumno antes de su inicio de clases, p. ej.: por error en su paquete de inscripción; no se localiza al alumno y no ingresa al Aula; ya no está interesado en iniciar.» | `XDC-01` |
+| `G-14` | Permanencia (20) | 21 | `definition` | «Proceso de retención: seguimiento a un alumno que ha manifestado su decisión de baja de la Universidad, en el cual el gestor académico le proporciona las estrategias necesarias (económicas, académicas, de tiempo, etc.) con el objetivo de lograr su permanencia académica.» | `AMB-LOG-02` |
+| `G-15` | Permanencia (20) | 21 | `definition` | «Retención: cierre del proceso de retención en el cual el alumno decide continuar con su programa académico.» | `AMB-CON-04` |
+| `G-16` | Permanencia (20) | 21 | `definition` | «Riesgo de baja: alumno que manifiesta la posibilidad de retirarse de la Universidad sin solicitarlo directamente, p. ej. comenta que perdió su empleo y no sabe si podrá continuar con sus estudios el siguiente bimestre.» | `G-14` |
+| `G-17` | Permanencia (20) | 21 | `definition` | «Semáforo: indicador académico de un alumno de acuerdo a la calificación obtenida hasta el momento. Alto Riesgo (AR): alumno sin ingreso al Aula o que no presentó actividades. Riesgo Académico (RA): alumno en peligro de reprobar alguna de sus asignaturas. Sin Riesgo Académico (SRA): alumno con la calificación idónea en sus asignaturas.» | `N-69` |
+| `G-18` | Servicios Escolares (23) | 24 | `definition` | «Decisión en la solicitud: se otorga al aspirante a partir de la validación de los requisitos que cubre su documentación digital, existen cuatro decisiones: ACEPTADO: cumple con la documentación digital y criterios de ingreso completos (antes decisión 35). RECHAZADO: falta algún requisito en la documentación (antes decisión 40). VUELTA A VENTA: ventas adjunta el requisito faltante para validar la documentación nuevamente (antes decisión 45). CANCELADO: registro cancelado para generar una nueva solicitud (antes decisión 50). PREADMITIDO: falta el antecedente académico del nivel anterior (decisión 53); en SIU se visualiza con la etiqueta de "EN VALIDACIÓN".» | `ERR-G-01` |
+| `G-19` | Servicios Escolares (23) | 24 | `definition` | «Carta compromiso: documento institucional en el que el alumno se compromete a entregar su expediente escolar en un término de dos meses.» | `XDC-02` |
+| `G-20` | Servicios Escolares (23) | 24 | `definition` | «Campus: unidad de configuración que permite diferenciar las distintas reglas de operación de los alumnos que residen en un país distinto a México, p. j. UTL (México), PER (Perú), COL (Colombia), etc. En México existe el campus UTS para Educación continua (Máster, Diplomado e Idiomas).» | `D53-12` |
+| `G-21` | Servicios Escolares (23) | 24 | `definition` | «Cambio de tipo de ingreso: proceso por el cual se actualiza la forma de inscripción de un alumno de acuerdo a la documentación con la que acredita su grado previo de estudios, p. e. de Regular a Dictamen técnico; de Equivalencia a Regular, etc.» | `G-23` |
+| `G-22` | Servicios Escolares (23) | 28 | `definition` | «Tipo de ingreso: clasificación asignada a un prospecto de acuerdo a la forma en que acredita su nivel de estudios previo, que determina los requisitos específicos y el proceso de admisión que debe seguir. Regular: alumno que cuenta con estudios previos en el sistema educativo nacional y cursa su plan de estudios de inicio a fin. Equivalencia: alumno con estudios previos dentro del Sistema Educativo Nacional y que desea equipararlos a un plan de estudios afín al de interés. Revalidación: alumno con estudios previos fuera del Sistema Educativo Nacional (en el extranjero) y que ameritan validez oficial, siempre y cuando sean equiparables con estudios realizados dentro de dicho sistema. Dictamen técnico: alumno con estudios previos en el extranjero que desea cursar un plan de estudios en la Universidad exclusivamente para adquirir conocimientos y no ejercerá en México.» | `D53-01` |
+| `G-23` | Servicios Escolares (23) | 26 | `definition` | «Expediente escolar: conjunto de documentos personales y académicos entregados por el alumno o generados por la institución en relación con su trayectoria académica, el cual se encuentra en SIU, requerido para el registro del alumno ante la autoridad educativa y para dar validez oficial a sus estudios.» | `XDC-05` |
+| `G-24` | Servicios Escolares (23) | 27 | `definition` | «Solicitud de autenticación del antecedente académico: proceso mediante el cual se solicita a la institución emisora de un certificado la confirmación de la autenticidad del antecedente académico entregado por un alumno.» | `G-18` |
+| `G-25` | Servicios Escolares (23) | 27 | `definition` | «Segmentos de recolección: clasificación de alumnos sin expediente escolar completo, agrupados conforme a su porcentaje de avance curricular… Segmento 1: mayor al 50%. Segmento 2: del 40% al 50%. Segmento 3: del 31% al 39%. Segmento 4: del 0% al 30%.» | `D53-06` |
+| `G-26` | Operación (18) | 18 | `definition` | «Cierre de aula: bloqueo de la plataforma educativa al alumno por incumplimiento de algún compromiso (pago de colegiatura, entrega de documentos).» | `D53-14` |
+| `G-27` | Operación (18) | 14 | `definition` | «Contacto: son los registros de leads con los que se ha logrado alguna interacción y se logra tener una respuesta.» | `XDC-08` |
+| `G-28` | Operación (18) | 14 | `definition` | «Incidencias: Marcaciones automáticas del sistema que impiden el contacto con el prospecto.» | `N-86` |
+| `G-29` | Temporalidad (29) | 29 | `definition` | «Ciclo: fecha de inicio cuatrimestral establecido en el calendario escolar de la Universidad, tiene una duración de 14 semanas y se diferencia con el sufijo siguiente: 41 (septiembre-diciembre), 42 (enero-abril), 43 (mayo-agosto).» | `XDC-04` |
+| `G-30` | Temporalidad (29) | 30 | `definition` | «Periodo: parte bimestral de un ciclo, es el tiempo durante el cual Utel imparte clases a los alumnos que cursan una o más asignaturas.» | `XDC-04` |
+| `G-31` | Temporalidad (29) | 29 | `definition` | «Bloque: iniciación quincenal que se encuentra dentro de un periodo de impartición de cursos (bloque A, B, C, D). Licenciatura, duración de cada bimestre: Bloque A: 7 semanas. Bloque B: 6 semanas. Bloque C: 4 semanas. Bloque D: 9 semanas.» | `ERR-G-02` |
+| `G-32` | Temporalidad (29) | 29 | `definition` | «Jornada académica: tiempo en el que el alumno cursa su plan de estudios de acuerdo al número de asignaturas cursadas por cuatrimestre. Completa: 3 años, 8 meses (2 asignaturas). Intensiva: 2 años, 8 meses (3 asignaturas). Súper Intensiva: 2 años, 2 meses (4 asignaturas). Reducida: 5 años + (1 asignatura).» | `ERR-G-02` |
+| `G-33` | Gestión de matrícula (14) | 14 | `definition` | «Incidencias: Marcaciones automáticas del sistema que impiden el contacto con el prospecto.» | `G-28` |
+| `G-34` | Servicios Escolares (23) | 25 | `definition` | «Estatus de inscripción… ASPIRANTE: persona que ya cuenta con el pago validado en el sistema, ha llenado la Solicitud de admisión y aceptado los Términos y Condiciones del Servicio Educativo, y se encuentra en espera de la validación de sus documentos digitales. ALUMNO: persona cuyos documentos digitales han sido validados y cumple con lo necesario para el ingreso.» | `D53-08` |
+| `G-35` | Servicios Escolares (23) | 23 | `definition` | «Admisión: proceso dentro de SIU para verificar que el expediente de un aspirante es idóneo, que cuenta con el antecedente académico y que los documentos cumplen con las normas aplicables para ser alumno.» | `G-18` |
+| `G-36` | Servicios Escolares (23) | 25 | `definition` | «Dictaminación: proceso institucional para corroborar que los elementos de forma y validez del certificado de estudios físico del alumno cumplen con los lineamientos establecidos para su registro, integración y resguardo.» | `D53-15` |
+| `G-37` | Documentos/Trámites (10) | 13 | `definition` | «Revalidación de estudios: trámite mediante el cual la Dirección General de Acreditación, Incorporación y Revalidación (DGAIR) y la Dirección General del Bachillerato (DGB) otorgan validez oficial a aquellos estudios realizados fuera del Sistema Educativo Nacional, siempre y cuando sean equiparables con estudios realizados dentro de dicho sistema.» | `G-22` |
+| `G-38` | Documentos/Trámites (10) | 11 | `definition` | «Equivalencia de estudios: Trámite mediante el cual la DGAIR declara equiparables entre sí los estudios realizados en una institución dentro del Sistema Educativo Nacional con un plan de estudios afín al de la Universidad.» | `G-22` |
+| `G-39` | Documentos/Trámites (10) | 10 | `definition` | «Certificado de estudios (antecedente académico): Documento oficial que acredita el nivel educativo inmediato anterior al que el alumno desea ingresar dentro de la institución, el cual es un requisito obligatorio para integrar el expediente escolar y realizar el registro oficial.» | `G-18` |
+| `G-40` | Temporalidad (29) | 30 | `definition` | «Nivel educativo… Máster: para México, un alumno que ha concluido su licenciatura y no cuenta con uno o más de los documentos obligatorios para ingresar en Maestría puede inscribirse en Máster para iniciar con el plan de estudios y posteriormente realizar el Cambio de Campus a Maestría.» | `D53-12` |
+
+### 13.1 Erratas del Glosario preservadas
+
+| ID | Ubicación | Errata | Tratamiento |
+|---|---|---|---|
+| `ERR-G-01` | p.24, «Decisión en la solicitud» | Declara «cuatro decisiones» y enumera **cinco** (ACEPTADO, RECHAZADO, VUELTA A VENTA, CANCELADO, PREADMITIDO) | Se preserva. El conjunto de 5 se toma de la enumeración, que es la parte operativa. No se infiere cuál es el error. |
+| `ERR-G-02` | p.29, «Bloque» y «Jornada académica» | «duración de cada bimestre» = 7+6+4+9 = **26 semanas**, incompatible con «Ciclo … 14 semanas» (`G-29`) del mismo documento. «Jornada académica» cuenta 2–4 asignaturas **por cuatrimestre**, mientras el bimestre tiene 4 bloques | Se preserva. `XDC-04`. **No** se normaliza a 14 ni se descarta. |
+
+**No existe** en el Glosario definición de «invasión de ciclo» ni de «deserción».
+Verificado por búsqueda de cadenas: 0 coincidencias. Esto **no** contradice al
+primario, que define «invasión de ciclo» en su propia §3 (p.1, `N-06`); corrige
+la premisa de `AMB-EXT-01` de Phase 1, que suponía esa dependencia.
+
+## 14. Fuente 2 — Procedimiento D53 (`D53-##`)
+
+SHA-256 `49c30482…7c383` · 8 páginas · versión 1 · publicación 08/09/2025.
+Invocado por el primario §10 (p.22). Dueño de proceso: Planning de Negocio (§4, p.2).
+
+| ID | Sección | p. | Tipo | Enunciado | Enlace |
+|---|---|---|---|---|---|
+| `D53-01` | 5.1.1 | 2 | `scope` | «Solo aplica para estudiantes de nuevo ingreso (tipo regular o dictamen técnico). No aplica para: Reingresos. Equivalencias. Revalidación.» | `G-01`, `G-22` |
+| `D53-02` | 5.1.2 | 2 | `requirement` | «La gestión del documento será responsabilidad de Back Office desde el momento de la venta hasta el viernes anterior a la fecha de inicio de clases.» | `D53-03` |
+| `D53-03` | 5.1.3 | 2 | `requirement` | «A partir del viernes anterior al inicio de clases, la responsabilidad pasa a Éxito Estudiantil.» | `D53-02` |
+| `D53-04` | 5.1.4 | 3 | `temporal` | «Los estudiantes bajo la modalidad D53 cuentan con un plazo máximo de 6 meses, o hasta alcanzar el 50% de avance curricular, para entregar su certificado; de no cumplir con este requisito, deberán ser dados de baja.» | `XDC-04` |
+| `D53-05` | 5.1.5 | 3 | `temporal` | «La regla del 50% de avance curricular no es fija y se pretende reducirla de manera parcial hasta lograr el objetivo de establecer un plazo máximo de 6 meses para proceder con la baja, en caso de que el alumno no entregue su certificado.» | `AMB-TEM-07` |
+| `D53-06` | 5.1.6 | 3 | `temporal` | «Para estudiantes de México tras aceptar los términos y condiciones, y no completen la entrega de su documentación en un plazo máximo de 6 meses desde su ingreso, será dado de baja.» | `XDC-03` |
+| `D53-07` | 5.1.7 | 3 | `requirement` | «Para estudiantes de Latam deben cargar obligatoriamente una carta compromiso en la que se compromete a completar su expediente; si no cumple con este requisito en un plazo máximo de 6 meses, será dado de baja.» | `XDC-02` |
+| `D53-08` | 5.1.8 | 3 | `exception` | «La decisión D53 se mantiene sin cambios, incluso si el estudiante entrega su documento; en ese caso, únicamente se actualiza su clasificación a "D53 con expediente completo".» | `G-18` |
+| `D53-09` | 5.1.9 | 3 | `definition` | «No se considera reingreso si el estudiante entrega el documento dentro del mismo bimestre en que se realizó el cierre de aula; solo se clasifica como reingreso cuando la entrega ocurre después de ese periodo.» | `G-11` |
+| `D53-10` | 5.2.2 | 4 | `temporal` | «Identificar a los estudiantes que hayan superado el 50% de avance curricular e iniciar el proceso de cierre de aula. Si al finalizar el bimestre no se ha logrado recolectar el expediente completo, se deberá proceder con la baja definitiva del estudiante.» | `D53-04` |
+| `D53-11` | 5.2.3 | 4 | `temporal` | «Las aulas se cierran el miércoles de la semana 3 del bimestre. Se aplican bajas a los alumnos cuyos documentos no fueron recolectados al cierre del bimestre.» | `G-26`, `XDC-04` |
+| `D53-12` | 5.3.2 | 5 | `requirement` | «Cuando el estudiante no cuente con su expediente completo al momento de la inscripción, el asesor podrá gestionar una carta compromiso que deberá cumplir con las siguientes condiciones: Estar firmada de forma manuscrita, en tinta azul. Incluir una fecha límite para la entrega del documento, no mayor a 6 meses. Ser cargada en SIU antes de formalizar la inscripción.» | `XDC-02` |
+| `D53-13` | 5.3.2.1 | 5 | `requirement` | «En el caso de los estudiantes de México, el compromiso de entregar su documentación en un plazo no mayor a seis meses se establece mediante la aceptación de los términos y condiciones en SIU al momento de su inscripción.» | `D53-07`, `XDC-02` |
+| `D53-14` | 5.3.3 | 5 | `requirement` | «El asesor debe informar al prospecto sobre las implicaciones de ingresar con decisión 53, especialmente sobre el plazo máximo para regularizar su expediente y la posibilidad de baja automática.» | `D53-01` |
+| `D53-15` | 5.2.3 (1.1.1) | 4 | `procedure` | «En caso de detectar alguna inconsistencia en el documento, este debe ser clasificado como posible apócrifo, y el área de gestoría interna debe iniciar el proceso de dictaminación externa con la dependencia que lo expidió.» | `G-36` |
+| `D53-16` | 5.4.1 | 6 | `condition` | «El descuento en la comisión del asesor de ventas solo aplicará cuando haya cancelación de venta o la baja del estudiante ocurra durante el primer bimestre. A partir del tercer mes, si el alumno no completa su documentación, no se aplicará ningún descuento.» | `XDC-01` |
+| `D53-17` | 5.4.1.1 | 6 | `definition` | «Una cancelación de venta se aplica cuando el estudiante es dado de baja durante el primer mes de ingreso por motivos ajenos a la decisión D53.» | `XDC-01` |
+| `D53-18` | 5.4.1.2 | 6 | `exception` | «El descuento a la comisión aplica sin importar la causa de la baja si el alumno ingresó con D53, incluso si se retira por motivos personales, económicos o familiares.» | `D53-16` |
+| `D53-19` | 5.4.2 | 6 | `requirement` | «A los gestores de venta que causen baja contractual de la universidad y tengan ventas D53 pendientes, se les descontará del finiquito la comisión previamente otorgada por dichas ventas.» | `D53-16` |
+| `D53-20` | 5.4.3 | 6 | `procedure` | «El monto descontado depende de cómo fue comisionada la venta: Si se comisionó como "venta parcial" (50%), se descuenta solo ese 50%. Si se comisionó como venta completa, se descuenta el 100%.» | `D53-16` |
+| `D53-21` | 2 (Alcance) | 1 | `scope` | «El proceso abarca desde la asignación de la decisión D53 hasta la posible cancelación o baja del estudiante, aplicando descuentos a las comisiones de ventas cuando sea necesario. Este procedimiento es aplicable en México y Latam.» | `G-20` |
+| `D53-22` | 5.1.10 | 4 | `procedure` | «Para la visualización y monitoreo de las áreas involucradas, se cuenta con un dashboard del proceso… Anexo 2. Dashboard D53.» | `DEFERRED` |
+| `D53-23` | 5.2.1 | 4 | `requirement` | «Es responsable de validar los documentos obligatorios, asegurando que cumplan con los requisitos establecidos en las reglas de revisión del Anexo 1. Validación de documentos Utel.» | `DEFERRED` |
+| `D53-24` | 5.3.1 | 5 | `requirement` | «El asesor debe dar prioridad a obtener desde el inicio la documentación obligatoria completa, utilizando la decisión D53 únicamente como una medida excepcional y de último recurso.» | `D53-01` |
+| `D53-25` | 5.1 | 1 | `requirement` | «En el siguiente link encontrarás el glosario con el listado de definiciones.» → archivo adjunto visible en p.2: «GLOSARIO DE OPERACIÓN ESCOLAR» | `G-##` |
+
+**Nota de numeración:** el apartado `5.2.3` contiene un inciso numerado `1.1.1`
+(secuencia interna del documento, no un error de transcripción). Se preserva la
+etiqueta tal cual aparece.
+
+## 15. Estadísticas del inventario ampliado
+
+| Métrica | Phase 1 | Phase 1.5 |
+|---|---|---|
+| Enunciados del primario (`N-##`) | 139 | 139 (sin cambios) |
+| Enunciados del Glosario (`G-##`) | — | 40 |
+| Enunciados de D53 (`D53-##`) | — | 25 |
+| **Total enunciados inventariados** | **139** | **204** |
+| Fuentes normativas bloqueadas | 1 | **3** |
+| Páginas leídas | 26 | **64** (26 + 8 + 30) |
+| Ambigüedades | 28 | 28 re-clasificadas + 5 conflictos + 3 nuevas |
+| Conflictos entre documentos | 0 | **8** (`XDC-01`…`XDC-08`) |
+| Erratas del original preservadas | 9 | **11** (9 + `ERR-G-01` + `ERR-G-02`) |
+
+> Los conteos por tipo de la columna Phase 1 fueron verificados por parsing en
+> Phase 1 y **no se recalcularon**: la adición de fuentes no altera el conteo del
+> primario. Los conteos `G-##` (40) y `D53-##` (25) fueron verificados por parsing
+> sobre las filas añadidas.

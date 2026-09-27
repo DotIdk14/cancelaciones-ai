@@ -457,3 +457,156 @@ o que deja indeterminada (marcada).
 Las reglas marcadas **INDETERMINADA** son las que la fase siguiente debe
 escalar como `REQUIRES_OWNER_DECISION`. El motor **no** las resuelve por
 defecto, por default, ni por la lectura más plausible.
+
+# Phase 1.5 — Hechos derivados de las fuentes de apoyo
+
+> **Phase 1 preservado.** Los `F-##` de §3–§11 describen el primario y **no se
+> modifican**. Los IDs siguientes son nuevos y trazan a `G-##` / `D53-##`.
+>
+> **Regla de evidencia mantenida:** un hecho de evidencia puede probar un hecho
+> que una regla normativa exige. La evidencia **nunca** crea ni completa una regla.
+> Ningún hecho de esta sección axioma una regla. Si un hecho no está sustentado por
+> evidencia, queda `UNKNOWN` y la rama que lo consume no puede cerrarse.
+
+## 14. Hechos de identidad y estatus documental (Glosario)
+
+| Hecho | Nombre | Tipo | Fuente | Regla que lo origina | Valores / dominio | Unknown |
+|---|---|---|---|---|---|---|
+| `F2-es_nuevo_ingreso` | Primera vez registrado en un plan de estudios | `derived` | `G-01` (p.6) | Glosario, Definición de alumno de nuevo ingreso | `TRUE` / `FALSE` / `UNKNOWN` | `UNKNOWN` si SIU no lo expone |
+| `F2-es_alumno_futuro` | Inscrito con expediente digital en SIU y en espera de fecha de inicio | `derived` | `G-02` (p.6) | Glosario, Definición de alumno futuro | `TRUE` / `FALSE` / `UNKNOWN` | `UNKNOWN` |
+| `F2-es_alumno_ma` | Persona inscrita con matrícula vigente (cuenta con decisión 35) | `derived` | `G-05` (p.6) | Glosario, Definición de alumno (MA) | `TRUE` / `FALSE` / `UNKNOWN` | `UNKNOWN` |
+| `F2-estatus_alumno_regular` | Documentación completa ∧ al corriente de colegiaturas ∧ sin reprobar ∧ sin baja previa | `derived` | `G-03` (p.6) | Glosario, Definición de alumno regular | `TRUE` / `FALSE` / `PARTIAL` / `UNKNOWN` | `PARTIAL` si solo se conoce 1–3 de las 4 condiciones |
+| `F2-estatus_alumno_irregular` | No entregó documentos ∧ cuenta con adeudo ∧ ha reprobado ∧ ha solicitado baja en su vida universitaria | `derived` | `G-04` (p.6) | Glosario, Definición de alumno irregular | `TRUE` / `FALSE` / `PARTIAL` / `UNKNOWN` | `PARTIAL` si solo se conoce 1–3 de las 4 condiciones |
+| `F2-decision_35` | Decisión 35 / ACEPTADO | `raw` | `G-18` (p.24) | Glosario, Decisión en la solicitud | `ACEPTADO` / `RECHAZADO` / `VUELTA_A_VENTA` / `CANCELADO` / `PREADMITIDO` / `UNKNOWN` | `UNKNOWN` si no hay decisión en SIU |
+| `F2-decision_53_preadmitido` | PREADMITIDO: falta el antecedente académico del nivel anterior; etiqueta SIU «EN VALIDACIÓN» | `derived` | `G-18` (p.24) | Glosario, Decisión en la solicitud | `TRUE` / `FALSE` / `UNKNOWN` | `UNKNOWN` |
+| `F2-tipo_ingreso` | Forma en que acredita su nivel de estudios previo | `raw` | `G-22` (p.28) | Glosario, Tipo de ingreso | `REGULAR` / `EQUIVALENCIA` / `REVALIDACION` / `DICTAMEN_TECNICO` / `UNKNOWN` | `UNKNOWN` |
+| `F2-carta_compromiso_vencimiento` | Fecha límite comprometida para entregar el expediente escolar | `raw` | `G-19` (p.24) | Glosario, Carta compromiso | `DATE` / `UNKNOWN` | `UNKNOWN` |
+| `F2-campus` | Unidad de configuración que diferencia reglas por país de residencia | `raw` | `G-20` (p.24) | Glosario, Campus | `MEXICO` / `LATAM` / `UNKNOWN` | `UNKNOWN` |
+
+**Conector crítico en `F2-estatus_alumno_regular` e `F2-estatus_alumno_irregular`:
+ambos son conjunciones de 4 condiciones.** La fuente usa «y» de forma
+enumerativa. La lectura `AND` de las cuatro es la que el texto sostiene; **cualquier
+atribución de `OR` sería inventada**. Aun así, si solo se conocen 3 de 4
+condiciones el valor es `PARTIAL`, no `FALSE`
+(`UNKNOWN_IS_NOT_FALSE`).
+
+**`F2-campus` es el único hecho que fundamenta la bifurcación México/LATAM del
+árbol.** El Glosario establece que *existe* una unidad de configuración que
+diferencia reglas por país, pero **no** declara qué reglas difieren. La
+diferencia concreta se toma de `D53-06`/`D53-07` y `D53-12`/`D53-13`, que sí la
+declaran. `AMB-CON-05` permanece abierta para el resto de ramas.
+
+## 15. Hechos temporales de la baja documental (D53 + Glosario)
+
+| Hecho | Nombre | Tipo | Fuente | Regla que lo origina | Valores / dominio | Unknown |
+|---|---|---|---|---|---|---|
+| `F2-d53_meses_desde_ingreso` | Meses transcurridos desde el ingreso | `derived` | `D53-06` (p.3) | D53 5.1.6 | `0..N` | `UNKNOWN` si no hay fecha de ingreso |
+| `F2-d53_50_avance` | Porcentaje de avance curricular | `derived` | `D53-04` (p.3), `D53-10` (p.4) | D53 5.1.4, 5.2.2 | `0..100` | `UNKNOWN` |
+| `F2-d53_supera_50` | ¿Superó el 50% de avance curricular? | `derived` | `D53-10` (p.4) | D53 5.2.2 | `TRUE` / `FALSE` / `UNKNOWN` | `UNKNOWN` |
+| `F2-d53_expediente_completo` | Expediente escolar completo | `derived` | `D53-10` (p.4), `G-23` (p.26) | D53 5.2.2, Glosario Expediente escolar | `TRUE` / `FALSE` / `UNKNOWN` | `UNKNOWN` |
+| `F2-d53_bimestre_cierre_superado` | ¿Se cerró el bimestre sin expediente completo? | `derived` | `D53-10` (p.4) | D53 5.2.2 | `TRUE` / `FALSE` / `UNKNOWN` | `UNKNOWN` |
+| `F2-cierre_aula_3a_semana_bimestre` | Cierre de aula: miércoles de la semana 3 del bimestre | `temporal` | `D53-11` (p.4) | D53 5.2.3 | `DATE` | `UNKNOWN` |
+| `F2-baja_falta_docs_6meses` | 6 meses desde el inicio del primer ciclo académico | `temporal` | `G-08` (p.6) | Glosario, Baja por falta de documentos | `DATE` | `UNKNOWN` |
+| `F2-bti_2_periodos_sin_aula` | No ingresó al Aula Virtual durante 2 periodos previos | `derived` | `G-09` (p.6) | Glosario, Baja por inactividad (BTI) | `TRUE` / `FALSE` / `UNKNOWN` | `UNKNOWN` |
+| `F2-ciclo` | Sufijo de ciclo: 41 (sep-dic), 42 (ene-abr), 43 (may-ago); 14 semanas | `raw` | `G-29` (p.29) | Glosario, Ciclo | `41` / `42` / `43` / `UNKNOWN` | `UNKNOWN` |
+| `F2-periodo` | Parte bimestral de un ciclo | `derived` | `G-30` (p.30) | Glosario, Periodo | `DATE_RANGE` / `UNKNOWN` | `UNKNOWN` |
+
+### 15.1 Anclajes de reloj que NO coinciden entre documentos
+
+Los dos plazos de 6 meses **no comparten anclaje**:
+
+| Regla | Anclaje textual | Hecho de reloj |
+|---|---|---|
+| `G-08` (p.6) | «6 meses posteriores al **inicio del primer ciclo académico**» | `F2-baja_falta_docs_6meses` |
+| `D53-06` (p.3) | «6 meses **desde su ingreso**» | `F2-d53_meses_desde_ingreso` |
+
+Para un alumno D53 que se reinscribe a mitad de ciclo o cambia de ciclo
+(`N-28`…`N-33`), los dos relojes **no coinciden**. Se conservan ambos como
+hechos separados y **no** se unifican → `XDC-03`.
+
+## 16. Hechos de la carta compromiso — dos instrumentos, tres plazos
+
+| Hecho | Nombre | Tipo | Fuente | Regla | Valores | Unknown |
+|---|---|---|---|---|---|---|
+| `F2-cc_firmada_manuscrita_tinta_azul` | Carta firmada a mano en tinta azul | `raw` | `D53-12` (p.5) | D53 5.3.2 | `TRUE` / `FALSE` / `UNKNOWN` | `UNKNOWN` |
+| `F2-cc_cargada_siu_antes_inscripcion` | Carta cargada en SIU antes de formalizar la inscripción | `raw` | `D53-12` (p.5) | D53 5.3.2 | `TRUE` / `FALSE` / `UNKNOWN` | `UNKNOWN` |
+| `F2-cc_termino_meses` | Plazo comprometido | `raw` | `G-19` (p.24) vs `D53-12` (p.5) | Glosario Carta compromiso / D53 5.3.2 | `2` (Glosario) / `<=6` (D53) / `UNKNOWN` | `UNKNOWN` |
+| `F2-cc_obligatoria_latam` | Carta compromiso obligatoria para LATAM | `requirement` | `D53-07` (p.3) | D53 5.1.7 | `TRUE` para `LATAM` | n/a |
+| `F2-cc_mecanismo_mexico` | Compromiso en México = aceptación de T&C en SIU | `requirement` | `D53-13` (p.5) | D53 5.3.2.1 | `T_AND_C` para `MEXICO` | n/a |
+| `F2-cc_acepta_tc` | Aceptó Términos y Condiciones en SIU | `raw` | `D53-13` (p.5), `G-34` (p.24) | D53 5.3.2.1, Glosario Estatus de inscripción | `TRUE` / `FALSE` / `UNKNOWN` | `UNKNOWN` |
+
+**`F2-cc_termino_meses` es el punto de conflicto `XDC-02`: el Glosario fija
+«dos meses» y D53 fija «no mayor a 6 meses».** El dominio del hecho queda
+**INDETERMINADO**; el motor no puede emitir un valor por defecto. Requiere
+`OWNER_DECISION`.
+
+**México y LATAM divergen de forma explícita y declarada** (`D53-07` vs
+`D53-13`): en LATAM la carta compromiso es obligatoria; en México el compromiso se
+establece por aceptación de T&C. Esta divergencia **está resuelta por la fuente** y
+no requiere interpretación.
+
+## 17. Hechos de retención — polaridad confirmada por la fuente
+
+| Hecho | Nombre | Tipo | Fuente | Regla | Valores | Unknown |
+|---|---|---|---|---|---|---|
+| `F2-manifesto_baja` | El alumno manifestó su decisión de baja | `raw` | `G-14` (p.21) | Glosario, Proceso de retención | `TRUE` / `FALSE` / `UNKNOWN` | `UNKNOWN` |
+| `F2-riesgo_de_baja` | Manifiesta posibilidad de retirarse sin solicitarlo | `raw` | `G-16` (p.21) | Glosario, Riesgo de baja | `TRUE` / `FALSE` / `UNKNOWN` | `UNKNOWN` |
+| `F2-decide_continuar` | El alumno decidió continuar con su programa | `derived` | `G-15` (p.21) | Glosario, Retención | `TRUE` / `FALSE` / `UNKNOWN` | `UNKNOWN` |
+
+### 17.1 Hallazgo de Phase 1.5 que confirma `AMB-LOG-02`
+
+La definición de `F2-decide_continuar` proviene de «**Retención**: cierre del
+proceso de retención en el cual el alumno **decide continuar**». Es decir:
+
+- **Causa** = `F2-manifesto_baja` (el alumno *quiere* irse) o `F2-riesgo_de_baja`.
+- **Desenlace** = `F2-decide_continuar` (el alumno *se queda*).
+
+La fuente confirma que el nodo de retención del árbol es un **desenlace**, no una
+condición de entrada. Esto **corrobora** el hallazgo de Phase 1 y **no** lo resuelve:
+la ambigüedad de Phase 1 era la polaridad de los criterios de contacto de `5.8.a`,
+que es un tema distinto. Ver `AMB-LOG-02`.
+
+## 18. Hechos de D53 — persistencia de la decisión y exclusiones
+
+| Hecho | Nombre | Tipo | Fuente | Regla | Valores | Unknown |
+|---|---|---|---|---|---|---|
+| `F2-d53_aplica` | ¿Aplica D53 a este estudiante? | `derived` | `D53-01` (p.2) | D53 5.1.1 | `TRUE` si nuevo ingreso ∧ tipo ∈ {Regular, Dictamen técnico}; `FALSE` si tipo ∈ {Equivalencia, Revalidación} o reingreso; `UNKNOWN` si el tipo no consta | `UNKNOWN` |
+| `F2-d53_excluido` | Excluido por tipo: reingreso, equivalencia o revalidación | `derived` | `D53-01` (p.2) | D53 5.1.1 | `TRUE` / `FALSE` / `UNKNOWN` | `UNKNOWN` |
+| `F2-d53_resp_backoffice` | Responsabilidad de gestión documental en Back Office | `derived` | `D53-02`, `D53-03` (p.2) | D53 5.1.2–5.1.3 | `TRUE` desde la venta hasta el viernes previo al inicio; `FALSE` desde ese viernes | `UNKNOWN` |
+| `F2-d53_decision_mantiene` | La decisión D53 no cambia aunque entregue el documento | `exception` | `D53-08` (p.3) | D53 5.1.8 | `TRUE` (invariante) | n/a |
+| `F2-d53_clasificacion_actualizada` | Clasificación → «D53 con expediente completo» | `derived` | `D53-08` (p.3) | D53 5.1.9 | `TRUE` / `FALSE` | n/a |
+| `F2-d53_reingreso_si_entrega_mismo_bimestre` | Entrega dentro del mismo bimestre del cierre de aula **no** es reingreso | `counterevidence` | `D53-09` (p.3) | D53 5.1.9 | `TRUE` / `FALSE` | `UNKNOWN` |
+| `F2-d53_apocrifo_sospecha` | Inconsistencia documental → posible apócrifo → dictaminación externa | `derived` | `D53-15` (p.4) | D53 5.2.3 (1.1.1) | `TRUE` / `FALSE` / `UNKNOWN` | `UNKNOWN` |
+
+**`F2-d53_decision_mantiene` es una invariante, no un hecho variable.** Ningún
+motor debe derivar «el estudiante ya entregó, luego deja de ser D53». El
+único cambio permitido es el de **clasificación** (`F2-d53_clasificacion_actualizada`).
+
+## 19. Hechos de cancelación de venta — taxonomía de motivos (Glosario)
+
+`G-13` (p.7) define CV y **enumera tres motivos**: (a) error en su paquete de
+inscripción; (b) no se localiza al alumno y no ingresa al Aula; (c) ya no está
+interesado en iniciar. Los tres tienen correspondencia en ramas ya inventariadas
+del primario: (a) `N-56`/`N-102` error de paquete; (b) `N-68`…`N-76` ilocalizable;
+(c) `N-30`/`N-33` no continuar. La taxonomía **valida** la estructura del árbol; no
+introduce ramas nuevas.
+
+`G-13` añade además un **predicado de alcance** ausente del primario: la CV es
+«proceso para **alumnos de nuevo ingreso**». Se refleja en `F2-es_nuevo_ingreso`
+como condición necesaria, no suficiente.
+
+## 20. Recuento ampliado del catálogo
+
+| Categoría | Phase 1 | Phase 1.5 |
+|---|---|---|
+| Hechos decisionales (§3–§10) | 118 | 118 (sin cambios) |
+| Hechos de SLA no decisionales (§11) | 7 | 7 (sin cambios) |
+| **Total hechos definidos** | **125** | **125** (sin cambios) |
+| Hechos nuevos de fuentes de apoyo (§14–§19) | — | **+36** |
+| **Total hechos definidos (ampliado)** | **125** | **161** |
+| Hechos con dominio `INDETERMINADO` por conflicto | 0 | **+2** (`F2-cc_termino_meses`, reloj de 6 meses) |
+
+> Los 125 hechos de Phase 1 **no se modifican**: Phase 1.5 no reescribe el
+> primario. Los 36 nuevos son verificables contra `G-##` y `D53-##`. Los conteos
+> se verificaron por parsing sobre las filas de tabla (`36` IDs `F2-` únicos,
+> `125` IDs `F-` únicos).

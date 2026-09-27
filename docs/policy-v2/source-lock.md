@@ -190,3 +190,140 @@ Fase 1 produce **datos y citas**, no un evaluador en runtime.
 
 **Decisión: `SOURCE_LOCK_CONFIRMED`.** Fase 1 puede continuar con el inventario
 normativo.
+
+---
+
+# Phase 1.5 — Ampliación del lock a 3 fuentes
+
+> **Estado de Phase 1 preservado.** Las secciones 1–7 anteriores describen la
+> fuente única con la que se ejecutó Phase 1 y **no se modifican**. Esta sección
+> se añade y solo describe lo que Phase 1.5 aporta. Commit de Phase 1: `4f6fad7`.
+
+## 8. Verificación del directorio
+
+Directorio verificado: `/home/idk/Escritorio/cancelaciones-ai/normative/`
+— existe. Contiene **exactamente 3 archivos**. No se encontró ningún cuarto
+documento, ni copias candidatas adicionales, ni subdirectorios.
+
+| # | Archivo exacto en disco | Bytes | Páginas | SHA-256 |
+|---|---|---|---|---|
+| 1 | `GDM_GAM_PRD_MLG_003  PROCEDIMIENTO DESERCIÓN DE ESTUDIANTES.docx.pdf` | 464649 | 26 | `71faf64634805b1b4820132cdfcc1304d740ff00d1e9573dd850222c9496c7d2` |
+| 2 | `GDM_GAM_PRD_MXL_008 Procedimiento D53 .docx.pdf` | 196357 | 8 | `49c30482571ebce425d5ff217584c1b390d7c0986f4e93ce033c98df4ee7c383` |
+| 3 | `Glosario de operación escolar.pdf` | 318337 | 30 | `de15e50b4faa6919fb4b7de25cf9bb5e6ee538348b8657ba38d8a48e9463e9f5` |
+
+**Fuente 1 sin cambios.** El SHA-256 del primario es **idéntico** al congelado en
+Phase 1 (`71faf646…96c7d2`). La base normativa de Phase 1 permanece válida y no
+requiere re-verificación de sus 139 enunciados.
+
+### 8.1 Discrepancia de nombre de archivo — registrada, no corregida
+
+La instrucción de Phase 1.5 enumera la fuente 1 como
+`GDM_GAM_PRD_MLG_003  PROCEDIMIENTO DESERCIÓN DE ESTUDIANTES.pdf`.
+**El archivo en disco se llama `…ESTUDIANTES.docx.pdf`.** Mismo tamaño, mismo
+SHA-256, mismo título embebido (`…ESTUDIANTES.docx`).
+
+Se registra la discrepancia y **no se renombra el archivo**: el nombre `.docx.pdf`
+es el canónico desde `4f6fad7` y lo referencian
+`docs/reports/clean-slate-audit-report.md`. Renombrarlo sería un cambio de
+proveniencia no solicitado. La discrepancia es de **nombre de archivo**, no de
+contenido: el documento verificado es el intendedido.
+
+### 8.2 Advertencia sobre el conteo de páginas
+
+`file` reporta «8 page(s)» para los tres PDF. Es una **heurística incorrecta** de
+`libmagic` para este corpus. El conteo autoritativo es el de `pdfinfo`:
+26 / 8 / 30. Toda referencia de página en Phase 1.5 usa `pdfinfo`.
+
+## 9. Identidad verificada en el contenido de cada fuente
+
+| Atributo | Fuente 1 (primario) | Fuente 2 (D53) | Fuente 3 (Glosario) |
+|---|---|---|---|
+| Código | `GDM_GAM_PRD_MLG_003` | `GDM_GAM_PRD_MXL_008` | — (sin código) |
+| Título | Procedimiento Deserción de Estudiantes | Procedimiento D53 | Glosario de operación escolar |
+| Versión | 5 | 1 | — (sin versión) |
+| Fecha publicación | 14/09/2026 | 08/09/2025 | — (sin fecha propia) |
+| Páginas | 26 de 26 | 8 de 8 | 30 |
+| Control de documentos | sí, 26/26 pág. | sí, 8/8 pág. | no |
+| Cifrado | no | no | no |
+| Versión PDF | 1.4 | 1.4 | 1.4 |
+| Clasificación | «Documento Interno. Restringida reproducción fuera de la organización» | «Documento Interno. Restringida reproducción fuera de la organización» | no declara |
+
+**Los tres documentos son de uso interno restringido.** No se reproduce contenido
+de terceros ni datos personales en los artefactos de `docs/policy-v2/`.
+
+**Fuentes 2 y 3 no declaran versión ni fecha propia.** El Glosario marca
+fechas por *término* («Definición actualizada 04-09-2025», «Término adicionado
+24-04-2026»), no una fecha de versión del documento. La fecha más reciente
+detectada en el Glosario es **24-04-2026**; en D53, el control de cambios registra
+**08/08/2025** como fecha de creación.
+
+**No se puede establecer «newer wins»** entre estas fuentes: D53 y Glosario no
+declaran precedencia alguna, y el primario tampoco declara una respecto a ellos
+(ver §10).
+
+## 10. Relaciones entre documentos — declaradas por los propios documentos
+
+Estas relaciones **están enunciadas en el texto**; no fueron inferidas.
+
+| Relación | Evidencia textual | Efecto |
+|---|---|---|
+| Primario → D53 | Primario §10 «Documentos de Referencia» (p.22) lista «GDM_GAM_PRD_MXL_008 Procedimiento D53» | El primario **sí** invoca al D53. Confirma que D53 es fuente normativa de apoyo legítima. |
+| Primario → Glosario | Primario §3 «Glosario» (p.1) lista «Glosario de operación escolar» | El primario **sí** invoca al Glosario como fuente de definiciones. |
+| D53 → Glosario | D53 §3 «Glosario» (p.1) remite a un enlace cuyo archivo adjunto visible es «GLOSARIO DE OPERACIÓN ESCOLAR» (p.2) | D53 **sí** invoca al Glosario. |
+| Primario → GCE_GCE_PRD_MXL_001, GDM_GAM_PRO_MXL_001 | Primario §10 (p.22) | **No disponibles** en el directorio → `DEFERRED_UNAVAILABLE_SOURCE`. |
+
+### 10.1 Lo que estas relaciones NO establecen
+
+Ninguno de los tres documentos declara **precedencia normativa**. En concreto:
+
+- Que el primario liste D53 en «Documentos de Referencia» **no** significa que D53
+  prevalezca sobre el primario, ni que el primario ceda ante él.
+- La **transitividad de referencia** (primario → D53 → Glosario) **no** se
+  convierte en transitividad de autoridad: que D53 cite al Glosario no hace que el
+  Glosario prevalezca sobre el primario.
+- No se aplica «newer wins» (Glosario 24-04-2026 > D53 08/09/2025 > primario
+  14/09/2026), ni «more specific wins», ni «primary PDF wins».
+
+Por lo tanto **toda divergencia entre las tres se registra como
+`CROSS_DOCUMENT_CONFLICT` y se preservan ambas lecturas**, sin elegir una.
+
+## 11. Fuentes referenciadas y NO disponibles (dentro del alcance de 3 documentos)
+
+La incorporación de las fuentes 2 y 3 **no cierra** los huecos externos. Cada
+documento disponible tiene sus propias dependencias ausentes:
+
+| Documento | Referencia ausente | Ubicación | Estado |
+|---|---|---|---|
+| Primario | 8 anexos + 2 anexos del proceso de admisión (p.22) | §9 | `DEFERRED_UNAVAILABLE_SOURCE` |
+| Primario | Anexo 5 «Políticas y Normas Aplicables a la Decisión 53» | §9, citado en 5.7.h (p.12) | `DEFERRED_UNAVAILABLE_SOURCE` |
+| Primario | Anexo 1 «Documentos de Ingreso Estudiantes» | §9, citado en 5.7.f (p.12) | `DEFERRED_UNAVAILABLE_SOURCE` |
+| Primario | Diagrama de flujo Lucidchart + enlace de Drive | §7 (p.21) | `DEFERRED_UNAVAILABLE_SOURCE` |
+| Primario | GCE_GCE_PRD_MXL_001, GDM_GAM_PRO_MXL_001 | §10 (p.22) | `DEFERRED_UNAVAILABLE_SOURCE` |
+| **D53** | **Anexo 1 «Mesa de trabajo D53»** | §7 (p.7) | `DEFERRED_UNAVAILABLE_SOURCE` |
+| **D53** | **Anexo 2 «Dashboard D53»** | §5.1.10 (p.4) | `DEFERRED_UNAVAILABLE_SOURCE` |
+| **D53** | **Reglas de revisión de documentos (Anexo 1 «Validación de documentos Utel») — el conjunto de documentos obligatorios** | §5.2.1 (p.4) | `DEFERRED_UNAVAILABLE_SOURCE` |
+| **D53** | **Diagrama de flujo «D53»** | §6 (p.7) | `DEFERRED_UNAVAILABLE_SOURCE` |
+
+**Hallazgo nuevo `D-EXT-02`:** tras Phase 1.5 existen **dos** flujos oficiales
+ausentes, no uno: el del primario (§7) y el del propio D53 (§6). La cobertura del
+flujo oficial es estructuralmente incompleta en **ambas** fuentes.
+
+## 12. Resumen del lock ampliado
+
+| Verificación | Estado |
+|---|---|
+| Directorio `normative/` existe | PASS |
+| Archivos presentes | PASS (3, exactos) |
+| SHA-256 calculado por archivo | PASS (3/3) |
+| Fuente 1 sin cambios respecto a Phase 1 | PASS (hash idéntico) |
+| Identidad (código/versión/fecha) leída del contenido | PASS (3/3) |
+| Paginación verificada con `pdfinfo` | PASS (26 + 8 + 30) |
+| Relaciones entre documentos con base textual | PASS (3 documentadas) |
+| Precedencia normativa inventada | **NO** (0 reglas inventadas) |
+| Fuente ajena a `normative/` usada como autoridad | **NO** (0) |
+| Archivo renombrado | **NO** (0) |
+| Documento disponible modificado | **NO** (0 bytes) |
+
+**Decisión: `SOURCE_LOCK_CONFIRMED_3_SOURCES`.** Las 3 fuentes están bloqueadas
+por SHA-256 y son utilizables como autoridad normativa. Las ausencias siguen
+siendo `DEFERRED_UNAVAILABLE_SOURCE` y no bloquean Phase 1.5.

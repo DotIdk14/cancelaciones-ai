@@ -521,3 +521,193 @@ documento, versión, sección y fecha. Un default de código es una
 Este documento no contiene código ejecutable, no invoca InsForge, ni OpenRouter,
 ni AssemblyAI, ni el sistema de archivos, ni HTTP. Es texto normativo
 legible. El motor permanece en `AUDIT_ENGINE_NOT_IMPLEMENTED`.
+
+---
+
+# Phase 1.5 — Nodos añadidos por las fuentes de apoyo
+
+> **Phase 1 preservado.** Los nodos `NODO-*` de §1–§9 describen el primario y
+> **no se modifican**. Los nodos siguientes son nuevos, trazan a `G-##`/`D53-##`
+> y **no ejecutan**: al menos 4 de ellos no pueden cerrarse por
+> `CROSS_DOCUMENT_CONFLICT`.
+
+## 10. Bifurcación de campus — precondición de Phase 1.5
+
+Phase 1 dejó una rama de decisión etiquetada «las reglas se ejecutan de forma
+diferente en campus UTEL MÉXICO vs campus LATAM» **sin fuente que la
+fundamentara**. Phase 1.5 la fundamenta:
+
+`G-20` (p.24) declara que **Campus** es «unidad de configuración que permite
+diferenciar las distintas reglas de operación de los alumnos que residen en un
+país distinto a México». Existe, por tanto, el mecanismo de diferenciación.
+
+**Pero** el Glosario **no declara qué reglas difieren**. La única divergencia
+concreta declarada por texto es la de D53:
+
+| Regla | México | LATAM |
+|---|---|---|
+| Compromiso documental | Aceptación de T&C en SIU (`D53-13`, p.5) | Carta compromiso **obligatoria** (`D53-07`, p.3) |
+| Plazo | 6 meses desde ingreso (`D53-06`, p.3) | 6 meses (`D53-07`, p.3) |
+
+```
+NODO-CAMPUS-01  campus del alumno
+  ├─ MEXICO  ──► NODO-D53-COMPROMISO-MX
+  ├─ LATAM    ──► NODO-D53-COMPROMISO-LATAM
+  └─ UNKNOWN ──► REQUIRES_OWNER_DECISION   (UNKNOWN_IS_NOT_FALSE)
+```
+
+`AMB-CON-05` **no se cierra**: la diferenciación por campus está probada como
+mecanismo, pero solo una rama (D53) tiene divergencia textual. Las demás ramas
+que Phase 1 había marcado como «difieren por campus» siguen sin sustento
+normativo → `AMB-CON-05` permanece `STILL_REQUIRES_OWNER_DECISION`.
+
+## 11. Subárbol D53 — `NODO-D53-01` … `NODO-D53-08`
+
+Punto de entrada: el alumno tiene `F2-decision_35 == PREADMITIDO` (=`G-18`) **o**
+la rama del primario que invoca D53 (`N-67`, `N-59`).
+
+```
+NODO-D53-01  ¿Aplica D53?                        [D53-01, p.2]
+  condicion: F2-es_nuevo_ingreso == TRUE
+        ∧ F2-tipo_ingreso ∈ {REGULAR, DICTAMEN_TECNICO}
+  ├─ TRUE  ──► NODO-D53-02
+  ├─ FALSE ──► NODO-D53-EXCLUIDO  (fuera del subárbol D53)
+  └─ UNKNOWN ► REQUIRES_OWNER_DECISION
+
+NODO-D53-EXCLUIDO  Exclusión por tipo             [D53-01, p.2]
+  Reingreso | Equivalencia | Revalidación
+  → NO aplica D53. La documentación física y el pago del trámite
+    se rigen por el primario 5.7.c [N-65, p.11].
+  → DESENLACE: fuera de D53 (no es un desenlace de CV/baja)
+
+NODO-D53-02  ¿Quién gestiona el documento?      [D53-02, D53-03, p.2]
+  desde la venta ................. BACK_OFFICE
+  desde el viernes previo al inicio  ÉXITO_ESTUDIANTIL
+  →Hecho: F2-d53_resp_backoffice
+  →No altera el desenlace; cambia el responsable operativo.
+
+NODO-D53-03  ¿Se cumplió el compromiso?          [D53-13 / D53-07, p.3, p.5]
+  MEXICO: F2-cc_acepta_tc == TRUE          (T&C en SIU)
+  LATAM : F2-cc_obligatoria_latam == TRUE   (carta compromiso cargada)
+  ├─ comprometido ──► NODO-D53-04
+  └─ no comprometido ► REQUIRES_OWNER_DECISION (la fuente no fija desenlace)
+
+NODO-D53-04  Reloj de la baja documental         [D53-04, D53-06, G-08]
+  Plazo máximo 6 meses  «O»  50% de avance curricular
+  ├─ plazo 6 meses agotado ──► BAJA
+  ├─ 50% de avance alcanzado ─► BAJA
+  ├─ ninguno agotado ─────────► NODO-D53-05
+  └─ clocks en conflicto ─────► CROSS_DOCUMENT_CONFLICT  [XDC-03]
+        (G-08 ancla en «inicio del primer ciclo académico»;
+         D53-06 ancla en «desde su ingreso»)
+
+NODO-D53-05  Cierre de bimestre                   [D53-10, D53-11, p.4]
+  Cierre de aula: miércoles de la semana 3 del bimestre
+  Si al finalizar el bimestre el expediente NO está completo
+  → BAJA DEFINITIVA
+  └─ INCONSISTENCIA: D53-11 dice «baja al cierre del bimestre»
+     y D53-10 dice «baja al finalizar el bimestre si no se recolectó».
+     Se conservan ambas; ver XDC-04.
+
+NODO-D53-06  Invariante de la decisión            [D53-08, p.3]
+  F2-d53_decision_mantiene == TRUE  (siempre)
+  Entregar el documento NO cambia la decisión D53.
+  Solo puede cambiar la CLASIFICACIÓN a
+  «D53 con expediente completo».
+  → PROHIBIDO al motor derivar «ya entregó ⇒ ya no es D53».
+
+NODO-D53-07  Reingreso por entrega                [D53-09, p.3]
+  Entrega dentro del MISMO bimestre del cierre de aula
+  → NO es reingreso.
+  Entrega DESPUÉS de ese periodo → es reingreso.
+  → coherente con G-11 (p.9): reingreso = tras ≥1 periodo con baja.
+
+NODO-D53-08  Documento apócrifo                   [D53-15, p.4]
+  Inconsistencia documental → clasificar como posible apócrifo
+  → gestoría interna inicia dictaminación externa
+     ante la dependencia que lo expidió.
+  → DESENLACE: dictaminación (no CV ni baja)
+```
+
+## 12. Nodo de definición de CV — `NODO-CV-DEF`
+
+`G-13` (p.7) es la **primera definición normativa de cancelación de venta que
+aparece como definición, no como inferencia**. En Phase 1 la CV se dedujo de
+`N-27`/`N-30`; ahora hay texto que la define.
+
+```
+NODO-CV-DEF  Definición de CV                    [G-13, p.7]
+  Ámbito: alumnos de nuevo ingreso            (predicado necesario)
+  Ventana: dentro de las primeras 2 semanas del ciclo
+     O  cuando sea solicitado por el alumno antes de su inicio de clases
+  Motivos declarados (3, exhaustivos en la fuente):
+    M1  error en su paquete de inscripción
+    M2  no se localiza y no ingresa al Aula
+    M3  ya no está interesado en iniciar
+  ├─ M1 ──► NODO-CV-PAQUETE   (cruce con primario 5.9.f [N-102])
+  ├─ M2 ──► NODO-CV-ILOC      (cruce con primario 5.8  [N-68…N-76])
+  └─ M3 ──► NODO-CV-NO-CONT   (cruce con primario 5.3  [N-30])
+```
+
+**Los 3 motivos tienen correspondencia 1:1 con ramas ya inventariadas.** La
+taxonomía del Glosario **valida** la estructura del árbol de Phase 1; no añade
+ramas. Esto es un resultado de Phase 1.5, no una reinterpretación.
+
+## 13. Nodos de retención — `NODO-RET-01` … `NODO-RET-04`
+
+`G-14`/`G-15`/`G-16` (p.21) separe lo que Phase 1.trató como un solo nodo.
+
+```
+NODO-RET-01  ¿El alumno]]||/manifiesta decisión de baja?  [G-14, p.21]
+  ├─ SÍ  ──► NODO-RET-02       (es la CAUSA del proceso de retención)
+  ├─ NO pero ¿riesgo de baja? ─► NODO-RET-02      [G-16, p.21]
+  └─ NO  ──► fuera de retención
+
+NODO-RET-02  Proceso de retención                [G-14, p.21]
+  El gestor académico proporciona estrategias
+  (económicas, académicas, de tiempo) para lograr la permanencia.
+  → Es un PROCESO obligatorio, no un outcome.
+
+NODO-RET-03  Desenlace de la retención           [G-15, p.21]
+  El alumno DECIDE CONTINUAR → se mantiene la matrícula
+  → ESTE es el outcome «retención».
+  ⚠ INVIERTE la lectura de Phase 1: la «retención» no es
+    la causa de la baja, es el resultado de la gestión.
+
+NODO-RET-04  Semáforo / AR                       [G-17, p.21]
+  Alto Riesgo (AR) = alumno sin ingreso al Aula o sin actividades
+  → Criterio objetivo para N-69, pero el primario no
+    declara umbral de Semáforo → AMB-NUM-03 persiste.
+```
+
+## 14. Conflictos que impiden cerrar ramas
+
+Cuatro nodos **no** pueden recibir un valor por defecto. Registrados en
+`ambiguities.md` como `CROSS_DOCUMENT_CONFLICT`:
+
+| Nodo | Conflicto | Por qué no se puede decidir |
+|---|---|---|
+| `NODO-CV-DEF` ventana | `XDC-01` | Primario: 2 semanas **después** del inicio. Glosario: 2 semanas **del ciclo** **o antes** del inicio. D53: **primer mes**. El primario 5.9 declara el estatus CV↔baja **irreversible tras la semana 3**, lo que deja la ventana de D53 (≈semana 4) inalcanzable. |
+| `NODO-D53-04` reloj | `XDC-03` | «6 meses desde el ingreso» (D53) vs «6 meses tras el inicio del primer ciclo académico» (Glosario). |
+| `NODO-D53-05` cierre | `XDC-04` | «al finalizar el bimestre» vs «al cierre del bimestre»; y `G-31` suma 26 semanas a un bimestre de un ciclo de 14. |
+| `F2-cc_termino_meses` | `XDC-02` | «dos meses» (Glosario) vs «no mayor a 6 meses» (D53). |
+
+**Ninguno de los cuatro se resuelve eligiendo la lectura más plausible.** Los
+cuatro requieren decisión del Owner.
+
+## 15. Lo que Phase 1.5 **no** cambió
+
+| Hallazgo de Phase 1 | Estado tras Phase 1.5 |
+|---|---|
+| Polaridad de `5.8.a` en 3 de 4 niveles | **SIN CAMBIO** → `AMB-LOG-02` |
+| `N-46` vs `N-52` | **SIN CAMBIO** → `AMB-CON-03` |
+| Doble ruta de escalamiento `5.6.f` | **SIN CAMBIO** → `AMB-CON-02` |
+| `N-33` vs `N-27` | **SIN CAMBIO** → `AMB-CON-01` |
+| Número de contacto contradictorio | **SIN CAMBIO** (0 números en las fuentes nuevas) → `AMB-NUM-01` |
+| Flujo oficial ausente | **EMPEORÓ**: ahora hay **dos** flujos ausentes (primario §7 y D53 §6) → `D-EXT-02` |
+
+`5.8.i` (p.14) aporta un dato nuevo relevante para `AMB-LOG-02`: para posgrado,
+«**Evidenciar participación en el foro de presentación**» es ingreso válido a
+aula. Esto es **lo inverso** de `5.8.a`, donde «**No haber** registrado
+participación en foros» figura como contacto efectivo. La contradicción es
+interna al primario y se **documenta**; no se resuelve.

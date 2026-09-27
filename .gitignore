@@ -39,3 +39,9 @@ tmp-render-smoke/
 # Volcados residuales de CLI (UTF-16) que no deben versionarse.
 log.txt
 metadata.json
+
+# Fuentes normativas ownersupplied: se conservan fuera de Git. Sus SHA-256
+# estan registrados en docs/policy-v2/source-lock.md, que es la referencia
+# normativa. Añadirlos al repositorio duplicaria binarios sin anadir trazabilidad
+# y expondría evidencia del propietario fuera del control de acceso del repo.
+normative/

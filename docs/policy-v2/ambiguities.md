@@ -889,3 +889,340 @@ de la fuente, las lecturas soportadas y la pregunta al Owner.
 resolverlas, porque cada una cambia el resultado de una rama del árbol. Ninguna
 puede resolverse con un default de código: hacerlo sería una
 `REQUIRES_OWNER_DECISION` encubierta.
+
+---
+
+# Phase 1.5 — Re-evaluación con fuentes disponibles
+
+> **Phase 1 preservado.** Las secciones 0–9 anteriores (28 ambigüedades) describen
+> el estado con **una sola fuente** y **no se modifican**. Commit: `4f6fad7`.
+> Esta sección es la re-evaluación con las 3 fuentes bloqueadas.
+>
+> **Regla aplicada sin excepción:** ninguna ambigüedad se resolvió eligiendo la
+> lectura más plausible. Cada `RESOLVED_BY_NEW_SOURCE` cita el texto exacto que
+> la cierra. Donde el texto no cierra la ambigüedad, se conserva el estado.
+
+## 10. Resumen de la re-evaluación
+
+| ID | Estado Phase 1 | Estado Phase 1.5 | Cambio |
+|---|---|---|---|
+| `AMB-CON-01` | `REQUIRES_OWNER_DECISION` | `STILL_REQUIRES_OWNER_DECISION` | — |
+| `AMB-CON-02` | `REQUIRES_OWNER_DECISION` | `STILL_REQUIRES_OWNER_DECISION` | — |
+| `AMB-CON-03` | `REQUIRES_OWNER_DECISION` | `STILL_REQUIRES_OWNER_DECISION` | — |
+| `AMB-CON-04` | `REQUIRES_OWNER_DECISION` | `PARTIALLY_RESOLVED` | ▲ |
+| `AMB-NUM-01` | `REQUIRES_OWNER_DECISION` | `STILL_REQUIRES_OWNER_DECISION` | — |
+| `AMB-NUM-02` | `REQUIRES_OWNER_DECISION` | `STILL_REQUIRES_OWNER_DECISION` | — |
+| `AMB-NUM-03` | no bloqueante | `NON_BLOCKING` | = |
+| `AMB-LOG-01` | `REQUIRES_OWNER_DECISION` | `STILL_REQUIRES_OWNER_DECISION` | — |
+| `AMB-LOG-02` | no bloqueante | `NON_BLOCKING` (con evidencia nueva) | ▲ |
+| `AMB-LOG-03` | no bloqueante | `NON_BLOCKING` | = |
+| `AMB-LOG-04` | `REQUIRES_OWNER_DECISION` | `STILL_REQUIRES_OWNER_DECISION` | — |
+| `AMB-LOG-05` | no bloqueante | `NON_BLOCKING` | = |
+| `AMB-TEM-01` | `REQUIRES_OWNER_DECISION` | `CROSS_DOCUMENT_CONFLICT` | ▲ |
+| `AMB-TEM-02` | `REQUIRES_OWNER_DECISION` | `STILL_REQUIRES_OWNER_DECISION` | — |
+| `AMB-TEM-03` | resoluble | `RESOLVED_BY_NEW_SOURCE` | ▲ |
+| `AMB-TEM-04` | no bloqueante | `NON_BLOCKING` | = |
+| `AMB-TEM-05` | no bloqueante | `STILL_REQUIRES_OWNER_DECISION` | ▲ |
+| `AMB-TEM-06` | `REQUIRES_OWNER_DECISION` | `STILL_REQUIRES_OWNER_DECISION` | — |
+| `AMB-EXT-01` | `REQUIRES_OWNER_DECISION` | `PARTIALLY_RESOLVED` | ▲ |
+| `AMB-EXT-02` | `REQUIRES_OWNER_DECISION` | `DEFERRED_UNAVAILABLE_SOURCE` | ▲ |
+| `AMB-EXT-03` | no bloqueante | `DEFERRED_UNAVAILABLE_SOURCE` | ▲ |
+| `AMB-EXT-04` | `REQUIRES_OWNER_DECISION` | `PARTIALLY_RESOLVED` | ▲ |
+| `AMB-EXT-05` | `REQUIRES_OWNER_DECISION` | `PARTIALLY_RESOLVED` | ▲ |
+| `AMB-GAP-01` | no bloqueante | `NON_BLOCKING` | = |
+| `AMB-GAP-02` | no bloqueante | `NON_BLOCKING` | = |
+| `AMB-GAP-03` | no bloqueante | `NON_BLOCKING` | = |
+| `AMB-REF-01` | documental | `NON_BLOCKING` | = |
+| `AMB-DEF-01` | no bloqueante | `STILL_REQUIRES_OWNER_DECISION` | ▲ |
+
+**Balance:** 1 `RESOLVED_BY_NEW_SOURCE` · 5 `PARTIALLY_RESOLVED` · 13
+`STILL_REQUIRES_OWNER_DECISION` · 2 `DEFERRED_UNAVAILABLE_SOURCE` · 7
+`NON_BLOCKING` · 0 cerradas por inferencia.
+
+## 11. Detalle de cada resolución
+
+### `AMB-CON-04` — `PARTIALLY_RESOLVED`
+
+- **Fuente → página → sección:** Glosario p.7, «Alumno / Cancelación de venta»
+  (`G-13`).
+- **Lectura soportada:** «proceso para **alumnos de nuevo ingreso** […] se
+  solicita dentro de las primeras 2 semanas del ciclo o cuando sea solicitado por
+  el alumno antes de su inicio de clases, p. ej.: por error en su paquete de
+  inscripción; no se localiza al alumno y no ingresa al Aula; ya no está
+  informado en iniciar».
+- **Qué resuelve:** la CV tiene un **predicado de alcance** (nuevo ingreso) y una
+  **taxonomía cerrada de 3 motivos**. Los 3 motivos mapean 1:1 a ramas ya
+  inventariadas del primario. La ambigüedad «qué separa CV de baja en ajuste
+  administrativo» **no** se cierra: «de manera tácita» (`N-56`, p.10) y «o baja,
+  según corresponda» siguen sin criterio de selección.
+- **Afecta:** hechos `F2-es_nuevo_ingreso`; nodos `NODO-CV-DEF`,
+  `NODO-CV-PAQUETE`, `NODO-CV-ILOC`, `NODO-CV-NO-CONT`.
+- **Residual:** `REQUIRES_OWNER_DECISION` sobre el estándar probatorio de «tácita».
+
+### `AMB-TEM-01` — `CROSS_DOCUMENT_CONFLICT` (antes `REQUIRES_OWNER_DECISION`)
+
+Siete umbrales temporales sin prevalencia Follows re-clasificado porque las fuentes
+nuevas **añaden** umbrales y crean colisiones verificables. Ver `XDC-01` y
+`XDC-04`. El carácter de la ambigüedad cambió: ya no es solo «falta un orden de
+prevalencia», es «las fuentes se contradicen sobre la ventana».
+
+### `AMB-TEM-03` — `RESOLVED_BY_NEW_SOURCE`
+
+- **Ubicación original:** prevalencia de `N-112` sobre `N-15`.
+- **Resolución:** no requiere fuente nueva. `N-112` declara su propia excepción, y
+  Phase 1 ya la había marcado resoluble. Phase 1.5 la confirma y la **sella**:
+  la exclusión de `N-15` para el caso de quórum está en el propio enunciado, no
+  necesita inferencia. → `RESOLVED_BY_NEW_SOURCE` por el texto del primario,
+  verificado de nuevo contra p.18 (`5.11`).
+
+### `AMB-TEM-05` — `STILL_REQUIRES_OWNER_DECISION` (sube de no bloqueante)
+
+- **Verificación:** el Glosario **no define «deserción»**. Búsqueda de cadenas:
+  0 coincidencias en las 30 páginas.
+- **Consecuencia:** la divergencia `N-07` («30 días **hábiles**», p.2) vs
+  `N-114` («30 días», p.18) **persiste** y las fuentes nuevas no aportan nada.
+- **Cambio de severidad:** pasa a `STILL_REQUIRES_OWNER_DECISION` explícita
+  porque el Owner debe confirmar que la divergencia es intencional (indicador vs
+  glosario) o un error. Fase 1 la había marcado no bloqueante por afectarse solo
+  al indicador; se mantiene no bloqueante para el árbol pero se documenta como
+  decisión abierta.
+
+### `AMB-EXT-01` — `PARTIALLY_RESOLVED`
+
+- **Resuelto:** el documento existe y está bloqueado (SHA-256
+  `de15e50b…63e9f5`, 30 p.). El primario §3 (p.1) lo invoca, y D53 §3 (p.1) lo
+  invoca también. La dependencia documental está satisfecha.
+- **Corrección de la premisa de Phase 1:** `AMB-EXT-01` afirmaba que «invasión
+  de ciclo» remitía al Glosario. **Falso:** el primario **define** «invasión de
+  ciclo» en su propia §3 (p.1, `N-06`), y el Glosario **no** contiene ese
+  término. La definición nunca dependió del Glosario.
+- **Lo que el Glosario sí resuelve:** 40 definiciones, incluidas todas las
+  solicitadas en la instrucción — CV, baja (8 variantes), alumno de nuevo ingreso,
+  retención, ciclo, periodo, tipo de ingreso, D35/accepted, D53/preadmitted,
+  carta compromiso, campus, cierre de aula, reingreso, revalidación, equivalencia,
+  expediente escolar.
+- **Lo que NO resuelve:** «deserción» e «invasión de ciclo» **no están** en el
+  Glosario.
+
+### `AMB-EXT-02` — `DEFERRED_UNAVAILABLE_SOURCE`
+
+- Flujo del primario §7 (p.21, Lucidchart/Drive): no disponible.
+- **Hallazgo nuevo `D-EXT-02`:** D53 §6 (p.7) también tiene un «Diagrama de
+  Flujo» en un enlace externo no disponible. **Dos** flujos oficiales ausentes.
+- Clasificado `DEFERRED_UNAVAILABLE_SOURCE` por instrucción de Phase 1.5. **No
+  bloquea esta fase.** Estructuralmente, la cobertura del flujo oficial sigue
+  incompleta.
+
+### `AMB-EXT-03` — `DEFERRED_UNAVAILABLE_SOURCE` + conflicto nuevo
+
+- El «formato de la carta manifiesto» (`N-59`, 5.7.a, p.10) sigue sinAnnex
+  («Anexo 1. matriz de validaciones», no incluido) → `DEFERRED_UNAVAILABLE_SOURCE`.
+- **Nuevo `XDC-09`:** la fuente primaria habla de **«carta manifiesto»**
+  (`N-59`, p.10) con «fecha compromiso» sin plazo; D53 habla de **«carta
+  compromiso»** (`D53-12`, p.5) con plazo ≤ 6 meses; el Glosario define «carta
+  compromiso» con **2 meses** (`G-19`, p.24). No se establece si «carta
+  manifiesto» y «carta compromiso» son el mismo instrumento. No se decide.
+
+### `AMB-EXT-04` — `PARTIALLY_RESOLVED`
+
+- **Resuelto por D53 (`GDM_GAM_PRD_MXL_008`, invocado por el primario §10):**
+  - Definición de D53 / PREADMITIDO: «falta el antecedente académico del nivel
+    anterior; en SIU se visualiza con la etiqueta "EN VALIDACIÓN"» (`G-18`, p.24).
+  - Definición de D35 / ACEPTADO: «cumple con la documentación digital y criterios
+    de ingreso completos» (`G-18`, p.24); y «Alumno (MA) […] cuenta con decisión
+    35» (`G-05`, p.6).
+  - Regla de 6 meses: `D53-04`, `D53-06` (México), `D53-07` (LATAM), `G-08`.
+  - Regla del 50%: `D53-04` (≤ 6 meses **o** 50% avance) y `D53-05` (la regla del
+    50% **no es fija** y se pretende reducir hasta que el plazo de 6 meses sea el
+    operativo).
+  - Carta compromiso: `D53-07`, `D53-12` (Latam obligatoria), `D53-13` (México por
+    T&C en SIU).
+  - Responsable de recolección documental: `D53-02` (Back Office hasta el viernes
+    previo) y `D53-03` (pasa a Éxito Estudiantil).
+  - Cierre/baja: `D53-10` (50% → cierre de aula; fin de bimestre sin expediente →
+    baja definitiva), `D53-11` (miércoles semana 3; bajas al cierre de bimestre).
+  - Exclusiones reingreso/equivalencia/revalidación: `D53-01` (p.2) — «No aplica
+    para: Reingresos. Equivalencias. Revalidación».
+  - Regular vs dictamen técnico: `D53-01` — ambos son tipos de ingreso de nuevo
+    ingreso a los que D53 **sí** aplica.
+  - México vs LATAM: divergencia explícita `D53-06`/`D53-07` y
+    `D53-12`/`D53-13`.
+  - Persistencia de la decisión: `D53-08` — entregar el documento **no** cambia
+    la decisión D53, solo la clasificación.
+  - Tipo de ingreso (4 tipos): `G-22` (p.28); cambio de tipo: `G-21` (p.24).
+- **NO resuelto — residual `DEFERRED_UNAVAILABLE_SOURCE`:** el primario 5.7.h
+  (`N-67`, p.12) delega los requisitos D53 al «**Anexo 5. Políticas y Normas
+  Aplicables a la Decisión 53**», que **no está disponible** y **no es** el
+  procedimiento D53 (son documentos distintos). El conjunto de documentos
+  obligatorios está en el Anexo 1 de D53 (`D53-23`), tampoco disponible. Y
+  «decisión 35 **en tiempo y forma**» (`N-31`, 5.3.a.V, p.5) sigue sin
+  definición de «en tiempo y forma» aunque sepamos qué es D35.
+
+### `AMB-EXT-05` — `PARTIALLY_RESOLVED`
+
+- **Resuelto:** el Glosario define el concepto de retención en tres piezas
+  (`G-14` proceso, `G-15` desenlace, `G-16` riesgo de baja, p.21) y `G-17` el
+  Semáforo/AR. Esto **confirma** que la «retención» es un **desenlace**, no una
+  causa — corroborando el hallazgo de Phase 1.
+- **NO resuelto:** las **matrices de estrategias** (Anexo 2 «Matriz Estrategias
+  de Retención» y Anexo 4 «… Copiloto Ventas», primario §9, p.22) siguen
+  ausentes → `DEFERRED_UNAVAILABLE_SOURCE` para la verificación de
+  `F-estrategias_presentadas`.
+
+### `AMB-LOG-02` — `NON_BLOCKING`, con evidencia nueva
+
+- **No resuelta** por las fuentes nuevas (no definen la polaridad de `5.8.a`).
+- **Evidencia nueva aportada al Owner:** el propio primario se contradice. `5.8.a`
+  (p.12) lista, para **Posgrados y Ejecutivas**, «**No haber** registrado
+  participación en foros» como criterio de **contacto efectivo**; pero `5.8.i`
+  (p.14) establece que para posgrado el ingreso válido al aula requiere
+  «**Evidenciar participación** en el foro de presentación». La polaridad de
+  `5.8.a` es lo inverso de `5.8.i`. Se **documenta**; no se resuelve.
+
+## 12. Conflictos entre documentos — `XDC-01` … `XDC-09`
+
+Cada conflicto **preserva ambas lecturas** y ninguna se resuelve por plausibilidad.
+
+### `XDC-01` — Ventana de cancelación de venta: tres definiciones incompatibles
+
+| Fuente | Página | Texto | Ventana |
+|---|---|---|---|
+| Primario `N-25` | 6 (5.1.d) | «Las Cancelaciones de venta solo se podrán solicitar durante las primeras 2 semanas **después de la fecha de inicio**.» | 2 sem **post**-inicio |
+| Glosario `G-13` | 7 | «dentro de las primeras 2 semanas **del ciclo** **o** cuando sea solicitado por el alumno **antes de su inicio de clases**» | 2 sem del ciclo **o** pre-inicio |
+| D53 `D53-17` | 6 (5.4.1.1) | «Una cancelación de venta se aplica cuando el estudiante es dado de baja durante el **primer mes** de ingreso por motivos ajenos a la decisión D53.» | 1 mes (≈sem 4) |
+
+**Agravante declarado en el primario** (p.17, 5.9 «Consideración sobre tiempos»):
+«Una vez concluido este plazo [semana 3 posterior al inicio del ciclo], **no será
+posible revertir el estatus de cancelación de venta a baja, ni de baja a
+cancelación de venta**.» La ventana de D53 (primer mes ≈ semana 4) cae **después**
+de un punto de irreversibilidad declarado por el primario.
+
+**Efecto:** las tres ventanas no son reconciliables sin arbitramento. Primario y
+Glosario son mayormente compatibles (2 semanas; el pre-inicio del Glosario lo
+cubre el primario en 5.3.a.I `N-26`, p.4). **D53 es incompatible** con la
+irreversibilidad de la semana 3. Estado: `CROSS_DOCUMENT_CONFLICT`.
+Afecta: `NODO-CV-DEF`, ramas CV por ilocalizable, por no-continuar, por error de
+paquete, y toda rama D53 que termine en CV.
+
+### `XDC-02` — «Carta compromiso»: 2 meses (Glosario) vs ≤ 6 meses (D53)
+
+| Fuente | Página | Plazo |
+|---|---|---|
+| Glosario `G-19` | 24 | «un término de **dos meses**» |
+| D53 `D53-12` | 5 | «una fecha límite […] **no mayor a 6 meses**» |
+
+Afecta: `F2-cc_termino_meses` (dominio `INDETERMINADO`), `NODO-D53-04`, la baja
+por falta de documentos y el calendario de `D53-06`/`D53-07`. Ningún documento
+establece precedencia. `OWNER_DECISION`.
+
+### `XDC-03` — Anclaje del plazo de 6 meses
+
+| Fuente | Página | Anclaje |
+|---|---|---|
+| Glosario `G-08` | 6 | «6 meses posteriores al **inicio del primer ciclo académico**» |
+| D53 `D53-06` | 3 | «6 meses **desde su ingreso**» |
+
+Para alumnos que cambian de ciclo o se reinscriben a mitad de ciclo, los relojes
+difieren. `OWNER_DECISION`.
+
+### `XDC-04` — «Primer bimestre» / «ciclo» / «30 días»: duraciones incompatibles
+
+| Concepto | Fuente | Valor declarado |
+|---|---|---|
+| Ciclo | `G-29` (p.29) | 14 semanas |
+| Periodo | `G-30` (p.30) | «parte **bimestral** de un ciclo» → 7 semanas |
+| Bimestre (Licenciatura) | `G-31` (p.29) | 7+6+4+9 = **26 semanas** ⚠ contradice el ciclo de 14 |
+| Deserción (indicador) | `N-114` (p.18) | 30 días tras inicio de ciclo |
+| Baja D53 (México) | `D53-06` (p.3) | 6 meses desde ingreso |
+| Comisión D53 | `D53-16` (p.6) | «primer bimestre» / «a partir del tercer mes» |
+| Cierre de aula D53 | `D53-11` (p.4) | miércoles semana 3 **del bimestre** |
+
+La unidad «bimestre» del primario y de D53 **no tiene duración declarada** por
+ninguna fuente disponible, y el Glosario se contradice a sí mismo (14 vs 26
+semanas). No se puede alinear «primer bimestre» con «30 días» ni con «semana 3».
+`OWNER_DECISION`.
+
+### `XDC-05` — «Expediente completo»: conjunto de documentos no disponible
+
+Glosario `G-23` (p.26) define «expediente escolar» como conjunto; D53 `D53-10`
+exige «expediente completo» para la baja; pero **el conjunto de documentos
+obligatorios** está en el Anexo 1 de D53 (`D53-23`, no disponible) y en el Anexo 1
+del primario (Anexo 1 «Documentos de Ingreso Estudiantes», `N-66`, no
+disponible). Sin esos anexos, «¿está completo el expediente?» **no es
+determinable** → `DEFERRED_UNAVAILABLE_SOURCE` con efecto bloqueante local sobre
+`NODO-D53-05`.
+
+### `XDC-06` — «Alumno regular» (estatus) vs «Regular» (tipo de ingreso)
+
+Glosario `G-03` (p.6) define «Alumno regular» como un **estatus** (4 condiciones
+de trayectoria) mientras `G-22` (p.28) usa «Regular» como **tipo de ingreso**.
+D53 `D53-01` habla de «nuevo ingreso (tipo regular o dictamen técnico)» — el
+sentido de **tipo**. El primario no usa «alumno regular» ni «alumno irregular».
+No hay colisión *textual* entre documentos, pero hay **colisión de término dentro
+del Glosario**; el motor no debe tratar ambos como el mismo hecho.
+`F2-estatus_alumno_regular` ≠ `F2-tipo_ingreso == REGULAR`. No se resuelve.
+
+### `XDC-07` — «Alumno futuro» y la CV de quien no inicia
+
+Glosario `G-02` (p.6) define «alumno futuro» como quien espera la fecha de inicio
+de ciclo; `G-13` (p.7) incluye como motivo de CV «no se localiza al alumno y no
+ingresa al Aula». El primario 5.9.a (p.16) dice que los canales College y
+Upselling «contemplan inscripciones de **estudiantes futuros**» y que la CV
+operativa **no aplica** para ellos. Tensión documental menor: el estatus de
+«futuro» interactúa con la CV de ilocalizable. No se resuelve sin saber la
+relación exacta entre «futuro» y la ventana de 2 semanas. `OWNER_DECISION`
+(menor).
+
+### `XDC-08` — «Contacto»: lead vs. contacto efectivo con el alumno
+
+Glosario `G-27` (p.14) define «Contacto» como **registro de lead** con respuesta
+(CRM). El primario 5.8.h (p.14) usa «contacto efectivo» como **interacción con el
+estudiante**del titular. `G-28` «Incidencias» = marcaciones automáticas que
+impiden el contacto. El término «contacto» tiene **dos significados distintos**
+en fuentes distintas sin que ninguna declare la equivalencia. El motor no debe
+fusionarlos. No se resuelve.
+
+### `XDC-09` — «Carta manifiesto» vs «carta compromiso»
+
+Detallado en `AMB-EXT-03`. Primario `N-59` (p.10) «carta manifiesto» (sin plazo);
+D53 `D53-12` (p.5) «carta compromiso» (≤6 meses); Glosario `G-19` (p.24) «carta
+compromiso» (2 meses). No se establece identidad entre los dos instrumentos. No
+se resuelve.
+
+## 13. Ambigüedades nuevas de Phase 1.5
+
+| ID | Descripción | Estado |
+|---|---|---|
+| `AMB-TEM-07` | `D53-05` declara que la regla del 50% «no es fija» y se «pretende reducirla» hasta que el plazo de 6 meses sea el operativo. ¿Qué regla rige **hoy**? El texto es una **intención de reforma**, no una derogación. | `STILL_REQUIRES_OWNER_DECISION` |
+| `AMB-CON-05` | `G-20` prueba que existe diferenciación por campus, pero **no** dice qué reglas difieren. Solo D53 declara una divergencia concreta. | `STILL_REQUIRES_OWNER_DECISION` |
+| `AMB-CON-06` | `G-12` define «reversión de baja» (baja en el periodo en curso, reactivación) y `G-11` «reingreso» (tras ≥1 periodo con baja). El primario usa «baja» sin desambiguar cuál aplica a una reactivación dentro del mismo ciclo. | `STILL_REQUIRES_OWNER_DECISION` |
+
+`AMB-TEM-07` es la más relevante: `D53-04` (6 meses **o** 50%) y `D53-05` (el 50%
+«no es fija» y se reducirá) coexisten. Si la regla del 50% sigue vigente, la
+baja puede ocurrir al 50% aunque no hayan pasado 6 meses; si ya no, solo a los 6
+meses. El texto **no permite elegir**. `OWNER_DECISION`.
+
+## 14. Preguntas al Owner tras Phase 1.5
+
+Ordenadas por impacto en la Apertura de ramas:
+
+| # | Pregunta | ID |
+|---|---|---|
+| 1 | ¿Cuál es la **ventana de CV**? (2 semanas post / 2 semanas ciclo o pre / primer mes D53) | `XDC-01` |
+| 2 | ¿Qué **plazo** tiene la carta compromiso: 2 meses o 6 meses? | `XDC-02` |
+| 3 | ¿El plazo de 6 meses se ancla al **ingreso** o al **inicio del primer ciclo**? | `XDC-03` |
+| 4 | ¿Cuánto dura un **bimestre**? (7 vs 26 semanas vs 30 días vs 6 meses) | `XDC-04` |
+| 5 | ¿El 50% de avance **sigue vigente** o ya solo aplica el plazo de 6 meses? | `AMB-TEM-07` |
+| 6 | ¿Qué **documentos** forman el expediente completo? (Anexo 1, no disponible) | `XDC-05` |
+| 7 | ¿«carta manifiesto» y «carta compromiso» son el mismo instrumento? | `XDC-09` |
+| 8 | En `5.8.a`, ¿la polaridad negativa de 3 niveles es **error de redacción**? (`5.8.i` dice lo contrario) | `AMB-LOG-02` |
+| 9 | ¿`N-46` prevalece sobre `N-52`? (sin cambio desde Phase 1) | `AMB-CON-03` |
+| 10 | ¿Cuál ruta de escalamiento de `5.6.f`? (sin cambio) | `AMB-CON-02` |
+| 11 | ¿`N-33` prevalece sobre `N-27`? (sin cambio) | `AMB-CON-01` |
+| 12 | ¿Qué reglas, además de D53, difieren entre campus México y LATAM? | `AMB-CON-05` |
+| 13 | ¿Cuál es el estándar probatorio de «de manera tácita»? | `AMB-CON-04` (residual) |
+| 14 | ¿Qué es «decisión 35 **en tiempo y forma**»? | `AMB-EXT-04` (residual) |
+| 15 | ¿La doble definición de deserción (30 días hábiles vs 30 días) es intencional? | `AMB-TEM-05` |
+
+Las 12 primeras preguntas desbloquean ramas del árbol. Las preguntas 9–11 y 15
+son las de Phase 1 que **no** se movieron.

@@ -32,6 +32,9 @@ importers:
       '@cancelaciones/reporting':
         specifier: workspace:*
         version: link:../../packages/reporting
+      '@cancelaciones/rule-engine-v2':
+        specifier: workspace:*
+        version: link:../../packages/rule-engine-v2
       '@insforge/sdk':
         specifier: ^1.5.2
         version: 1.5.2
@@ -102,6 +105,16 @@ importers:
         version: 2.1.9(@types/node@22.20.4)
 
   packages/reporting:
+    dependencies:
+      '@cancelaciones/domain':
+        specifier: workspace:*
+        version: link:../domain
+    devDependencies:
+      vitest:
+        specifier: ^2.1.9
+        version: 2.1.9(@types/node@22.20.4)
+
+  packages/rule-engine-v2:
     dependencies:
       '@cancelaciones/domain':
         specifier: workspace:*
