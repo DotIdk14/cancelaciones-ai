@@ -4,6 +4,7 @@ import {
   buildDictamenText,
   buildHumanReview,
   buildReportSnapshot,
+  classifyMachineDecision,
   buildRuleTraceRef,
   computeDocumentFingerprint,
   computeSnapshotFingerprint,
@@ -14,6 +15,8 @@ import {
   sha256Hex,
   sha256HexBytes,
   validateEvidenceSelection,
+  type HumanReviewDecision,
+  type ManualCommentsMap,
 } from './index';
 
 const machine = {
@@ -292,5 +295,114 @@ describe('mapDictamenFields (campos del Dictamen)', () => {
     expect(byId.get('descripcionFinanzas')).toBe(comments.financeComment);
     expect(byId.size).toBe(5);
     expect(byId.get('dictamen')).toContain('Pendiente de revisión humana.');
+  });
+});
+describe('base normativa para emitir dictamen (§26)', () => {
+  // `baseSnapshot` vive dentro de otro `describe`, así que este bloque declara
+  // el suyo. Duplicarlo es preferible a moverlo: el test anterior no debe
+  // depender de que otro test siga declarar su base.
+  const comments: ManualCommentsMap = {
+    backOfficeComment: 'Alumno solicito cancelacion por telefono.',
+    helpdeskComment: null,
+    schoolServicesComment: null,
+    financeComment: null,
+    additionalComment: null,
+  };
+  const snapshotBase = {
+    auditId: 'audit_1',
+    factRunId: 'frun_1',
+    engineRunId: 'erun_1',
+    policyCode: 'GDM_GAM_PRD_MLG_003',
+    policyVersion: '2026.1',
+    machine: freezeMachineDecision(machine),
+    human: null as HumanReviewDecision | null,
+    manualComments: { ...comments },
+    selectedEvidence: [{ evidenceId: 'ev_1', page: 1, selectedAt: '2026-09-23T10:00:00.000Z' }],
+    templateHash: 'tpl-hash-1',
+    ruleTrace: buildRuleTraceRef({ ruleIds: ['5.1'] }),
+  };
+  const normativa = freezeMachineDecision(machine);
+
+  const provisional = freezeMachineDecision({
+    engineRunId: 'erun_1',
+    machineOutcome: 'BAJA',
+    machineReason: 'Lectura auxiliar sin grounding en el primario.',
+    machineDecisionStatus: 'REQUIRES_HUMAN_REVIEW',
+    factsFingerprint: 'facts-fp-1',
+    rulesFingerprint: 'rules-fp-2',
+  });
+
+  describe('clasificacion de la decision de maquina', () => {
+    it('un estado normativo con desenlace es NORMATIVE', () => {
+      expect(classifyMachineDecision(normativa)).toBe('NORMATIVE');
+    });
+
+    it('un estado de revision con desenlace es PROVISIONAL, no NORMATIVE', () => {
+      // Este es el punto: el desenlace existe, y sigue sin ser normativo.
+      expect(provisional.machineOutcome).toBe('BAJA');
+      expect(classifyMachineDecision(provisional)).toBe('PROVISIONAL');
+    });
+
+    it('un estado normativo sin desenlace es UNDETERMINED', () => {
+      const sinDesenlace = freezeMachineDecision({ ...machine, machineOutcome: null });
+      expect(classifyMachineDecision(sinDesenlace)).toBe('UNDETERMINED');
+    });
+
+    it('un estado desconocido se clasifica en fail-closed', () => {
+      // No reconocer un estado no es autorizarlo.
+      const raro = freezeMachineDecision({ ...machine, machineDecisionStatus: 'CASO_NUEVO' });
+      expect(classifyMachineDecision(raro)).not.toBe('NORMATIVE');
+    });
+
+    it('el estado por defecto no es normativo', () => {
+      expect(classifyMachineDecision(freezeMachineDecision({ engineRunId: 'x' }))).toBe('UNDETERMINED');
+    });
+  });
+
+  describe('el snapshot se niega a sin base normativa', () => {
+    it('rechaza una decision de maquina provisional sin decision humana', () => {
+      const resultado = buildReportSnapshot({ ...snapshotBase, machine: provisional, human: null });
+      expect(resultado.ok).toBe(false);
+      if (resultado.ok) throw new Error('debio rechazar');
+      expect(resultado.code).toBe('NO_NORMATIVE_BASIS');
+    });
+
+    it('el mensaje explica que un provisional no puede ser dictamen', () => {
+      const resultado = buildReportSnapshot({ ...snapshotBase, machine: provisional });
+      if (resultado.ok) throw new Error('debio rechazar');
+      expect(resultado.message).toContain('provisional');
+    });
+
+    it('acepta una decision de maquina normativa', () => {
+      expect(buildReportSnapshot({ ...snapshotBase, machine: normativa, human: null }).ok).toBe(true);
+    });
+
+    it('acepta un caso provisional si existe decision humana registrada', () => {
+      // La base del dictamen pasa a ser la decisión humana, no la de la máquina.
+      const conHumano = buildReportSnapshot({
+        ...snapshotBase,
+        machine: provisional,
+        human: {
+          decisionType: 'APPROVE' as const,
+          humanOutcome: 'BAJA',
+          humanCause: 'REVIEW',
+          humanReason: 'Revision humana confirma la baja.',
+          reviewedBy: 'auditor-1',
+          reviewedAt: '2026-09-23T10:00:00.000Z',
+        },
+      });
+      expect(conHumano.ok).toBe(true);
+    });
+
+    it('rechaza una maquina sin desenlace y sin humano', () => {
+      const vacia = freezeMachineDecision({ engineRunId: 'erun_1', machineDecisionStatus: 'REQUIRES_HUMAN_REVIEW' });
+      expect(buildReportSnapshot({ ...snapshotBase, machine: vacia, human: null }).ok).toBe(false);
+    });
+  });
+
+  describe('el fingerprint no cambia por la proteccion', () => {
+    it('el snapshotBuilder sigue siendo determinista con decision normativa', () => {
+      expect(computeSnapshotFingerprint(snapshotBase)).toBe(computeSnapshotFingerprint(snapshotBase));
+    });
   });
 });

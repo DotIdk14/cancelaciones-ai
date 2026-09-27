@@ -26,6 +26,51 @@ export function contentHash(value: unknown): string {
 // Machine Decision (inmutable)
 // ---------------------------------------------------------------------------
 
+/**
+ * Naturaleza de la decisión de máquina para efectos de generar un dictamen.
+ *
+ * ## Por qué hace falta
+ *
+ * `machineOutcome` es un único campo plano y admite un resultado provisional sin
+ * ninguna marca. Quien lo llene con la resolución más compatible —el valor que la
+ * UI muestra como principal— produciría un dictamen que presenta lo provisional
+ * como decisión de la máquina, y el tipo no lo impediría.
+ *
+ * La distinción se hace explícita y en modo **fail-closed**: un estado no
+ * reconocido se clasifica como no normativo. `UNKNOWN_IS_NOT_FALSE` también se
+ * aplica a los vocabularios: un estado que el código no conoce no es un estado
+ * que autorice emitir.
+ */
+export type MachineDecisionKind = 'NORMATIVE' | 'PROVISIONAL' | 'UNDETERMINED';
+
+/**
+ * Estados que sí autorizan un desenlace normativo.
+ *
+ * `DECIDED` y `DETERMINATE` conviven porque el motor V2 y el llamador histórico
+ * no comparten vocabulario. La lista es explícita y corta a propósito: ante la
+ * duda, no autorizar.
+ */
+const NORMATIVE_MACHINE_STATUSES: ReadonlySet<string> = new Set([
+  'DECIDED',
+  'DETERMINATE',
+  'NORMATIVE',
+]);
+
+/**
+ * Clasifica la decisión de máquina.
+ *
+ * Un estado normativo **con** desenlace es `NORMATIVE`; el mismo estado sin
+ * desenlace es `UNDETERMINED`, porque declararse decidido sin decir qué se decidió
+ * no es una base normativa.
+ */
+export function classifyMachineDecision(machine: MachineDecisionRef): MachineDecisionKind {
+  const status = machine.machineDecisionStatus;
+  if (NORMATIVE_MACHINE_STATUSES.has(status)) {
+    return machine.machineOutcome ? 'NORMATIVE' : 'UNDETERMINED';
+  }
+  return machine.machineOutcome ? 'PROVISIONAL' : 'UNDETERMINED';
+}
+
 export interface MachineDecisionRef {
   engineRunId: string;
   machineOutcome: string | null;
@@ -295,6 +340,8 @@ export type BuildSnapshotResult =
   | { ok: false; code: string; message: string };
 
 export function buildReportSnapshot(input: ReportSnapshotFields): BuildSnapshotResult {
+  const basis = snapshotNormativeBasis(input);
+  if (!basis.ok) return basis;
   if (!input.auditId) return { ok: false, code: 'MISSING_AUDIT_ID', message: 'auditId es obligatorio.' };
   if (!input.engineRunId) return { ok: false, code: 'MISSING_ENGINE_RUN_ID', message: 'engineRunId es obligatorio.' };
   if (!input.policyCode || !input.policyVersion) {
@@ -303,6 +350,38 @@ export function buildReportSnapshot(input: ReportSnapshotFields): BuildSnapshotR
   if (!input.templateHash) return { ok: false, code: 'MISSING_TEMPLATE_HASH', message: 'templateHash es obligatorio.' };
   const fingerprint = computeSnapshotFingerprint(input);
   return { ok: true, snapshot: input, fingerprint };
+}
+
+/**
+ * ¿Tiene el caso una base normativa suficiente para emitir un dictamen?
+ *
+ * ## La regla
+ *
+ * Se emite dictamen cuando **una** de dos cosas se cumple:
+ *
+ * 1. La máquina decidió normativamente y dijo qué decidió.
+ * 2. Hay decisión humana registrada, y entonces la base del dictamen es esa
+ *    decisión, no la de la máquina.
+ *
+ * Lo que nunca basta es una resolución provisional de la máquina sin decisión
+ * humana. Ese es el caso en el que el sistema emitiría un dictamen apoyándose
+ * en algo que su propio motor se negó a llamar normativo.
+ *
+ * `Dictamen.pdf` sólo admite un resultado normativo confirmado; por eso un caso
+ * provisional necesita un artefacto separado y no este.
+ */
+export function snapshotNormativeBasis(input: ReportSnapshotFields): { ok: true } | { ok: false; code: string; message: string } {
+  const kind = classifyMachineDecision(input.machine);
+  if (kind === 'NORMATIVE') return { ok: true };
+  if (input.human !== null) return { ok: true };
+  return {
+    ok: false,
+    code: 'NO_NORMATIVE_BASIS',
+    message:
+      `No hay base normativa para emitir dictamen: la decisión de máquina es ${kind} ` +
+      `("${input.machine.machineDecisionStatus}") y no hay decisión humana registrada. ` +
+      'Un resultado provisional no puede convertirse en dictamen.',
+  };
 }
 
 /** El fingerprint NUNCA incluye timestamps ni metadata de persistencia. */
