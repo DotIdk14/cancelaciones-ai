@@ -8,6 +8,12 @@
 // =============================================================================
 
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { WorkerMessageHandler } from 'pdfjs-dist/legacy/build/pdf.worker.mjs';
+
+const pdfjsGlobal = globalThis as typeof globalThis & {
+  pdfjsWorker?: { WorkerMessageHandler: object };
+};
+pdfjsGlobal.pdfjsWorker ??= { WorkerMessageHandler };
 
 interface PdfTextItem {
   str?: string;

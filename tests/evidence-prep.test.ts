@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { extractPdfText } from '../src/server/pdf';
 import {
   detectKind,
   imageDataUrl,
@@ -8,8 +9,13 @@ import {
   sanitizeFilename,
   sha256Hex,
 } from '../src/server/evidence-prep';
+import { minimalPdf } from './helpers/fake-store';
 
 describe('evidence-prep (preparación técnica, sin decisión de negocio)', () => {
+  it('extrae texto de PDF en Node con el worker incluido explícitamente', async () => {
+    await expect(extractPdfText(minimalPdf('PDF worker empaquetado'))).resolves.toContain('PDF worker empaquetado');
+  });
+
   it('calcula el SHA-256 para provenance', () => {
     const hash = sha256Hex(Buffer.from('contenido'));
     expect(hash).toMatch(/^[a-f0-9]{64}$/);
