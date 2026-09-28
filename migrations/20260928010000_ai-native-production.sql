@@ -221,7 +221,7 @@ REVOKE ALL ON TABLE public.cases, public.evidence, public.audits FROM authentica
 
 GRANT SELECT, INSERT, UPDATE, DELETE
   ON public.cases, public.evidence, public.audits
-  TO authenticated;
+  TO authenticated, project_admin;
 
 REVOKE ALL ON TABLE public.cases, public.evidence, public.audits FROM anon;
 

@@ -10,7 +10,7 @@
 --   Aplicable sobre una base VACÍA de InsForge (PostgreSQL). Lo único que se
 --   asume ya existente, y que aporta la plataforma, es:
 --     - el esquema `auth` con la tabla `auth.users(id)` y la función `auth.uid()`;
---     - los roles `anon`, `authenticated` y `service_role`.
+--     - los roles `anon`, `authenticated` y `project_admin`.
 --   Nada más. Este archivo no depende de ninguna otra migración y no importa
 --   ningún archivo del repositorio.
 --
@@ -472,7 +472,7 @@ $fn$;
 --   dueño", que es exactamente el bug que se quiere hacer imposible.
 REVOKE ALL ON FUNCTION public.set_updated_at() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.set_updated_at() FROM anon;
-GRANT EXECUTE ON FUNCTION public.set_updated_at() TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.set_updated_at() TO authenticated, project_admin;
 
 -- POR QUÉ EL DISPARADOR ESTÁ SÓLO EN `cases`, Y NO TAMBIÉN EN `audits`
 --   Decisión deliberada, y hay que entenderla para no "arreglarla" después.
@@ -532,8 +532,8 @@ CREATE TRIGGER cases_set_updated_at
 -- desde el runtime) se volvería imposible sin deshabilitar antes la política,
 -- que es justo lo que uno hace cuando tiene prisa. Lo que decide el modelo es
 -- otro: el límite de seguridad es el rol `authenticated` (lo que puede hacer
--- un navegador con un JWT) frente a `service_role` (el servidor, que la
--- plataforma define con BYPASSRLS y que por eso escribe filas de cualquier
+-- un navegador con un JWT) frente a `project_admin` (el servidor, que la
+-- plataforma define con privilegios administrativos y que por eso escribe filas de cualquier
 -- caso). Ambas cosas son deliberadas y están escritas aquí para que nadie las
 -- descubra leyendo los metadatos de la tabla.
 -- =============================================================================
@@ -546,7 +546,7 @@ REVOKE ALL ON TABLE public.cases, public.evidence, public.audits FROM authentica
 
 GRANT SELECT, INSERT, UPDATE, DELETE
   ON public.cases, public.evidence, public.audits
-  TO authenticated;
+  TO authenticated, project_admin;
 
 REVOKE ALL ON TABLE public.cases, public.evidence, public.audits FROM anon;
 

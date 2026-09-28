@@ -190,6 +190,7 @@ describe('callOpenRouterAudit', () => {
   });
 
   it('usa el máximo margen de salida para assessments estructurados extensos', async () => {
+    process.env.OPENROUTER_MODEL = 'google/gemini-2.5-flash';
     let capturedBody: { max_tokens?: number } | null = null;
     fetchMock.mockImplementationOnce(async (_url: unknown, init?: RequestInit) => {
       capturedBody = JSON.parse(String(init?.body));
@@ -199,6 +200,20 @@ describe('callOpenRouterAudit', () => {
     await callOpenRouterAudit({ system: 's', parts: [{ type: 'text', text: 'x' }] });
 
     expect(capturedBody?.max_tokens).toBe(65_536);
+  });
+
+  it('limita la salida para modelos Gemini Lite porque rechazan json_schema con presupuestos enormes', async () => {
+    process.env.OPENROUTER_MODEL = 'google/gemini-2.5-flash-lite';
+    let capturedBody: { max_tokens?: number } | null = null;
+    fetchMock.mockImplementationOnce(async (_url: unknown, init?: RequestInit) => {
+      capturedBody = JSON.parse(String(init?.body));
+      return completionResponse();
+    });
+
+    await callOpenRouterAudit({ system: 's', parts: [{ type: 'text', text: 'x' }] });
+
+    expect(capturedBody?.max_tokens).toBeLessThan(65_536);
+    expect(capturedBody?.max_tokens).toBeGreaterThanOrEqual(8_192);
   });
 
   it('identifica una respuesta truncada cuando el proveedor informa finish_reason=length', async () => {

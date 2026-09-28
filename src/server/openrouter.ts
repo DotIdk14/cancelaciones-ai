@@ -44,6 +44,11 @@ export interface CallOpenRouterAuditOutput {
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const MIN_ATTEMPT_BUDGET_MS = 1_000;
 const MAX_OUTPUT_TOKENS = 65_536;
+const GEMINI_LITE_MAX_OUTPUT_TOKENS = 16_384;
+
+function maxOutputTokensForModel(model: string): number {
+  return /gemini-.*flash-lite/i.test(model) ? GEMINI_LITE_MAX_OUTPUT_TOKENS : MAX_OUTPUT_TOKENS;
+}
 
 /** Deriva el JSON Schema estricto del schema único de Zod. */
 function buildStrictJsonSchema(schema: unknown): Record<string, unknown> {
@@ -110,7 +115,7 @@ async function singleAttempt(
       { role: 'user', content: input.parts },
     ],
     temperature: 0,
-    max_tokens: MAX_OUTPUT_TOKENS,
+    max_tokens: maxOutputTokensForModel(attempt.model),
   };
 
   if (attempt.format === 'json_schema') {
