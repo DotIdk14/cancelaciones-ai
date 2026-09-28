@@ -1,4 +1,4 @@
-// =============================================================================
+  // =============================================================================
 // Panel de resultado de la auditoría (sección 23 del encargo).
 // Muestra EXACTAMENTE lo que devolvió el modelo. Nunca inventa un dictamen:
 // si `resultJson` es null, se dice que no hay resultado, nada más.
