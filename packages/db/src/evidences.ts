@@ -36,6 +36,7 @@ export function createEvidenceRepository(database: DatabaseClient) {
     markFailed(id: string, contentError?: string | null) { return update(id, { status: 'FAILED', content_status: 'FAILED', content_error: contentError ?? null }); },
     markContentStatus(id: string, status: EvidenceContentStatus, contentError?: string | null) { return update(id, { content_status: status, content_error: contentError ?? null }); },
     async countByAuditAndContentStatus(auditId: string, status: EvidenceContentStatus) { const { data, error } = await database.from(TABLE).select('id').eq('audit_id', auditId).eq('content_status', status); if (error) throw new Error(error.message ?? 'No se pudo contar evidencias.'); return ((data ?? []) as Row[]).length; },
+    async countByAuditAndContentStatuses(auditId: string, statuses: EvidenceContentStatus[]) { const { data, error } = await database.from(TABLE).select('id').eq('audit_id', auditId).in('content_status', statuses); if (error) throw new Error(error.message ?? 'No se pudo contar evidencias.'); return ((data ?? []) as Row[]).length; },
   };
 }
 

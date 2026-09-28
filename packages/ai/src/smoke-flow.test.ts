@@ -4,48 +4,104 @@ import { runCaseAnalyst } from './analyst';
 import { runAuditReviewer } from './reviewer';
 import { createFakeAiProvider, FakeOpenRouterScenario } from './fakes';
 import { evalDataset } from './eval-dataset';
+import type { ToolContext } from './tools';
 
 const base = evalDataset[0]!;
+const context: ToolContext = { audit: { ...base.audit }, evidence: [...base.evidence] };
 
-function terminalFromAssessment(status: 'COMPLETED' | 'NEEDS_INPUT'): 'COMPLETED' | 'NEEDS_INPUT' {
-  return status;
+type Terminal = 'COMPLETED' | 'NEEDS_INPUT' | 'FAILED';
+
+function assessed(result: Awaited<ReturnType<typeof runCaseAnalyst>>) {
+  if (result.status === 'FAILED') throw new Error(`Falló: ${result.errorCode}`);
+  return result.assessment;
 }
 
+/**
+ * Smoke del ciclo completo con el protocolo real de tool calling.
+ *
+ * El criterio es uno solo y es el que importa: da igual cómo termine, siempre
+ * cae en un estado terminal. NEEDS_INPUT solo aparece cuando el assessment lo
+ * pidió; los fallos de infraestructura aparecen como FAILED.
+ */
 describe('smoke AI-native end-to-end', () => {
   test.each([
     ['SUCCESS', FakeOpenRouterScenario.CASE_CV, 'COMPLETED'],
     ['NEEDS_INPUT', FakeOpenRouterScenario.CASE_NEEDS_INPUT, 'NEEDS_INPUT'],
-    ['PROVIDER_FAILURE', FakeOpenRouterScenario.CASE_TOOL_FAILURE, 'NEEDS_INPUT'],
-    ['PROVIDER_TIMEOUT', FakeOpenRouterScenario.CASE_TIMEOUT, 'NEEDS_INPUT'],
-  ] as const)('%s termina en estado terminal accionable', async (_name, scenario, expectedStatus) => {
-    const provider = createFakeAiProvider(scenario);
-    const assessment = await runCaseAnalyst({
-      provider,
-      model: 'fake-model',
-      ...base,
+    ['PROVIDER_FAILURE', FakeOpenRouterScenario.CASE_PROVIDER_FAILURE, 'FAILED'],
+    ['PROVIDER_TIMEOUT', FakeOpenRouterScenario.CASE_TIMEOUT, 'FAILED'],
+  ] as const)('%s termina en estado terminal y nunca queda pendiente', async (_name, scenario, expected) => {
+    const result = await runCaseAnalyst({
+      provider: createFakeAiProvider(scenario),
+      model: 'fake',
+      context,
       maxSteps: scenario === FakeOpenRouterScenario.CASE_TIMEOUT ? 2 : undefined,
       maxToolCalls: scenario === FakeOpenRouterScenario.CASE_TIMEOUT ? 2 : undefined,
     });
 
-    const terminal = terminalFromAssessment(assessment.status);
-    expect(terminal).toBe(expectedStatus);
+    const terminal = result.status as Terminal;
     expect(TERMINAL_AUDIT_RUN_STATUSES).toContain(terminal);
-    if (terminal === 'NEEDS_INPUT') expect(assessment.missingEvidence.length).toBeGreaterThan(0);
+    expect(terminal).toBe(expected);
+
+    if (terminal === 'NEEDS_INPUT') {
+      expect(result.status === 'NEEDS_INPUT' ? result.assessment.missingEvidence.length : 0).toBeGreaterThan(0);
+    }
+    if (terminal === 'FAILED') {
+      expect(result).toMatchObject({ errorCode: expect.any(String) });
+    }
   });
 
-  test('REVIEW_REJECT no supera dos rondas y termina NEEDS_INPUT si persiste el conflicto', async () => {
-    const assessment = await runCaseAnalyst({ provider: createFakeAiProvider(FakeOpenRouterScenario.CASE_CV), model: 'fake-model', ...base });
+  test('REVIEW_REJECT agota dos rondas y termina NEEDS_INPUT con conflicto explicable', async () => {
+    const analysis = await runCaseAnalyst({ provider: createFakeAiProvider(FakeOpenRouterScenario.CASE_CV), model: 'fake', context });
+    expect(analysis.status).toBe('COMPLETED');
+
     const result = await runAuditReviewer({
       provider: createFakeAiProvider(FakeOpenRouterScenario.CASE_REVIEW_REJECT),
       model: 'fake-reviewer',
-      assessment,
-      ...base,
+      assessment: assessed(analysis),
+      context,
       maxReviewRounds: 2,
-      reviseAssessment: async () => assessment,
+      reviseAssessment: async () => assessed(analysis),
     });
 
-    expect(result.rounds).toBeLessThanOrEqual(2);
-    expect(result.finalAssessment.status).toBe('NEEDS_INPUT');
+    expect(result.rounds).toBe(2);
+    expect(result.status).toBe('NEEDS_INPUT');
     expect(result.finalAssessment.missingEvidence.length).toBeGreaterThan(0);
+  });
+
+  test('REVIEW_REJECT con corrección del analista y segundo veredicto confirmado', async () => {
+    const analysis = await runCaseAnalyst({ provider: createFakeAiProvider(FakeOpenRouterScenario.CASE_CV), model: 'fake', context });
+
+    let rejectOnce = true;
+    const result = await runAuditReviewer({
+      provider: {
+        async review() {
+          const review = rejectOnce
+            ? { verdict: 'REJECTED' as const, summary: 'Falta sustento', unsupportedClaims: ['classification'], missingEvidence: [], counterEvidence: [], instruction: 'Aportar evidencia.' }
+            : { verdict: 'CONFIRMED' as const, summary: 'Ahora sí sustentado', unsupportedClaims: [], missingEvidence: [], counterEvidence: [] };
+          rejectOnce = false;
+          return { value: review };
+        },
+      },
+      model: 'fake-reviewer',
+      assessment: assessed(analysis),
+      context,
+      reviseAssessment: async () => assessed(analysis),
+    });
+
+    expect(result.rounds).toBe(2);
+    expect(result.status).toBe('COMPLETED');
+  });
+
+  test('revisor que falla es FAILED, no NEEDS_INPUT', async () => {
+    const analysis = await runCaseAnalyst({ provider: createFakeAiProvider(FakeOpenRouterScenario.CASE_CV), model: 'fake', context });
+
+    const result = await runAuditReviewer({
+      provider: { async review() { throw new Error('OPENROUTER_HTTP_500'); } },
+      model: 'fake-reviewer',
+      assessment: assessed(analysis),
+      context,
+    });
+
+    expect(result).toMatchObject({ status: 'FAILED', errorCode: 'REVIEWER_FAILED' });
   });
 });

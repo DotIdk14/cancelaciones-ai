@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { createJobRepository, sweepStaleOperations } from '@cancelaciones/db';
-import { createInsForgeServerClient } from '@/server/insforge/server';
+import { createInsForgeAdminClient, createInsForgeServerClient } from '@/server/insforge/server';
 import { getCurrentUser } from '@/server/auth/session';
 import { executeClaimedJob } from '@/server/jobs/handlers';
 
@@ -15,7 +15,12 @@ export async function POST() {
 
     const workerId = `http-${randomUUID()}`;
     const client = await createInsForgeServerClient();
-    await sweepStaleOperations(client.database);
+    const adminClient = createInsForgeAdminClient();
+    if (adminClient) {
+      await sweepStaleOperations(adminClient.database);
+    } else {
+      console.warn('[jobs.process] INSFORGE_API_KEY no configurada; se omite el sweep privilegiado.');
+    }
     const repo = createJobRepository(client.database);
     const claimed = await repo.claimNext(workerId, 60);
     if (!claimed) return NextResponse.json({ processed: 0, workerId });

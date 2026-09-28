@@ -116,6 +116,35 @@ describe('prepareEvidenceContent', () => {
     expect(result.text).toBeNull();
   });
 
+  it('deja un PDF sin texto en READY usando fallback de visión cuando el proveedor soporta documentos', async () => {
+    const storage = memoryStorage(new Uint8Array(Buffer.from('%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\n', 'latin1')));
+    let seenMime = '';
+    const vision: VisionProvider = {
+      name: 'fake-vision',
+      async describeImage() {
+        throw new Error('no debe describir PDF como imagen');
+      },
+      async describeDocument(input) {
+        seenMime = input.mimeType;
+        return { text: 'TRANSCRIPCION VISUAL DEL PDF', inputTokens: 10, outputTokens: 20, model: 'vision-doc' };
+      },
+    };
+
+    const result = await prepareEvidenceContent({
+      evidence: evidence({ kind: 'PDF', originalFilename: 'escaneado.pdf', safeFilename: 'escaneado.pdf', detectedMimeType: 'application/pdf' }),
+      storage: storage.storage,
+      providers: { vision },
+      config: DEFAULT_CONFIG,
+    });
+
+    expect(result.status).toBe('READY');
+    expect(result.error).toBeNull();
+    expect(result.text).toContain('[[PDF sin capa de texto; transcripción visual del documento completo]]');
+    expect(result.text).toContain('TRANSCRIPCION VISUAL DEL PDF');
+    expect(result.aiCall).toEqual({ model: 'vision-doc', inputTokens: 10, outputTokens: 20 });
+    expect(seenMime).toBe('application/pdf');
+  });
+
   it('falla una IMAGE sin proveedor de visión en vez de devolver un texto vacío', async () => {
     const storage = memoryStorage(Uint8Array.from([0x89, 0x50, 0x4e, 0x47]));
 

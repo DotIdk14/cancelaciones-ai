@@ -5,10 +5,14 @@ type FetchImpl = (input: string | URL, init?: RequestInit) => Promise<Response>;
 export class AssemblyAIProvider implements AudioProvider {
   private readonly apiKey: string;
   private readonly fetchImpl: FetchImpl;
+  private readonly webhookUrl?: string;
+  private readonly webhookSecret?: string;
 
-  constructor(config: { apiKey: string; fetchImpl?: FetchImpl }) {
+  constructor(config: { apiKey: string; fetchImpl?: FetchImpl; webhookUrl?: string; webhookSecret?: string }) {
     this.apiKey = config.apiKey;
     this.fetchImpl = config.fetchImpl ?? fetch;
+    this.webhookUrl = config.webhookUrl;
+    this.webhookSecret = config.webhookSecret;
   }
 
   async submit(audio: Uint8Array, options: { speakerLabels: boolean; languageCode: string }): Promise<{ assemblyId: string }> {
@@ -24,7 +28,13 @@ export class AssemblyAIProvider implements AudioProvider {
     const transcript = await this.fetchImpl('https://api.assemblyai.com/v2/transcript', {
       method: 'POST',
       headers: { authorization: this.apiKey, 'content-type': 'application/json' },
-      body: JSON.stringify({ audio_url: uploadBody.upload_url, speaker_labels: options.speakerLabels, language_code: options.languageCode }),
+      body: JSON.stringify({
+        audio_url: uploadBody.upload_url,
+        speaker_labels: options.speakerLabels,
+        language_code: options.languageCode,
+        ...(this.webhookUrl ? { webhook_url: this.webhookUrl } : {}),
+        ...(this.webhookSecret ? { webhook_auth_header_name: 'x-assemblyai-signature', webhook_auth_header_value: this.webhookSecret } : {}),
+      }),
     });
     if (!transcript.ok) throw new Error(`ASSEMBLYAI_TRANSCRIPT_${transcript.status}`);
     const body = await transcript.json() as { id?: string };
@@ -42,5 +52,12 @@ export class AssemblyAIProvider implements AudioProvider {
     if (body.status === 'error') return { status: 'error', error: body.error ?? 'AssemblyAI error' };
     if (body.status === 'processing') return { status: 'processing' };
     return { status: 'queued' };
+  }
+
+  async fetchAudioTranscript(assemblyId: string): Promise<{ text: string; utterances?: unknown[]; words?: unknown[] }> {
+    const current = await this.status(assemblyId);
+    if (current.status === 'completed') return { text: current.text ?? '', utterances: current.utterances, words: current.words };
+    if (current.status === 'error') throw new Error(`ASSEMBLY_TRANSCRIPTION_FAILED:${current.error ?? 'AssemblyAI error'}`);
+    throw new Error(`ASSEMBLY_TRANSCRIPTION_NOT_READY:${current.status}`);
   }
 }

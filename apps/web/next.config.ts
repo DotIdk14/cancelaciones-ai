@@ -1,4 +1,5 @@
 import type { NextConfig } from 'next';
+import path from 'node:path';
 
 const nextConfig: NextConfig = {
   typedRoutes: true,
@@ -13,6 +14,7 @@ const nextConfig: NextConfig = {
     '@cancelaciones/evidence',
     '@cancelaciones/ai',
   ],
+  outputFileTracingRoot: path.join(process.cwd(), '../..'),
   distDir: process.env.NEXT_DIST_DIR ?? '.next',
 };
 

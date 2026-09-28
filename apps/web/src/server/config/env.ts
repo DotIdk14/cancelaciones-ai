@@ -6,6 +6,7 @@ const insforgeEnvSchema = z.object({
   NEXT_PUBLIC_INSFORGE_URL: z.string().url('NEXT_PUBLIC_INSFORGE_URL debe ser una URL valida'),
   NEXT_PUBLIC_INSFORGE_ANON_KEY: z.string().min(1, 'NEXT_PUBLIC_INSFORGE_ANON_KEY es obligatoria'),
   NEXT_PUBLIC_APP_URL: z.string().url('NEXT_PUBLIC_APP_URL debe ser una URL valida').default('http://localhost:3000'),
+  INSFORGE_API_KEY: z.string().min(1, 'INSFORGE_API_KEY no puede estar vacia').optional(),
 });
 
 const aiEnvSchema = insforgeEnvSchema.extend({
@@ -16,6 +17,7 @@ const aiEnvSchema = insforgeEnvSchema.extend({
   OPENROUTER_VISION_MODEL: z.string().min(1, 'OPENROUTER_VISION_MODEL no puede estar vacia').default(DEFAULT_MODEL),
   ASSEMBLYAI_API_KEY: z.string().min(1, 'ASSEMBLYAI_API_KEY no puede estar vacia').optional(),
   ASSEMBLYAI_WEBHOOK_SECRET: z.string().min(1, 'ASSEMBLYAI_WEBHOOK_SECRET no puede estar vacia').optional(),
+  ASSEMBLYAI_WEBHOOK_URL: z.string().url('ASSEMBLYAI_WEBHOOK_URL debe ser una URL valida').optional(),
 });
 
 export type InsForgeEnv = z.output<typeof insforgeEnvSchema>;
@@ -26,6 +28,7 @@ function readRawEnv() {
     NEXT_PUBLIC_INSFORGE_URL: process.env.NEXT_PUBLIC_INSFORGE_URL,
     NEXT_PUBLIC_INSFORGE_ANON_KEY: process.env.NEXT_PUBLIC_INSFORGE_ANON_KEY,
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
+    INSFORGE_API_KEY: process.env.INSFORGE_API_KEY,
     OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
     OPENROUTER_FAST_MODEL: process.env.OPENROUTER_FAST_MODEL,
     OPENROUTER_ANALYST_MODEL: process.env.OPENROUTER_ANALYST_MODEL,
@@ -33,6 +36,7 @@ function readRawEnv() {
     OPENROUTER_VISION_MODEL: process.env.OPENROUTER_VISION_MODEL,
     ASSEMBLYAI_API_KEY: process.env.ASSEMBLYAI_API_KEY,
     ASSEMBLYAI_WEBHOOK_SECRET: process.env.ASSEMBLYAI_WEBHOOK_SECRET,
+    ASSEMBLYAI_WEBHOOK_URL: process.env.ASSEMBLYAI_WEBHOOK_URL,
   };
 }
 

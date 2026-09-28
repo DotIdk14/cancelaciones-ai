@@ -13,6 +13,19 @@ describe('AssemblyAIProvider', () => {
     expect(urls).toEqual(['https://api.assemblyai.com/v2/upload', 'https://api.assemblyai.com/v2/transcript']);
   });
 
+  test('submit envia webhook_url cuando esta configurado', async () => {
+    let transcriptPayload: any;
+    const provider = new AssemblyAIProvider({ apiKey: 'key', webhookUrl: 'https://app.local/api/webhooks/assemblyai', webhookSecret: 'secret', fetchImpl: async (url, init) => {
+      if (String(url).endsWith('/upload')) return new Response(JSON.stringify({ upload_url: 'https://audio.local/file' }));
+      transcriptPayload = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify({ id: 'asm-1' }));
+    }});
+
+    await provider.submit(new Uint8Array([1]), { speakerLabels: true, languageCode: 'es' });
+
+    expect(transcriptPayload.webhook_url).toBe('https://app.local/api/webhooks/assemblyai');
+  });
+
   test('status mapea error', async () => {
     const provider = new AssemblyAIProvider({ apiKey: 'key', fetchImpl: async () => new Response(JSON.stringify({ status: 'error', error: 'bad audio' })) });
     await expect(provider.status('asm-1')).resolves.toEqual({ status: 'error', error: 'bad audio' });

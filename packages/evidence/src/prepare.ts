@@ -165,6 +165,36 @@ async function preparePdf(
   const usable = pages.filter((page) => page.text.trim().length > 0);
 
   if (usable.length === 0) {
+    const vision = input.providers.vision;
+    if (vision?.describeDocument) {
+      const description = await vision.describeDocument({
+        base64: Buffer.from(bytes).toString('base64'),
+        mimeType: evidence.detectedMimeType,
+        filename: evidence.safeFilename,
+        prompt: [
+          'Describe este PDF escaneado o sin capa de texto.',
+          'Transcribe literalmente todo el texto visible, conservando el orden de lectura.',
+          'No interpretes, no concluyas, no resumas.',
+          `El extractor local no encontró texto en las primeras ${pages.length} páginas; deja constancia de páginas visibles si puedes identificarlas.`,
+        ].join(' '),
+        timeoutMs: input.config.visionTimeoutMs,
+        signal: input.signal,
+      });
+      return {
+        evidenceId: evidence.id,
+        kind: evidence.kind,
+        status: 'READY',
+        text: truncateTo(`[[PDF sin capa de texto; transcripción visual del documento completo]]\n${description.text}`, maxChars),
+        audio: null,
+        pages: pages.length,
+        error: null,
+        aiCall: {
+          model: description.model,
+          inputTokens: description.inputTokens,
+          outputTokens: description.outputTokens,
+        },
+      };
+    }
     return failure(
       evidence,
       'PDF_TEXT_UNAVAILABLE',

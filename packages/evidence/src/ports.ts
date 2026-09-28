@@ -120,4 +120,12 @@ export interface VisionProvider {
     timeoutMs: number;
     signal?: AbortSignal;
   }): Promise<{ text: string; inputTokens: number | null; outputTokens: number | null; model: string }>;
+  describeDocument?(input: {
+    base64: string;
+    mimeType: string;
+    filename: string;
+    prompt: string;
+    timeoutMs: number;
+    signal?: AbortSignal;
+  }): Promise<{ text: string; inputTokens: number | null; outputTokens: number | null; model: string }>;
 }
