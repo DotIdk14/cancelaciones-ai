@@ -1,7 +1,7 @@
 import { handleRoute, ok, methodNotAllowed, requiredString } from '../../../src/server/http.js';
 import { createServerClient } from '../../../src/server/insforge.js';
-import { getCaseOr404, latestAudit, listEvidenceRows } from '../../../src/server/cases.js';
-import { auditToDto, caseToDetail, evidenceToDto } from '../../../src/server/dto.js';
+import { getCaseOr404, latestAudit, listAuditsByCase, listEvidenceRows } from '../../../src/server/cases.js';
+import { auditHistoryItemToDto, auditToDto, caseToDetail, evidenceToDto } from '../../../src/server/dto.js';
 import { refreshTranscriptions } from '../../../src/server/audit-service.js';
 
 // GET /api/cases/:caseId → { case, evidences, audit }
@@ -18,10 +18,12 @@ export default handleRoute(async (req, res) => {
   await refreshTranscriptions(client, caseId, 6_000);
   const evidences = await listEvidenceRows(client, caseId);
   const audit = await latestAudit(client, caseId);
+  const audits = await listAuditsByCase(client, caseId);
 
   ok(res, {
     case: caseToDetail(caseRow),
     evidences: evidences.map(evidenceToDto),
     audit: audit ? auditToDto(audit) : null,
+    audits: audits.map(auditHistoryItemToDto),
   });
 });

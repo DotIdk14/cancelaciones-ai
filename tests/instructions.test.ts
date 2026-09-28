@@ -49,4 +49,14 @@ describe('Instrucciones del Skill (anti prompt-injection)', () => {
     // buildDossierHeader sigue siendo utilizable de forma aislada.
     expect(buildDossierHeader({ caseId: 'c-9', studentIdentifier: 'UTEL-1' })).toContain('c-9');
   });
+
+  it('incluye la ruta normativa, la comprobación de evidencia ya disponible y la corroboración convergente', () => {
+    const system = buildSystemPrompt();
+    expect(system).toContain('auditPath.hypothesis');
+    expect(system).toContain('corroboración convergente');
+    expect(system).toContain('Si la evidencia ya está disponible');
+    expect(system).toContain('no pidas ese dato como missingEvidence');
+    expect(system).toContain('contacto efectivo');
+    expect(system).toContain('retención efectiva');
+  });
 });

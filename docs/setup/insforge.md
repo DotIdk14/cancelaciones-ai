@@ -34,13 +34,13 @@ arrancar con `[env] Falta la variable de entorno <NOMBRE>`.
 - `INSFORGE_ANON_KEY` — anon key del proyecto. Da acceso al rol `anon` y, con la
   cookie de sesión httpOnly, al rol `authenticated` (el que aplica la RLS por
   `created_by`).
+- `INSFORGE_API_KEY` — clave administrativa usada por las funciones del
+  servidor para operaciones privilegiadas.
 - `OPENROUTER_API_KEY` y `OPENROUTER_MODEL` — el proveedor de IA del producto
   (fuera del alcance de este documento, pero se validan en el mismo arranque).
 
 ### Opcionales
 
-- `INSFORGE_API_KEY` — clave administrativa para operaciones privilegiadas. Si
-  no se define, el producto funciona igual con el rol `authenticated` del usuario.
 - `INSFORGE_STORAGE_BUCKET` — bucket de Storage donde viven los binarios de las
   evidencias. **Default: `evidencias`** (único bucket del producto).
 

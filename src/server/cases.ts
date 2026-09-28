@@ -166,6 +166,16 @@ export async function latestAudit(client: InsForgeClient, caseId: string): Promi
   return rows[0] ?? null;
 }
 
+export async function listAuditsByCase(client: InsForgeClient, caseId: string): Promise<AuditRow[]> {
+  const { data, error } = await client.database
+    .from('audits')
+    .select('*')
+    .eq('case_id', caseId)
+    .order('created_at', { ascending: false });
+  if (error) dbError(error);
+  return (data as AuditRow[] | null) ?? [];
+}
+
 export async function latestCompletedAuditByFingerprint(
   client: InsForgeClient,
   caseId: string,

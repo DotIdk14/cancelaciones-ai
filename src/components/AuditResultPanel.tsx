@@ -56,6 +56,7 @@ export function AuditResultPanel({ audit, evidences }: AuditResultPanelProps): R
   const { audit: assessment, case: caseData, facts, timeline, conflicts, model, usage } = result;
   const isInsufficient = assessment.result === 'EVIDENCIA_INSUFICIENTE';
   const tone: Tone = RESULT_TONE[assessment.result] ?? 'neutral';
+  const hasProcedureChecks = Array.isArray(assessment.procedureChecks) && assessment.procedureChecks.length > 0;
 
   // Resuelve ids de evidencia -> nombre de archivo del caso.
   const namesById = new Map(evidences.map((item) => [item.id, item.filename]));
@@ -102,18 +103,52 @@ export function AuditResultPanel({ audit, evidences }: AuditResultPanelProps): R
           role="status"
           className="mt-4 rounded-xl border border-warning/40 bg-warning/10 p-3 text-sm text-warning"
         >
-          <p className="font-semibold">No fue posible emitir un dictamen confiable.</p>
+          <p className="font-semibold">SE NECESITA INFORMACIÓN ADICIONAL</p>
           <p className="mt-1 text-ink">
-            La evidencia disponible no alcanza para determinar el trámite. A continuación se listan los
-            documentos faltantes que permitirían concluir.
+            Qué sí pude comprobar: hechos relevantes y checks acreditados. Qué todavía no puedo comprobar: la
+            evidencia que falta para cerrar la condición normativa.
           </p>
           {assessment.missingEvidence.length > 0 && (
-            <ul className="mt-2 list-disc space-y-1 pl-5 text-ink">
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
               {assessment.missingEvidence.map((item) => (
-                <li key={item}>{item}</li>
+                <div key={`${item.title}-${item.relatedProcedureSection}`} className="rounded-xl border border-warning/30 bg-surface-2 p-3">
+                  <p className="font-semibold text-ink">{item.title}</p>
+                  <p className="mt-1 text-sm text-ink">{item.reason}</p>
+                  <p className="mt-2 text-xs font-medium uppercase tracking-wide text-muted">Qué puedes compartir</p>
+                  <ul className="mt-1 list-disc pl-5 text-sm text-ink">
+                    {item.acceptedEvidence.map((entry) => <li key={`${item.title}-${entry}`}>{entry}</li>)}
+                  </ul>
+                  <p className="mt-2 text-xs font-medium uppercase tracking-wide text-muted">Sección aplicable</p>
+                  <p className="mt-1 text-sm text-ink">{item.relatedProcedureSection}</p>
+                  {item.relatedEvidenceIds.length > 0 && (
+                    <>
+                      <p className="mt-2 text-xs font-medium uppercase tracking-wide text-muted">Evidencias relacionadas</p>
+                      <div className="mt-1 flex flex-wrap gap-1.5">
+                        {item.relatedEvidenceIds.map((id) => (
+                          <Chip key={`${item.title}-${id}`} title={fileName(id)}>{fileName(id)}</Chip>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
               ))}
-            </ul>
+            </div>
           )}
+          <div className="mt-4">
+            <button
+              type="button"
+              onClick={() => {
+                const uploader = document.getElementById('evidence-uploader');
+                if (uploader) {
+                  uploader.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  uploader.focus();
+                }
+              }}
+              className="rounded-lg border border-warning/50 bg-warning/10 px-3 py-2 text-sm font-medium text-warning transition-colors hover:bg-warning/15"
+            >
+              Subir evidencias faltantes
+            </button>
+          </div>
         </div>
       )}
 
@@ -256,6 +291,41 @@ export function AuditResultPanel({ audit, evidences }: AuditResultPanelProps): R
         )}
       </div>
 
+      {/* ------------------------------------------------- Procedure checks */}
+      {hasProcedureChecks && (
+        <div className="mt-5">
+          <SectionTitle>Checks del procedimiento</SectionTitle>
+          <div className="mt-2 flex flex-col gap-2">
+            {assessment.procedureChecks.map((check, index) => (
+              <div key={`${check.procedureSection}-${index}`} className="rounded-xl border border-line bg-surface-2 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-ink">{check.procedureSection}</p>
+                  <Badge tone={check.status === 'ACREDITADO' ? 'success' : check.status === 'NO_ACREDITADO' ? 'danger' : 'warning'}>
+                    {check.status}
+                  </Badge>
+                </div>
+                <p className="mt-1 text-sm text-ink"><span className="font-medium">Criterio:</span> {check.criterion}</p>
+                <p className="mt-1 text-sm text-ink">{check.reasoning}</p>
+                {check.observedValues.length > 0 && (
+                  <ul className="mt-2 list-disc pl-5 text-xs text-muted">
+                    {check.observedValues.map((value) => (
+                      <li key={`${check.procedureSection}-${value.label}`}><span className="font-medium text-ink">{value.label}:</span> {value.value}</li>
+                    ))}
+                  </ul>
+                )}
+                {check.evidenceIds.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {check.evidenceIds.map((id) => (
+                      <Chip key={`${check.procedureSection}-${id}`} title={fileName(id)}>{fileName(id)}</Chip>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ------------------------------------------------- Evidencias faltantes */}
       <div className="mt-5">
         <SectionTitle>Evidencias faltantes</SectionTitle>
@@ -264,7 +334,7 @@ export function AuditResultPanel({ audit, evidences }: AuditResultPanelProps): R
         ) : (
           <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-ink">
             {assessment.missingEvidence.map((item) => (
-              <li key={item}>{item}</li>
+              <li key={`${item.title}-${item.relatedProcedureSection}`}>{item.title}</li>
             ))}
           </ul>
         )}

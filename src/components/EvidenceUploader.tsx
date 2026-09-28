@@ -89,6 +89,7 @@ export function EvidenceUploader({ caseId, onUploaded, disabled = false }: Evide
 
   return (
     <Panel
+      id="evidence-uploader"
       title="Subir evidencias"
       description="Imágenes, PDF o audio. Cada archivo se procesa de forma independiente."
     >

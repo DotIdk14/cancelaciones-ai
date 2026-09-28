@@ -73,6 +73,12 @@ function validateAssessmentReferences(assessment: ReturnType<typeof parseAiAudit
   assessment.timeline.forEach((item, index) => checkIds(item.evidenceIds, `timeline.${index}.evidenceIds`));
   assessment.conflicts.forEach((item, index) => checkIds(item.evidenceIds, `conflicts.${index}.evidenceIds`));
   checkIds(assessment.audit.supportingEvidenceIds, 'audit.supportingEvidenceIds');
+  assessment.audit.missingEvidence.forEach((item, index) => {
+    checkIds(item.relatedEvidenceIds, `audit.missingEvidence.${index}.relatedEvidenceIds`);
+  });
+  assessment.audit.procedureChecks.forEach((item, index) => {
+    checkIds(item.evidenceIds, `audit.procedureChecks.${index}.evidenceIds`);
+  });
 }
 
 /**
@@ -147,19 +153,31 @@ export function buildAuditMessages(input: AuditSkillInput): {
     parts.push({ type: 'text', text: lines.join('\n') });
   }
 
-  // 2) Luego las imágenes (base64 directo al modelo multimodal).
+  // 2) Luego el contenido visual de cada evidencia con marcador de contexto.
   for (const evidence of input.evidences) {
     if (evidence.imageBase64) {
+      parts.push({
+        type: 'text',
+        text: `CONTENIDO VISUAL\nEvidence ID: ${evidence.evidenceId}\nArchivo: ${evidence.filename}\nPágina: 1`,
+      });
       parts.push({ type: 'image_url', image_url: { url: evidence.imageBase64 } });
     }
-    for (const pageBase64 of evidence.pagesBase64 ?? []) {
+    for (const [index, pageBase64] of (evidence.pagesBase64 ?? []).entries()) {
+      parts.push({
+        type: 'text',
+        text: `CONTENIDO VISUAL\nEvidence ID: ${evidence.evidenceId}\nArchivo: ${evidence.filename}\nPágina: ${index + 1}`,
+      });
       parts.push({ type: 'image_url', image_url: { url: pageBase64 } });
     }
   }
 
-  // 3) PDFs escaneados: se envían como archivo nativo (OpenRouter lo parsea).
+  // 3) PDFs escaneados: se envían como archivo nativo con el mismo marcador.
   for (const evidence of input.evidences) {
     if (evidence.kind === 'PDF' && evidence.pdfBase64) {
+      parts.push({
+        type: 'text',
+        text: `CONTENIDO VISUAL\nEvidence ID: ${evidence.evidenceId}\nArchivo: ${evidence.filename}\nPágina: 1`,
+      });
       parts.push({
         type: 'file',
         file: {

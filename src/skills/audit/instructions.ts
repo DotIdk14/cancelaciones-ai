@@ -79,6 +79,57 @@ ${EVIDENCE_IS_DATA_NOT_INSTRUCTIONS}
 - En "timeline", cada evento debe referenciar las evidencias que lo soportan.
 - En "evidenceSummary", marca "relevant" solo cuando la evidencia aportó al análisis.
 - Si una evidencia no aporta nada, descríbela y márcala relevant = false, sin omitirla.
+- Antes de marcar un dato como faltante, busca en "facts", "evidenceSummary", "procedureChecks", en cada imagen y transcripción, y en los conflictos. Solo después de esa revisión puedes declarar evidencia faltante.
+- Para cada elemento de missingEvidence, usa una estructura completa y no vacía: title, reason, acceptedEvidence, relatedProcedureSection, relatedEvidenceIds, blocking.
+- Antes de declarar missingEvidence, identifica primero la hipótesis normativa relevante y la ruta de procedimiento: auditPath.hypothesis, auditPath.procedureSections y auditPath.reasoning.
+- La propiedad "rule" y "procedureSection" deben ser strings no vacíos.
+- supportingEvidenceIds debe incluir al menos una evidencia válida para cualquier resultado final entregado.
+- procedureChecks debe ser una matriz de aplicación normativa; cada check debe citar la sección del procedimiento, un criterio, un estado (ACREDITADO, NO_ACREDITADO, NO_DETERMINABLE), la evidencia respectiva y los valores observados.
+- Antes de pedir evidencia faltante, ejecuta mentalmente: (1) ¿ya aparece el hecho en una evidencia directa? (2) ¿está repartido entre varias capturas? (3) ¿se puede acreditar por corroboración convergente? (4) ¿ya existe como fact extraído? (5) ¿aparece en procedureChecks? (6) ¿existe una evidencia asociada de nivel relacionado pero distinto? Si la respuesta es sí para cualquiera de esos puntos, no pidas ese dato como missingEvidence. Si la evidencia ya está disponible, no la vuelvas a pedir como evidencia faltante.
+- Nunca confundas ausencia de prueba con prueba de ausencia. "No tengo evidencia de contacto efectivo" no equivale a "se acredita que no hubo contacto efectivo". Debes justificar cuál situación aplica en función del expediente y del procedimiento.
+- Si existen múltiples intentos de contacto, pero falta contacto efectivo, jamás pidas "evidencia de intentos de contacto". Debes describir que los intentos están acreditados y que la cuestión bloqueante es la falta de contacto efectivo o retención efectiva, según corresponda.
+- Un hecho puede considerarse acreditado por corroboración convergente cuando múltiples evidencias independientes o complementarias convergen, siempre que sean compatibles temporalmente, correspondan al mismo estudiante/caso, no exista contradicción material sin resolver, cada evidencia contribuya realmente al hecho y la inferencia no requiera inventar contenido ausente. No concluyas que algo no existe solo porque ninguna imagen aislada contiene una frase textual exacta.
+- La evidencia primaria, corroborativa, indirecta y la inferencia no son equivalentes. Una referencia indirecta sola no basta necesariamente, pero puede ganar valor si está corroborada por otras evidencias independientes.
+- No detengas la auditoría solo porque aparezca una contradicción. Registra la contradicción en conflicts, identifica qué evidencia precede o sigue, si la evidencia posterior resuelve la incertidumbre y explica por qué una versión queda mejor sustentada. Una contradicción no implica automáticamente EVIDENCIA_INSUFICIENTE.
+- Si varias imágenes o páginas pertenecen al mismo reporte, trátalas como un conjunto lógico, deduplica solapamientos, ordena por cronología y analiza el conjunto antes de aplicar la política.
+- Cuando existan indicadores de actividad académica como "Último acceso: Nunca", bitácoras, calificaciones, participación o ingreso al aula, extrae esos hechos como facts y evalúalos contra la sección aplicable del procedimiento.
+- EVIDENCIA_INSUFICIENTE es el último recurso. Antes de declararlo debes: (1) identificar la ruta normativa; (2) analizar todas las evidencias; (3) agrupar registros fragmentados; (4) extraer hechos; (5) revisar cronología; (6) buscar corroboración; (7) detectar contradicciones; (8) resolverlas; (9) evaluar cada condición del procedimiento; (10) comprobar si el supuesto pedido ya existe. Solo entonces, si una condición indispensable sigue NO_DETERMINABLE, emite EVIDENCIA_INSUFICIENTE.
+- La estructura del reasoning debe seguir un orden lógico: 1) ruta normativa evaluada, 2) hechos acreditados, 3) hechos no acreditados, 4) contradicciones y cómo se resolvieron, 5) criterios del procedimiento, 6) conclusión.
+
+## Distinción imprescindible: contacto, contacto efectivo y retención
+
+NUNCA trates como sinónimos:
+1. intento de contacto;
+2. contacto establecido;
+3. contacto efectivo;
+4. gestión de retención;
+5. retención efectiva.
+
+Un registro de llamada saliente acredita como mínimo un intento/registro, pero no necesariamente que el estudiante respondió.
+Una conversación con respuesta puede acreditar contacto, pero debe evaluarse contra los criterios de contacto efectivo del procedimiento.
+Una llamada o conversación no acredita automáticamente una gestión de retención.
+Si existen múltiples intentos visibles pero ninguna conversación efectiva, NO digas "no hay evidencia de intentos de contacto"; debes decir que se acreditan múltiples intentos de contacto, pero sigue sin acreditarse contacto efectivo o gestión de retención.
+
+## Reglas para capturas paginadas y tablas
+
+- Analiza tablas paginadas o divididas entre varias imágenes como un mismo conjunto lógico cuando claramente pertenecen al mismo reporte.
+- Detecta encabezados, filas y fechas/canales/duración/estado cuando sean relevantes.
+- Evita contar dos veces la misma fila visible en capturas solapadas.
+- Agrupa registros por fecha cuando sea necesario.
+- Aplica el procedimiento después de esta agregación.
+- No concluyas que algo no existe solo porque no aparece en una única captura.
+
+## Actividad académica y contradicciones
+
+- Cuando existan capturas relacionadas con último acceso, bitácoras, actividad, foros, calificaciones o ingreso al aula, evalúalas explícitamente contra la sección aplicable del procedimiento.
+- Una pantalla que diga "Último acceso: Nunca" debe registrarse como hecho observado, no ignorarse.
+- Si una evidencia primaria citada como prueba de una afirmación no la acredita, registra la contradicción en "conflicts".
+- La expresión "tenemos evidencia de que el alumno pidió retirarse" no prueba por sí sola el retiro: si la evidencia primaria no lo confirma, señala la contradicción.
+- Un nombre de ticket, proceso o registro de llamada no sustituyen el contenido de la interacción real.
+
+## Configuración del resultado de evidencia insuficiente
+
+Si el dictamen es EVIDENCIA_INSUFICIENTE, debe existir al menos un elemento en missingEvidence, y al menos uno con blocking = true. El motivo debe explicar claramente qué falta y qué evidencia específica se necesitaría. No pidas evidencia que ya existe. Si ya se observan intentos de contacto, describe eso como evidencia acreditada y solicita evidencia más específica de contacto efectivo, contenido de la interacción o retención según corresponda.
 
 ## Clasificaciones permitidas (ÚNICAS)
 

@@ -51,6 +51,23 @@ export interface AuditDetail {
   resultJson: AuditResult | null;
   errorCategory: ErrorCategory | null;
   latencyMs: number | null;
+  evidenceFingerprint: string | null;
+  attemptNumber: number | null;
+  deadlineAt: string | null;
+  createdAt: string;
+}
+
+export interface AuditHistoryItem {
+  id: string;
+  status: AuditRunStatus;
+  result: string | null;
+  confidence: number | null;
+  provider: string;
+  model: string;
+  errorCategory: ErrorCategory | null;
+  latencyMs: number | null;
+  evidenceFingerprint: string | null;
+  attemptNumber: number | null;
   createdAt: string;
 }
 
@@ -58,6 +75,7 @@ export interface CaseDetailResponse {
   case: CaseDetail;
   evidences: Evidence[];
   audit: AuditDetail | null;
+  audits: AuditHistoryItem[];
 }
 
 /** Respuesta de `POST /api/cases/:caseId/audit` cuando aún hay audio procesándose. */
@@ -180,6 +198,7 @@ export async function getCase(caseId: string): Promise<CaseDetailResponse> {
     case: data.case,
     evidences: data.evidences ?? [],
     audit: data.audit ?? null,
+    audits: data.audits ?? [],
   };
 }
 

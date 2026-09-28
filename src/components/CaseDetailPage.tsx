@@ -196,7 +196,8 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
   const caseIsError = detail?.case.status === 'ERROR';
   const hasCompletedAudit = audit?.status === 'COMPLETED';
   const auditBusy = auditPhase !== 'idle';
-  const canAudit = allReady && !hasCompletedAudit && !caseIsError && !auditBusy;
+  const canAudit = allReady && !caseIsError && !auditBusy;
+  const shouldShowReauditLabel = detail?.case.status === 'READY' && allReady && hasCompletedAudit;
 
   // Mientras hay transcripciones en curso se refresca el caso cada 3 s.
   // En fase `waiting` el poll de auditoría ya trae los mismos datos, así que
@@ -316,7 +317,9 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
               ? 'Esperando transcripción…'
               : auditPhase === 'running'
                 ? 'Auditando con IA…'
-                : 'Auditar con IA'}
+                : shouldShowReauditLabel
+                  ? 'Volver a auditar con la nueva evidencia'
+                  : 'Auditar con IA'}
           </Button>
 
           {auditPhase === 'starting' && (

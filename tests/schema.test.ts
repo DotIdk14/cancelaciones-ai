@@ -37,10 +37,25 @@ const validResult = {
     result: 'CANCELACION_VENTA',
     rule: 'GDM_GAM_PRD_MLG_003 v5 — Fase de venta',
     procedureSection: '3, páginas 4-5',
+    auditPath: {
+      hypothesis: 'solicitud del estudiante',
+      procedureSections: ['3', '5.2'],
+      reasoning: 'Se evalúa la hipótesis de solicitud del estudiante porque la evidencia convergente acreditada coincide en la intención de no continuar.',
+    },
     reasoning: 'La evidencia acredita la solicitud dentro del plazo de venta.',
     confidence: 0.91,
     supportingEvidenceIds: ['ev-1'],
     missingEvidence: [],
+    procedureChecks: [
+      {
+        procedureSection: '5.2',
+        criterion: 'Intentos mínimos de contacto',
+        status: 'ACREDITADO',
+        reasoning: 'Se observa una solicitud válida y la evidencia disponible la acredita.',
+        evidenceIds: ['ev-1'],
+        observedValues: [{ label: 'solicitud identificada', value: 'Sí' }],
+      },
+    ],
     observations: ['Sin observaciones.'],
   },
   model: { provider: 'openrouter', model: 'google/gemini-2.5-flash' },
@@ -79,9 +94,114 @@ describe('parseAuditResult (schema único)', () => {
     expect(error).toContain('confidence');
   });
 
+  it('rechaza missingEvidence estructurado incompleto', () => {
+    const invalid = {
+      ...validResult,
+      audit: {
+        ...validResult.audit,
+        result: 'EVIDENCIA_INSUFICIENTE',
+        missingEvidence: [{ title: 'Evidencia de intentos de contacto' }],
+      },
+    };
+    const error = parseInvalid(invalid);
+    expect(error).toMatch(/^INVALID_AI_RESPONSE:/);
+  });
+
+  it('rechaza un resultado final con missingEvidence bloqueante pero sin insuficiencia', () => {
+    const invalid = {
+      ...validResult,
+      audit: {
+        ...validResult.audit,
+        result: 'CANCELACION_VENTA',
+        missingEvidence: [
+          {
+            title: 'Falta contacto efectivo',
+            reason: 'No se acredita contacto efectivo.',
+            acceptedEvidence: ['Sesión con respuesta del estudiante'],
+            relatedProcedureSection: '5.3',
+            relatedEvidenceIds: ['ev-1'],
+            blocking: true,
+          },
+        ],
+      },
+    };
+    const error = parseInvalid(invalid);
+    expect(error).toMatch(/^INVALID_AI_RESPONSE:/);
+  });
+
   it('acepta usage con campos null (coste no disponible)', () => {
     const parsed = parseAuditResult({ ...validResult, usage: { promptTokens: null, completionTokens: null, totalTokens: null, estimatedCostUSD: null } });
     expect(parsed.usage.estimatedCostUSD).toBeNull();
+  });
+
+  it('acepta sintético de ilocalizable sin pedir intentos ya presentes', () => {
+    const synthetic = {
+      ...validResult,
+      case: { ...validResult.case, studentName: 'Estudiante A' },
+      audit: {
+        ...validResult.audit,
+        result: 'CANCELACION_VENTA',
+        rule: 'GDM_GAM_PRD_MLG_003 v5 — ilocalizable',
+        procedureSection: '5.2 + 5.8 + 5.15',
+        auditPath: {
+          hypothesis: 'estudiante ilocalizable',
+          procedureSections: ['5.2', '5.8', '5.15'],
+          reasoning: 'Se acreditan intentos de contacto y se descarta contacto efectivo y actividad académica.',
+        },
+        reasoning: 'Existen múltiples intentos acreditados; no se observa contacto efectivo ni actividad académica suficiente.',
+        missingEvidence: [
+          {
+            title: 'Contacto efectivo',
+            reason: 'Se acreditan intentos de contacto, pero falta evidencia del contacto efectivo.',
+            acceptedEvidence: ['Registros de llamadas sin respuesta', 'Mensajes con sin respuesta'],
+            relatedProcedureSection: '5.8',
+            relatedEvidenceIds: ['ev-1'],
+            blocking: false,
+          },
+        ],
+        supportingEvidenceIds: ['ev-1'],
+        procedureChecks: [
+          {
+            procedureSection: '5.2',
+            criterion: 'Intentos mínimos de contacto',
+            status: 'ACREDITADO',
+            reasoning: 'Los registros muestran múltiples intentos con resultados sin respuesta.',
+            evidenceIds: ['ev-1'],
+            observedValues: [{ label: 'llamadas observadas', value: '3' }],
+          },
+          {
+            procedureSection: '5.8',
+            criterion: 'Contacto efectivo',
+            status: 'NO_ACREDITADO',
+            reasoning: 'No aparece evidencia de interacción efectiva y contestada por el estudiante.',
+            evidenceIds: ['ev-1'],
+            observedValues: [{ label: 'respuesta efectiva', value: 'No' }],
+          },
+        ],
+      },
+    };
+    const parsed = parseAuditResult(synthetic);
+    expect(parsed.audit.missingEvidence.some((item) => item.title.toLowerCase().includes('intentos'))).toBe(false);
+    expect(parsed.audit.auditPath.hypothesis).toBe('estudiante ilocalizable');
+  });
+
+  it('acepta un assessment con route auditPath y corroboración convergente', () => {
+    const parsed = parseAuditResult({
+      ...validResult,
+      audit: {
+        ...validResult.audit,
+        result: 'CANCELACION_VENTA',
+        auditPath: {
+          hypothesis: 'estudiante ilocalizable',
+          procedureSections: ['5.2', '5.8', '5.15'],
+          reasoning: 'Se evalúa la hipótesis de ilocalizable porque los intentos están acreditados, pero no hay contacto efectivo ni actividad académica.',
+        },
+        missingEvidence: [],
+      },
+    });
+
+    expect(parsed.audit.auditPath.hypothesis).toBe('estudiante ilocalizable');
+    expect(parsed.audit.auditPath.procedureSections).toContain('5.8');
   });
 });
 

@@ -68,6 +68,7 @@ Configurar como variables de entorno del proyecto Vercel, sin prefijos `VITE_` n
 
 - `INSFORGE_BASE_URL`
 - `INSFORGE_ANON_KEY`
+- `INSFORGE_API_KEY`
 - `OPENROUTER_API_KEY`
 - `OPENROUTER_MODEL`
 - `APP_URL` con el dominio HTTPS productivo
@@ -98,6 +99,14 @@ npm.cmd run typecheck
 npm.cmd run build
 npx vercel --prod
 ```
+
+Antes del deploy, en *Project Settings → Environment Variables*, elimina
+`NEXT_PUBLIC_INSFORGE_ANON_KEY`, `NEXT_PUBLIC_INSFORGE_URL` y cualquier
+`VITE_*` equivalente de **Production, Preview y Development**. Configura
+InsForge únicamente con `INSFORGE_BASE_URL`, `INSFORGE_ANON_KEY` y
+`INSFORGE_API_KEY`, sin prefijos públicos. Después de guardar los cambios, crea
+un nuevo deployment de producción; los deployments existentes conservan la
+configuración con la que fueron creados.
 
 ## Smoke test post-deploy
 

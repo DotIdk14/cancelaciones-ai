@@ -51,6 +51,20 @@ export interface AuditDetailDto {
   createdAt: string;
 }
 
+export interface AuditHistoryItemDto {
+  id: string;
+  status: AuditStatus;
+  result: string | null;
+  confidence: number | null;
+  provider: string;
+  model: string;
+  errorCategory: ErrorCategory | null;
+  latencyMs: number | null;
+  evidenceFingerprint: string | null;
+  attemptNumber: number | null;
+  createdAt: string;
+}
+
 export function caseToSummary(row: CaseSummaryRow): CaseSummaryDto {
   const count = row.evidence?.[0]?.count ?? 0;
   return {
@@ -114,6 +128,25 @@ export function auditToDto(row: AuditRow): AuditDetailDto {
     evidenceFingerprint: row.evidence_fingerprint,
     attemptNumber: row.attempt_number,
     deadlineAt: row.deadline_at,
+    createdAt: row.created_at,
+  };
+}
+
+export function auditHistoryItemToDto(row: AuditRow): AuditHistoryItemDto {
+  const resultJson = row.status === 'COMPLETED' ? parseJsonField(row.result_json) : null;
+  const output = resultJson && typeof resultJson === 'object' ? resultJson as Record<string, unknown> : null;
+  const assessment = output && typeof output.audit === 'object' ? output.audit as Record<string, unknown> : null;
+  return {
+    id: row.id,
+    status: row.status,
+    result: typeof assessment?.result === 'string' ? assessment.result : null,
+    confidence: typeof assessment?.confidence === 'number' ? assessment.confidence : null,
+    provider: row.provider,
+    model: row.model,
+    errorCategory: row.error_category,
+    latencyMs: row.latency_ms,
+    evidenceFingerprint: row.evidence_fingerprint,
+    attemptNumber: row.attempt_number,
     createdAt: row.created_at,
   };
 }

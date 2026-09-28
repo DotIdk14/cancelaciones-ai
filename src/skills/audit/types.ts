@@ -104,6 +104,24 @@ export interface ModelUsage {
 }
 
 /** Resultado de la ejecución del Skill. */
+export interface ProcedureCheck {
+  procedureSection: string;
+  criterion: string;
+  status: 'ACREDITADO' | 'NO_ACREDITADO' | 'NO_DETERMINABLE';
+  reasoning: string;
+  evidenceIds: string[];
+  observedValues: Array<{ label: string; value: string }>;
+}
+
+export interface MissingEvidenceItem {
+  title: string;
+  reason: string;
+  acceptedEvidence: string[];
+  relatedProcedureSection: string;
+  relatedEvidenceIds: string[];
+  blocking: boolean;
+}
+
 export interface AuditSkillOutput {
   case: {
     matricula: string | null;
@@ -138,12 +156,18 @@ export interface AuditSkillOutput {
   }>;
   audit: {
     result: AuditResultType;
-    rule: string | null;
-    procedureSection: string | null;
+    rule: string;
+    procedureSection: string;
+    auditPath: {
+      hypothesis: string;
+      procedureSections: string[];
+      reasoning: string;
+    };
     reasoning: string;
     confidence: number;
     supportingEvidenceIds: string[];
-    missingEvidence: string[];
+    missingEvidence: MissingEvidenceItem[];
+    procedureChecks: ProcedureCheck[];
     observations: string[];
   };
   model: {
