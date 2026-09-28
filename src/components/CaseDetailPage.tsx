@@ -19,6 +19,9 @@ import { EvidenceViewer } from './EvidenceViewer';
 import { Badge, Button, ErrorCard, Panel, Spinner } from './ui';
 import type { Tone } from './ui';
 
+/** Mensaje amigable cuando el servidor devuelve 401 (sesión requerida). */
+const AUTH_ERROR_MESSAGE = 'El servidor requiere autenticación. La interfaz está en modo demo: los datos no se cargarán hasta que configure una sesión válida.';
+
 const TRANSCRIPTION_POLL_MS = 3000;
 const AUDIT_POLL_MS = 4000;
 /** Reintentos de POST mientras la transcripción no termina (≈3 min). */
@@ -75,7 +78,10 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
         }
       }
     } catch (err) {
-      setLoadError(toErrorState(err));
+      const state = toErrorState(err);
+      // Si el servidor devuelve 401, mostrar mensaje amigable en modo demo.
+      const message = state.category === 'AUTH_ERROR' ? AUTH_ERROR_MESSAGE : state.message;
+      setLoadError({ category: state.category, message });
     } finally {
       setLoading(false);
     }
@@ -132,7 +138,9 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
       applyAudit(response.audit);
     } catch (err) {
       setAuditPhase('idle');
-      setAuditError(toErrorState(err));
+      const state = toErrorState(err);
+      const message = state.category === 'AUTH_ERROR' ? AUTH_ERROR_MESSAGE : state.message;
+      setAuditError({ category: state.category, message });
     }
   }, [caseId, applyAudit]);
 
@@ -207,7 +215,9 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
       setConfirmId(null);
       await load();
     } catch (err) {
-      setActionError(toErrorState(err));
+      const state = toErrorState(err);
+      const message = state.category === 'AUTH_ERROR' ? AUTH_ERROR_MESSAGE : state.message;
+      setActionError({ category: state.category, message });
     } finally {
       setDeletingId(null);
     }

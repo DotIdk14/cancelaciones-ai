@@ -1,32 +1,18 @@
 // =============================================================================
 // Raiz de la SPA. Hash routing manual: `#/` y `#/casos/:id`.
+// Sin pantalla de login: la interfaz principal siempre está visible.
 // =============================================================================
 
 import type { ReactNode } from 'react';
-import { AuthProvider, useAuth } from './auth/AuthContext';
+import { AuthProvider } from './auth/AuthContext';
 import { AppHeader } from './components/AppHeader';
 import { CaseDetailPage } from './components/CaseDetailPage';
 import { CaseListPage } from './components/CaseListPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { LoginPage } from './components/LoginPage';
-import { Spinner } from './components/ui';
 import { useHashRoute } from './lib/useHashRoute';
 
 function Shell(): ReactNode {
-  const { user, loading } = useAuth();
   const route = useHashRoute();
-
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <Spinner label="Cargando sesión" className="h-6 w-6" />
-      </div>
-    );
-  }
-
-  // Sin sesión se muestra el acceso. Si la URL ya apunta a un caso, tras
-  // iniciar sesión el usuario aterriza directamente en ese detalle.
-  if (user === null) return <LoginPage />;
 
   return (
     <div className="min-h-screen bg-background">

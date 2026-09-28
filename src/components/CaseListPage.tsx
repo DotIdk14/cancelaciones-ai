@@ -13,6 +13,9 @@ import { goToCase } from '../lib/useHashRoute';
 import { Badge, Button, EmptyState, ErrorCard, Panel, Spinner } from './ui';
 import type { Tone } from './ui';
 
+/** Mensaje amigable cuando el servidor devuelve 401 (sesión requerida). */
+const AUTH_ERROR_MESSAGE = 'El servidor requiere autenticación. La interfaz está en modo demo: los datos no se cargarán hasta que configure una sesión válida.';
+
 const CASE_STATUS_TONE: Record<CaseStatus, Tone> = {
   DRAFT: 'neutral',
   READY: 'brand',
@@ -38,7 +41,10 @@ export function CaseListPage(): ReactNode {
       setCases(await listCases());
       setListError(null);
     } catch (err) {
-      setListError(toErrorState(err).message);
+      const state = toErrorState(err);
+      // Si el servidor devuelve 401, mostrar mensaje amigable en modo demo.
+      const message = state.category === 'AUTH_ERROR' ? AUTH_ERROR_MESSAGE : state.message;
+      setListError(message);
     } finally {
       setLoading(false);
     }
@@ -56,7 +62,9 @@ export function CaseListPage(): ReactNode {
       const created = await createCase(studentIdentifier.trim() === '' ? undefined : studentIdentifier.trim());
       goToCase(created.id);
     } catch (err) {
-      setCreateError(toErrorState(err).message);
+      const state = toErrorState(err);
+      const message = state.category === 'AUTH_ERROR' ? AUTH_ERROR_MESSAGE : state.message;
+      setCreateError(message);
     } finally {
       setCreating(false);
     }
