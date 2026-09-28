@@ -28,5 +28,5 @@ export default handleRoute(async (req, res) => {
     return;
   }
 
-  methodNotAllowed(req, res);
+  methodNotAllowed(req, res, 'GET, POST');
 });

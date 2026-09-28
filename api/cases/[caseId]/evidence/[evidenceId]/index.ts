@@ -6,7 +6,7 @@ import { deleteEvidenceRow, getEvidenceOr404, listEvidenceRows, updateCaseStatus
 // DELETE /api/cases/:caseId/evidence/:evidenceId → 200 { ok: true }
 export default handleRoute(async (req, res) => {
   if (req.method !== 'DELETE') {
-    methodNotAllowed(req, res);
+    methodNotAllowed(req, res, 'DELETE');
     return;
   }
   const client = createServerClient();
