@@ -60,7 +60,9 @@ function assertNoPublicSecrets(env: NodeJS.ProcessEnv): void {
     (key) => /^(VITE_|NEXT_PUBLIC_)/.test(key) && /(KEY|SECRET|TOKEN|OPENROUTER|INSFORGE|ASSEMBLYAI)/i.test(key),
   );
   if (forbidden.length > 0) {
-    throw new Error(`[env] Variables sensibles expuestas al navegador: ${forbidden.join(', ')}`);
+    throw new Error(
+      `[env] Variables sensibles expuestas al navegador: ${forbidden.join(', ')}. Elimínalas de Vercel y crea un nuevo deployment; InsForge debe configurarse solo con variables server-side sin prefijos VITE_ ni NEXT_PUBLIC_.`,
+    );
   }
 }
 
