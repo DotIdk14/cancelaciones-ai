@@ -66,4 +66,10 @@ describe('Instrucciones del Skill (anti prompt-injection)', () => {
     expect(system).toContain('Esto es orientación provisional, no sustituye ni modifica el resultado formal');
     expect(system).toContain('provisionalResolution debe ser null');
   });
+
+  it('pide salida completa sin repetición innecesaria', () => {
+    const system = buildSystemPrompt();
+    expect(system).toContain('assessment completo con redacción compacta');
+    expect(system).toContain('No omitas contradicciones materiales');
+  });
 });

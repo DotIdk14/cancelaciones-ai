@@ -189,7 +189,7 @@ describe('callOpenRouterAudit', () => {
     expect(userParts?.[2]).toMatchObject({ type: 'file', file: { filename: 'escaneo.pdf' } });
   });
 
-  it('reserva margen de salida para assessments estructurados extensos', async () => {
+  it('usa el máximo margen de salida para assessments estructurados extensos', async () => {
     let capturedBody: { max_tokens?: number } | null = null;
     fetchMock.mockImplementationOnce(async (_url: unknown, init?: RequestInit) => {
       capturedBody = JSON.parse(String(init?.body));
@@ -198,7 +198,7 @@ describe('callOpenRouterAudit', () => {
 
     await callOpenRouterAudit({ system: 's', parts: [{ type: 'text', text: 'x' }] });
 
-    expect(capturedBody?.max_tokens).toBe(8192);
+    expect(capturedBody?.max_tokens).toBe(65_536);
   });
 
   it('identifica una respuesta truncada cuando el proveedor informa finish_reason=length', async () => {

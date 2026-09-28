@@ -82,6 +82,11 @@ export function EvidenceList({
                     Transcripción: {formatDuration(evidence.transcript.durationSeconds)}
                   </p>
                 )}
+                {evidence.processingStatus === 'ERROR' && (
+                  <p className="mt-1 text-xs text-danger">
+                    No se pudo procesar {kind === 'AUDIO' ? 'el audio' : 'el archivo'}: {evidence.processingError ?? 'causa no disponible'}. Elimínalo y vuelve a subirlo para habilitar la auditoría.
+                  </p>
+                )}
               </div>
             </div>
 

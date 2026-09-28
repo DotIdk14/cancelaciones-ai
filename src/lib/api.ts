@@ -36,6 +36,7 @@ export interface Evidence {
   hash: string;
   storagePath: string;
   processingStatus: EvidenceStatus;
+  processingError: string | null;
   transcript: TranscriptData | null;
   createdAt: string;
 }

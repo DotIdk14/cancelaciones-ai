@@ -15,6 +15,7 @@ import type { Evidence } from '../src/lib/api';
 import { callOpenRouterAudit } from '../src/server/openrouter';
 import { resetEnvCache } from '../src/server/env';
 import { refreshTranscriptions, runAudit } from '../src/server/audit-service';
+import { evidenceToDto } from '../src/server/dto';
 import evidenceUploadHandler from '../api/cases/[caseId]/evidence/index';
 import evidenceDeleteHandler from '../api/cases/[caseId]/evidence/[evidenceId]/index';
 import auditHandler from '../api/cases/[caseId]/audit/index';
@@ -358,6 +359,8 @@ describe('el audio conserva su ciclo asíncrono UPLOADED -> TRANSCRIBING -> READ
 
     expect(res.statusCode).toBe(400);
     expect((JSON.parse(res.body) as { error: { category: string } }).error.category).toBe('TRANSCRIPTION_ERROR');
+    const evidence = listEvidence()[0];
+    expect(evidenceToDto(evidence!).processingError).toBe('audio corrupto');
   });
 });
 

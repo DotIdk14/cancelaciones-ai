@@ -32,6 +32,7 @@ export interface EvidenceDto {
   hash: string;
   storagePath: string;
   processingStatus: EvidenceStatus;
+  processingError: string | null;
   transcript: TranscriptData | null;
   createdAt: string;
 }
@@ -89,6 +90,9 @@ export function caseToDetail(row: CaseRow): CaseDetailDto {
 
 export function evidenceToDto(row: EvidenceRow): EvidenceDto {
   const transcript = row.processing_status === 'READY' ? readTranscriptFromJson(row.transcript_json) : null;
+  const transcriptData = row.transcript_json && typeof row.transcript_json === 'object'
+    ? row.transcript_json as Record<string, unknown>
+    : null;
   return {
     id: row.id,
     caseId: row.case_id,
@@ -98,6 +102,9 @@ export function evidenceToDto(row: EvidenceRow): EvidenceDto {
     hash: row.hash,
     storagePath: row.storage_path,
     processingStatus: row.processing_status,
+    processingError: row.processing_status === 'ERROR' && typeof transcriptData?.error === 'string'
+      ? transcriptData.error
+      : null,
     transcript,
     createdAt: row.created_at,
   };

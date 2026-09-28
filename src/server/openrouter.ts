@@ -43,6 +43,7 @@ export interface CallOpenRouterAuditOutput {
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const MIN_ATTEMPT_BUDGET_MS = 1_000;
+const MAX_OUTPUT_TOKENS = 65_536;
 
 /** Deriva el JSON Schema estricto del schema único de Zod. */
 function buildStrictJsonSchema(schema: unknown): Record<string, unknown> {
@@ -109,7 +110,7 @@ async function singleAttempt(
       { role: 'user', content: input.parts },
     ],
     temperature: 0,
-    max_tokens: 8192,
+    max_tokens: MAX_OUTPUT_TOKENS,
   };
 
   if (attempt.format === 'json_schema') {

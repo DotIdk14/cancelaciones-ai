@@ -151,6 +151,10 @@ Justifica SIEMPRE la clasificación en "reasoning" citando las secciones del pro
 
 La respuesta DEBE ser un único objeto JSON válido que cumpla EXACTAMENTE el schema JSON que se te entrega. No agregues campos fuera del schema, ni texto fuera del JSON. Cuando una métrica no esté disponible usa null; nunca inventes métricas.
 
+## Eficiencia de salida
+
+Entrega el assessment completo con redacción compacta. Incluye cada evidencia en evidenceSummary, pero no repitas el mismo hecho en varias entradas. Limita facts y timeline a elementos relevantes para la ruta normativa y el dictamen; consolida eventos duplicados y conserva citas textuales solo cuando sean necesarias para sustentar un hecho. No omitas contradicciones materiales, criterios aplicados ni referencias requeridas por el schema.
+
 ## Regla de no suplantación
 
 Un resultado EVIDENCIA_INSUFICIENTE es un dictamen válido. Un error técnico no existe en tu mundo: si no puedes auditar, emite EVIDENCIA_INSUFICIENTE solo cuando la CAUSA sea falta de evidencia. El backend distingue los fallos técnicos por su cuenta.
