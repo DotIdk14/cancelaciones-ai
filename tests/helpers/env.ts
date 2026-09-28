@@ -7,7 +7,7 @@ const REQUIRED_VARS: Record<string, string> = {
   INSFORGE_API_KEY: 'test-admin-key',
   OPENROUTER_API_KEY: 'test-or-key',
   OPENROUTER_MODEL: 'google/gemini-2.5-flash',
-  ASSEMBLYAI_API_KEY: 'test-aa-key',
+  ASSEMBLYAI_API_KEY: 'Example-Api-Key-1234567890',
 };
 
 /** Aplica variables mínimas y limpia la caché de getEnv(). */
