@@ -91,6 +91,9 @@ export function optionalString(query: Record<string, QueryValue>, key: string): 
 }
 
 export async function readRawBody(req: ApiRequest): Promise<Buffer> {
+  if (typeof req.body === 'string') return Buffer.from(req.body, 'utf8');
+  if (Buffer.isBuffer(req.body)) return req.body;
+  if (req.body instanceof Uint8Array) return Buffer.from(req.body);
   const chunks: Buffer[] = [];
   for await (const chunk of req) {
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array));
