@@ -99,7 +99,17 @@ export async function readRawBody(req: ApiRequest): Promise<Buffer> {
 }
 
 export async function readJsonBody(req: ApiRequest): Promise<unknown> {
-  if (req.body !== undefined) return req.body;
+  if (req.body !== undefined) {
+    if (typeof req.body === 'string') {
+      if (req.body.trim().length === 0) return {};
+      try {
+        return JSON.parse(req.body);
+      } catch {
+        throw new ApiError(400, 'VALIDATION_ERROR', 'El body no es JSON válido');
+      }
+    }
+    return req.body;
+  }
   const raw = await readRawBody(req);
   if (raw.length === 0) return {};
   try {
