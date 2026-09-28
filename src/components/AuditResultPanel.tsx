@@ -56,10 +56,19 @@ export function AuditResultPanel({ audit, evidences }: AuditResultPanelProps): R
   const { audit: assessment, case: caseData, facts, timeline, conflicts, model, usage } = result;
   const isInsufficient = assessment.result === 'EVIDENCIA_INSUFICIENTE';
   const tone: Tone = RESULT_TONE[assessment.result] ?? 'neutral';
-  const hasProcedureChecks = Array.isArray(assessment.procedureChecks) && assessment.procedureChecks.length > 0;
+  const safeEvidences = arrayOrEmpty(evidences);
+  const safeFacts = arrayOrEmpty(facts);
+  const safeTimeline = arrayOrEmpty(timeline);
+  const safeConflicts = arrayOrEmpty(conflicts);
+  const missingEvidence = arrayOrEmpty(assessment.missingEvidence);
+  const procedureChecks = arrayOrEmpty(assessment.procedureChecks);
+  const supportingEvidenceIds = arrayOrEmpty(assessment.supportingEvidenceIds);
+  const observations = arrayOrEmpty(assessment.observations);
+  const provisionalResolution = assessment.provisionalResolution ?? null;
+  const hasProcedureChecks = procedureChecks.length > 0;
 
   // Resuelve ids de evidencia -> nombre de archivo del caso.
-  const namesById = new Map(evidences.map((item) => [item.id, item.filename]));
+  const namesById = new Map(safeEvidences.map((item) => [item.id, item.filename]));
   const fileName = (id: string): string => namesById.get(id) ?? `Evidencia ${shortId(id)}`;
 
   const usageValues = [usage.promptTokens, usage.completionTokens, usage.totalTokens, usage.estimatedCostUSD];
@@ -108,23 +117,23 @@ export function AuditResultPanel({ audit, evidences }: AuditResultPanelProps): R
             Qué sí pude comprobar: hechos relevantes y checks acreditados. Qué todavía no puedo comprobar: la
             evidencia que falta para cerrar la condición normativa.
           </p>
-          {assessment.missingEvidence.length > 0 && (
+          {missingEvidence.length > 0 && (
             <div className="mt-3 grid gap-3 md:grid-cols-2">
-              {assessment.missingEvidence.map((item) => (
+              {missingEvidence.map((item) => (
                 <div key={`${item.title}-${item.relatedProcedureSection}`} className="rounded-xl border border-warning/30 bg-surface-2 p-3">
                   <p className="font-semibold text-ink">{item.title}</p>
                   <p className="mt-1 text-sm text-ink">{item.reason}</p>
                   <p className="mt-2 text-xs font-medium uppercase tracking-wide text-muted">Qué puedes compartir</p>
                   <ul className="mt-1 list-disc pl-5 text-sm text-ink">
-                    {item.acceptedEvidence.map((entry) => <li key={`${item.title}-${entry}`}>{entry}</li>)}
+                    {arrayOrEmpty(item.acceptedEvidence).map((entry) => <li key={`${item.title}-${entry}`}>{entry}</li>)}
                   </ul>
                   <p className="mt-2 text-xs font-medium uppercase tracking-wide text-muted">Sección aplicable</p>
                   <p className="mt-1 text-sm text-ink">{item.relatedProcedureSection}</p>
-                  {item.relatedEvidenceIds.length > 0 && (
+                  {arrayOrEmpty(item.relatedEvidenceIds).length > 0 && (
                     <>
                       <p className="mt-2 text-xs font-medium uppercase tracking-wide text-muted">Evidencias relacionadas</p>
                       <div className="mt-1 flex flex-wrap gap-1.5">
-                        {item.relatedEvidenceIds.map((id) => (
+                        {arrayOrEmpty(item.relatedEvidenceIds).map((id) => (
                           <Chip key={`${item.title}-${id}`} title={fileName(id)}>{fileName(id)}</Chip>
                         ))}
                       </div>
@@ -150,6 +159,28 @@ export function AuditResultPanel({ audit, evidences }: AuditResultPanelProps): R
             </button>
           </div>
         </div>
+      )}
+
+      {isInsufficient && (
+        <section aria-label="Orientación provisional" className="mt-4 rounded-xl border border-brand/30 bg-brand/5 p-4">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted">Orientación provisional</p>
+          {provisionalResolution ? (
+            <>
+              <p className="mt-1 text-base font-semibold text-ink">{RESULT_LABELS[provisionalResolution.result]}</p>
+              <p className="mt-1 text-sm leading-relaxed text-ink">{provisionalResolution.rationale}</p>
+              <p className="mt-2 text-xs text-muted">Sección del procedimiento: {provisionalResolution.procedureSection}</p>
+              {arrayOrEmpty(provisionalResolution.evidenceIds).length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {arrayOrEmpty(provisionalResolution.evidenceIds).map((id) => (
+                    <Chip key={`provisional-${id}`} title={fileName(id)}>{fileName(id)}</Chip>
+                  ))}
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="mt-1 text-sm text-ink">Esta auditoría anterior no guardó una orientación provisional.</p>
+          )}
+        </section>
       )}
 
       {/* ------------------------------------------------- Regla y razonamiento */}
@@ -186,11 +217,11 @@ export function AuditResultPanel({ audit, evidences }: AuditResultPanelProps): R
       {/* ------------------------------------------------- Hechos encontrados */}
       <div className="mt-5">
         <SectionTitle>Hechos encontrados</SectionTitle>
-        {facts.length === 0 ? (
+        {safeFacts.length === 0 ? (
           <p className="mt-1 text-sm text-muted">{DASH}</p>
         ) : (
           <ul className="mt-2 flex flex-col gap-2">
-            {facts.map((fact) => (
+            {safeFacts.map((fact) => (
               <li key={fact.key} className="rounded-xl border border-line bg-surface-2 p-3">
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
                   <p className="text-sm font-medium text-ink">{fact.label}</p>
@@ -200,9 +231,9 @@ export function AuditResultPanel({ audit, evidences }: AuditResultPanelProps): R
                 {fact.evidenceText !== null && fact.evidenceText.trim() !== '' && (
                   <p className="mt-1 border-l-2 border-line pl-2 text-xs text-muted">{fact.evidenceText}</p>
                 )}
-                {fact.evidenceIds.length > 0 && (
+                {arrayOrEmpty(fact.evidenceIds).length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
-                    {fact.evidenceIds.map((id) => (
+                    {arrayOrEmpty(fact.evidenceIds).map((id) => (
                       <Chip key={`${fact.key}-${id}`} title={fileName(id)}>
                         {fileName(id)}
                       </Chip>
@@ -218,22 +249,22 @@ export function AuditResultPanel({ audit, evidences }: AuditResultPanelProps): R
       {/* ------------------------------------------------- Timeline */}
       <div className="mt-5">
         <SectionTitle>Línea de tiempo</SectionTitle>
-        {timeline.length === 0 ? (
+        {safeTimeline.length === 0 ? (
           <p className="mt-1 text-sm text-muted">{DASH}</p>
         ) : (
           <ol className="mt-2 flex flex-col">
-            {timeline.map((entry, index) => (
+            {safeTimeline.map((entry, index) => (
               <li key={`${entry.event}-${index}`} className="flex gap-3">
                 <div className="flex flex-col items-center">
                   <span aria-hidden="true" className="mt-1.5 h-2.5 w-2.5 rounded-full bg-brand" />
-                  {index < timeline.length - 1 && <span aria-hidden="true" className="w-px flex-1 bg-line" />}
+                  {index < safeTimeline.length - 1 && <span aria-hidden="true" className="w-px flex-1 bg-line" />}
                 </div>
                 <div className="min-w-0 flex-1 pb-4">
                   <p className="text-xs text-muted">{formatDate(entry.date)}</p>
                   <p className="text-sm text-ink">{entry.event}</p>
-                  {entry.evidenceIds.length > 0 && (
+                  {arrayOrEmpty(entry.evidenceIds).length > 0 && (
                     <div className="mt-1 flex flex-wrap gap-1.5">
-                      {entry.evidenceIds.map((id) => (
+                      {arrayOrEmpty(entry.evidenceIds).map((id) => (
                         <Chip key={`${index}-${id}`} title={fileName(id)}>
                           {fileName(id)}
                         </Chip>
@@ -250,19 +281,19 @@ export function AuditResultPanel({ audit, evidences }: AuditResultPanelProps): R
       {/* ------------------------------------------------- Contradicciones */}
       <div className="mt-5">
         <SectionTitle>Contradicciones</SectionTitle>
-        {conflicts.length === 0 ? (
+        {safeConflicts.length === 0 ? (
           <p className="mt-1 text-sm text-muted">No se detectaron contradicciones.</p>
         ) : (
           <ul className="mt-2 flex flex-col gap-2">
-            {conflicts.map((conflict, index) => (
+            {safeConflicts.map((conflict, index) => (
               <li
                 key={`${index}-${conflict.description}`}
                 className="rounded-xl border border-warning/30 bg-warning/5 p-3"
               >
                 <p className="text-sm text-ink">{conflict.description}</p>
-                {conflict.evidenceIds.length > 0 && (
+                {arrayOrEmpty(conflict.evidenceIds).length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
-                    {conflict.evidenceIds.map((id) => (
+                    {arrayOrEmpty(conflict.evidenceIds).map((id) => (
                       <Chip key={`${index}-${id}`} title={fileName(id)}>
                         {fileName(id)}
                       </Chip>
@@ -278,11 +309,11 @@ export function AuditResultPanel({ audit, evidences }: AuditResultPanelProps): R
       {/* ------------------------------------------------- Evidencias utilizadas */}
       <div className="mt-5">
         <SectionTitle>Evidencias utilizadas</SectionTitle>
-        {assessment.supportingEvidenceIds.length === 0 ? (
+        {supportingEvidenceIds.length === 0 ? (
           <p className="mt-1 text-sm text-muted">{DASH}</p>
         ) : (
           <div className="mt-2 flex flex-wrap gap-1.5">
-            {assessment.supportingEvidenceIds.map((id) => (
+            {supportingEvidenceIds.map((id) => (
               <Chip key={id} title={fileName(id)}>
                 {fileName(id)}
               </Chip>
@@ -296,7 +327,7 @@ export function AuditResultPanel({ audit, evidences }: AuditResultPanelProps): R
         <div className="mt-5">
           <SectionTitle>Checks del procedimiento</SectionTitle>
           <div className="mt-2 flex flex-col gap-2">
-            {assessment.procedureChecks.map((check, index) => (
+            {procedureChecks.map((check, index) => (
               <div key={`${check.procedureSection}-${index}`} className="rounded-xl border border-line bg-surface-2 p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="text-sm font-semibold text-ink">{check.procedureSection}</p>
@@ -306,16 +337,16 @@ export function AuditResultPanel({ audit, evidences }: AuditResultPanelProps): R
                 </div>
                 <p className="mt-1 text-sm text-ink"><span className="font-medium">Criterio:</span> {check.criterion}</p>
                 <p className="mt-1 text-sm text-ink">{check.reasoning}</p>
-                {check.observedValues.length > 0 && (
+                {arrayOrEmpty(check.observedValues).length > 0 && (
                   <ul className="mt-2 list-disc pl-5 text-xs text-muted">
-                    {check.observedValues.map((value) => (
+                    {arrayOrEmpty(check.observedValues).map((value) => (
                       <li key={`${check.procedureSection}-${value.label}`}><span className="font-medium text-ink">{value.label}:</span> {value.value}</li>
                     ))}
                   </ul>
                 )}
-                {check.evidenceIds.length > 0 && (
+                {arrayOrEmpty(check.evidenceIds).length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
-                    {check.evidenceIds.map((id) => (
+                    {arrayOrEmpty(check.evidenceIds).map((id) => (
                       <Chip key={`${check.procedureSection}-${id}`} title={fileName(id)}>{fileName(id)}</Chip>
                     ))}
                   </div>
@@ -329,11 +360,11 @@ export function AuditResultPanel({ audit, evidences }: AuditResultPanelProps): R
       {/* ------------------------------------------------- Evidencias faltantes */}
       <div className="mt-5">
         <SectionTitle>Evidencias faltantes</SectionTitle>
-        {assessment.missingEvidence.length === 0 ? (
+        {missingEvidence.length === 0 ? (
           <p className="mt-1 text-sm text-muted">No se identificaron evidencias faltantes.</p>
         ) : (
           <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-ink">
-            {assessment.missingEvidence.map((item) => (
+            {missingEvidence.map((item) => (
               <li key={`${item.title}-${item.relatedProcedureSection}`}>{item.title}</li>
             ))}
           </ul>
@@ -343,11 +374,11 @@ export function AuditResultPanel({ audit, evidences }: AuditResultPanelProps): R
       {/* ------------------------------------------------- Observaciones */}
       <div className="mt-5">
         <SectionTitle>Observaciones</SectionTitle>
-        {assessment.observations.length === 0 ? (
+        {observations.length === 0 ? (
           <p className="mt-1 text-sm text-muted">{DASH}</p>
         ) : (
           <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-ink">
-            {assessment.observations.map((item) => (
+            {observations.map((item) => (
               <li key={item}>{item}</li>
             ))}
           </ul>
@@ -384,4 +415,8 @@ export function AuditResultPanel({ audit, evidences }: AuditResultPanelProps): R
       </div>
     </div>
   );
+}
+
+function arrayOrEmpty<T>(value: T[] | null | undefined): T[] {
+  return Array.isArray(value) ? value : [];
 }

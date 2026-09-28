@@ -122,6 +122,36 @@ describe('auditSkill.execute', () => {
     await expect(auditSkill.execute(baseInput)).rejects.toMatchObject({ category: 'INVALID_AI_RESPONSE' });
   });
 
+  it('rechaza referencias inventadas en la orientación provisional', async () => {
+    mockedCall.mockResolvedValue({
+      parsed: {
+        ...validAuditResult,
+        audit: {
+          ...validAuditResult.audit,
+          result: 'EVIDENCIA_INSUFICIENTE',
+          provisionalResolution: {
+            result: 'CANCELACION_VENTA',
+            rationale: 'Los hechos observados apuntan a cancelación de venta, pero falta acreditar una condición indispensable.',
+            procedureSection: '5.8',
+            evidenceIds: ['ev-falso'],
+          },
+          missingEvidence: [{
+            title: 'Contacto efectivo',
+            reason: 'No se acredita una interacción efectiva.',
+            acceptedEvidence: ['Registro de conversación con respuesta'],
+            relatedProcedureSection: '5.8',
+            relatedEvidenceIds: ['ev-1'],
+            blocking: true,
+          }],
+        },
+      },
+      model: 'google/gemini-2.5-flash',
+      usage: validAuditResult.usage,
+    });
+
+    await expect(auditSkill.execute(baseInput)).rejects.toMatchObject({ category: 'INVALID_AI_RESPONSE' });
+  });
+
   it('usa metadata real de OpenRouter aunque el modelo intente inventarla', async () => {
     mockedCall.mockResolvedValue({
       parsed: { ...validAuditResult, model: { provider: 'openrouter', model: 'inventado' }, usage: { promptTokens: 999, completionTokens: 999, totalTokens: 999, estimatedCostUSD: 999 } },

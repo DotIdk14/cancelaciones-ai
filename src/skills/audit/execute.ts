@@ -76,6 +76,9 @@ function validateAssessmentReferences(assessment: ReturnType<typeof parseAiAudit
   assessment.audit.missingEvidence.forEach((item, index) => {
     checkIds(item.relatedEvidenceIds, `audit.missingEvidence.${index}.relatedEvidenceIds`);
   });
+  if (assessment.audit.provisionalResolution !== null) {
+    checkIds(assessment.audit.provisionalResolution.evidenceIds, 'audit.provisionalResolution.evidenceIds');
+  }
   assessment.audit.procedureChecks.forEach((item, index) => {
     checkIds(item.evidenceIds, `audit.procedureChecks.${index}.evidenceIds`);
   });

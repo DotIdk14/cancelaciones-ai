@@ -29,6 +29,13 @@ const ProcedureCheckSchema = z.object({
   }).strict()).min(1),
 }).strict();
 
+const ProvisionalResolutionSchema = z.object({
+  result: z.enum(AUDIT_RESULTS).exclude(['EVIDENCIA_INSUFICIENTE']),
+  rationale: z.string().min(1),
+  procedureSection: z.string().min(1),
+  evidenceIds: z.array(z.string().min(1)).min(1),
+}).strict();
+
 export const AiAuditAssessmentSchema = z
   .object({
     case: z.object({
@@ -84,6 +91,7 @@ export const AiAuditAssessmentSchema = z
         procedureSections: z.array(z.string().min(1)).min(1),
         reasoning: z.string().min(1),
       }).strict(),
+      provisionalResolution: ProvisionalResolutionSchema.nullable(),
       reasoning: z.string(),
       confidence: z.number().min(0).max(1),
       supportingEvidenceIds: z.array(z.string()).min(1),
@@ -118,7 +126,7 @@ export function parseAuditResult(raw: unknown): AuditResult {
   return parseWithInvalidAiError(AuditResultSchema, raw);
 }
 
-function validateBusinessRules(assessment: { audit: { result: string; rule: string; procedureSection: string; supportingEvidenceIds: string[]; missingEvidence: Array<{ blocking: boolean }>; procedureChecks: Array<{ evidenceIds: string[] }> } }): void {
+function validateBusinessRules(assessment: { audit: { result: string; rule: string; procedureSection: string; supportingEvidenceIds: string[]; missingEvidence: Array<{ blocking: boolean }>; procedureChecks: Array<{ evidenceIds: string[] }>; provisionalResolution: unknown } }): void {
   if (assessment.audit.rule.trim().length === 0) {
     throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.rule: debe ser un string no vacío');
   }
@@ -129,12 +137,18 @@ function validateBusinessRules(assessment: { audit: { result: string; rule: stri
     throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.supportingEvidenceIds: debe incluir al menos una evidencia');
   }
   if (assessment.audit.result === 'EVIDENCIA_INSUFICIENTE') {
+    if (assessment.audit.provisionalResolution === null) {
+      throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.provisionalResolution: EVIDENCIA_INSUFICIENTE exige una orientación provisional');
+    }
     if (assessment.audit.missingEvidence.length === 0) {
       throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.missingEvidence: EVIDENCIA_INSUFICIENTE exige al menos un elemento');
     }
     if (!assessment.audit.missingEvidence.some((item) => item.blocking)) {
       throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.missingEvidence: al menos un item debe tener blocking === true');
     }
+  }
+  if (assessment.audit.result !== 'EVIDENCIA_INSUFICIENTE' && assessment.audit.provisionalResolution !== null) {
+    throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.provisionalResolution: solo aplica a EVIDENCIA_INSUFICIENTE');
   }
   const hasBlocking = assessment.audit.missingEvidence.some((item) => item.blocking);
   if (hasBlocking && assessment.audit.result !== 'EVIDENCIA_INSUFICIENTE') {

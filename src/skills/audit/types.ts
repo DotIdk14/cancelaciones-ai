@@ -122,6 +122,13 @@ export interface MissingEvidenceItem {
   blocking: boolean;
 }
 
+export interface ProvisionalResolution {
+  result: Exclude<AuditResultType, 'EVIDENCIA_INSUFICIENTE'>;
+  rationale: string;
+  procedureSection: string;
+  evidenceIds: string[];
+}
+
 export interface AuditSkillOutput {
   case: {
     matricula: string | null;
@@ -163,6 +170,7 @@ export interface AuditSkillOutput {
       procedureSections: string[];
       reasoning: string;
     };
+    provisionalResolution: ProvisionalResolution | null;
     reasoning: string;
     confidence: number;
     supportingEvidenceIds: string[];

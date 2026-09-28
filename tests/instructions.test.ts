@@ -59,4 +59,11 @@ describe('Instrucciones del Skill (anti prompt-injection)', () => {
     expect(system).toContain('contacto efectivo');
     expect(system).toContain('retención efectiva');
   });
+
+  it('separa el resultado formal de la orientación provisional', () => {
+    const system = buildSystemPrompt();
+    expect(system).toContain('provisionalResolution');
+    expect(system).toContain('Esto es orientación provisional, no sustituye ni modifica el resultado formal');
+    expect(system).toContain('provisionalResolution debe ser null');
+  });
 });

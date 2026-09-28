@@ -42,6 +42,7 @@ const validResult = {
       procedureSections: ['3', '5.2'],
       reasoning: 'Se evalúa la hipótesis de solicitud del estudiante porque la evidencia convergente acreditada coincide en la intención de no continuar.',
     },
+    provisionalResolution: null,
     reasoning: 'La evidencia acredita la solicitud dentro del plazo de venta.',
     confidence: 0.91,
     supportingEvidenceIds: ['ev-1'],
@@ -100,6 +101,12 @@ describe('parseAuditResult (schema único)', () => {
       audit: {
         ...validResult.audit,
         result: 'EVIDENCIA_INSUFICIENTE',
+        provisionalResolution: {
+          result: 'CANCELACION_VENTA',
+          rationale: 'Los indicios disponibles apuntan a cancelación de venta, pendiente de confirmar la condición de contacto efectivo.',
+          procedureSection: '5.8',
+          evidenceIds: ['ev-1'],
+        },
         missingEvidence: [{ title: 'Evidencia de intentos de contacto' }],
       },
     };
@@ -132,6 +139,34 @@ describe('parseAuditResult (schema único)', () => {
   it('acepta usage con campos null (coste no disponible)', () => {
     const parsed = parseAuditResult({ ...validResult, usage: { promptTokens: null, completionTokens: null, totalTokens: null, estimatedCostUSD: null } });
     expect(parsed.usage.estimatedCostUSD).toBeNull();
+  });
+
+  it('exige orientación provisional trazable cuando la evidencia es insuficiente', () => {
+    const provisional = {
+      result: 'CANCELACION_VENTA',
+      rationale: 'Los hechos observados apuntan a cancelación de venta, pero falta acreditar una condición indispensable.',
+      procedureSection: '5.8',
+      evidenceIds: ['ev-1'],
+    };
+    const insufficient = {
+      ...validResult,
+      audit: {
+        ...validResult.audit,
+        result: 'EVIDENCIA_INSUFICIENTE',
+        provisionalResolution: provisional,
+        missingEvidence: [{
+          title: 'Contacto efectivo',
+          reason: 'Los intentos están acreditados, pero no se acredita una interacción efectiva.',
+          acceptedEvidence: ['Registro de conversación con respuesta'],
+          relatedProcedureSection: '5.8',
+          relatedEvidenceIds: ['ev-1'],
+          blocking: true,
+        }],
+      },
+    };
+    expect(parseAuditResult(insufficient).audit.provisionalResolution).toEqual(provisional);
+    expect(parseInvalid({ ...insufficient, audit: { ...insufficient.audit, provisionalResolution: null } })).toContain('provisionalResolution');
+    expect(parseInvalid({ ...insufficient, audit: { ...insufficient.audit, provisionalResolution: { ...provisional, result: 'EVIDENCIA_INSUFICIENTE' } } })).toContain('provisionalResolution');
   });
 
   it('acepta sintético de ilocalizable sin pedir intentos ya presentes', () => {

@@ -131,6 +131,8 @@ Si existen múltiples intentos visibles pero ninguna conversación efectiva, NO 
 
 Si el dictamen es EVIDENCIA_INSUFICIENTE, debe existir al menos un elemento en missingEvidence, y al menos uno con blocking = true. El motivo debe explicar claramente qué falta y qué evidencia específica se necesitaría. No pidas evidencia que ya existe. Si ya se observan intentos de contacto, describe eso como evidencia acreditada y solicita evidencia más específica de contacto efectivo, contenido de la interacción o retención según corresponda.
 
+En ese caso, completa provisionalResolution con la clasificación permitida que mejor representa la ruta que sugieren los hechos ya acreditados, su rationale, la procedureSection aplicable y al menos un evidenceId real que la sustente. Esto es orientación provisional, no sustituye ni modifica el resultado formal EVIDENCIA_INSUFICIENTE. Nunca uses EVIDENCIA_INSUFICIENTE como provisionalResolution.result. Para cualquier otro resultado, provisionalResolution debe ser null.
+
 ## Clasificaciones permitidas (ÚNICAS)
 
 El campo audit.result SOLO puede ser uno de:
