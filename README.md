@@ -36,7 +36,7 @@ El código **no dictamina**. Solo:
 
 | Responsabilidad | Dónde |
 |---|---|
-| Autenticación y sesión por cookies httpOnly | `src/server/auth.ts` |
+| Acceso a InsForge desde el servidor | `src/server/insforge.ts` |
 | Almacenamiento de binarios (InsForge Storage) | `api/cases/[caseId]/evidence/`, `api/evidence/[evidenceId]/download.ts` |
 | Preparación técnica de la evidencia (MIME, hash, PDF→texto, imagen→data URI) | `src/server/evidence-prep.ts`, `src/server/pdf.ts` |
 | Transcripción de audio (AssemblyAI, con diarización) | `src/server/assemblyai.ts` |

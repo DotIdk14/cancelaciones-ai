@@ -242,7 +242,7 @@ CREATE TABLE IF NOT EXISTS public.cases (
   status text NOT NULL DEFAULT 'DRAFT'
     CHECK (status IN ('DRAFT','READY','AUDITING','COMPLETED','ERROR')),
   student_identifier text,
-  created_by uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  created_by uuid REFERENCES auth.users(id) ON DELETE CASCADE,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );

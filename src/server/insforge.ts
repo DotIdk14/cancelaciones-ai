@@ -3,19 +3,16 @@
 // todo pasa por /api con cookies httpOnly. RLS protege el acceso por dueño.
 // =============================================================================
 
-import { createClient, type InsForgeClient } from '@insforge/sdk';
+import { createAdminClient, type InsForgeClient } from '@insforge/sdk';
 import { getEnv } from './env.js';
 
 export type { InsForgeClient };
 
-/** Cliente con sesión de usuario (RLS). Usado para DB y Storage del dueño. */
-export function createUserClient(accessToken: string | null): InsForgeClient {
+/** Cliente privilegiado usado solo por las funciones server-side. */
+export function createServerClient(): InsForgeClient {
   const env = getEnv();
-  const client = createClient({
+  return createAdminClient({
     baseUrl: env.INSFORGE_BASE_URL,
-    anonKey: env.INSFORGE_ANON_KEY,
-    isServerMode: true,
+    apiKey: env.INSFORGE_API_KEY,
   });
-  if (accessToken) client.setAccessToken(accessToken);
-  return client;
 }

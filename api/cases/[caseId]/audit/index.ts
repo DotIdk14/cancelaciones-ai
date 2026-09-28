@@ -1,5 +1,5 @@
 import { handleRoute, json, methodNotAllowed, ok, requiredString } from '../../../../src/server/http.js';
-import { requireUser } from '../../../../src/server/auth.js';
+import { createServerClient } from '../../../../src/server/insforge.js';
 import { getAuditForPolling, runAudit } from '../../../../src/server/audit-service.js';
 
 // GET  /api/cases/:caseId/audit → { audit: AuditDetail|null } (polling + refresco de transcripción)
@@ -8,16 +8,17 @@ import { getAuditForPolling, runAudit } from '../../../../src/server/audit-servi
 export const maxDuration = 300; // Vercel: hasta 300 s en planes compatibles
 
 export default handleRoute(async (req, res) => {
-  const { client } = await requireUser(req, res);
-  const caseId = requiredString(req.query, 'caseId');
-
   if (req.method === 'GET') {
+    const client = createServerClient();
+    const caseId = requiredString(req.query, 'caseId');
     const result = await getAuditForPolling(client, caseId);
     ok(res, result);
     return;
   }
 
   if (req.method === 'POST') {
+    const client = createServerClient();
+    const caseId = requiredString(req.query, 'caseId');
     const outcome = await runAudit(client, caseId);
     if (outcome.phase === 'pending') {
       json(res, 202, { audit: null, pendingEvidence: outcome.pendingEvidence });

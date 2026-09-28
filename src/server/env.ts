@@ -7,8 +7,8 @@ export interface ServerEnv {
   // InsForge
   INSFORGE_BASE_URL: string;
   INSFORGE_ANON_KEY: string;
-  /** API key administrativa. Opcional: se usa para operaciones privilegiadas. */
-  INSFORGE_API_KEY: string | null;
+  /** Clave administrativa; solo se usa en funciones server-side. */
+  INSFORGE_API_KEY: string;
   /** Bucket de InsForge Storage para evidencias. */
   INSFORGE_STORAGE_BUCKET: string;
 
@@ -75,7 +75,7 @@ export function getEnv(): ServerEnv {
   cached = {
     INSFORGE_BASE_URL: required('INSFORGE_BASE_URL', env.INSFORGE_BASE_URL).replace(/\/+$/, ''),
     INSFORGE_ANON_KEY: required('INSFORGE_ANON_KEY', env.INSFORGE_ANON_KEY),
-    INSFORGE_API_KEY: optional('INSFORGE_API_KEY', env.INSFORGE_API_KEY),
+    INSFORGE_API_KEY: required('INSFORGE_API_KEY', env.INSFORGE_API_KEY),
     INSFORGE_STORAGE_BUCKET: env.INSFORGE_STORAGE_BUCKET?.trim() || 'evidencias',
 
     OPENROUTER_API_KEY: required('OPENROUTER_API_KEY', env.OPENROUTER_API_KEY),

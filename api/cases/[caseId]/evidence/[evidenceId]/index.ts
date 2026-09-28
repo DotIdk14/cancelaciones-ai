@@ -1,5 +1,5 @@
 import { handleRoute, ok, methodNotAllowed, requiredString } from '../../../../../src/server/http.js';
-import { requireUser } from '../../../../../src/server/auth.js';
+import { createServerClient } from '../../../../../src/server/insforge.js';
 import { getEnv } from '../../../../../src/server/env.js';
 import { deleteEvidenceRow, getEvidenceOr404, listEvidenceRows, updateCaseStatus } from '../../../../../src/server/cases.js';
 
@@ -9,7 +9,7 @@ export default handleRoute(async (req, res) => {
     methodNotAllowed(req, res);
     return;
   }
-  const { client } = await requireUser(req, res);
+  const client = createServerClient();
   const caseId = requiredString(req.query, 'caseId');
   const evidenceId = requiredString(req.query, 'evidenceId');
 

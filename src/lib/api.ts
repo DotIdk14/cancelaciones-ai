@@ -1,7 +1,6 @@
 // =============================================================================
 // Cliente HTTP de la SPA. Sin URLs absolutas y sin estado: solo fetch.
-// La sesión viaja en la cookie httpOnly que emite el servidor; el cliente nunca
-// guarda ni manipula tokens.
+// El cliente solo llama a la API propia; InsForge permanece server-side.
 // =============================================================================
 
 import type { AuditResult } from '../skills/audit/schema';
@@ -10,12 +9,6 @@ import type { CaseStatus, ErrorCategory, EvidenceStatus, TranscriptData } from '
 // -----------------------------------------------------------------------------
 // Formas de la API (contrato compartido con el servidor)
 // -----------------------------------------------------------------------------
-
-export interface ApiUser {
-  id: string;
-  email: string;
-  name: string | null;
-}
 
 export interface CaseSummary {
   id: string;
@@ -150,7 +143,6 @@ async function request<T>(url: string, options: RequestOptions, expected: number
     method: options.method ?? 'GET',
     headers: options.headers,
     body: options.body,
-    credentials: 'same-origin',
   });
   if (!expected.includes(res.status)) throw await readError(res);
   return (await res.json()) as T;
@@ -158,54 +150,6 @@ async function request<T>(url: string, options: RequestOptions, expected: number
 
 function casePath(caseId: string, suffix = ''): string {
   return `/api/cases/${encodeURIComponent(caseId)}${suffix}`;
-}
-
-// -----------------------------------------------------------------------------
-// Auth
-// -----------------------------------------------------------------------------
-
-export async function getMe(): Promise<ApiUser | null> {
-  const data = await request<{ user: ApiUser | null }>('/api/auth/me', {}, [200]);
-  return data.user ?? null;
-}
-
-export async function signInRequest(email: string, password: string): Promise<ApiUser> {
-  const data = await request<{ user: ApiUser }>(
-    '/api/auth/sign-in',
-    { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password }) },
-    [200],
-  );
-  return data.user;
-}
-
-export interface SignUpResult {
-  user: ApiUser | null;
-  requireEmailVerification: boolean;
-}
-
-export async function signUpRequest(input: {
-  email: string;
-  password: string;
-  name?: string;
-}): Promise<SignUpResult> {
-  const data = await request<{ user: ApiUser | null; requireEmailVerification: boolean }>(
-    '/api/auth/sign-up',
-    {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        email: input.email,
-        password: input.password,
-        ...(input.name ? { name: input.name } : {}),
-      }),
-    },
-    [200, 201],
-  );
-  return { user: data.user ?? null, requireEmailVerification: data.requireEmailVerification === true };
-}
-
-export async function signOutRequest(): Promise<void> {
-  await request<{ ok: true }>('/api/auth/sign-out', { method: 'POST' }, [200]);
 }
 
 // -----------------------------------------------------------------------------
@@ -256,7 +200,6 @@ export async function uploadEvidence(caseId: string, file: File): Promise<Eviden
       'x-file-name': encodeURIComponent(file.name),
     },
     body: file,
-    credentials: 'same-origin',
   });
   if (res.status !== 201) throw await readError(res);
   const data = (await res.json()) as { evidence: Evidence };
@@ -287,7 +230,7 @@ export function evidencePreviewUrl(evidenceId: string): string {
  *  - 202 con `pendingEvidence` cuando falta transcripción.
  */
 export async function startAudit(caseId: string): Promise<StartAuditResponse> {
-  const res = await fetch(casePath(caseId, '/audit'), { method: 'POST', credentials: 'same-origin' });
+  const res = await fetch(casePath(caseId, '/audit'), { method: 'POST' });
   if (res.status === 200) {
     const data = (await res.json()) as { audit: AuditDetail };
     return { kind: 'finished', audit: data.audit };

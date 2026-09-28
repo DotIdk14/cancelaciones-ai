@@ -55,14 +55,13 @@ vi.mock('../src/server/cases', async () => {
   };
 });
 
-// --- Sesión: siempre autenticado, sin tocar cookies ni red ------------------
-vi.mock('../src/server/auth', async () => {
+// --- Cliente server-side de InsForge: store aislado, sin red ----------------
+vi.mock('../src/server/insforge', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/server/insforge')>();
   const store = await import('./helpers/fake-store');
   return {
-    requireUser: vi.fn(async () => ({
-      user: { id: 'user-1', email: 'alumno@utel.edu', name: null },
-      client: store.fakeClient,
-    })),
+    ...actual,
+    createServerClient: vi.fn(() => store.fakeClient),
   };
 });
 

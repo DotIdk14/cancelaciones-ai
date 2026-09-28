@@ -2,8 +2,7 @@
 // Capa de datos — casos, evidencias y auditorías (solo persistencia).
 // =============================================================================
 // No hay reglas de negocio aquí: InsForge guarda datos; la IA decide.
-// Todas las consultas pasan por RLS (`auth.uid()`), así un caseId ajeno
-// devuelve "no encontrado" en lugar de datos.
+// Las funciones server-side usan el cliente privilegiado de InsForge.
 // =============================================================================
 
 import type { InsForgeClient } from './insforge.js';
@@ -14,7 +13,7 @@ export interface CaseRow {
   id: string;
   status: CaseStatus;
   student_identifier: string | null;
-  created_by: string;
+  created_by: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -60,12 +59,11 @@ function dbError(error: unknown, fallback: ErrorCategory = 'DATABASE_ERROR'): ne
 
 export async function createCase(
   client: InsForgeClient,
-  userId: string,
   studentIdentifier: string | null,
 ): Promise<CaseRow> {
   const { data, error } = await client.database
     .from('cases')
-    .insert([{ status: 'DRAFT', student_identifier: studentIdentifier, created_by: userId }])
+    .insert([{ status: 'DRAFT', student_identifier: studentIdentifier }])
     .select()
     .single();
   if (error || !data) dbError(error);

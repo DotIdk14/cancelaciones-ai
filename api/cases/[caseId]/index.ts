@@ -1,5 +1,5 @@
 import { handleRoute, ok, methodNotAllowed, requiredString } from '../../../src/server/http.js';
-import { requireUser } from '../../../src/server/auth.js';
+import { createServerClient } from '../../../src/server/insforge.js';
 import { getCaseOr404, latestAudit, listEvidenceRows } from '../../../src/server/cases.js';
 import { auditToDto, caseToDetail, evidenceToDto } from '../../../src/server/dto.js';
 import { refreshTranscriptions } from '../../../src/server/audit-service.js';
@@ -10,8 +10,8 @@ export default handleRoute(async (req, res) => {
     methodNotAllowed(req, res);
     return;
   }
-  const { client } = await requireUser(req, res);
   const caseId = requiredString(req.query, 'caseId');
+  const client = createServerClient();
 
   const caseRow = await getCaseOr404(client, caseId);
   // Refresco acotado de transcripciones para que la UI vea TRANSCRIBING → READY.

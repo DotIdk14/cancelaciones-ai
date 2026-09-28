@@ -62,7 +62,7 @@ export function seedCase(overrides: Partial<CaseRow> = {}): CaseRow {
     id: 'case-1',
     status: 'DRAFT',
     student_identifier: 'UTEL-2026-001',
-    created_by: 'user-1',
+    created_by: null,
     created_at: '2026-02-01T10:00:00Z',
     updated_at: '2026-02-01T10:00:00Z',
     ...overrides,
@@ -130,10 +130,9 @@ export async function listCaseSummaries(): Promise<unknown[]> {
 
 export async function createCase(
   _client: unknown,
-  userId: string,
   studentIdentifier: string | null,
 ): Promise<CaseRow> {
-  return seedCase({ id: nextId('case'), created_by: userId, student_identifier: studentIdentifier });
+  return seedCase({ id: nextId('case'), created_by: null, student_identifier: studentIdentifier });
 }
 
 export async function listEvidenceRows(_client: unknown, caseId: string): Promise<EvidenceRow[]> {

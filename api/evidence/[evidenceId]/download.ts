@@ -6,7 +6,7 @@ import {
   requiredString,
   sendBinary,
 } from '../../../src/server/http.js';
-import { requireUser } from '../../../src/server/auth.js';
+import { createServerClient } from '../../../src/server/insforge.js';
 import { getEnv } from '../../../src/server/env.js';
 import type { InsForgeClient } from '../../../src/server/insforge.js';
 
@@ -17,7 +17,7 @@ export default handleRoute(async (req, res) => {
     methodNotAllowed(req, res);
     return;
   }
-  const { client } = await requireUser(req, res);
+  const client = createServerClient();
   const evidenceId = requiredString(req.query, 'evidenceId');
 
   // RLS restringe la fila al dueño del caso: un evidenceId ajeno → 404.

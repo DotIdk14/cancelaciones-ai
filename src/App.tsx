@@ -1,25 +1,17 @@
 // =============================================================================
 // Raiz de la SPA. Hash routing manual: `#/` y `#/casos/:id`.
+// Sin login: el backend usa el API key administrativo de InsForge.
 // =============================================================================
 
 import type { ReactNode } from 'react';
-import { AuthProvider, useAuth } from './auth/AuthContext';
 import { AppHeader } from './components/AppHeader';
 import { CaseDetailPage } from './components/CaseDetailPage';
 import { CaseListPage } from './components/CaseListPage';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { LoginPage } from './components/LoginPage';
 import { useHashRoute } from './lib/useHashRoute';
 
 function Shell(): ReactNode {
   const route = useHashRoute();
-  const { user, loading } = useAuth();
-
-  if (loading) {
-    return <div className="flex min-h-screen items-center justify-center bg-background text-sm text-muted">Cargando sesión…</div>;
-  }
-
-  if (!user) return <LoginPage />;
 
   return (
     <div className="min-h-screen bg-background">
@@ -40,9 +32,7 @@ function Shell(): ReactNode {
 export function App(): ReactNode {
   return (
     <ErrorBoundary>
-      <AuthProvider>
-        <Shell />
-      </AuthProvider>
+      <Shell />
     </ErrorBoundary>
   );
 }
