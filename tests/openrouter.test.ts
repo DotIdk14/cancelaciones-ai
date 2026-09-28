@@ -69,6 +69,22 @@ describe('callOpenRouterAudit', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it('detiene la cascada ante saldo insuficiente para archivos (HTTP 402)', async () => {
+    process.env.OPENROUTER_FALLBACK_MODEL = 'openai/gpt-4o-mini';
+    fetchMock.mockResolvedValue(jsonResponse({
+      error: { message: 'This request requires at least $0.50 in balance for files' },
+    }, 402));
+
+    const error = await callOpenRouterAudit({ system: 's', parts: [{ type: 'text', text: 'x' }] })
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({ status: 402, category: 'AI_PROVIDER_ERROR' });
+    expect((error as Error).message).toContain('al menos USD 0.50');
+    expect((error as Error).message).toContain('Agrega créditos');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('degrada de json_schema a json_object cuando el primero falla', async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ error: { message: 'schema not supported', metadata: { error_type: 'invalid_request_error' } } }, 400))

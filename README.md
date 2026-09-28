@@ -483,7 +483,8 @@ prefijo). Ver `.env.example` para el detalle de cada una. Mínimas:
 INSFORGE_BASE_URL=https://4pw4jdzv.us-west.insforge.app
 INSFORGE_ANON_KEY=…
 OPENROUTER_API_KEY=…
-OPENROUTER_MODEL=google/gemini-2.5-flash
+OPENROUTER_MODEL=google/gemini-2.5-flash-lite
+OPENROUTER_FALLBACK_MODEL=google/gemini-3.1-flash-lite-preview
 APP_URL=https://<tu-dominio>
 ```
 

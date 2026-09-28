@@ -151,6 +151,13 @@ async function singleAttempt(
       const errInfo = parsedBody as {
         error?: { message?: string; metadata?: { error_type?: string } };
       } | null;
+      if (response.status === 402) {
+        throw new ApiError(
+          402,
+          'AI_PROVIDER_ERROR',
+          'OpenRouter rechazó la auditoría por saldo insuficiente. Agrega créditos a la cuenta; el procesamiento de archivos requiere al menos USD 0.50 de saldo disponible y después vuelve a auditar.',
+        );
+      }
       const reason =
         errInfo?.error?.metadata?.error_type ?? errInfo?.error?.message ?? response.statusText;
       throw new Error(`HTTP ${response.status} (${reason})`);
@@ -219,6 +226,7 @@ export async function callOpenRouterAudit(
     try {
       return await singleAttempt(attempt, input, Math.min(perAttemptTimeoutMs, remainingMs));
     } catch (error) {
+      if (error instanceof ApiError && error.status === 402) throw error;
       if (error instanceof ApiError && error.category === 'INVALID_AI_RESPONSE') sawInvalidAiResponse = true;
       if (!(error instanceof ApiError) && error instanceof SyntaxError) sawInvalidAiResponse = true;
       failures.push(
