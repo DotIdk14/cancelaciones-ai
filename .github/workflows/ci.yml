@@ -10,15 +10,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9.15.4
+
       - uses: actions/setup-node@v4
         with:
+          # package.json exige >=22.0.0 en engines; 22 funciona con el toolchain
+          # actual (Vite 6 / Vitest 2 / TypeScript 5.8). Subir a 24 cuando
+          # el runner de Actions lo soporte estable.
           node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm lint
-      - run: pnpm typecheck
-      - run: pnpm test
-      - run: pnpm build
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build

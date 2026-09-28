@@ -1,0 +1,55 @@
+// =============================================================================
+// Raiz de la SPA. Hash routing manual: `#/` y `#/casos/:id`.
+// =============================================================================
+
+import type { ReactNode } from 'react';
+import { AuthProvider, useAuth } from './auth/AuthContext';
+import { AppHeader } from './components/AppHeader';
+import { CaseDetailPage } from './components/CaseDetailPage';
+import { CaseListPage } from './components/CaseListPage';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { LoginPage } from './components/LoginPage';
+import { Spinner } from './components/ui';
+import { useHashRoute } from './lib/useHashRoute';
+
+function Shell(): ReactNode {
+  const { user, loading } = useAuth();
+  const route = useHashRoute();
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <Spinner label="Cargando sesión" className="h-6 w-6" />
+      </div>
+    );
+  }
+
+  // Sin sesión se muestra el acceso. Si la URL ya apunta a un caso, tras
+  // iniciar sesión el usuario aterriza directamente en ese detalle.
+  if (user === null) return <LoginPage />;
+
+  return (
+    <div className="min-h-screen bg-background">
+      <a
+        href="#contenido"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-surface-3 focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-ink"
+      >
+        Saltar al contenido
+      </a>
+      <AppHeader />
+      <main id="contenido" className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6">
+        {route.name === 'case' ? <CaseDetailPage caseId={route.caseId} /> : <CaseListPage />}
+      </main>
+    </div>
+  );
+}
+
+export function App(): ReactNode {
+  return (
+    <ErrorBoundary>
+      <AuthProvider>
+        <Shell />
+      </AuthProvider>
+    </ErrorBoundary>
+  );
+}

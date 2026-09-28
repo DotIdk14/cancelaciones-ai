@@ -1,5 +1,12 @@
 # Arquitectura AI-Native
 
+> [!WARNING]
+> Documento histórico pre-consolidación. Describe un esquema de 7 tablas y un
+> layout `packages/*` que ya no existen. La arquitectura vigente usa 3 tablas
+> (`cases`, `evidence`, `audits`) y código en `api/` + `src/`. Ver `AGENTS.md`,
+> `README.md` y `migrations/00000000000000_baseline.sql` como referencias
+> actuales.
+
 El sistema usa un monolito modular.
 
 ## Flujo
@@ -46,4 +53,4 @@ El procedimiento V5 vive en `policy/`. La IA lo consulta mediante `searchPolicy`
 - OpenRouter: gateway de modelos.
 - AssemblyAI: audio.
 
-Ambos se usan mediante adapters centralizados en `packages/ai`.
+Ambos se usan mediante adapters centralizados en `src/server/openrouter.ts` y `src/server/assemblyai.ts`.

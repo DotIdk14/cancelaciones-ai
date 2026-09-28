@@ -16,14 +16,18 @@ evidencias
   -> resultado terminal
 ```
 
-Paquetes:
+Estructura: repositorio de **un solo paquete npm** en la raiz (monorepo pnpm y Next.js eliminados). SPA React + Vite + TypeScript; backend como Vercel Functions en `api/**` con helpers en `src/server/**`.
 
-- `apps/web`: UI, API routes, auth, storage y runner de jobs.
-- `packages/shared`: schemas Zod, estados, limites, logger, validacion de evidencias.
-- `packages/evidence`: convierte evidencias en texto consultable; no decide negocio.
-- `packages/ai`: adapters OpenRouter/AssemblyAI, tools, Analyst, Reviewer y eval dataset.
-- `packages/db`: repositorios del baseline AI-native.
-- `policy/`: procedimiento `GDM_GAM_PRD_MLG_003` v5 indexado por seccion.
+- `api/`: Vercel Functions, una por endpoint (`auth`, `cases`, `cases/:caseId/evidence`, `audits`, `evidence/download`). Sin logica de negocio: validan, delegan y traducen errores.
+- `src/skills/audit/`: **unica fuente de inteligencia**. `types.ts` (vocabulario cerrado de resultados, estados y categorias de error), `schema.ts` (`AuditResultSchema` Zod `strict` + `parseAuditResult`), `instructions.ts` (system prompt y bloque anti prompt-injection), `procedure-v5.ts` y `policy-v5.generated.ts` (procedimiento compilado), `execute.ts` (ensamblado del expediente y llamada al modelo). El dictamen ES la salida validada; el backend no reclasifica.
+- `src/server/`: `env.ts`, `insforge.ts` (cliente server-side), `auth.ts` (cookies httpOnly), `http.ts` (errores tipados), `cases.ts` (persistencia), `dto.ts`, `audit-service.ts` (orquestacion durable), `openrouter.ts` (unico transporte de IA), `assemblyai.ts` (solo transcripcion), `evidence-prep.ts` y `pdf.ts` (preparacion tecnica, sin decidir negocio).
+- `src/components/`, `src/auth/`: UI con hash routing manual (`#/`, `#/casos/:id`), sin react-router.
+- `src/lib/`: `api.ts` (cliente fetch, DTOs camelCase), `useHashRoute.ts`, `usePolling.ts`, `labels.ts`, `format.ts`, `cx.ts`.
+- `policy/`: procedimiento `GDM_GAM_PRD_MLG_003` v5 indexado por seccion. Fuente normativa inmutable; `policy-v5.generated.ts` es su serializacion (regenerar con `npm run policy:generate`).
+- `migrations/00000000000000_baseline.sql`: baseline unico. 3 tablas (`cases`, `evidence`, `audits`), RLS por `created_by = auth.uid()`, trigger `set_updated_at` solo en `cases`.
+- `tests/`: Vitest. `scripts/`: `generate-policy.mjs`, `dev-api.mjs` (monta `/api/*` en el dev server de Vite).
+
+InsForge (DB + Storage) es **solo server-side**: el navegador nunca habla con el. OpenRouter es la unica IA. Toda secret vive en el servidor y **no existe ninguna variable de entorno con prefijo `VITE_` o `NEXT_PUBLIC_`**.
 
 ## Invariantes permanentes
 

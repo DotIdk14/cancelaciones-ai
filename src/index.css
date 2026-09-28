@@ -1,0 +1,41 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  --background: #0d0f12;
+  --surface-1: #11151a;
+  --surface-2: #14191f;
+  --surface-3: #181e25;
+  --border: rgba(255, 255, 255, 0.08);
+  --text-primary: #f1f3f5;
+  --text-secondary: #a7b0ba;
+  --text-muted: #6f7a86;
+  --accent: #7ab7ff;
+  --success: #5ee0a0;
+  --warning: #f3c969;
+  --danger: #ff7b7b;
+}
+
+body {
+  background: var(--background);
+  color: var(--text-primary);
+  min-height: 100vh;
+}
+
+::selection {
+  background: rgba(122, 183, 255, 0.25);
+}
+
+/* Accesibilidad: foco visible consistente */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Scrollbars discretos */
+* {
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}

@@ -3,20 +3,38 @@ private-historical/
 references/private-historical
 references/private-historical/
 
-# Archivos locales y derivados.
+# Dependencias y artefactos de build (Vite).
 node_modules/
 dist/
-.next/
-apps/web/.next/
-apps/web/.next-local/
+
+# Secretos y variables de entorno.
 .env
+.env.local
+.env.*.local
 .env.*
 !.env.example
+*.local
+
+# Logs y cobertura.
 *.log
+logs/
+coverage/
+
+# Archivos locales y derivados.
 *.tsbuildinfo
 derived/
 tmp/
 tmp-render-smoke/
+
+# Sistema operativo.
+.DS_Store
+Thumbs.db
+
+# Fuentes normativas ownersupplied: se conservan fuera de Git. Sus SHA-256
+# estan registrados en policy/manifest.json (`sourceSha256`), que es la referencia
+# normativa. Versionarlas duplicaria binarios y expondría evidencia del
+# propietario fuera del control de acceso del repo.
+normative/
 
 # InsForge & AI agent skills
 .insforge
@@ -34,14 +52,7 @@ tmp-render-smoke/
 .windsurf
 
 .vercel
-.env*
 
 # Volcados residuales de CLI (UTF-16) que no deben versionarse.
 log.txt
 metadata.json
-
-# Fuentes normativas ownersupplied: se conservan fuera de Git. Sus SHA-256
-# estan registrados en docs/policy-v2/source-lock.md, que es la referencia
-# normativa. Añadirlos al repositorio duplicaria binarios sin anadir trazabilidad
-# y expondría evidencia del propietario fuera del control de acceso del repo.
-normative/

@@ -1,0 +1,114 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { auditSkill, buildAuditMessages } from '../src/skills/audit/execute';
+import type { AuditSkillInput } from '../src/skills/audit/types';
+import { callOpenRouterAudit } from '../src/server/openrouter';
+import { validAuditResult } from './fixtures/audit-result';
+
+// El transporte se mockea: el Skill no debe tocar la red en los tests.
+vi.mock('../src/server/openrouter', () => ({
+  callOpenRouterAudit: vi.fn(),
+}));
+
+const mockedCall = vi.mocked(callOpenRouterAudit);
+
+const baseInput: AuditSkillInput = {
+  caseId: 'case-1',
+  studentIdentifier: 'UTEL-2026-001',
+  evidences: [
+    {
+      evidenceId: 'ev-1',
+      filename: 'captura.png',
+      mimeType: 'image/png',
+      kind: 'IMAGE',
+      imageBase64: 'data:image/png;base64,AAAA',
+      sizeBytes: 100,
+      sha256: 'abc123',
+      createdAt: '2026-02-01T10:00:00Z',
+    },
+    {
+      evidenceId: 'ev-2',
+      filename: 'llamada.mp3',
+      mimeType: 'audio/mpeg',
+      kind: 'AUDIO',
+      sizeBytes: 200,
+      sha256: 'def456',
+      createdAt: '2026-02-01T11:00:00Z',
+      transcript: {
+        transcript: 'Sí, quiero cancelar mi matrícula.',
+        durationSeconds: 12,
+        speakers: [
+          { speaker: 'A', start: 0, end: 4000, text: 'Sí, quiero cancelar mi matrícula.', confidence: 0.95 },
+        ],
+      },
+    },
+  ],
+};
+
+describe('auditSkill.execute', () => {
+  beforeEach(() => {
+    mockedCall.mockReset();
+  });
+
+  it('incorpora la transcripción al expediente (texto primero, imágenes después)', () => {
+    const { system, parts } = buildAuditMessages(baseInput);
+
+    const textParts = parts.filter((part) => part.type === 'text');
+    const imageParts = parts.filter((part) => part.type === 'image_url');
+
+    expect(textParts.length).toBeGreaterThanOrEqual(2);
+    expect(system).toContain('# Procedimiento V5');
+
+    // La transcripción se localiza POR CONTENIDO, nunca por índice: el expediente
+    // ordena [texto] -> [imágenes] -> [PDF nativos] y cada evidencia aporta su
+    // propio bloque de texto, así que la posición depende de cuántas evidencias
+    // texteables preceden a la de audio.
+    const transcriptPart = textParts.find((part) => part.text.includes('Sí, quiero cancelar mi matrícula.'));
+    expect(transcriptPart).toBeDefined();
+    expect(transcriptPart).toMatchObject({ type: 'text' });
+    expect(transcriptPart?.text).toContain('## Evidencia: llamada.mp3');
+    // El participante diarizado aparece en el expediente (AssemblyAI entrega los
+    // tiempos de utterance en milisegundos: 4000 ms = 00:04).
+    expect(transcriptPart?.text).toContain('[A 00:00–00:04]');
+
+    // Orden del expediente: primero el texto, después lo visual.
+    const firstImageIndex = parts.findIndex((part) => part.type === 'image_url');
+    const lastTextIndex = parts.map((part) => part.type === 'text').lastIndexOf(true);
+    expect(firstImageIndex).toBeGreaterThan(lastTextIndex);
+
+    // La imagen se envía como parte visual, separada del texto.
+    expect(imageParts).toHaveLength(1);
+    expect(imageParts[0]).toMatchObject({ type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } });
+  });
+
+  it('conserva los evidenceIds y el resultado de OpenAI pasa la validación Zod', async () => {
+    mockedCall.mockResolvedValue({ parsed: validAuditResult, model: 'google/gemini-2.5-flash', usage: validAuditResult.usage });
+
+    const result = await auditSkill.execute(baseInput);
+
+    expect(result.audit.result).toBe('CANCELACION_VENTA');
+    expect(result.facts[0]?.evidenceIds).toEqual(['ev-1']);
+    expect(result.audit.supportingEvidenceIds).toContain('ev-1');
+    // El resultado coincide con el JSON que respondió el modelo (sin reclasificar).
+    expect(result.audit.rule).toBe(validAuditResult.audit.rule);
+    // El esquema único validó de punta a punta.
+    expect(result.model.model).toBe('google/gemini-2.5-flash');
+  });
+
+  it('si el proveedor falla, NO se fabrica ningún dictamen', async () => {
+    mockedCall.mockRejectedValue(new Error('HTTP 502 (rate_limit_exceeded)'));
+
+    await expect(auditSkill.execute(baseInput)).rejects.toThrow('HTTP 502');
+    // No hubo resultado: el error del proveedor se propaga como fallo técnico.
+    expect(mockedCall).toHaveBeenCalledTimes(1);
+  });
+
+  it('si la respuesta no cumple el schema, lanza INVALID_AI_RESPONSE (jamás dictamen)', async () => {
+    mockedCall.mockResolvedValue({
+      parsed: { ...validAuditResult, audit: { ...validAuditResult.audit, result: 'FABRICADO' } },
+      model: 'google/gemini-2.5-flash',
+      usage: validAuditResult.usage,
+    });
+
+    await expect(auditSkill.execute(baseInput)).rejects.toThrow(/^INVALID_AI_RESPONSE:/);
+  });
+});
