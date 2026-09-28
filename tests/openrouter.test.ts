@@ -188,4 +188,28 @@ describe('callOpenRouterAudit', () => {
     expect(userParts?.[1]).toMatchObject({ type: 'image_url' });
     expect(userParts?.[2]).toMatchObject({ type: 'file', file: { filename: 'escaneo.pdf' } });
   });
+
+  it('reserva margen de salida para assessments estructurados extensos', async () => {
+    let capturedBody: { max_tokens?: number } | null = null;
+    fetchMock.mockImplementationOnce(async (_url: unknown, init?: RequestInit) => {
+      capturedBody = JSON.parse(String(init?.body));
+      return completionResponse();
+    });
+
+    await callOpenRouterAudit({ system: 's', parts: [{ type: 'text', text: 'x' }] });
+
+    expect(capturedBody?.max_tokens).toBe(8192);
+  });
+
+  it('identifica una respuesta truncada cuando el proveedor informa finish_reason=length', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({
+      choices: [{ message: { content: '{"case":' }, finish_reason: 'length' }],
+    }, 200));
+
+    const error = await callOpenRouterAudit({ system: 's', parts: [{ type: 'text', text: 'x' }] })
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as Error).message).toContain('se truncó al alcanzar el límite de tokens');
+  });
 });

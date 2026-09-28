@@ -109,7 +109,7 @@ async function singleAttempt(
       { role: 'user', content: input.parts },
     ],
     temperature: 0,
-    max_tokens: 4096,
+    max_tokens: 8192,
   };
 
   if (attempt.format === 'json_schema') {
@@ -164,11 +164,12 @@ async function singleAttempt(
     }
 
     const okBody = parsedBody as {
-      choices?: Array<{ message?: { content?: string | null } }>;
+      choices?: Array<{ message?: { content?: string | null }; finish_reason?: string | null }>;
       model?: unknown;
       usage?: unknown;
     } | null;
-    const content = okBody?.choices?.[0]?.message?.content;
+    const choice = okBody?.choices?.[0];
+    const content = choice?.message?.content;
     if (!content || content.trim().length === 0) {
       throw new Error('respuesta sin contenido');
     }
@@ -177,7 +178,10 @@ async function singleAttempt(
     try {
       parsed = JSON.parse(content);
     } catch {
-      throw new ApiError(502, 'INVALID_AI_RESPONSE', 'El contenido de OpenRouter no es JSON válido');
+      const reason = choice?.finish_reason === 'length'
+        ? 'La respuesta de OpenRouter se truncó al alcanzar el límite de tokens'
+        : 'El contenido de OpenRouter no es JSON válido';
+      throw new ApiError(502, 'INVALID_AI_RESPONSE', reason);
     }
 
     const output = {
