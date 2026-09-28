@@ -7,23 +7,27 @@
 // (b) se marca ERROR si es antiguo (self-healing). Sin colas de jobs.
 // =============================================================================
 
-import type { InsForgeClient } from './insforge';
-import { getEnv } from './env';
-import { auditSkill, PDF_MIN_TEXT_CHARS } from '../skills/audit/execute';
-import type { AuditSkillInput, ErrorCategory, EvidenceInputItem } from '../skills/audit/types';
-import { getTranscription } from './assemblyai';
-import { extractPdfText } from './pdf';
+import type { InsForgeClient } from './insforge.js';
+import { createHash } from 'node:crypto';
+import { getEnv } from './env.js';
+import { auditSkill, PDF_MIN_TEXT_CHARS } from '../skills/audit/execute.js';
+import type { AuditSkillInput, ErrorCategory, EvidenceInputItem } from '../skills/audit/types.js';
+import { getTranscription } from './assemblyai.js';
+import { extractPdfText } from './pdf.js';
 import {
   detectKind,
   imageDataUrl,
   isAudio,
   readTranscriptFromJson,
   sleep,
-} from './evidence-prep';
-import { ApiError } from './http';
+} from './evidence-prep.js';
+import { ApiError } from './http.js';
 import {
   getCaseOr404,
   insertAudit,
+  countAuditsByFingerprint,
+  latestCompletedAuditByFingerprint,
+  latestRunningAuditByFingerprint,
   latestAudit,
   listEvidenceRows,
   updateAuditResult,
@@ -31,10 +35,9 @@ import {
   updateEvidenceStatus,
   type CaseRow,
   type EvidenceRow,
-} from './cases';
-import { auditToDto, type AuditDetailDto } from './dto';
+} from './cases.js';
+import { auditToDto, type AuditDetailDto } from './dto.js';
 
-const STALE_AUDIT_MS = 4 * 60 * 1000; // 4 min
 const POLL_INTERVAL_MS = 2_000;
 
 export type RunAuditOutcome =
@@ -46,13 +49,15 @@ export type RunAuditOutcome =
 async function healStaleAudit(client: InsForgeClient, caseId: string): Promise<void> {
   const audit = await latestAudit(client, caseId);
   if (!audit || audit.status !== 'RUNNING') return;
+  const deadlineAt = audit.deadline_at ? new Date(audit.deadline_at).getTime() : new Date(audit.created_at).getTime() + getEnv().AUDIT_STALE_AFTER_MS;
   const ageMs = Date.now() - new Date(audit.created_at).getTime();
-  if (ageMs > STALE_AUDIT_MS) {
+  if (Date.now() > deadlineAt) {
     await updateAuditResult(client, audit.id, {
       status: 'ERROR',
       result_json: null,
       error_category: 'AI_PROVIDER_ERROR',
       latency_ms: ageMs,
+      provider_metadata: { stale: true, deadlineAt: new Date(deadlineAt).toISOString() },
     });
     await updateCaseStatus(client, caseId, 'ERROR').catch(() => undefined);
   }
@@ -131,7 +136,10 @@ export async function buildAuditInputs(
   caseRow: CaseRow,
   evidences: EvidenceRow[],
 ): Promise<AuditSkillInput> {
+  enforceEvidenceSetLimits(evidences);
   const items: EvidenceInputItem[] = [];
+  let aggregateTextChars = 0;
+  let aggregateMultimodalBytes = 0;
   for (const evidence of evidences) {
     const kind = detectKind(evidence.mime_type);
     const base: EvidenceInputItem = {
@@ -146,29 +154,92 @@ export async function buildAuditInputs(
 
     if (kind === 'IMAGE') {
       const buffer = await downloadEvidenceBuffer(client, evidence);
+      aggregateMultimodalBytes += buffer.length;
+      enforceMultimodalLimit(aggregateMultimodalBytes);
       items.push({ ...base, imageBase64: imageDataUrl(buffer, evidence.mime_type) });
     } else if (kind === 'PDF') {
       const buffer = await downloadEvidenceBuffer(client, evidence);
       const text = await extractPdfText(buffer);
       if (text.trim().length >= PDF_MIN_TEXT_CHARS) {
-        items.push({ ...base, text });
+        const limited = limitEvidenceText(text);
+        aggregateTextChars += limited.text.length;
+        items.push({ ...base, text: limited.text, truncated: limited.truncated, originalChars: limited.originalChars });
       } else {
         // Escaneado: texto pobre → archivo nativo al modelo multimodal.
+        aggregateTextChars += Math.min(text.length, 600);
+        aggregateMultimodalBytes += buffer.length;
+        enforceMultimodalLimit(aggregateMultimodalBytes);
         items.push({ ...base, text: text.slice(0, 600), pdfBase64: buffer.toString('base64') });
       }
     } else if (kind === 'AUDIO') {
       const transcript = readTranscriptFromJson(evidence.transcript_json);
-      items.push({ ...base, transcript });
+      if (transcript && transcript.transcript.length > getEnv().MAX_AUDIT_TEXT_CHARS_PER_EVIDENCE) {
+        const limited = limitEvidenceText(transcript.transcript);
+        aggregateTextChars += limited.text.length;
+        items.push({ ...base, transcript: { ...transcript, transcript: limited.text }, truncated: true, originalChars: transcript.transcript.length });
+      } else {
+        aggregateTextChars += transcript?.transcript.length ?? 0;
+        items.push({ ...base, transcript });
+      }
     } else {
       const buffer = await downloadEvidenceBuffer(client, evidence);
-      items.push({ ...base, text: buffer.toString('utf-8').slice(0, 80_000) });
+      const limited = limitEvidenceText(buffer.toString('utf-8'));
+      aggregateTextChars += limited.text.length;
+      items.push({ ...base, text: limited.text, truncated: limited.truncated, originalChars: limited.originalChars });
     }
+    enforceAggregateTextLimit(aggregateTextChars);
   }
+  enforceAggregateTextLimit(aggregateTextChars);
+  enforceMultimodalLimit(aggregateMultimodalBytes);
   return {
     caseId: caseRow.id,
     studentIdentifier: caseRow.student_identifier,
     evidences: items,
   };
+}
+
+function enforceEvidenceSetLimits(evidences: EvidenceRow[]): void {
+  const env = getEnv();
+  if (evidences.length > env.MAX_EVIDENCE_COUNT) {
+    throw new ApiError(413, 'VALIDATION_ERROR', `El expediente excede ${env.MAX_EVIDENCE_COUNT} evidencias; elimina archivos no relevantes`);
+  }
+  const imageBytes = evidences
+    .filter((evidence) => detectKind(evidence.mime_type) === 'IMAGE')
+    .reduce((sum, evidence) => sum + evidence.size_bytes, 0);
+  enforceMultimodalLimit(imageBytes);
+}
+
+function enforceAggregateTextLimit(chars: number): void {
+  const max = getEnv().MAX_AUDIT_TEXT_CHARS;
+  if (chars > max) {
+    throw new ApiError(413, 'VALIDATION_ERROR', `El texto agregado del expediente excede ${max} caracteres; reduce o divide evidencias`);
+  }
+}
+
+function enforceMultimodalLimit(bytes: number): void {
+  const max = getEnv().MAX_AUDIT_MULTIMODAL_BYTES;
+  if (bytes > max) {
+    throw new ApiError(413, 'VALIDATION_ERROR', `El contenido multimodal excede ${max} bytes; reduce evidencias visuales/PDF`);
+  }
+}
+
+function limitEvidenceText(text: string): { text: string; truncated: boolean; originalChars: number } {
+  const max = getEnv().MAX_AUDIT_TEXT_CHARS_PER_EVIDENCE;
+  return { text: text.slice(0, max), truncated: text.length > max, originalChars: text.length };
+}
+
+export function computeEvidenceFingerprint(evidences: EvidenceRow[]): string {
+  const canonical = evidences
+    .map((evidence) => ({
+      id: evidence.id,
+      hash: evidence.hash,
+      processingStatus: evidence.processing_status,
+      transcriptHash: evidence.transcript_json
+        ? createHash('sha256').update(JSON.stringify(evidence.transcript_json)).digest('hex')
+        : null,
+    }))
+    .sort((a, b) => a.id.localeCompare(b.id));
+  return createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
 }
 
 /**
@@ -181,12 +252,6 @@ export async function buildAuditInputs(
  */
 export async function runAudit(client: InsForgeClient, caseId: string): Promise<RunAuditOutcome> {
   await getCaseOr404(client, caseId);
-
-  const existing = await latestAudit(client, caseId);
-  if (existing) {
-    if (existing.status === 'COMPLETED') return { phase: 'done', audit: auditToDto(existing) };
-    if (existing.status === 'RUNNING') return { phase: 'running', audit: auditToDto(existing) };
-  }
 
   await refreshTranscriptions(client, caseId, getEnv().TRANSCRIPTION_POLL_TIMEOUT_MS);
 
@@ -213,32 +278,66 @@ export async function runAudit(client: InsForgeClient, caseId: string): Promise<
   }
 
   const caseRow = await getCaseOr404(client, caseId);
+  const fingerprint = computeEvidenceFingerprint(evidences);
+  const completed = await latestCompletedAuditByFingerprint(client, caseId, fingerprint);
+  if (completed) return { phase: 'done', audit: auditToDto(completed) };
+  const running = await latestRunningAuditByFingerprint(client, caseId, fingerprint);
+  if (running) {
+    const deadlineAt = running.deadline_at ? new Date(running.deadline_at).getTime() : new Date(running.created_at).getTime() + getEnv().AUDIT_STALE_AFTER_MS;
+    if (Date.now() <= deadlineAt) return { phase: 'running', audit: auditToDto(running) };
+    const ageMs = Date.now() - new Date(running.created_at).getTime();
+    await updateAuditResult(client, running.id, {
+      status: 'ERROR',
+      result_json: null,
+      error_category: 'AI_PROVIDER_ERROR',
+      latency_ms: ageMs,
+      provider_metadata: { stale: true, deadlineAt: new Date(deadlineAt).toISOString(), fingerprint },
+    });
+  }
 
-  // La fila durablese crea ANTES de la llamada al modelo.
+  // Prepara y valida expediente antes de crear RUNNING: errores 413/validación
+  // son accionables por el usuario y no deben dejar una auditoría técnica fallida.
+  const inputs = await buildAuditInputs(client, caseRow, evidences);
+
+  // La fila durable se crea ANTES de la llamada al modelo.
   const startedAt = Date.now();
-  const auditRow = await insertAudit(client, {
-    case_id: caseId,
-    status: 'RUNNING',
-    provider: 'openrouter',
-    model: getEnv().OPENROUTER_MODEL,
-  });
+  const deadlineMs = startedAt + getEnv().TOTAL_AUDIT_TIMEOUT_MS;
+  const attempts = await countAuditsByFingerprint(client, caseId, fingerprint);
+  let auditRow;
+  try {
+    auditRow = await insertAudit(client, {
+      case_id: caseId,
+      status: 'RUNNING',
+      provider: 'openrouter',
+      model: getEnv().OPENROUTER_MODEL,
+      evidence_fingerprint: fingerprint,
+      attempt_number: attempts + 1,
+      deadline_at: new Date(deadlineMs).toISOString(),
+      provider_metadata: null,
+    });
+  } catch (error) {
+    const concurrent = await latestRunningAuditByFingerprint(client, caseId, fingerprint).catch(() => null);
+    if (concurrent) return { phase: 'running', audit: auditToDto(concurrent) };
+    throw error;
+  }
   await updateCaseStatus(client, caseId, 'AUDITING');
 
   try {
-    const inputs = await buildAuditInputs(client, caseRow, evidences);
-    const result = await auditSkill.execute(inputs);
+    const execution = await auditSkill.executeWithMetadata(inputs, { deadlineMs });
+    const result = execution.result;
     const latencyMs = Date.now() - startedAt;
 
-    await updateAuditResult(client, auditRow.id, {
+    const final = await updateAuditResult(client, auditRow.id, {
       status: 'COMPLETED',
       result_json: result,
       error_category: null,
       latency_ms: latencyMs,
+      model: execution.model,
+      provider_metadata: { usage: execution.usage },
     });
     await updateCaseStatus(client, caseId, 'COMPLETED');
 
-    const final = await latestAudit(client, caseId);
-    return { phase: 'done', audit: auditToDto(final ?? auditRow) };
+    return { phase: 'done', audit: auditToDto(final) };
   } catch (error) {
     const category: ErrorCategory = error instanceof ApiError ? error.category : 'AI_PROVIDER_ERROR';
     const latencyMs = Date.now() - startedAt;
@@ -249,11 +348,8 @@ export async function runAudit(client: InsForgeClient, caseId: string): Promise<
       latency_ms: latencyMs,
     }).catch(() => undefined);
     await updateCaseStatus(client, caseId, 'ERROR').catch(() => undefined);
-    throw new ApiError(
-      502,
-      category,
-      error instanceof ApiError ? error.message : 'La auditoría falló; reintenta más tarde',
-    );
+    if (error instanceof ApiError) throw error;
+    throw new ApiError(502, category, 'La auditoría falló; reintenta más tarde');
   }
 }
 

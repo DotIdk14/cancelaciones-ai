@@ -55,23 +55,25 @@ base de datos **guarda** datos y archivos; **no decide** negocio.
 ```text
 evidencias
   -> preparación de evidencia (texto / imagen / PDF / transcripción)
-  -> CaseAnalyst con tools
-  -> consulta del Procedimiento V5 (policy/)
-  -> assessment estructurado
-  -> AuditReviewer
+  -> Audit Skill con Procedimiento V5 inyectado íntegro
+  -> assessment estructurado validado por Zod + validación de referencias
+  -> metadata técnica agregada por servidor desde OpenRouter real
   -> resultado terminal (COMPLETED | ERROR)
 ```
 
-En el código, ese flujo es una única función deskill:
+No hay tools agentic en runtime: el procedimiento completo ya se inyecta en el
+prompt de sistema y la aplicación valida que las referencias a evidencias existan
+en el expediente. En el código, ese flujo es:
 
 ```ts
-const result = await auditSkill.execute({ caseId, studentIdentifier, evidences });
+const { result } = await auditSkill.executeWithMetadata({ caseId, studentIdentifier, evidences });
 ```
 
 `src/skills/audit/execute.ts` arma el prompt de sistema (instrucciones +
 Procedimiento V5 íntegro), arma el expediente como partes de contenido de
 OpenRouter, llama al modelo y **valida la respuesta con Zod**. El backend no
-reclasifica después: la salida validada **es** el resultado.
+reclasifica después; sólo agrega `model` y `usage` reales de OpenRouter y
+rechaza referencias inventadas a evidencias.
 
 ---
 
@@ -104,7 +106,7 @@ api/                       Vercel Functions (una por endpoint)
 src/
   skills/audit/            ÚNICA fuente de inteligencia
     types.ts               vocabulario cerrado: resultados, estados, errores
-    schema.ts              AuditResultSchema (Zod, strict) + parseAuditResult
+    schema.ts              AiAuditAssessmentSchema + AuditResultSchema (Zod strict)
     procedure-v5.ts        tipos/metadatos de la política
     policy-v5.generated.ts ARCHIVO GENERADO desde policy/ (npm run policy:generate)
     instructions.ts        system prompt + bloque anti prompt-injection
@@ -124,7 +126,7 @@ policy/                    Procedimiento GDM_GAM_PRD_MLG_003 v5 (FUENTE NORMATIV
   sections/*.md            secciones indexadas
 migrations/                00000000000000_baseline.sql (esquema único)
 scripts/                   generate-policy.mjs, dev-api.mjs
-tests/                     Vitest (38 tests)
+tests/                     Vitest
 docs/                      documentación del proyecto
 vercel.json                framework vite, output dist, install npm ci
 ```
@@ -150,9 +152,14 @@ técnicos se reportan por separado, en `audits.status` y `audits.error_category`
 ### Validación de la salida
 
 La respuesta del modelo **siempre** se valida con Zod contra
-`AuditResultSchema` (`src/skills/audit/schema.ts`), que es `strict()`: no acepta
-campos fuera del schema. Si la validación falla, el run termina con
+`AiAuditAssessmentSchema` (`src/skills/audit/schema.ts`), que es `strict()` y no
+incluye metadata técnica. Si la validación falla, el intento se reintenta según
+la cascada de OpenRouter; si todos fallan, el run termina con
 `INVALID_AI_RESPONSE`; **nunca** se fabrica ni se "aproxima" un dictamen.
+
+El `AuditResult` persistido agrega después, en servidor, `model` y `usage` reales
+de OpenRouter. Si el modelo intenta emitir esos campos, se ignoran para que no
+pueda inventar proveedor, tokens ni coste.
 
 Shape del resultado (`audits.result_json`):
 
@@ -237,7 +244,11 @@ la UI.
 | `case_id` | `uuid` | `REFERENCES cases(id) ON DELETE CASCADE`, **sin** `UNIQUE` (se puede re-auditar) |
 | `status` | `text` | `RUNNING \| COMPLETED \| ERROR` (CHECK) |
 | `provider` | `text` | `NOT NULL DEFAULT 'openrouter'` |
-| `model` | `text` | `NOT NULL` (un dictamen sin modelo no es reproducible) |
+| `model` | `text` | modelo que realmente respondió (incluye fallback) |
+| `evidence_fingerprint` | `text` | hash determinista del conjunto canónico de evidencias |
+| `attempt_number` | `integer` | intento durable para ese fingerprint |
+| `deadline_at` | `timestamptz` | presupuesto temporal del run; evita healer prematuro |
+| `provider_metadata` | `jsonb` | metadata técnica no normativa (usage real, stale, etc.) |
 | `result_json` | `jsonb` | `AuditResult` validado. **Única** fuente de verdad |
 | `error_category` | `text` | sin CHECK: el vocabulario lo fija la aplicación |
 | `latency_ms` | `integer` | admite `NULL` ("no lo sé" ≠ 0) |
@@ -289,12 +300,21 @@ estados que la auditoría acepta sin esperar.
 **Caso** (`cases.status`):
 
 ```text
-DRAFT -> AUDITING -> COMPLETED | ERROR
+DRAFT -> READY -> AUDITING -> COMPLETED | ERROR
 ```
 
+- `READY` significa que existe al menos una evidencia utilizable y se puede
+  auditar. Subir evidencia READY después de `COMPLETED` reabre el caso a `READY`.
+- Borrar evidencia después de `COMPLETED` recalcula el estado: `READY` si queda
+  evidencia utilizable; `DRAFT` si ya no queda ninguna.
 - `COMPLETED` significa **"la auditoría se terminó"**, no "el alumno cumple".
   Qué decidió la auditoría se pregunta a `audits.result_json`.
 - `ERROR` viene con `audits.error_category` y mensaje sanitizado.
+
+La reutilización de dictámenes se basa en `audits.evidence_fingerprint`: si el
+fingerprint coincide se reutiliza el `COMPLETED`; si cambia la evidencia, se crea
+una nueva auditoría. Un índice único parcial evita dos `RUNNING` simultáneos para
+el mismo `(case_id, evidence_fingerprint)`.
 
 ---
 
@@ -420,13 +440,13 @@ Scripts disponibles:
 | `npm test` / `npm run test:watch` | Vitest |
 | `npm run policy:generate` | Compila `policy/` → `src/skills/audit/policy-v5.generated.ts` |
 
-Estado verificado en este repositorio: `typecheck` sin errores, **56/56 tests
-verdes** en 8 archivos.
+Estado verificado en este repositorio: `typecheck` sin errores, **73/73 tests
+verdes** en 9 archivos.
 
 Tests: `evidence-prep`, `http` (validación de entradas), `schema`
 (serialización del `AuditResult` y `parseAuditResult`), `instructions`
 (anti prompt-injection), `execute` (ensamblado del expediente sin red),
-`openrouter` (cascada de intentos), `routes` (validación de entrada y acceso) y
+`openrouter` (cascada de intentos), `auth` (refresh de sesión), `routes` (validación de entrada y acceso) y
 `evidence-status` (estados de evidencia y `POST /audit`).
 
 ---
@@ -445,9 +465,9 @@ Tests: `evidence-prep`, `http` (validación de entradas), `schema`
 ```
 
 - Las **Functions** viven en `api/**` y se despliegan automáticamente.
-- `api/cases/[caseId]/audit/index.ts` exporta `export const maxDuration = 300`
-  (necesario en planes compatibles con funciones largas). `AI_TIMEOUT_MS`
-  (180 s por defecto) debe quedar por debajo de ese techo.
+- `api/cases/[caseId]/audit/index.ts` exporta `export const maxDuration = 300`.
+  `TOTAL_AUDIT_TIMEOUT_MS` (240 s por defecto) debe quedar por debajo de ese
+  techo; cada intento usa `min(AI_TIMEOUT_MS, tiempo restante)`.
 - **No hace falta rewrite de fallback para la SPA**: el enrutado es por hash
   (`#/`, `#/casos/:id`), así que el navegador solo pide `/`, `/index.html`,
   `/assets/*` y `/api/*`. Un rewrite `/(.*) → /index.html` sería innecesario y
@@ -491,8 +511,8 @@ APP_URL=https://<tu-dominio>
   crean reglas.
 - `LEGACY_IS_NOT_POLICY`: el historial Git puede consultarse, pero no revive
   criterios normativos.
-- `AI_ANALYZES_WITH_TOOLS`: la IA lee, consulta tools, cita evidencia y propone
-  assessment estructurado.
+- `AI_ANALYZES_WITH_CONTEXT`: la IA lee el expediente y el procedimiento V5
+  inyectado, cita evidencia y propone assessment estructurado.
 - `NO_RULES_ENGINE`: no reintroducir policy engine, rules engine, fact engine
   obligatorio, rule evaluation ni catálogos ejecutables de reglas.
 - `TRACE_EVERY_DECISION`: toda conclusión importante enlaza evidencia y sección

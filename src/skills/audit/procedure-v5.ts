@@ -1,4 +1,4 @@
-import { POLICY_MANIFEST, PROCEDURE_V5_TEXT } from './policy-v5.generated';
+import { POLICY_MANIFEST, PROCEDURE_V5_TEXT } from './policy-v5.generated.js';
 
 // =============================================================================
 // Procedimiento V5 — GDM_GAM_PRD_MLG_003

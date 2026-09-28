@@ -6,9 +6,9 @@
 // (30 d) con SameSite=Lax, Secure en producción.
 // =============================================================================
 
-import type { InsForgeClient } from './insforge';
-import { createUserClient } from './insforge';
-import { getEnv } from './env';
+import type { InsForgeClient } from './insforge.js';
+import { createUserClient } from './insforge.js';
+import { getEnv } from './env.js';
 import {
   ApiError,
   clearCookie,
@@ -18,7 +18,7 @@ import {
   setCookie,
   type ApiRequest,
   type ApiResponse,
-} from './http';
+} from './http.js';
 
 export const ACCESS_COOKIE = 'insforge_access_token';
 export const REFRESH_COOKIE = 'insforge_refresh_token';
@@ -66,23 +66,25 @@ function clearSessionCookies(res: ApiResponse): void {
 export async function getSession(req: ApiRequest, res: ApiResponse): Promise<AuthSession | null> {
   const cookies = parseCookies(req);
   const accessToken = cookies[ACCESS_COOKIE];
-  if (!accessToken) return null;
-
-  const anonymousClient = createUserClient(accessToken);
-  const { data, error } = await anonymousClient.auth.getCurrentUser();
-  if (!error && data?.user) {
-    return { user: toPublicUser(data.user), accessToken };
+  if (accessToken) {
+    const anonymousClient = createUserClient(accessToken);
+    const { data, error } = await anonymousClient.auth.getCurrentUser();
+    if (!error && data?.user) {
+      return { user: toPublicUser(data.user), accessToken };
+    }
   }
 
-  // Access token inválido/expirado → intenta refresh.
+  // Access token ausente/inválido/expirado → intenta refresh.
   const refreshToken = cookies[REFRESH_COOKIE];
   if (refreshToken) {
+    const anonymousClient = createUserClient(accessToken ?? null);
     const refreshed = await anonymousClient.auth.refreshSession({ refreshToken });
     if (!refreshed.error && refreshed.data?.accessToken && refreshed.data.user) {
       attachSessionCookies(res, refreshed.data.accessToken, refreshed.data.refreshToken ?? refreshToken);
       return { user: toPublicUser(refreshed.data.user), accessToken: refreshed.data.accessToken };
     }
   }
+  clearSessionCookies(res);
   return null;
 }
 

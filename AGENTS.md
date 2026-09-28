@@ -9,17 +9,16 @@ Flujo productivo:
 ```text
 evidencias
   -> preparacion de evidencia
-  -> CaseAnalyst con tools
-  -> consulta del procedimiento V5 en policy/
-  -> assessment estructurado
-  -> AuditReviewer
+  -> Audit Skill con procedimiento V5 owner-supplied inyectado en contexto
+  -> assessment estructurado validado por Zod y referencias
+  -> metadata tecnica real de OpenRouter agregada por servidor
   -> resultado terminal
 ```
 
 Estructura: repositorio de **un solo paquete npm** en la raiz (monorepo pnpm y Next.js eliminados). SPA React + Vite + TypeScript; backend como Vercel Functions en `api/**` con helpers en `src/server/**`.
 
 - `api/`: Vercel Functions, una por endpoint (`auth`, `cases`, `cases/:caseId/evidence`, `audits`, `evidence/download`). Sin logica de negocio: validan, delegan y traducen errores.
-- `src/skills/audit/`: **unica fuente de inteligencia**. `types.ts` (vocabulario cerrado de resultados, estados y categorias de error), `schema.ts` (`AuditResultSchema` Zod `strict` + `parseAuditResult`), `instructions.ts` (system prompt y bloque anti prompt-injection), `procedure-v5.ts` y `policy-v5.generated.ts` (procedimiento compilado), `execute.ts` (ensamblado del expediente y llamada al modelo). El dictamen ES la salida validada; el backend no reclasifica.
+- `src/skills/audit/`: **unica fuente de inteligencia**. `types.ts` (vocabulario cerrado de resultados, estados y categorias de error), `schema.ts` (`AiAuditAssessmentSchema` y `AuditResultSchema` Zod `strict` + parsers tipados), `instructions.ts` (system prompt y bloque anti prompt-injection), `procedure-v5.ts` y `policy-v5.generated.ts` (procedimiento compilado), `execute.ts` (ensamblado del expediente, llamada al modelo y validacion de referencias). El dictamen ES el assessment validado; el backend no reclasifica, solo agrega metadata tecnica real de OpenRouter.
 - `src/server/`: `env.ts`, `insforge.ts` (cliente server-side), `auth.ts` (cookies httpOnly), `http.ts` (errores tipados), `cases.ts` (persistencia), `dto.ts`, `audit-service.ts` (orquestacion durable), `openrouter.ts` (unico transporte de IA), `assemblyai.ts` (solo transcripcion), `evidence-prep.ts` y `pdf.ts` (preparacion tecnica, sin decidir negocio).
 - `src/components/`, `src/auth/`: UI con hash routing manual (`#/`, `#/casos/:id`), sin react-router.
 - `src/lib/`: `api.ts` (cliente fetch, DTOs camelCase), `useHashRoute.ts`, `usePolling.ts`, `labels.ts`, `format.ts`, `cx.ts`.
@@ -36,7 +35,7 @@ InsForge (DB + Storage) es **solo server-side**: el navegador nunca habla con el
 - TEMPLATE_IS_NOT_POLICY: `Dictamen.pdf` no es fuente normativa.
 - HISTORICAL_CASES_ARE_NOT_POLICY: casos historicos muestran practica, no crean reglas.
 - LEGACY_IS_NOT_POLICY: el historial Git puede consultarse, pero no revive criterios normativos.
-- AI_ANALYZES_WITH_TOOLS: la IA lee, consulta tools, cita evidencia y propone assessment estructurado.
+- AI_ANALYZES_WITH_CONTEXT: la IA lee el expediente y procedimiento V5 inyectado, cita evidencia y propone assessment estructurado.
 - NO_RULES_ENGINE: no reintroducir policy engine, rules engine, fact engine obligatorio, rule evaluation ni catalogos ejecutables de reglas.
 - TRACE_EVERY_DECISION: toda conclusion importante debe enlazar evidencia y seccion del procedimiento cuando aplique.
 - PRESERVE_EVIDENCE_PROVENANCE: nunca modificar originales; todo derivado conserva hash y origen.

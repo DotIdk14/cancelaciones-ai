@@ -1,8 +1,8 @@
-import { handleRoute, ok, methodNotAllowed, requiredString } from '../../../src/server/http';
-import { requireUser } from '../../../src/server/auth';
-import { getCaseOr404, latestAudit, listEvidenceRows } from '../../../src/server/cases';
-import { auditToDto, caseToDetail, evidenceToDto } from '../../../src/server/dto';
-import { refreshTranscriptions } from '../../../src/server/audit-service';
+import { handleRoute, ok, methodNotAllowed, requiredString } from '../../../src/server/http.js';
+import { requireUser } from '../../../src/server/auth.js';
+import { getCaseOr404, latestAudit, listEvidenceRows } from '../../../src/server/cases.js';
+import { auditToDto, caseToDetail, evidenceToDto } from '../../../src/server/dto.js';
+import { refreshTranscriptions } from '../../../src/server/audit-service.js';
 
 // GET /api/cases/:caseId → { case, evidences, audit }
 export default handleRoute(async (req, res) => {

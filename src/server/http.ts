@@ -4,7 +4,7 @@
 // =============================================================================
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import type { ErrorCategory } from '../skills/audit/types';
+import type { ErrorCategory } from '../skills/audit/types.js';
 
 export type QueryValue = string | string[] | undefined;
 

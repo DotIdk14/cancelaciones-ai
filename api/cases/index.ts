@@ -1,7 +1,7 @@
-import { handleRoute, ok, created, methodNotAllowed, readJsonBody } from '../../src/server/http';
-import { requireUser } from '../../src/server/auth';
-import { createCase, listCaseSummaries } from '../../src/server/cases';
-import { caseToSummary } from '../../src/server/dto';
+import { handleRoute, ok, created, methodNotAllowed, readJsonBody } from '../../src/server/http.js';
+import { requireUser } from '../../src/server/auth.js';
+import { createCase, listCaseSummaries } from '../../src/server/cases.js';
+import { caseToSummary } from '../../src/server/dto.js';
 
 // GET  /api/cases            → { cases: CaseSummary[] }
 // POST /api/cases { studentIdentifier? } → 201 { case: CaseSummary }

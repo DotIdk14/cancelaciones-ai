@@ -1,6 +1,6 @@
-import { handleRoute, json, methodNotAllowed, ok, requiredString } from '../../../../src/server/http';
-import { requireUser } from '../../../../src/server/auth';
-import { getAuditForPolling, runAudit } from '../../../../src/server/audit-service';
+import { handleRoute, json, methodNotAllowed, ok, requiredString } from '../../../../src/server/http.js';
+import { requireUser } from '../../../../src/server/auth.js';
+import { getAuditForPolling, runAudit } from '../../../../src/server/audit-service.js';
 
 // GET  /api/cases/:caseId/audit → { audit: AuditDetail|null } (polling + refresco de transcripción)
 // POST /api/cases/:caseId/audit → 200 { audit } | 202 { audit: null, pendingEvidence } | 400 { error }

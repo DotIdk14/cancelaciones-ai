@@ -9,26 +9,71 @@
 //  4. Valida SIEMPRE con Zod (parseAuditResult). El backend no reclasifica.
 // =============================================================================
 
-import { callOpenRouterAudit, type OpenRouterContentPart } from '../../server/openrouter';
-import { parseAuditResult, type AuditResult } from './schema';
-import { buildDossierHeader, buildSystemPrompt } from './instructions';
-import { PROCEDURE_TEXT } from './procedure-v5';
-import type { AuditSkillInput } from './types';
+import { callOpenRouterAudit, type OpenRouterContentPart } from '../../server/openrouter.js';
+import { ApiError } from '../../server/http.js';
+import { parseAiAuditAssessment, type AuditResult } from './schema.js';
+import { buildDossierHeader, buildSystemPrompt } from './instructions.js';
+import { PROCEDURE_TEXT } from './procedure-v5.js';
+import type { AuditSkillInput } from './types.js';
 
 /** Umbral de texto extraído de un PDF para considerarlo "textual" (no escaneado). */
 export const PDF_MIN_TEXT_CHARS = 80;
 
 export interface AuditSkill {
   execute(input: AuditSkillInput): Promise<AuditResult>;
+  executeWithMetadata(input: AuditSkillInput, options?: { deadlineMs?: number }): Promise<{ result: AuditResult; model: string; usage: AuditResult['usage'] }>;
 }
 
 export const auditSkill: AuditSkill = {
   async execute(input: AuditSkillInput): Promise<AuditResult> {
+    return (await this.executeWithMetadata(input)).result;
+  },
+  async executeWithMetadata(input: AuditSkillInput, options?: { deadlineMs?: number }) {
     const { system, parts } = buildAuditMessages(input);
-    const response = await callOpenRouterAudit({ system, parts });
-    return parseAuditResult(response.parsed);
+    const response = await callOpenRouterAudit({
+      system,
+      parts,
+      deadlineMs: options?.deadlineMs,
+      validate: (parsed) => {
+        const assessment = parseAiAuditAssessment(stripTechnicalMetadata(parsed));
+        validateAssessmentReferences(assessment, input);
+      },
+    });
+    const assessment = parseAiAuditAssessment(stripTechnicalMetadata(response.parsed));
+    validateAssessmentReferences(assessment, input);
+    return {
+      result: {
+        ...assessment,
+        model: { provider: 'openrouter', model: response.model },
+        usage: response.usage,
+      },
+      model: response.model,
+      usage: response.usage,
+    };
   },
 };
+
+function stripTechnicalMetadata(parsed: unknown): unknown {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return parsed;
+  const { model: _model, usage: _usage, ...assessment } = parsed as Record<string, unknown>;
+  return assessment;
+}
+
+function validateAssessmentReferences(assessment: ReturnType<typeof parseAiAuditAssessment>, input: AuditSkillInput): void {
+  const validIds = new Set(input.evidences.map((evidence) => evidence.evidenceId));
+  const checkIds = (ids: string[], path: string) => {
+    for (const id of ids) {
+      if (!validIds.has(id)) {
+        throw new ApiError(502, 'INVALID_AI_RESPONSE', `${path} referencia evidencia inexistente: ${id}`);
+      }
+    }
+  };
+  assessment.evidenceSummary.forEach((item, index) => checkIds([item.evidenceId], `evidenceSummary.${index}.evidenceId`));
+  assessment.facts.forEach((item, index) => checkIds(item.evidenceIds, `facts.${index}.evidenceIds`));
+  assessment.timeline.forEach((item, index) => checkIds(item.evidenceIds, `timeline.${index}.evidenceIds`));
+  assessment.conflicts.forEach((item, index) => checkIds(item.evidenceIds, `conflicts.${index}.evidenceIds`));
+  checkIds(assessment.audit.supportingEvidenceIds, 'audit.supportingEvidenceIds');
+}
 
 /**
  * Arma los mensajes del modelo. Expuesto por separado para poder testear
@@ -91,6 +136,12 @@ export function buildAuditMessages(input: AuditSkillInput): {
       } else {
         lines.push('(Sin contenido textual disponible.)');
       }
+    }
+
+    if (evidence.truncated && evidence.originalChars !== undefined) {
+      lines.push(
+        `ADVERTENCIA: contenido derivado truncado; se enviaron ${Math.min(evidence.text?.length ?? evidence.transcript?.transcript.length ?? 0, evidence.originalChars)} de ${evidence.originalChars} caracteres. No trates esta evidencia como completa si el dato requerido no aparece en el fragmento.`,
+      );
     }
 
     parts.push({ type: 'text', text: lines.join('\n') });

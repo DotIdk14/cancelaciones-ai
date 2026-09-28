@@ -7,13 +7,13 @@ import {
   methodNotAllowed,
   readRawBody,
   requiredString,
-} from '../../../../src/server/http';
-import { requireUser } from '../../../../src/server/auth';
-import { getEnv } from '../../../../src/server/env';
-import { getCaseOr404, insertEvidence, updateEvidenceStatus } from '../../../../src/server/cases';
-import { evidenceToDto } from '../../../../src/server/dto';
-import { isAudio, normalizeMime, sanitizeFilename, sha256Hex } from '../../../../src/server/evidence-prep';
-import { submitTranscription } from '../../../../src/server/assemblyai';
+} from '../../../../src/server/http.js';
+import { requireUser } from '../../../../src/server/auth.js';
+import { getEnv } from '../../../../src/server/env.js';
+import { getCaseOr404, insertEvidence, updateCaseStatus, updateEvidenceStatus } from '../../../../src/server/cases.js';
+import { evidenceToDto } from '../../../../src/server/dto.js';
+import { isAudio, normalizeMime, sanitizeFilename, sha256Hex } from '../../../../src/server/evidence-prep.js';
+import { submitTranscription } from '../../../../src/server/assemblyai.js';
 
 // POST /api/cases/:caseId/evidence
 // Body binario crudo; headers: content-type = MIME, x-file-name = nombre URL-encoded.
@@ -100,6 +100,8 @@ export default handleRoute(async (req, res) => {
       // No se lanza: la evidencia queda registrada en ERROR y la UI lo muestra.
     }
   }
+
+  await updateCaseStatus(client, caseId, evidence.processing_status === 'READY' ? 'READY' : 'DRAFT').catch(() => undefined);
 
   created(res, { evidence: evidenceToDto(evidence) });
 });

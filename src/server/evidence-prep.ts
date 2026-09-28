@@ -7,7 +7,7 @@
 // =============================================================================
 
 import { createHash } from 'node:crypto';
-import type { EvidenceKind, TranscriptData } from '../skills/audit/types';
+import type { EvidenceKind, TranscriptData } from '../skills/audit/types.js';
 
 const IMAGE_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
 const AUDIO_MIMES = new Set(['audio/mpeg', 'audio/mp4', 'audio/wav', 'audio/webm', 'audio/ogg', 'audio/x-m4a', 'audio/m4a', 'audio/mp3']);

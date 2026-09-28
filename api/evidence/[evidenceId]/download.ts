@@ -5,10 +5,10 @@ import {
   optionalString,
   requiredString,
   sendBinary,
-} from '../../../src/server/http';
-import { requireUser } from '../../../src/server/auth';
-import { getEnv } from '../../../src/server/env';
-import type { InsForgeClient } from '../../../src/server/insforge';
+} from '../../../src/server/http.js';
+import { requireUser } from '../../../src/server/auth.js';
+import { getEnv } from '../../../src/server/env.js';
+import type { InsForgeClient } from '../../../src/server/insforge.js';
 
 // GET /api/evidence/:evidenceId/download?preview=1 → bytes del archivo
 // preview=1 → Content-Disposition inline (para <img>); sin preview → attachment.

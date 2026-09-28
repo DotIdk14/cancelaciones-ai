@@ -1,5 +1,5 @@
-import { handleRoute, methodNotAllowed, ok } from '../../../src/server/http';
-import { attachSessionCookies, signIn } from '../../../src/server/auth';
+import { handleRoute, methodNotAllowed, ok } from '../../../src/server/http.js';
+import { attachSessionCookies, signIn } from '../../../src/server/auth.js';
 
 // POST /api/auth/sign-in { email, password } → 200 { user } | 401 { error }
 export default handleRoute(async (req, res) => {

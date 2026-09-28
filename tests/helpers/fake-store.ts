@@ -173,6 +173,22 @@ export async function latestAudit(_client: unknown, caseId: string): Promise<Aud
   return last ? { ...last } : null;
 }
 
+export async function latestCompletedAuditByFingerprint(_client: unknown, caseId: string, fingerprint: string): Promise<AuditRow | null> {
+  const rows = auditRows.filter((row) => row.case_id === caseId && row.status === 'COMPLETED' && row.evidence_fingerprint === fingerprint);
+  const last = rows[rows.length - 1];
+  return last ? { ...last } : null;
+}
+
+export async function latestRunningAuditByFingerprint(_client: unknown, caseId: string, fingerprint: string): Promise<AuditRow | null> {
+  const rows = auditRows.filter((row) => row.case_id === caseId && row.status === 'RUNNING' && row.evidence_fingerprint === fingerprint);
+  const last = rows[rows.length - 1];
+  return last ? { ...last } : null;
+}
+
+export async function countAuditsByFingerprint(_client: unknown, caseId: string, fingerprint: string): Promise<number> {
+  return auditRows.filter((row) => row.case_id === caseId && row.evidence_fingerprint === fingerprint).length;
+}
+
 export async function insertAudit(_client: unknown, row: InsertAuditRow): Promise<AuditRow> {
   const audit: AuditRow = {
     id: nextId('audit'),
@@ -183,6 +199,10 @@ export async function insertAudit(_client: unknown, row: InsertAuditRow): Promis
     result_json: null,
     error_category: null,
     latency_ms: null,
+    evidence_fingerprint: row.evidence_fingerprint,
+    attempt_number: row.attempt_number,
+    deadline_at: row.deadline_at,
+    provider_metadata: row.provider_metadata ?? null,
     created_at: new Date().toISOString(),
   };
   auditRows.push(audit);
@@ -192,7 +212,7 @@ export async function insertAudit(_client: unknown, row: InsertAuditRow): Promis
 export async function updateAuditResult(
   _client: unknown,
   auditId: string,
-  patch: { status: AuditStatus; result_json: unknown; error_category: AuditRow['error_category']; latency_ms: number },
+  patch: { status: AuditStatus; result_json: unknown; error_category: AuditRow['error_category']; latency_ms: number; model?: string; provider_metadata?: unknown },
 ): Promise<AuditRow> {
   const row = auditRows.find((item) => item.id === auditId);
   if (!row) throw new ApiError(404, 'NOT_FOUND', 'Auditoría no encontrada');
@@ -200,6 +220,8 @@ export async function updateAuditResult(
   row.result_json = patch.result_json;
   row.error_category = patch.error_category;
   row.latency_ms = patch.latency_ms;
+  if (patch.model) row.model = patch.model;
+  if (patch.provider_metadata !== undefined) row.provider_metadata = patch.provider_metadata;
   return { ...row };
 }
 

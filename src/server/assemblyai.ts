@@ -6,9 +6,9 @@
 // el Audit Skill. AssemblyAI NO decide negocio: solo transcribe.
 // =============================================================================
 
-import { getEnv } from './env';
-import { ApiError } from './http';
-import type { TranscriptData } from '../skills/audit/types';
+import { getEnv } from './env.js';
+import { ApiError } from './http.js';
+import type { TranscriptData } from '../skills/audit/types.js';
 
 const API_BASE = 'https://api.assemblyai.com/v2';
 

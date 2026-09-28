@@ -24,8 +24,7 @@
 
 ## Variables de entorno (todas server-side)
 
-Se leen todas en `src/server/env.ts` (`AI_TIMEOUT_MS` es la única excepción: se
-lee en `src/server/openrouter.ts`). Copiar `.env.example` a `.env.local`
+Se leen todas en `src/server/env.ts`. Copiar `.env.example` a `.env.local`
 (gitignored) y completar. Si falta una obligatoria, el servidor falla al
 arrancar con `[env] Falta la variable de entorno <NOMBRE>`.
 

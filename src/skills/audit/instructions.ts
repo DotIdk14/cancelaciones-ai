@@ -1,5 +1,5 @@
-import { PROCEDURE_CITATION, procedureMetaLine } from './procedure-v5';
-import { AUDIT_RESULTS } from './types';
+import { PROCEDURE_CITATION, procedureMetaLine } from './procedure-v5.js';
+import { AUDIT_RESULTS } from './types.js';
 
 // =============================================================================
 // Instrucciones del Audit Skill (system prompt).

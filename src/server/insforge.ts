@@ -4,7 +4,7 @@
 // =============================================================================
 
 import { createClient, type InsForgeClient } from '@insforge/sdk';
-import { getEnv } from './env';
+import { getEnv } from './env.js';
 
 export type { InsForgeClient };
 

@@ -82,6 +82,39 @@ describe('callOpenRouterAudit', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it('reintenta cuando el JSON es válido pero no pasa validación semántica', async () => {
+    fetchMock
+      .mockResolvedValueOnce(completionResponse({ parsed: { nope: true } }))
+      .mockResolvedValueOnce(completionResponse());
+
+    const result = await callOpenRouterAudit({
+      system: 's',
+      parts: [{ type: 'text', text: 'x' }],
+      validate: (parsed) => {
+        if ((parsed as { audit?: unknown }).audit === undefined) throw new ApiError(502, 'INVALID_AI_RESPONSE', 'schema inválido');
+      },
+    });
+
+    expect(result.parsed).toEqual(validAuditResult);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('agota retries inválidos con categoría INVALID_AI_RESPONSE', async () => {
+    fetchMock.mockResolvedValue(completionResponse({ parsed: { nope: true } }));
+
+    const error = await callOpenRouterAudit({
+      system: 's',
+      parts: [{ type: 'text', text: 'x' }],
+      validate: () => {
+        throw new ApiError(502, 'INVALID_AI_RESPONSE', 'schema inválido');
+      },
+    }).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).category).toBe('INVALID_AI_RESPONSE');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it('mapea usage ausente a null (coste nunca inventado)', async () => {
     fetchMock.mockResolvedValueOnce(completionResponse({ usage: undefined }));
 

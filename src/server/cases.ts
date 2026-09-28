@@ -6,9 +6,9 @@
 // devuelve "no encontrado" en lugar de datos.
 // =============================================================================
 
-import type { InsForgeClient } from './insforge';
-import type { CaseStatus, ErrorCategory, EvidenceStatus } from '../skills/audit/types';
-import { ApiError, mapProviderError } from './http';
+import type { InsForgeClient } from './insforge.js';
+import type { CaseStatus, ErrorCategory, EvidenceStatus } from '../skills/audit/types.js';
+import { ApiError, mapProviderError } from './http.js';
 
 export interface CaseRow {
   id: string;
@@ -47,6 +47,10 @@ export interface AuditRow {
   result_json: unknown;
   error_category: ErrorCategory | null;
   latency_ms: number | null;
+  evidence_fingerprint: string | null;
+  attempt_number: number | null;
+  deadline_at: string | null;
+  provider_metadata: unknown;
   created_at: string;
 }
 
@@ -164,11 +168,61 @@ export async function latestAudit(client: InsForgeClient, caseId: string): Promi
   return rows[0] ?? null;
 }
 
+export async function latestCompletedAuditByFingerprint(
+  client: InsForgeClient,
+  caseId: string,
+  fingerprint: string,
+): Promise<AuditRow | null> {
+  const { data, error } = await client.database
+    .from('audits')
+    .select('*')
+    .eq('case_id', caseId)
+    .eq('status', 'COMPLETED')
+    .eq('evidence_fingerprint', fingerprint)
+    .order('created_at', { ascending: false })
+    .limit(1);
+  if (error) dbError(error);
+  const rows = data as AuditRow[] | null;
+  return rows?.[0] ?? null;
+}
+
+export async function latestRunningAuditByFingerprint(
+  client: InsForgeClient,
+  caseId: string,
+  fingerprint: string,
+): Promise<AuditRow | null> {
+  const { data, error } = await client.database
+    .from('audits')
+    .select('*')
+    .eq('case_id', caseId)
+    .eq('status', 'RUNNING')
+    .eq('evidence_fingerprint', fingerprint)
+    .order('created_at', { ascending: false })
+    .limit(1);
+  if (error) dbError(error);
+  const rows = data as AuditRow[] | null;
+  return rows?.[0] ?? null;
+}
+
+export async function countAuditsByFingerprint(client: InsForgeClient, caseId: string, fingerprint: string): Promise<number> {
+  const { data, error } = await client.database
+    .from('audits')
+    .select('id')
+    .eq('case_id', caseId)
+    .eq('evidence_fingerprint', fingerprint);
+  if (error) dbError(error);
+  return (data as Array<{ id: string }> | null)?.length ?? 0;
+}
+
 export interface InsertAuditRow {
   case_id: string;
   status: AuditStatus;
   provider: string;
   model: string;
+  evidence_fingerprint: string;
+  attempt_number: number;
+  deadline_at: string;
+  provider_metadata?: unknown;
 }
 
 export async function insertAudit(client: InsForgeClient, row: InsertAuditRow): Promise<AuditRow> {
@@ -185,6 +239,8 @@ export async function updateAuditResult(
     result_json: unknown;
     error_category: ErrorCategory | null;
     latency_ms: number;
+    model?: string;
+    provider_metadata?: unknown;
   },
 ): Promise<AuditRow> {
   const { data, error } = await client.database
@@ -194,6 +250,8 @@ export async function updateAuditResult(
       result_json: patch.result_json,
       error_category: patch.error_category,
       latency_ms: patch.latency_ms,
+      ...(patch.model ? { model: patch.model } : {}),
+      ...(patch.provider_metadata !== undefined ? { provider_metadata: patch.provider_metadata } : {}),
     })
     .eq('id', auditId)
     .select()

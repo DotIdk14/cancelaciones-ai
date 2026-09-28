@@ -111,4 +111,27 @@ describe('auditSkill.execute', () => {
 
     await expect(auditSkill.execute(baseInput)).rejects.toThrow(/^INVALID_AI_RESPONSE:/);
   });
+
+  it('rechaza evidenceIds inventados por la IA', async () => {
+    mockedCall.mockResolvedValue({
+      parsed: { ...validAuditResult, audit: { ...validAuditResult.audit, supportingEvidenceIds: ['ev-falso'] } },
+      model: 'google/gemini-2.5-flash',
+      usage: validAuditResult.usage,
+    });
+
+    await expect(auditSkill.execute(baseInput)).rejects.toMatchObject({ category: 'INVALID_AI_RESPONSE' });
+  });
+
+  it('usa metadata real de OpenRouter aunque el modelo intente inventarla', async () => {
+    mockedCall.mockResolvedValue({
+      parsed: { ...validAuditResult, model: { provider: 'openrouter', model: 'inventado' }, usage: { promptTokens: 999, completionTokens: 999, totalTokens: 999, estimatedCostUSD: 999 } },
+      model: 'fallback/real',
+      usage: { promptTokens: null, completionTokens: null, totalTokens: null, estimatedCostUSD: null },
+    });
+
+    const result = await auditSkill.execute(baseInput);
+
+    expect(result.model.model).toBe('fallback/real');
+    expect(result.usage).toEqual({ promptTokens: null, completionTokens: null, totalTokens: null, estimatedCostUSD: null });
+  });
 });

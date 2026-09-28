@@ -387,6 +387,10 @@ CREATE TABLE IF NOT EXISTS public.audits (
     CHECK (status IN ('RUNNING','COMPLETED','ERROR')),
   provider text NOT NULL DEFAULT 'openrouter',
   model text NOT NULL,
+  evidence_fingerprint text NOT NULL,
+  attempt_number integer NOT NULL DEFAULT 1 CHECK (attempt_number >= 1),
+  deadline_at timestamptz,
+  provider_metadata jsonb,
   result_json jsonb,               -- AuditResult validado (fuente de verdad)
   error_category text,             -- vocabulario cerrado en src/skills/audit/types.ts (ERROR_CATEGORIES, 10 valores); sin CHECK a propósito
   latency_ms integer,
@@ -397,6 +401,13 @@ CREATE TABLE IF NOT EXISTS public.audits (
 -- (created_at DESC). Sin UNIQUE, porque re-auditar es una operación válida.
 CREATE INDEX IF NOT EXISTS audits_case_id_created_at_idx
   ON public.audits (case_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS audits_case_id_fingerprint_created_at_idx
+  ON public.audits (case_id, evidence_fingerprint, created_at DESC);
+
+CREATE UNIQUE INDEX IF NOT EXISTS audits_one_running_per_case_fingerprint_idx
+  ON public.audits (case_id, evidence_fingerprint)
+  WHERE status = 'RUNNING';
 
 DO $baseline$
 BEGIN
@@ -799,8 +810,8 @@ BEGIN
       'id','case_id','filename','mime_type','size_bytes','hash','storage_path',
       'processing_status','transcript_json','created_at']::text[]),
     ('audits', ARRAY[
-      'id','case_id','status','provider','model','result_json','error_category',
-      'latency_ms','created_at']::text[])
+      'id','case_id','status','provider','model','evidence_fingerprint','attempt_number',
+      'deadline_at','provider_metadata','result_json','error_category','latency_ms','created_at']::text[])
   ) AS e(tabla, cols)
   CROSS JOIN LATERAL unnest(e.cols) AS col(nombre)
   WHERE NOT EXISTS (
@@ -906,6 +917,11 @@ BEGIN
   --    diferencia entre "hay una política" y "es la que se quiso escribir".
   --    `pg_policies` es una vista directa sobre el catálogo, sin filtrado por
   --    usuario, así que no puede verse menos de lo que hay.
+  --
+  --    `permissive` se compara contra 'PERMISSIVE' y no se usa como predicado a
+  --    secas porque en `pg_policies` es de tipo TEXT ('PERMISSIVE'/'RESTRICTIVE'),
+  --    no booleano: `AND p.permissive` aborta la migración con "argument of AND
+  --    must be type boolean, not type text" sobre un esquema correcto.
   WITH esperado(pol_nombre, tbl, cmd) AS (
     VALUES
       ('cases_select_own',                  'cases',    'SELECT'),
@@ -931,7 +947,7 @@ BEGIN
       AND p.tablename = e.tbl
       AND p.policyname = e.pol_nombre
       AND p.cmd = e.cmd
-      AND p.permissive
+      AND p.permissive = 'PERMISSIVE'
       AND p.roles = ARRAY['authenticated']::name[]
   );
   IF v_leaked IS NOT NULL THEN

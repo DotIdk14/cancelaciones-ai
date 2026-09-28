@@ -11,10 +11,10 @@
 // =============================================================================
 
 import { zodToJsonSchema } from 'zod-to-json-schema';
-import { AuditResultSchema } from '../skills/audit/schema';
-import type { ModelUsage } from '../skills/audit/types';
-import { getEnv } from './env';
-import { ApiError } from './http';
+import { AiAuditAssessmentSchema } from '../skills/audit/schema.js';
+import type { ModelUsage } from '../skills/audit/types.js';
+import { getEnv } from './env.js';
+import { ApiError } from './http.js';
 
 export type OpenRouterContentPart =
   | { type: 'text'; text: string }
@@ -24,8 +24,12 @@ export type OpenRouterContentPart =
 export interface CallOpenRouterAuditInput {
   system: string;
   parts: OpenRouterContentPart[];
-  /** Milisegundos por intento (por defecto 180_000). */
+  /** Milisegundos por intento. */
   timeoutMs?: number;
+  /** Deadline global epoch ms; cada intento usa sólo el tiempo restante. */
+  deadlineMs?: number;
+  /** Validador semántico/Zod. Si falla, se reintenta como INVALID_AI_RESPONSE. */
+  validate?: (parsed: unknown) => void;
 }
 
 export interface CallOpenRouterAuditOutput {
@@ -38,7 +42,7 @@ export interface CallOpenRouterAuditOutput {
 }
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const DEFAULT_TIMEOUT_MS = 180_000;
+const MIN_ATTEMPT_BUDGET_MS = 1_000;
 
 /** Deriva el JSON Schema estricto del schema único de Zod. */
 function buildStrictJsonSchema(schema: unknown): Record<string, unknown> {
@@ -64,7 +68,7 @@ function applyAdditionalPropertiesFalse(node: unknown): void {
 }
 
 const AUDIT_JSON_SCHEMA = buildStrictJsonSchema(
-  zodToJsonSchema(AuditResultSchema, { name: 'AuditResult', $refStrategy: 'none' }),
+  zodToJsonSchema(AiAuditAssessmentSchema, { name: 'AiAuditAssessment', $refStrategy: 'none' }),
 );
 
 interface AttemptSpec {
@@ -166,14 +170,16 @@ async function singleAttempt(
     try {
       parsed = JSON.parse(content);
     } catch {
-      throw new Error('el contenido no es JSON válido');
+      throw new ApiError(502, 'INVALID_AI_RESPONSE', 'El contenido de OpenRouter no es JSON válido');
     }
 
-    return {
+    const output = {
       parsed,
       model: typeof okBody?.model === 'string' ? okBody.model : attempt.model,
       usage: toModelUsage(okBody?.usage),
     };
+    input.validate?.(parsed);
+    return output;
   } finally {
     clearTimeout(timer);
   }
@@ -188,7 +194,8 @@ export async function callOpenRouterAudit(
   input: CallOpenRouterAuditInput,
 ): Promise<CallOpenRouterAuditOutput> {
   const env = getEnv();
-  const timeoutMs = input.timeoutMs ?? (Number(process.env.AI_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS);
+  const perAttemptTimeoutMs = input.timeoutMs ?? env.AI_TIMEOUT_MS;
+  const deadlineMs = input.deadlineMs ?? Date.now() + env.TOTAL_AUDIT_TIMEOUT_MS;
 
   const attempts: AttemptSpec[] = [
     { model: env.OPENROUTER_MODEL, format: 'json_schema' },
@@ -202,10 +209,18 @@ export async function callOpenRouterAudit(
   }
 
   const failures: string[] = [];
+  let sawInvalidAiResponse = false;
   for (const attempt of attempts) {
+    const remainingMs = deadlineMs - Date.now();
+    if (remainingMs < MIN_ATTEMPT_BUDGET_MS) {
+      failures.push(`${attempt.model} [${attempt.format}]: sin presupuesto de tiempo suficiente`);
+      break;
+    }
     try {
-      return await singleAttempt(attempt, input, timeoutMs);
+      return await singleAttempt(attempt, input, Math.min(perAttemptTimeoutMs, remainingMs));
     } catch (error) {
+      if (error instanceof ApiError && error.category === 'INVALID_AI_RESPONSE') sawInvalidAiResponse = true;
+      if (!(error instanceof ApiError) && error instanceof SyntaxError) sawInvalidAiResponse = true;
       failures.push(
         `${attempt.model} [${attempt.format}]: ${error instanceof Error ? error.message : 'error desconocido'}`,
       );
@@ -214,7 +229,7 @@ export async function callOpenRouterAudit(
 
   throw new ApiError(
     502,
-    'AI_PROVIDER_ERROR',
+    sawInvalidAiResponse ? 'INVALID_AI_RESPONSE' : 'AI_PROVIDER_ERROR',
     `OpenRouter no pudo producir un resultado válido: ${failures.join(' | ')}`,
   );
 }

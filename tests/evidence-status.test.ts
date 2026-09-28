@@ -24,6 +24,8 @@ import {
   fakeClient,
   storageLog,
   listEvidence,
+  listAudits,
+  getCase,
   minimalPdf,
   resetStore,
   seedCase,
@@ -44,6 +46,9 @@ vi.mock('../src/server/cases', async () => {
     updateEvidenceStatus: store.updateEvidenceStatus,
     deleteEvidenceRow: store.deleteEvidenceRow,
     latestAudit: store.latestAudit,
+    latestCompletedAuditByFingerprint: store.latestCompletedAuditByFingerprint,
+    latestRunningAuditByFingerprint: store.latestRunningAuditByFingerprint,
+    countAuditsByFingerprint: store.countAuditsByFingerprint,
     insertAudit: store.insertAudit,
     updateAuditResult: store.updateAuditResult,
     updateCaseStatus: store.updateCaseStatus,
@@ -260,6 +265,49 @@ describe('evidencia NO-audio: nace en un estado que la auditoría acepta', () =>
 
     expect(outcome.phase).toBe('done');
     expect(listEvidence().every((row) => row.processing_status === 'READY')).toBe(true);
+  });
+});
+
+describe('fingerprint de expediente y ciclo de vida del caso', () => {
+  it('reutiliza COMPLETED cuando el fingerprint no cambia', async () => {
+    seedEvidence({ id: 'ev-1', processing_status: 'READY', content: 'cancelación' });
+
+    await runAudit(fakeClient, 'case-1');
+    await runAudit(fakeClient, 'case-1');
+
+    expect(listAudits()).toHaveLength(1);
+    expect(mockedCall).toHaveBeenCalledTimes(1);
+  });
+
+  it('crea nueva auditoría cuando cambia la evidencia después de COMPLETED', async () => {
+    seedEvidence({ id: 'ev-1', processing_status: 'READY', content: 'cancelación' });
+    await runAudit(fakeClient, 'case-1');
+
+    seedEvidence({ id: 'ev-2', processing_status: 'READY', hash: 'b'.repeat(64), content: 'nueva evidencia' });
+    await runAudit(fakeClient, 'case-1');
+
+    expect(listAudits()).toHaveLength(2);
+    expect(mockedCall).toHaveBeenCalledTimes(2);
+  });
+
+  it('upload READY después de COMPLETED reabre el caso a READY', async () => {
+    resetStore();
+    seedCase({ status: 'COMPLETED' });
+    await upload('text/plain', 'nueva.txt', 'nueva evidencia');
+
+    expect(getCase('case-1')?.status).toBe('READY');
+  });
+
+  it('delete después de COMPLETED reabre a DRAFT si no quedan evidencias', async () => {
+    resetStore();
+    seedCase({ status: 'COMPLETED' });
+    const evidence = seedEvidence({ id: 'ev-1', processing_status: 'READY' });
+    const res = makeApiResponse();
+
+    await evidenceDeleteHandler(makePlainRequest('DELETE', { caseId: 'case-1', evidenceId: evidence.id }), res);
+
+    expect(res.statusCode).toBe(200);
+    expect(getCase('case-1')?.status).toBe('DRAFT');
   });
 });
 

@@ -1,7 +1,7 @@
-import { handleRoute, ok, methodNotAllowed, requiredString } from '../../../../../src/server/http';
-import { requireUser } from '../../../../../src/server/auth';
-import { getEnv } from '../../../../../src/server/env';
-import { deleteEvidenceRow, getEvidenceOr404 } from '../../../../../src/server/cases';
+import { handleRoute, ok, methodNotAllowed, requiredString } from '../../../../../src/server/http.js';
+import { requireUser } from '../../../../../src/server/auth.js';
+import { getEnv } from '../../../../../src/server/env.js';
+import { deleteEvidenceRow, getEvidenceOr404, listEvidenceRows, updateCaseStatus } from '../../../../../src/server/cases.js';
 
 // DELETE /api/cases/:caseId/evidence/:evidenceId → 200 { ok: true }
 export default handleRoute(async (req, res) => {
@@ -25,5 +25,7 @@ export default handleRoute(async (req, res) => {
     });
 
   await deleteEvidenceRow(client, evidenceId);
+  const remaining = await listEvidenceRows(client, caseId);
+  await updateCaseStatus(client, caseId, remaining.some((item) => item.processing_status === 'READY') ? 'READY' : 'DRAFT').catch(() => undefined);
   ok(res, { ok: true });
 });

@@ -1,56 +1,46 @@
-# Arquitectura AI-Native
+# Arquitectura vigente — Cancelaciones AI
 
-> [!WARNING]
-> Documento histórico pre-consolidación. Describe un esquema de 7 tablas y un
-> layout `packages/*` que ya no existen. La arquitectura vigente usa 3 tablas
-> (`cases`, `evidence`, `audits`) y código en `api/` + `src/`. Ver `AGENTS.md`,
-> `README.md` y `migrations/00000000000000_baseline.sql` como referencias
-> actuales.
+El producto es una SPA React + Vite + TypeScript con backend en Vercel Functions
+(`api/**`) y helpers server-side en `src/server/**`. InsForge provee Auth,
+PostgreSQL y Storage; OpenRouter es el único proveedor de IA; AssemblyAI se usa
+únicamente para transcripción de audio.
 
-El sistema usa un monolito modular.
-
-## Flujo
+## Flujo productivo
 
 ```text
-Auditoria
-  -> Evidencias
-  -> Jobs de preparacion
-  -> AuditRun
-  -> CaseAnalyst
-  -> AuditReviewer
-  -> AuditResult
+evidencias originales
+  -> preparación técnica (hash, MIME, PDF/texto/imagen, transcripción audio)
+  -> Audit Skill con Procedimiento V5 owner-supplied inyectado íntegro
+  -> assessment estructurado validado por Zod y referencias de evidencia
+  -> metadata técnica real de OpenRouter agregada por servidor
+  -> audits.result_json terminal
 ```
+
+No existe `CaseAnalyst` con tools en runtime, ni `AuditReviewer` separado, ni
+policy/rules/facts engine. La trazabilidad se exige por schema y validación
+semántica: los IDs citados por hechos, cronología, conflictos y conclusión deben
+pertenecer al expediente auditado.
 
 ## Entidades durables
 
-- `audits`: expediente.
-- `evidences`: archivos originales y estado de preparacion.
-- `jobs`: operaciones durables con retries acotados.
-- `audit_runs`: corrida inmutable al llegar a estado terminal.
-- `tool_executions`: auditoria de cada tool.
-- `audit_results`: assessment final.
-- `ai_call_log`: coste y latencia de llamadas IA.
+- `cases`: expediente y estado técnico (`DRAFT`, `READY`, `AUDITING`,
+  `COMPLETED`, `ERROR`).
+- `evidence`: metadatos de archivos, SHA-256, key privada de Storage y
+  transcripción cuando aplique.
+- `audits`: intentos de auditoría. Guarda `evidence_fingerprint`, estado técnico,
+  modelo real, metadata de proveedor y `result_json` validado.
 
-## Estados terminales
+## Reauditoría e idempotencia
 
-`audit_runs` termina en exactamente uno de:
+Cada auditoría se asocia a un fingerprint determinista del conjunto canónico de
+evidencias. Un `COMPLETED` sólo se reutiliza si el fingerprint coincide. Si el
+usuario agrega o borra evidencia, el caso vuelve a `READY`/`DRAFT` según
+corresponda y puede auditarse de nuevo. La base impide dos `RUNNING` simultáneos
+para el mismo `(case_id, evidence_fingerprint)`.
 
-- `COMPLETED`
-- `NEEDS_INPUT`
-- `FAILED`
+## Política
 
-`tool_executions` termina en:
-
-- `SUCCEEDED`
-- `FAILED`
-
-## Politica
-
-El procedimiento V5 vive en `policy/`. La IA lo consulta mediante `searchPolicy` y `readPolicySection`. No hay reglas TypeScript derivadas del procedimiento.
-
-## Proveedores
-
-- OpenRouter: gateway de modelos.
-- AssemblyAI: audio.
-
-Ambos se usan mediante adapters centralizados en `src/server/openrouter.ts` y `src/server/assemblyai.ts`.
+El procedimiento V5 vive en `policy/` y se serializa a
+`src/skills/audit/policy-v5.generated.ts` con `npm run policy:generate`. No se
+busca política en internet y no se convierte el procedimiento a SQL ni reglas
+deterministas.

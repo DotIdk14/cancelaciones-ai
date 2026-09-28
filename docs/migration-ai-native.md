@@ -1,10 +1,10 @@
 # Migración a arquitectura AI-Native
 
-**Estado:** en curso
+**Estado:** histórico/sustituido. No describe la arquitectura vigente.
 **Rama de respaldo:** `backup/pre-ai-native` @ `52c6656`
-**Objetivo:** sustituir el motor normativo determinista por un agente analista que
-consulta el procedimiento V5 mediante herramientas, con ciclo de vida terminal y
-límites duros.
+**Objetivo original:** sustituir el motor normativo determinista. La ejecución
+final NO usa agente con tools ni reviewer separado: la arquitectura vigente está
+en `README.md`, `AGENTS.md` y `docs/architecture.md`.
 
 > Este documento es el contrato de la migración. Cada sección dice qué se borra,
 > qué se conserva, qué se reescribe y qué queda sin decidir.

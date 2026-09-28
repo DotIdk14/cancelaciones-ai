@@ -51,6 +51,7 @@ normative/
 .trae
 .windsurf
 
+# Vercel (enlazado local del proyecto).
 .vercel
 
 # Volcados residuales de CLI (UTF-16) que no deben versionarse.

@@ -1,13 +1,14 @@
 import { z } from 'zod';
-import { AUDIT_RESULTS } from './types';
+import { AUDIT_RESULTS } from './types.js';
+import { ApiError } from '../../server/http.js';
 
 // =============================================================================
-// Schema único del AuditResult (sección 6 del encargo).
-// OpenRouter responde con esta forma; Zod la valida SIEMPRE.
-// La salida validada ES el resultado de la auditoría.
+// Schemas del Audit Skill.
+// El LLM sólo emite el assessment. Metadata técnica (modelo/usage/coste) se
+// agrega en servidor desde OpenRouter real; nunca desde la respuesta del modelo.
 // =============================================================================
 
-export const AuditResultSchema = z
+export const AiAuditAssessmentSchema = z
   .object({
     case: z.object({
       matricula: z.string().nullable(),
@@ -63,31 +64,40 @@ export const AuditResultSchema = z
       missingEvidence: z.array(z.string()),
       observations: z.array(z.string()),
     }),
-
-    model: z.object({
-      provider: z.literal('openrouter'),
-      model: z.string(),
-    }),
-
-    usage: z.object({
-      promptTokens: z.number().nullable(),
-      completionTokens: z.number().nullable(),
-      totalTokens: z.number().nullable(),
-      estimatedCostUSD: z.number().nullable(),
-    }),
   })
   .strict();
 
+export const AuditResultSchema = AiAuditAssessmentSchema.extend({
+  model: z.object({
+    provider: z.literal('openrouter'),
+    model: z.string(),
+  }),
+  usage: z.object({
+    promptTokens: z.number().nullable(),
+    completionTokens: z.number().nullable(),
+    totalTokens: z.number().nullable(),
+    estimatedCostUSD: z.number().nullable(),
+  }),
+}).strict();
+
+export type AiAuditAssessment = z.infer<typeof AiAuditAssessmentSchema>;
 export type AuditResult = z.infer<typeof AuditResultSchema>;
 
-/** Parsea y valida un AuditResult. Lanza INVALID_AI_RESPONSE si no cumple el schema. */
+export function parseAiAuditAssessment(raw: unknown): AiAuditAssessment {
+  return parseWithInvalidAiError(AiAuditAssessmentSchema, raw);
+}
+
 export function parseAuditResult(raw: unknown): AuditResult {
+  return parseWithInvalidAiError(AuditResultSchema, raw);
+}
+
+function parseWithInvalidAiError<T>(schema: z.ZodType<T>, raw: unknown): T {
   try {
-    return AuditResultSchema.parse(raw);
+    return schema.parse(raw);
   } catch (error) {
     if (error instanceof z.ZodError) {
       const details = error.issues.slice(0, 5).map((issue) => `${issue.path.join('.')}: ${issue.message}`);
-      throw new Error(`INVALID_AI_RESPONSE:${details.join(' | ')}`);
+      throw new ApiError(502, 'INVALID_AI_RESPONSE', `INVALID_AI_RESPONSE: ${details.join(' | ')}`);
     }
     throw error;
   }

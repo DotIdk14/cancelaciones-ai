@@ -2,9 +2,9 @@
 // DTOs — forma exacta que consume la UI (contrato de API).
 // =============================================================================
 
-import type { ErrorCategory, EvidenceStatus, TranscriptData } from '../skills/audit/types';
-import { readTranscriptFromJson } from './evidence-prep';
-import type { AuditRow, AuditStatus, CaseRow, CaseSummaryRow, EvidenceRow } from './cases';
+import type { ErrorCategory, EvidenceStatus, TranscriptData } from '../skills/audit/types.js';
+import { readTranscriptFromJson } from './evidence-prep.js';
+import type { AuditRow, AuditStatus, CaseRow, CaseSummaryRow, EvidenceRow } from './cases.js';
 
 export interface CaseSummaryDto {
   id: string;
@@ -45,6 +45,9 @@ export interface AuditDetailDto {
   resultJson: unknown;
   errorCategory: ErrorCategory | null;
   latencyMs: number | null;
+  evidenceFingerprint: string | null;
+  attemptNumber: number | null;
+  deadlineAt: string | null;
   createdAt: string;
 }
 
@@ -108,6 +111,9 @@ export function auditToDto(row: AuditRow): AuditDetailDto {
     resultJson: row.status === 'COMPLETED' ? parseJsonField(row.result_json) : null,
     errorCategory: row.error_category,
     latencyMs: row.latency_ms,
+    evidenceFingerprint: row.evidence_fingerprint,
+    attemptNumber: row.attempt_number,
+    deadlineAt: row.deadline_at,
     createdAt: row.created_at,
   };
 }

@@ -1,5 +1,5 @@
-import { handleRoute, methodNotAllowed, ok } from '../../src/server/http';
-import { getSession } from '../../src/server/auth';
+import { handleRoute, methodNotAllowed, ok } from '../../src/server/http.js';
+import { getSession } from '../../src/server/auth.js';
 
 // GET /api/auth/me → { user: { id, email, name } | null }
 export default handleRoute(async (req, res) => {

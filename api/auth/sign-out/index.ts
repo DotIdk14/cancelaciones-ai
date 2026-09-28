@@ -1,5 +1,5 @@
-import { handleRoute, methodNotAllowed, ok } from '../../../src/server/http';
-import { signOut } from '../../../src/server/auth';
+import { handleRoute, methodNotAllowed, ok } from '../../../src/server/http.js';
+import { signOut } from '../../../src/server/auth.js';
 
 // POST /api/auth/sign-out → 200 { ok: true }
 export default handleRoute(async (req, res) => {

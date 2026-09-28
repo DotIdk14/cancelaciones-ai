@@ -58,6 +58,9 @@ export interface EvidenceInputItem {
   kind: EvidenceKind;
   /** contenido textual listo para contexto (texto extraído, transcripción) */
   text?: string;
+  /** indica si `text`/transcripción fue recortado para respetar límites de contexto */
+  truncated?: boolean;
+  originalChars?: number;
   /** contenido visual listo para el modelo (base64 de imagen) */
   imageBase64?: string;
   /** páginas de PDF como imágenes cuando el texto es insuficiente */
