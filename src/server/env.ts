@@ -19,6 +19,8 @@ export interface ServerEnv {
   AI_TIMEOUT_MS: number;
   TOTAL_AUDIT_TIMEOUT_MS: number;
   AUDIT_STALE_AFTER_MS: number;
+  AI_MAX_OUTPUT_TOKENS: number;
+  AI_MAX_OUTPUT_TOKENS_CONFIGURED: boolean;
 
   // Audio
   ASSEMBLYAI_API_KEY: string | null;
@@ -86,6 +88,8 @@ export function getEnv(): ServerEnv {
     AI_TIMEOUT_MS: numberEnv('AI_TIMEOUT_MS', env.AI_TIMEOUT_MS, 60_000, { min: 1_000, max: 290_000 }),
     TOTAL_AUDIT_TIMEOUT_MS: numberEnv('TOTAL_AUDIT_TIMEOUT_MS', env.TOTAL_AUDIT_TIMEOUT_MS, 240_000, { min: 10_000, max: 295_000 }),
     AUDIT_STALE_AFTER_MS: numberEnv('AUDIT_STALE_AFTER_MS', env.AUDIT_STALE_AFTER_MS, 10 * 60_000, { min: 60_000 }),
+    AI_MAX_OUTPUT_TOKENS: numberEnv('AI_MAX_OUTPUT_TOKENS', env.AI_MAX_OUTPUT_TOKENS, 8_192, { min: 256, max: 16_384 }),
+    AI_MAX_OUTPUT_TOKENS_CONFIGURED: env.AI_MAX_OUTPUT_TOKENS !== undefined && env.AI_MAX_OUTPUT_TOKENS.trim() !== '',
 
     ASSEMBLYAI_API_KEY: optional('ASSEMBLYAI_API_KEY', env.ASSEMBLYAI_API_KEY),
 

@@ -82,6 +82,22 @@ describe('parseAuditResult (schema único)', () => {
     expect(error).toContain('audit.result');
   });
 
+  it('rechaza provisionalResolution en un resultado distinto de EVIDENCIA_INSUFICIENTE', () => {
+    const invalid = {
+      ...validResult,
+      audit: {
+        ...validResult.audit,
+        provisionalResolution: {
+          result: 'BAJA',
+          rationale: 'Orientación no aplicable al resultado formal.',
+          procedureSection: '5.8',
+          evidenceIds: ['ev-1'],
+        },
+      },
+    };
+    expect(parseInvalid(invalid)).toContain('provisionalResolution');
+  });
+
   it('rechaza claves extra (schema strict)', () => {
     const invalid = { ...validResult, auditoriaExtra: true };
     const error = parseInvalid(invalid);
@@ -93,6 +109,11 @@ describe('parseAuditResult (schema único)', () => {
     const invalid = { ...validResult, audit: { ...validResult.audit, confidence: 1.5 } };
     const error = parseInvalid(invalid);
     expect(error).toContain('confidence');
+  });
+
+  it('rechaza reasoning vacío', () => {
+    const invalid = { ...validResult, audit: { ...validResult.audit, reasoning: '' } };
+    expect(parseInvalid(invalid)).toContain('audit.reasoning');
   });
 
   it('rechaza missingEvidence estructurado incompleto', () => {

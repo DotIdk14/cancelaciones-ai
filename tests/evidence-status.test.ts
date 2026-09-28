@@ -78,6 +78,7 @@ vi.mock('../src/server/assemblyai', async () => {
 // --- OpenRouter: el modelo responde con un dictamen válido -------------------
 vi.mock('../src/server/openrouter', () => ({
   callOpenRouterAudit: vi.fn(),
+  OpenRouterAuditError: class OpenRouterAuditError extends Error {},
 }));
 
 const mockedCall = vi.mocked(callOpenRouterAudit);

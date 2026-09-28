@@ -92,7 +92,7 @@ export const AiAuditAssessmentSchema = z
         reasoning: z.string().min(1),
       }).strict(),
       provisionalResolution: ProvisionalResolutionSchema.nullable(),
-      reasoning: z.string(),
+      reasoning: z.string().min(1),
       confidence: z.number().min(0).max(1),
       supportingEvidenceIds: z.array(z.string()).min(1),
       missingEvidence: z.array(MissingEvidenceSchema),

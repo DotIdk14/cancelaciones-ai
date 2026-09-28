@@ -97,7 +97,6 @@ rechaza referencias inventadas a evidencias.
 
 ```text
 api/                       Vercel Functions (una por endpoint)
-  auth/                    me.ts, sign-in/, sign-up/, sign-out/
   cases/                   index.ts, [caseId]/index.ts,
                            [caseId]/evidence/, [caseId]/evidence/[evidenceId]/,
                            [caseId]/audit/
@@ -111,16 +110,14 @@ src/
     policy-v5.generated.ts ARCHIVO GENERADO desde policy/ (npm run policy:generate)
     instructions.ts        system prompt + bloque anti prompt-injection
     execute.ts             ensamblado del expediente y llamada al modelo
-  server/                  env, insforge, auth, http, cases, dto,
+  server/                  env, insforge, http, cases, dto,
                            audit-service, openrouter, assemblyai,
                            evidence-prep, pdf
   components/              AppHeader, CaseListPage, CaseDetailPage,
                            EvidenceUploader, EvidenceList, EvidenceViewer,
-                           AuditResultPanel, LoginPage, ErrorBoundary, ui
+                           AuditResultPanel, ErrorBoundary, ui
   lib/                     api.ts (cliente fetch), useHashRoute, usePolling,
                            labels, format, cx
-  auth/                    AuthContext
-
 policy/                    Procedimiento GDM_GAM_PRD_MLG_003 v5 (FUENTE NORMATIVA)
   manifest.json            26 secciones + SHA-256 del PDF fuente
   sections/*.md            secciones indexadas
@@ -172,12 +169,15 @@ Shape del resultado (`audits.result_json`):
   conflicts: [{ description, evidenceIds }],
   audit: {
     result,                  // uno de los seis resultados
-    rule,                    // string | null
+    rule,                    // criterio aplicado; string no vacío
     procedureSection,        // sección del Procedimiento V5 citada
     reasoning,               // justificación con documento, versión, sección y página
+    auditPath,               // hypothesis, procedureSections, reasoning
+    provisionalResolution,   // obligatoria y trazable solo si result=EVIDENCIA_INSUFICIENTE
     confidence,              // 0..1
     supportingEvidenceIds,
     missingEvidence,         // evidencia faltante accionable
+    procedureChecks,         // criterio, estado, observados y evidencia
     observations
   },
   model: { provider: 'openrouter', model },
@@ -191,6 +191,46 @@ Sobre `usage`: se lee lo que OpenRouter devuelve realmente
 (`usage.prompt_tokens`, `usage.completion_tokens`, `usage.total_tokens`,
 `usage.cost`). Cuando un valor no viene, se escribe `null`. **Nunca** se inventa
 una métrica ni se calcula un coste estimado.
+
+### OpenRouter: capacidades, schema y fallback
+
+- `AiAuditAssessmentSchema` en Zod es el contrato de negocio final. Toda
+  respuesta se valida con Zod y sus referencias se cotejan contra las evidencias
+  de entrada; el schema del proveedor nunca reemplaza esa validación.
+- `src/server/ai/model-capabilities.ts` consulta el catálogo público de
+  OpenRouter (cacheado brevemente por proceso) para confirmar el modelo,
+  modalidades, parámetros soportados, contexto, precio publicado y máximo de
+  salida. Los modelos sin perfil de proveedor o sin capacidad publicada se
+  omiten como no compatibles.
+- `AI_MAX_OUTPUT_TOKENS` es el presupuesto operativo solicitado. Por defecto es
+  `8192`; el perfil actual limita el uso a `16384` como máximo seguro y se
+  reduce al máximo publicado por el modelo si fuera menor. Un valor configurado
+  explícitamente por encima del límite falla antes de enviar una solicitud. El
+  máximo teórico del proveedor nunca se usa automáticamente.
+- `src/server/ai/provider-schema.ts` proyecta el schema generado desde Zod a un
+  subconjunto Gemini/OpenAI. Para Gemini omite restricciones de validación
+  locales que no forman parte del perfil de provider; no elimina estructura,
+  campos requeridos, enums ni tipos. Zod conserva todas las restricciones
+  estrictas al validar la respuesta final.
+- La primera estrategia usa `json_schema` solo si el catálogo anuncia
+  `structured_outputs`. `json_object` añade al system prompt el contrato
+  completo serializado desde el mismo schema Zod, incluidos los campos raíz.
+- El límite es de dos llamadas OpenRouter por auditoría: un error determinista
+  cambia de formato en vez de repetir la petición; 429/timeout puede reintentar
+  la misma estrategia y 5xx salta al modelo de respaldo configurado. 402 se
+  detiene inmediatamente. No se fabrica un dictamen.
+- `GET /api/health/ai` comprueba configuración/capacidades sin una llamada de
+  generación. Solo devuelve metadatos públicos y estado, nunca credenciales.
+- Cada intento guarda en `audits.provider_metadata.openrouterAttempts` el modelo,
+  formato, status, finish reason, latencia, uso, coste, retryable y categoría.
+  No se guardan prompts, evidencias ni PII.
+
+Para cambiar de modelo, configura `OPENROUTER_MODEL` y opcionalmente
+`OPENROUTER_FALLBACK_MODEL` en el entorno server-side. Comprueba primero
+`GET /api/health/ai`; usa IDs estables, multimodales y con `response_format` o
+`structured_outputs` publicados. `productionReady` solo indica si el ID contiene
+etiquetas preview/experimental/beta; no sustituye una canary real. No configures
+un fallback preview en producción sin aceptación explícita.
 
 ---
 
@@ -321,14 +361,11 @@ el mismo `(case_id, evidence_fingerprint)`.
 ## API
 
 Todas las rutas son Vercel Functions en `api/**`, comparten los helpers de
-`src/server/http.ts` y **exigen sesión** (salvo `sign-in` / `sign-up`).
+`src/server/http.ts`. La SPA actual no incluye login ni `AuthContext`; InsForge
+se accede exclusivamente desde el servidor.
 
 | Método | Ruta | Respuesta |
 |---|---|---|
-| `POST` | `/api/auth/sign-up` | `200 { user, requireEmailVerification }` |
-| `POST` | `/api/auth/sign-in` | `200 { user }` + cookies de sesión |
-| `POST` | `/api/auth/sign-out` | `200 { ok: true }` (limpia cookies) |
-| `GET` | `/api/auth/me` | `200 { user \| null }` |
 | `GET` | `/api/cases` | `200 { cases: CaseSummary[] }` (máx. 100) |
 | `POST` | `/api/cases` | `201 { case }` · body `{ studentIdentifier? }` |
 | `GET` | `/api/cases/:caseId` | `200 { case, evidences, audit }` |
@@ -337,6 +374,7 @@ Todas las rutas son Vercel Functions en `api/**`, comparten los helpers de
 | `POST` | `/api/cases/:caseId/audit` | `200 { audit }` \| `202 { audit: null, pendingEvidence }` |
 | `GET` | `/api/cases/:caseId/audit` | `200 { audit \| null }` |
 | `GET` | `/api/evidence/:evidenceId/download` | `200` binario (`?preview=1` → `inline`) |
+| `GET` | `/api/health/ai` | Capacidades públicas seguras; no invoca generación ni expone secretos |
 
 ### Detalles del contrato
 
@@ -375,10 +413,8 @@ Los mensajes del proveedor se sanean (se ocultan `api_key`, `secret`, `token`,
 
 ## Seguridad
 
-- **Cookies httpOnly.** `insforge_access_token` (1 h) y `insforge_refresh_token`
-  (30 días), `SameSite=Lax`, `HttpOnly`, y `Secure` cuando `APP_URL` es
-  `https://`. Los tokens JWT **nunca** llegan al JavaScript del navegador.
-- **RLS como frontera de seguridad.** Un `caseId` ajeno devuelve `404`, no datos.
+- **InsForge server-side.** El navegador solo llama a `/api/*`; no recibe claves
+  ni credenciales de InsForge/OpenRouter.
 - **Validación MIME en servidor.** Solo `image/png`, `image/jpeg`, `image/webp`,
   `image/gif`, `application/pdf`, `text/plain` y cualquier `audio/*`. Cualquier
   otro tipo → `400 UPLOAD_ERROR`.
@@ -391,8 +427,8 @@ Los mensajes del proveedor se sanean (se ocultan `api_key`, `secret`, `token`,
   bloque explícito anti prompt-injection (`EVIDENCE_IS_DATA_NOT_INSTRUCTIONS`):
   cualquier texto dentro de una evidencia que intente reescribir el rol, el
   schema o las clasificaciones se trata como contenido del expediente.
-- **Logs sin secretos.** Solo mensajes de error; nunca claves, tokens ni cookies.
-  Los mensajes hacia el cliente se sanean.
+- **Diagnóstico IA sin contenido.** Se guarda modelo, formato, status, códigos
+  saneados, latencia, tokens, coste y categoría; no prompt, archivos ni PII.
 - **Sin PII en Git.** `cases.student_identifier` es un dato personal: se guarda
   (la auditoría lo necesita) pero no aparece en ningún `INSERT` del repositorio.
 - **Procedimiento inmutable.** `policy/` no se edita; se *serializa* a
@@ -407,7 +443,7 @@ Los mensajes del proveedor se sanean (se ocultan `api_key`, `secret`, `token`,
 | `MAX_AGENT_STEPS` | 12 |
 | `MAX_TOOL_CALLS` | 20 |
 | `MAX_REVIEW_ROUNDS` | 2 |
-| `MAX_PROVIDER_ATTEMPTS` | 2 (por modelo: 2 niveles de formato × hasta 2 modelos) |
+| `MAX_PROVIDER_ATTEMPTS` | 2 llamadas OpenRouter como máximo por auditoría |
 
 Al alcanzar un límite, el run termina en error tipado. Nunca se inicia otro run
 automáticamente.
@@ -438,16 +474,19 @@ Scripts disponibles:
 | `npm run preview` | Sirve `dist` |
 | `npm run typecheck` | `tsc` sin emitir |
 | `npm test` / `npm run test:watch` | Vitest |
+| `npm run test:contract` | Contratos OpenRouter, capabilities, schema y referencias |
+| `npm run test:ai-smoke` | Auditoría sintética real contra OpenRouter; requiere credencial configurada |
+| `npm run verify:release` | Secret scan, typecheck, contracts, toda la suite y build |
+| `npm run verify:release:live` | Release gate local más smoke real facturable |
 | `npm run policy:generate` | Compila `policy/` → `src/skills/audit/policy-v5.generated.ts` |
 
-Estado verificado en este repositorio: `typecheck` sin errores, **73/73 tests
-verdes** en 9 archivos.
+El smoke live está separado de los tests unitarios y usa un caso y evidencia
+ficticios en almacenamiento en memoria; no escribe datos en InsForge. Puede
+generar coste de modelo. No se ejecuta automáticamente en CI.
 
-Tests: `evidence-prep`, `http` (validación de entradas), `schema`
-(serialización del `AuditResult` y `parseAuditResult`), `instructions`
-(anti prompt-injection), `execute` (ensamblado del expediente sin red),
-`openrouter` (cascada de intentos), `auth` (refresh de sesión), `routes` (validación de entrada y acceso) y
-`evidence-status` (estados de evidencia y `POST /audit`).
+Cada PR y push a `main` ejecuta `npm run verify:release`, que incluye los
+contract checks críticos aunque TypeScript compile. Los tests unitarios no
+hacen llamadas pagadas a OpenRouter.
 
 ---
 

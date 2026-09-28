@@ -1,65 +1,16 @@
 # Runbook de producción
 
-Estado verificado localmente:
+## Alcance
 
-- `npm.cmd test`: 63/63 tests verdes.
-- `npm.cmd run typecheck`: sin errores.
-- `npm.cmd run build`: OK.
-- Bucket InsForge `evidencias`: creado como privado.
+Los cambios de transporte OpenRouter, contrato Zod, diagnósticos y healthcheck
+no requieren migración de base de datos ni cambios en InsForge. No ejecutes un
+baseline sobre una base existente ni operaciones destructivas de schema para
+desplegar esta capa.
 
-## Bloqueo actual
-
-El proyecto InsForge vinculado contiene un esquema legacy en `public` con decenas
-de tablas (`audits`, `evidences`, `jobs`, `engine_runs`, `rules`, etc.). La
-arquitectura vigente requiere únicamente:
-
-- `public.cases`
-- `public.evidence`
-- `public.audits`
-
-La migración baseline `migrations/00000000000000_baseline.sql` está diseñada para
-aplicarse sobre una base vacía. Si detecta tablas legacy, aborta por seguridad.
-
-La cuenta CLI actual puede conectarse y consultar, pero no es propietaria del
-schema `public`; por lo tanto no puede ejecutar operaciones reservadas como
-`DROP SCHEMA public CASCADE` / `CREATE SCHEMA public`.
-
-## SQL mínimo para administrador autorizado
-
-Un administrador autorizado de la base debe ejecutar esta preparación antes de
-aplicar el baseline:
-
-```sql
-DROP SCHEMA IF EXISTS public CASCADE;
-CREATE SCHEMA public;
-GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
-GRANT ALL ON SCHEMA public TO service_role;
-```
-
-Después, ejecutar el contenido de:
-
-```text
-migrations/00000000000000_baseline.sql
-```
-
-Verificación esperada:
-
-```sql
-SELECT table_name
-FROM information_schema.tables
-WHERE table_schema = 'public'
-ORDER BY table_name;
-```
-
-Debe devolver únicamente:
-
-```text
-audits
-cases
-evidence
-```
-
-Y las políticas RLS deben existir para esas tres tablas.
+La promoción requiere pasar `npm run verify:release`, desplegar un preview,
+comprobar su healthcheck y ejecutar una canary sintética contra el entorno
+preview antes de promover. Una respuesta exitosa de Vercel por sí sola no es una
+validación de IA.
 
 ## Variables server-side para Vercel
 
@@ -76,6 +27,7 @@ Configurar como variables de entorno del proyecto Vercel, sin prefijos `VITE_` n
 Opcionales:
 
 - `OPENROUTER_FALLBACK_MODEL`
+- `AI_MAX_OUTPUT_TOKENS=8192`
 - `ASSEMBLYAI_API_KEY`
 - `INSFORGE_STORAGE_BUCKET=evidencias`
 - `MAX_EVIDENCE_BYTES=4194304`
@@ -90,34 +42,56 @@ Opcionales:
 
 ## Deploy Vercel
 
-El CLI de Vercel debe estar autenticado con permisos del proyecto. Luego:
+Primero valida localmente:
 
 ```powershell
 npm.cmd ci
-npm.cmd test
-npm.cmd run typecheck
-npm.cmd run build
-npx vercel --prod
+npm.cmd run verify:release
 ```
 
-Antes del deploy, en *Project Settings → Environment Variables*, elimina
-`NEXT_PUBLIC_INSFORGE_ANON_KEY`, `NEXT_PUBLIC_INSFORGE_URL` y cualquier
-`VITE_*` equivalente de **Production, Preview y Development**. Configura
-InsForge únicamente con `INSFORGE_BASE_URL`, `INSFORGE_ANON_KEY` y
-`INSFORGE_API_KEY`, sin prefijos públicos. Después de guardar los cambios, crea
-un nuevo deployment de producción; los deployments existentes conservan la
-configuración con la que fueron creados.
+Configura los IDs del modelo solo en variables server-side. `AI_MAX_OUTPUT_TOKENS`
+por defecto es 8192, su máximo operativo es 16384 y se contrasta con el máximo
+publicado por OpenRouter. Zod mantiene la validación estricta; el schema de
+provider es una proyección y `json_object` recibe una estructura derivada del
+mismo schema. La cascada no repite un 400 determinista y limita a dos las
+llamadas por auditoría.
+
+Con Vercel CLI autenticado y el proyecto enlazado:
+
+```powershell
+npx vercel env ls
+npx vercel deploy
+```
+
+Después de crear el preview, consulta `https://<preview>/api/health/ai` y
+confirma `status: "ok"`, que el modelo sea el esperado y que el perfil soporte
+la modalidad/JSON requerido. El endpoint no genera texto ni expone secretos.
+Para canary sintética con configuración de preview, descarga las variables
+server-side a un archivo local ignorado por Git y ejecuta el smoke en modo
+preview:
+
+```powershell
+npx vercel env pull .env.preview.local --environment=preview
+npm.cmd run test:ai-smoke:preview
+```
+
+El smoke llama OpenRouter directamente con el mismo código y variables de
+preview; no escribe en InsForge. Requiere saldo y puede generar coste.
+
+Promueve con `npx vercel deploy --prod` solo después de pasar ambos checks. Luego
+repite el healthcheck y smoke para producción. No promociones si el smoke live
+no pasó; no concluyas que producción está sana por el estado del deployment.
 
 ## Smoke test post-deploy
 
-1. `GET /api/auth/me` debe responder 200 con `user: null` sin sesión.
-2. Rutas protegidas (`/api/cases`, downloads) deben responder 401 sin sesión.
-3. Crear usuario, crear caso, subir PDF/TXT/imagen: evidencias no-audio deben
+1. `GET /api/health/ai` debe devolver `status: "ok"` sin campos secretos.
+2. Crear caso y subir PDF/TXT/imagen: evidencias no-audio deben
    quedar `READY`.
-4. Ejecutar auditoría: debe persistir una fila en `audits` y mostrar resultado.
-5. Recargar navegador: la sesión debe persistir con cookies `HttpOnly` y
-   `Secure` en HTTPS.
-6. Probar aislamiento RLS con dos usuarios: recursos ajenos deben dar 404/401.
+3. Ejecutar auditoría: debe persistir una fila `COMPLETED`, sus referencias
+   deben existir y `provider_metadata.openrouterAttempts` no debe contener
+   contenido de prompt/evidencias.
+4. Revisa `audits.provider_metadata.openrouterAttempts` para distinguir schema
+   rechazado, JSON inválido, truncamiento, timeout o caída del provider.
 
 ## Nota de seguridad
 

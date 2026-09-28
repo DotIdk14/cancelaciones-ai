@@ -11,6 +11,7 @@ import type { InsForgeClient } from './insforge.js';
 import { createHash } from 'node:crypto';
 import { getEnv } from './env.js';
 import { auditSkill, PDF_MIN_TEXT_CHARS } from '../skills/audit/execute.js';
+import { OpenRouterAuditError } from './openrouter.js';
 import type { AuditSkillInput, ErrorCategory, EvidenceInputItem } from '../skills/audit/types.js';
 import { getTranscription } from './assemblyai.js';
 import { extractPdfText } from './pdf.js';
@@ -333,7 +334,7 @@ export async function runAudit(client: InsForgeClient, caseId: string): Promise<
       error_category: null,
       latency_ms: latencyMs,
       model: execution.model,
-      provider_metadata: { usage: execution.usage },
+      provider_metadata: { usage: execution.usage, openrouterAttempts: execution.attempts },
     });
     await updateCaseStatus(client, caseId, 'COMPLETED');
 
@@ -346,6 +347,7 @@ export async function runAudit(client: InsForgeClient, caseId: string): Promise<
       result_json: null,
       error_category: category,
       latency_ms: latencyMs,
+      provider_metadata: error instanceof OpenRouterAuditError ? { openrouterAttempts: error.diagnostics } : null,
     }).catch(() => undefined);
     await updateCaseStatus(client, caseId, 'ERROR').catch(() => undefined);
     if (error instanceof ApiError) throw error;

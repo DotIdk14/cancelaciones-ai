@@ -10,9 +10,10 @@
 // intentos fallan se lanza AI_PROVIDER_ERROR: jamás se fabrica un dictamen.
 // =============================================================================
 
-import { zodToJsonSchema } from 'zod-to-json-schema';
 import { AiAuditAssessmentSchema } from '../skills/audit/schema.js';
 import type { ModelUsage } from '../skills/audit/types.js';
+import { getModelCapabilities, resolveOutputTokenBudget, type ModelCapabilities } from './ai/model-capabilities.js';
+import { buildJsonObjectContract, buildProviderJsonSchema } from './ai/provider-schema.js';
 import { getEnv } from './env.js';
 import { ApiError } from './http.js';
 
@@ -39,47 +40,55 @@ export interface CallOpenRouterAuditOutput {
   model: string;
   /** Uso reportado por OpenRouter (null cuando no venga; nunca inventado). */
   usage: ModelUsage;
+  attempts: OpenRouterAttemptDiagnostic[];
 }
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const MIN_ATTEMPT_BUDGET_MS = 1_000;
-const MAX_OUTPUT_TOKENS = 65_536;
-const GEMINI_LITE_MAX_OUTPUT_TOKENS = 16_384;
 
-function maxOutputTokensForModel(model: string): number {
-  return /gemini-.*flash-lite/i.test(model) ? GEMINI_LITE_MAX_OUTPUT_TOKENS : MAX_OUTPUT_TOKENS;
+export type AttemptFailureCategory =
+  | 'PROVIDER_BAD_REQUEST'
+  | 'RATE_LIMIT'
+  | 'PAYMENT_REQUIRED'
+  | 'PROVIDER_UNAVAILABLE'
+  | 'TIMEOUT'
+  | 'INVALID_JSON'
+  | 'SCHEMA_VALIDATION_ERROR'
+  | 'INVALID_EVIDENCE_REFERENCE'
+  | 'TRUNCATED_OUTPUT'
+  | 'UNSUPPORTED_MODEL_CAPABILITY';
+
+export interface OpenRouterAttemptDiagnostic {
+  model: string;
+  format: 'json_schema' | 'json_object' | 'capability';
+  status: number | null;
+  providerErrorType: string | null;
+  finishReason: string | null;
+  latencyMs: number;
+  promptTokens: number | null;
+  completionTokens: number | null;
+  totalTokens: number | null;
+  cost: number | null;
+  retryable: boolean;
+  failureCategory: AttemptFailureCategory | null;
+  failureReason: string | null;
 }
 
-/** Deriva el JSON Schema estricto del schema único de Zod. */
-function buildStrictJsonSchema(schema: unknown): Record<string, unknown> {
-  const base = schema as Record<string, unknown>;
-  const { $schema, ...rest } = base;
-  const out: Record<string, unknown> = { ...rest };
-  applyAdditionalPropertiesFalse(out);
-  return out;
-}
-
-function applyAdditionalPropertiesFalse(node: unknown): void {
-  if (Array.isArray(node)) {
-    for (const item of node) applyAdditionalPropertiesFalse(item);
-    return;
+export class OpenRouterAuditError extends ApiError {
+  constructor(category: AttemptFailureCategory, readonly diagnostics: OpenRouterAttemptDiagnostic[], message: string, status = 502) {
+    const publicCategory = ['INVALID_JSON', 'SCHEMA_VALIDATION_ERROR', 'INVALID_EVIDENCE_REFERENCE', 'TRUNCATED_OUTPUT'].includes(category)
+      ? 'INVALID_AI_RESPONSE'
+      : 'AI_PROVIDER_ERROR';
+    super(status, publicCategory, message);
+    this.name = 'OpenRouterAuditError';
   }
-  if (node && typeof node === 'object') {
-    const obj = node as Record<string, unknown>;
-    if (obj.type === 'object' && typeof obj.properties === 'object' && obj.properties !== null) {
-      obj.additionalProperties = false;
-    }
-    for (const key of Object.keys(obj)) applyAdditionalPropertiesFalse(obj[key]);
-  }
 }
-
-const AUDIT_JSON_SCHEMA = buildStrictJsonSchema(
-  zodToJsonSchema(AiAuditAssessmentSchema, { name: 'AiAuditAssessment', $refStrategy: 'none' }),
-);
 
 interface AttemptSpec {
   model: string;
   format: 'json_schema' | 'json_object';
+  capabilities: ModelCapabilities;
+  maxTokens: number;
 }
 
 function toModelUsage(usage: unknown): ModelUsage {
@@ -102,29 +111,80 @@ function toModelUsage(usage: unknown): ModelUsage {
   };
 }
 
+class AttemptFailure extends Error {
+  constructor(readonly diagnostic: OpenRouterAttemptDiagnostic, message: string) {
+    super(message);
+  }
+}
+
+function diagnostic(
+  attempt: AttemptSpec,
+  startedAt: number,
+  usage?: unknown,
+  fields: Partial<OpenRouterAttemptDiagnostic> = {},
+): OpenRouterAttemptDiagnostic {
+  const modelUsage = toModelUsage(usage);
+  return {
+    model: attempt.model,
+    format: attempt.format,
+    status: null,
+    providerErrorType: null,
+    finishReason: null,
+    latencyMs: Date.now() - startedAt,
+    promptTokens: modelUsage.promptTokens,
+    completionTokens: modelUsage.completionTokens,
+    totalTokens: modelUsage.totalTokens,
+    cost: modelUsage.estimatedCostUSD,
+    retryable: false,
+    failureCategory: null,
+    failureReason: null,
+    ...fields,
+  };
+}
+
+function safeProviderReason(message: string): string {
+  const knownKeywords = ['minLength', 'maxLength', 'minimum', 'maximum', 'additionalProperties', 'anyOf', 'max_tokens', 'response_format'];
+  const keyword = knownKeywords.find((candidate) => message.toLowerCase().includes(candidate.toLowerCase()));
+  if (keyword) return `provider rejected schema/parameter: ${keyword}`;
+  if (/unsupported|not supported/i.test(message)) return 'provider rejected an unsupported parameter';
+  return 'provider rejected request';
+}
+
+function failureCategoryForStatus(status: number): AttemptFailureCategory {
+  if (status === 400) return 'PROVIDER_BAD_REQUEST';
+  if (status === 402) return 'PAYMENT_REQUIRED';
+  if (status === 429) return 'RATE_LIMIT';
+  return status >= 500 ? 'PROVIDER_UNAVAILABLE' : 'PROVIDER_BAD_REQUEST';
+}
+
 async function singleAttempt(
   attempt: AttemptSpec,
   input: CallOpenRouterAuditInput,
   timeoutMs: number,
 ): Promise<CallOpenRouterAuditOutput> {
   const env = getEnv();
+  const startedAt = Date.now();
+  const contractSchema = buildProviderJsonSchema(AiAuditAssessmentSchema, attempt.capabilities.schemaProfile);
   const body: Record<string, unknown> = {
     model: attempt.model,
     messages: [
-      { role: 'system', content: input.system },
+      {
+        role: 'system',
+        content: attempt.format === 'json_object'
+          ? `${input.system}\n\n## Contrato JSON requerido\n${buildJsonObjectContract(contractSchema)}`
+          : input.system,
+      },
       { role: 'user', content: input.parts },
     ],
     temperature: 0,
-    max_tokens: maxOutputTokensForModel(attempt.model),
+    max_tokens: attempt.maxTokens,
   };
 
   if (attempt.format === 'json_schema') {
     body.response_format = {
       type: 'json_schema',
-      json_schema: { name: 'AuditResult', strict: true, schema: AUDIT_JSON_SCHEMA },
+      json_schema: { name: 'AuditResult', strict: true, schema: contractSchema },
     };
-    // Excluye providers que no soporten los parámetros en vez de ignorarlos
-    // silenciosamente (OpenRouter los ignora si ninguno los soporta).
     body.provider = { require_parameters: true };
   } else {
     body.response_format = { type: 'json_object' };
@@ -157,16 +217,24 @@ async function singleAttempt(
       const errInfo = parsedBody as {
         error?: { message?: string; metadata?: { error_type?: string } };
       } | null;
-      if (response.status === 402) {
-        throw new ApiError(
-          402,
-          'AI_PROVIDER_ERROR',
-          'OpenRouter rechazó la auditoría por saldo insuficiente. Agrega créditos a la cuenta; el procesamiento de archivos requiere al menos USD 0.50 de saldo disponible y después vuelve a auditar.',
-        );
-      }
-      const reason =
-        errInfo?.error?.metadata?.error_type ?? errInfo?.error?.message ?? response.statusText;
-      throw new Error(`HTTP ${response.status} (${reason})`);
+      const rawProviderErrorType = errInfo?.error?.metadata?.error_type;
+      const providerErrorType = typeof rawProviderErrorType === 'string'
+        ? rawProviderErrorType.replace(/[^a-z0-9_-]/gi, '').slice(0, 80)
+        : null;
+      const category = failureCategoryForStatus(response.status);
+      const retryable = attempt.capabilities.retryFallbackSuitable &&
+        (category === 'RATE_LIMIT' || category === 'PROVIDER_UNAVAILABLE');
+      const info = diagnostic(attempt, startedAt, (parsedBody as { usage?: unknown } | null)?.usage, {
+        status: response.status,
+        providerErrorType,
+        retryable,
+        failureCategory: category,
+        failureReason: category === 'PROVIDER_BAD_REQUEST' ? safeProviderReason(errInfo?.error?.message ?? '') : providerErrorType,
+      });
+      const reason = response.status === 400
+        ? safeProviderReason(errInfo?.error?.message ?? '')
+        : providerErrorType ?? category.toLowerCase();
+      throw new AttemptFailure(info, `HTTP ${response.status}: ${reason}`);
     }
 
     const okBody = parsedBody as {
@@ -176,27 +244,63 @@ async function singleAttempt(
     } | null;
     const choice = okBody?.choices?.[0];
     const content = choice?.message?.content;
+    const finishReason = choice?.finish_reason ?? null;
+    const usage = toModelUsage(okBody?.usage);
+    if (finishReason === 'length') {
+      throw new AttemptFailure(
+        diagnostic(attempt, startedAt, okBody?.usage, { finishReason, failureCategory: 'TRUNCATED_OUTPUT' }),
+        'TRUNCATED_OUTPUT: respuesta truncada al alcanzar max_tokens',
+      );
+    }
     if (!content || content.trim().length === 0) {
-      throw new Error('respuesta sin contenido');
+      throw new AttemptFailure(
+        diagnostic(attempt, startedAt, okBody?.usage, { finishReason, failureCategory: 'INVALID_JSON' }),
+        'INVALID_JSON: respuesta vacía',
+      );
     }
 
     let parsed: unknown;
     try {
       parsed = JSON.parse(content);
     } catch {
-      const reason = choice?.finish_reason === 'length'
-        ? 'La respuesta de OpenRouter se truncó al alcanzar el límite de tokens'
-        : 'El contenido de OpenRouter no es JSON válido';
-      throw new ApiError(502, 'INVALID_AI_RESPONSE', reason);
+      throw new AttemptFailure(
+        diagnostic(attempt, startedAt, okBody?.usage, { finishReason, failureCategory: 'INVALID_JSON' }),
+        'INVALID_JSON: OpenRouter devolvió contenido que no es JSON válido',
+      );
     }
 
-    const output = {
+    try {
+      input.validate?.(parsed);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      const category: AttemptFailureCategory = /referencia evidencia inexistente/i.test(message)
+        ? 'INVALID_EVIDENCE_REFERENCE'
+        : 'SCHEMA_VALIDATION_ERROR';
+      const schemaPath = message.match(/(?:INVALID_AI_RESPONSE:\s*)?([\w.[\]]+):/)?.[1] ?? 'response';
+      throw new AttemptFailure(
+        diagnostic(attempt, startedAt, okBody?.usage, {
+          finishReason,
+          failureCategory: category,
+          failureReason: category === 'INVALID_EVIDENCE_REFERENCE' ? 'unknown evidence reference' : `schema validation failed at ${schemaPath}`,
+        }),
+        `${category}: ${schemaPath}`,
+      );
+    }
+
+    return {
       parsed,
       model: typeof okBody?.model === 'string' ? okBody.model : attempt.model,
-      usage: toModelUsage(okBody?.usage),
+      usage,
+      attempts: [diagnostic(attempt, startedAt, okBody?.usage, { status: response.status, finishReason, retryable: false })],
     };
-    input.validate?.(parsed);
-    return output;
+  } catch (error) {
+    if (error instanceof AttemptFailure) throw error;
+    const timedOut = error instanceof Error && error.name === 'AbortError';
+    const category: AttemptFailureCategory = timedOut ? 'TIMEOUT' : 'PROVIDER_UNAVAILABLE';
+    throw new AttemptFailure(
+      diagnostic(attempt, startedAt, undefined, { retryable: true, failureCategory: category }),
+      `${category}: ${timedOut ? 'timeout de OpenRouter' : 'OpenRouter no disponible'}`,
+    );
   } finally {
     clearTimeout(timer);
   }
@@ -213,41 +317,147 @@ export async function callOpenRouterAudit(
   const env = getEnv();
   const perAttemptTimeoutMs = input.timeoutMs ?? env.AI_TIMEOUT_MS;
   const deadlineMs = input.deadlineMs ?? Date.now() + env.TOTAL_AUDIT_TIMEOUT_MS;
+  const diagnostics: OpenRouterAttemptDiagnostic[] = [];
+  const models = [env.OPENROUTER_MODEL, env.OPENROUTER_FALLBACK_MODEL].filter((model): model is string => Boolean(model));
+  let finalFailure: AttemptFailureCategory = 'PROVIDER_UNAVAILABLE';
+  let attemptsMade = 0;
 
-  const attempts: AttemptSpec[] = [
-    { model: env.OPENROUTER_MODEL, format: 'json_schema' },
-    { model: env.OPENROUTER_MODEL, format: 'json_object' },
-  ];
-  if (env.OPENROUTER_FALLBACK_MODEL) {
-    attempts.push(
-      { model: env.OPENROUTER_FALLBACK_MODEL, format: 'json_schema' },
-      { model: env.OPENROUTER_FALLBACK_MODEL, format: 'json_object' },
-    );
-  }
-
-  const failures: string[] = [];
-  let sawInvalidAiResponse = false;
-  for (const attempt of attempts) {
-    const remainingMs = deadlineMs - Date.now();
-    if (remainingMs < MIN_ATTEMPT_BUDGET_MS) {
-      failures.push(`${attempt.model} [${attempt.format}]: sin presupuesto de tiempo suficiente`);
+  for (const model of models) {
+    let capabilities: ModelCapabilities;
+    try {
+      capabilities = await getModelCapabilities(model);
+    } catch (error) {
+      const modelUnsupported = error instanceof Error && /UNSUPPORTED_MODEL_CAPABILITY/.test(error.message);
+      finalFailure = modelUnsupported ? 'UNSUPPORTED_MODEL_CAPABILITY' : 'PROVIDER_UNAVAILABLE';
+      diagnostics.push({
+        model,
+        format: 'capability',
+        status: null,
+        providerErrorType: null,
+        finishReason: null,
+        latencyMs: 0,
+        promptTokens: null,
+        completionTokens: null,
+        totalTokens: null,
+        cost: null,
+        retryable: false,
+        failureCategory: finalFailure,
+        failureReason: modelUnsupported && error instanceof Error ? error.message.slice(0, 160) : 'OpenRouter capability catalog unavailable',
+      });
+      if (modelUnsupported) continue;
       break;
     }
-    try {
-      return await singleAttempt(attempt, input, Math.min(perAttemptTimeoutMs, remainingMs));
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 402) throw error;
-      if (error instanceof ApiError && error.category === 'INVALID_AI_RESPONSE') sawInvalidAiResponse = true;
-      if (!(error instanceof ApiError) && error instanceof SyntaxError) sawInvalidAiResponse = true;
-      failures.push(
-        `${attempt.model} [${attempt.format}]: ${error instanceof Error ? error.message : 'error desconocido'}`,
-      );
+
+    if ((input.parts.some((part) => part.type === 'image_url') && !capabilities.supportsImages) ||
+      (input.parts.some((part) => part.type === 'file') && !capabilities.supportsFiles)) {
+      finalFailure = 'UNSUPPORTED_MODEL_CAPABILITY';
+      diagnostics.push({
+        model,
+        format: 'capability',
+        status: null,
+        providerErrorType: null,
+        finishReason: null,
+        latencyMs: 0,
+        promptTokens: null,
+        completionTokens: null,
+        totalTokens: null,
+        cost: null,
+        retryable: false,
+        failureCategory: finalFailure,
+        failureReason: 'model does not support requested image/file modality',
+      });
+      continue;
     }
+
+    if (!capabilities.supportsJsonObject && !capabilities.supportsStructuredOutput) {
+      finalFailure = 'UNSUPPORTED_MODEL_CAPABILITY';
+      diagnostics.push({
+        model,
+        format: 'capability',
+        status: null,
+        providerErrorType: null,
+        finishReason: null,
+        latencyMs: 0,
+        promptTokens: null,
+        completionTokens: null,
+        totalTokens: null,
+        cost: null,
+        retryable: false,
+        failureCategory: finalFailure,
+        failureReason: 'model supports neither structured output nor JSON object mode',
+      });
+      continue;
+    }
+
+    let maxTokens: number;
+    try {
+      maxTokens = resolveOutputTokenBudget(capabilities, env);
+    } catch {
+      finalFailure = 'UNSUPPORTED_MODEL_CAPABILITY';
+      diagnostics.push({
+        model,
+        format: 'capability',
+        status: null,
+        providerErrorType: null,
+        finishReason: null,
+        latencyMs: 0,
+        promptTokens: null,
+        completionTokens: null,
+        totalTokens: null,
+        cost: null,
+        retryable: false,
+        failureCategory: finalFailure,
+        failureReason: 'configured output budget exceeds model safe limit',
+      });
+      continue;
+    }
+
+    const formats: Array<AttemptSpec['format']> = [];
+    if (capabilities.supportsStructuredOutput) formats.push('json_schema');
+    if (capabilities.supportsJsonObject) formats.push('json_object');
+
+    let fallbackOnUnavailable = false;
+    for (const format of formats) {
+      for (let tryNumber = 0; tryNumber < 2 && attemptsMade < 2; tryNumber += 1) {
+        const remainingMs = deadlineMs - Date.now();
+        if (remainingMs < MIN_ATTEMPT_BUDGET_MS) break;
+        const attempt: AttemptSpec = { model, format, capabilities, maxTokens };
+        attemptsMade += 1;
+        try {
+          const result = await singleAttempt(attempt, input, Math.min(perAttemptTimeoutMs, remainingMs));
+          return { ...result, attempts: [...diagnostics, ...result.attempts] };
+        } catch (error) {
+          if (!(error instanceof AttemptFailure)) throw error;
+          diagnostics.push(error.diagnostic);
+          finalFailure = error.diagnostic.failureCategory ?? finalFailure;
+          if (finalFailure === 'PAYMENT_REQUIRED') {
+            throw new OpenRouterAuditError(
+              'PAYMENT_REQUIRED',
+              diagnostics,
+              'OpenRouter requiere saldo disponible para procesar la auditoría. Agrega créditos y vuelve a intentarlo.',
+              402,
+            );
+          }
+          if (!error.diagnostic.retryable || tryNumber === 1 || attemptsMade >= 2) break;
+          if (error.diagnostic.failureCategory === 'PROVIDER_UNAVAILABLE') {
+            fallbackOnUnavailable = true;
+            break;
+          }
+        }
+      }
+      if (fallbackOnUnavailable) break;
+      if (attemptsMade >= 2) break;
+    }
+    if (attemptsMade >= 2) break;
   }
 
-  throw new ApiError(
-    502,
-    sawInvalidAiResponse ? 'INVALID_AI_RESPONSE' : 'AI_PROVIDER_ERROR',
-    `OpenRouter no pudo producir un resultado válido: ${failures.join(' | ')}`,
+  const summary = diagnostics.map((item) => `${item.model} [${item.format}]: ${item.failureCategory ?? 'OK'}${item.status ? ` HTTP ${item.status}` : ''}${item.failureReason ? ` (${item.failureReason})` : ''}`).join(' | ');
+  const invalidOutput = diagnostics.find((item) =>
+    item.failureCategory === 'TRUNCATED_OUTPUT' ||
+    item.failureCategory === 'INVALID_JSON' ||
+    item.failureCategory === 'SCHEMA_VALIDATION_ERROR' ||
+    item.failureCategory === 'INVALID_EVIDENCE_REFERENCE',
   );
+  const finalCategory = invalidOutput?.failureCategory ?? finalFailure;
+  throw new OpenRouterAuditError(finalCategory, diagnostics, `OpenRouter no pudo producir un assessment válido. ${summary || 'No hubo estrategias compatibles.'}`);
 }

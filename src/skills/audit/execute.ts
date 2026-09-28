@@ -9,7 +9,7 @@
 //  4. Valida SIEMPRE con Zod (parseAuditResult). El backend no reclasifica.
 // =============================================================================
 
-import { callOpenRouterAudit, type OpenRouterContentPart } from '../../server/openrouter.js';
+import { callOpenRouterAudit, type OpenRouterAttemptDiagnostic, type OpenRouterContentPart } from '../../server/openrouter.js';
 import { ApiError } from '../../server/http.js';
 import { parseAiAuditAssessment, type AuditResult } from './schema.js';
 import { buildDossierHeader, buildSystemPrompt } from './instructions.js';
@@ -21,7 +21,7 @@ export const PDF_MIN_TEXT_CHARS = 80;
 
 export interface AuditSkill {
   execute(input: AuditSkillInput): Promise<AuditResult>;
-  executeWithMetadata(input: AuditSkillInput, options?: { deadlineMs?: number }): Promise<{ result: AuditResult; model: string; usage: AuditResult['usage'] }>;
+  executeWithMetadata(input: AuditSkillInput, options?: { deadlineMs?: number }): Promise<{ result: AuditResult; model: string; usage: AuditResult['usage']; attempts: OpenRouterAttemptDiagnostic[] }>;
 }
 
 export const auditSkill: AuditSkill = {
@@ -49,6 +49,7 @@ export const auditSkill: AuditSkill = {
       },
       model: response.model,
       usage: response.usage,
+      attempts: response.attempts,
     };
   },
 };

@@ -149,7 +149,7 @@ Justifica SIEMPRE la clasificación en "reasoning" citando las secciones del pro
 
 ## Contrato de salida
 
-La respuesta DEBE ser un único objeto JSON válido que cumpla EXACTAMENTE el schema JSON que se te entrega. No agregues campos fuera del schema, ni texto fuera del JSON. Cuando una métrica no esté disponible usa null; nunca inventes métricas.
+La respuesta DEBE ser un único objeto JSON válido que cumpla EXACTAMENTE el contrato de salida que se entrega mediante structured output o que se adjunta explícitamente cuando se solicita json_object. No agregues campos fuera del contrato, ni texto fuera del JSON. Cuando una métrica no esté disponible usa null; nunca inventes métricas.
 
 ## Eficiencia de salida
 
