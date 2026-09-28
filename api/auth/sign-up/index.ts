@@ -1,6 +1,8 @@
 import { handleRoute, methodNotAllowed, ok } from '../../../src/server/http.js';
 import { attachSessionCookies, signUp } from '../../../src/server/auth.js';
 
+export const config = { api: { bodyParser: false } };
+
 // POST /api/auth/sign-up { email, password, name? } → 200 { user, requireEmailVerification }
 export default handleRoute(async (req, res) => {
   if (req.method !== 'POST') return methodNotAllowed(req, res, 'POST');
