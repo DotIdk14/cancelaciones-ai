@@ -1,0 +1,17 @@
+import type { DatabaseClient } from './client';
+import { asText } from './rows';
+
+const COLUMNS = 'id,audit_id,back_office_comment,helpdesk_comment,school_services_comment,finance_comment,additional_comment,created_at,updated_at,updated_by';
+interface Row { id: string; audit_id: string; back_office_comment?: string | null; helpdesk_comment?: string | null; school_services_comment?: string | null; finance_comment?: string | null; additional_comment?: string | null; created_at: string; updated_at: string; updated_by?: string | null; }
+export interface ManualCommentsRecord { id: string; auditId: string; backOfficeComment: string | null; helpdeskComment: string | null; schoolServicesComment: string | null; financeComment: string | null; additionalComment: string | null; createdAt: string; updatedAt: string; updatedBy: string | null; }
+export interface ManualCommentsPatch { backOfficeComment?: string | null; helpdeskComment?: string | null; schoolServicesComment?: string | null; financeComment?: string | null; additionalComment?: string | null; updatedBy?: string | null; }
+
+function toRecord(row: Row): ManualCommentsRecord { return { id: row.id, auditId: row.audit_id, backOfficeComment: asText(row.back_office_comment), helpdeskComment: asText(row.helpdesk_comment), schoolServicesComment: asText(row.school_services_comment), financeComment: asText(row.finance_comment), additionalComment: asText(row.additional_comment), createdAt: row.created_at, updatedAt: row.updated_at, updatedBy: asText(row.updated_by) }; }
+function toColumns(patch: ManualCommentsPatch): Record<string, unknown> { const columns: Record<string, unknown> = {}; if (patch.backOfficeComment !== undefined) columns.back_office_comment = patch.backOfficeComment; if (patch.helpdeskComment !== undefined) columns.helpdesk_comment = patch.helpdeskComment; if (patch.schoolServicesComment !== undefined) columns.school_services_comment = patch.schoolServicesComment; if (patch.financeComment !== undefined) columns.finance_comment = patch.financeComment; if (patch.additionalComment !== undefined) columns.additional_comment = patch.additionalComment; if (patch.updatedBy !== undefined) columns.updated_by = patch.updatedBy; return columns; }
+
+export function createManualCommentsRepository(database: DatabaseClient) {
+  async function findByAudit(auditId: string): Promise<ManualCommentsRecord | null> { const { data, error } = await database.from('audit_manual_comments').select(COLUMNS).eq('audit_id', auditId).limit(1); if (error) throw new Error(error.message ?? `No se pudieron leer comentarios de ${auditId}.`); const rows = (data ?? []) as Row[]; return rows[0] ? toRecord(rows[0]) : null; }
+  return { findByAudit, async upsert(auditId: string, patch: ManualCommentsPatch): Promise<ManualCommentsRecord> { const columns = toColumns(patch); const existing = await findByAudit(auditId); const query = existing ? database.from('audit_manual_comments').update(columns).eq('audit_id', auditId) : database.from('audit_manual_comments').insert([{ audit_id: auditId, ...columns }]); const { data, error } = await query.select(COLUMNS).single(); if (error) throw new Error(error.message ?? `No se pudieron guardar comentarios de ${auditId}.`); if (!data) throw new Error('La base no devolvio los comentarios manuales.'); return toRecord(data as Row); } };
+}
+
+export type ManualCommentsRepository = ReturnType<typeof createManualCommentsRepository>;

@@ -1,0 +1,271 @@
+{
+  "code": "GDM_GAM_PRD_MLG_003",
+  "title": "PROCEDIMIENTO DESERCIÓN DE ESTUDIANTES",
+  "version": "5",
+  "publishedAt": "2026-09-14",
+  "sourceFile": "GDM_GAM_PRD_MLG_003  PROCEDIMIENTO DESERCIÓN DE ESTUDIANTES.docx.pdf",
+  "sourceSha256": "71faf64634805b1b4820132cdfcc1304d740ff00d1e9573dd850222c9496c7d2",
+  "sourceBytes": 464649,
+  "pageCount": 26,
+  "extractedFrom": "pdfjs-dist 6.3.289",
+  "sections": [
+    {
+      "id": "1",
+      "title": "Objetivo",
+      "pages": [
+        1
+      ],
+      "file": "sections/1.md",
+      "chars": 510
+    },
+    {
+      "id": "2",
+      "title": "Alcance",
+      "pages": [
+        1
+      ],
+      "file": "sections/2.md",
+      "chars": 861
+    },
+    {
+      "id": "3",
+      "title": "Glosario",
+      "pages": [
+        1,
+        2
+      ],
+      "file": "sections/3.md",
+      "chars": 955
+    },
+    {
+      "id": "4",
+      "title": "Dueño de Proceso",
+      "pages": [
+        2
+      ],
+      "file": "sections/4.md",
+      "chars": 135
+    },
+    {
+      "id": "5",
+      "title": "Políticas de Negocio",
+      "pages": [
+        2
+      ],
+      "file": "sections/5.md",
+      "chars": 709
+    },
+    {
+      "id": "5.1",
+      "title": "Notificaciones de cancelaciones de venta",
+      "pages": [
+        2,
+        3
+      ],
+      "file": "sections/5.1.md",
+      "chars": 2288
+    },
+    {
+      "id": "5.2",
+      "title": "Intentos de contacto mínimos al estudiante",
+      "pages": [
+        3,
+        4
+      ],
+      "file": "sections/5.2.md",
+      "chars": 1984
+    },
+    {
+      "id": "5.3",
+      "title": "A solicitud del Estudiante",
+      "pages": [
+        4,
+        5,
+        6
+      ],
+      "file": "sections/5.3.md",
+      "chars": 3868
+    },
+    {
+      "id": "5.4",
+      "title": "Cambios de ciclo",
+      "pages": [
+        6,
+        7
+      ],
+      "file": "sections/5.4.md",
+      "chars": 1878
+    },
+    {
+      "id": "5.5",
+      "title": "Error de Inscripción",
+      "pages": [
+        7
+      ],
+      "file": "sections/5.5.md",
+      "chars": 658
+    },
+    {
+      "id": "5.6",
+      "title": "Promesa de venta NO cumplida",
+      "pages": [
+        7,
+        8,
+        9,
+        10
+      ],
+      "file": "sections/5.6.md",
+      "chars": 5544
+    },
+    {
+      "id": "5.7",
+      "title": "Entrega de Documentos",
+      "pages": [
+        10,
+        11,
+        12
+      ],
+      "file": "sections/5.7.md",
+      "chars": 3329
+    },
+    {
+      "id": "5.8",
+      "title": "Estudiantes Ilocalizables:",
+      "pages": [
+        12,
+        13,
+        14,
+        15
+      ],
+      "file": "sections/5.8.md",
+      "chars": 6818
+    },
+    {
+      "id": "5.9",
+      "title": "Cancelaciones operativas",
+      "pages": [
+        15,
+        16,
+        17
+      ],
+      "file": "sections/5.9.md",
+      "chars": 3723
+    },
+    {
+      "id": "5.10",
+      "title": "Mystery Shopper",
+      "pages": [
+        17
+      ],
+      "file": "sections/5.10.md",
+      "chars": 339
+    },
+    {
+      "id": "5.11",
+      "title": "Falta de quórum",
+      "pages": [
+        17,
+        18
+      ],
+      "file": "sections/5.11.md",
+      "chars": 1317
+    },
+    {
+      "id": "5.12",
+      "title": "Indicador de Cancelación de Venta y Bajas (Primer Mes)",
+      "pages": [
+        18,
+        19
+      ],
+      "file": "sections/5.12.md",
+      "chars": 1351
+    },
+    {
+      "id": "5.13",
+      "title": "Soporte de Evidencias para solicitudes en Flokzu:",
+      "pages": [
+        19
+      ],
+      "file": "sections/5.13.md",
+      "chars": 917
+    },
+    {
+      "id": "5.14",
+      "title": "Solicitud de evidencias al área de Mejora Continua o ventas",
+      "pages": [
+        19,
+        20
+      ],
+      "file": "sections/5.14.md",
+      "chars": 938
+    },
+    {
+      "id": "5.15",
+      "title": "Atención de solicitudes",
+      "pages": [
+        20,
+        21
+      ],
+      "file": "sections/5.15.md",
+      "chars": 1495
+    },
+    {
+      "id": "6",
+      "title": "Descripción de Actividades",
+      "pages": [
+        21
+      ],
+      "file": "sections/6.md",
+      "chars": 281
+    },
+    {
+      "id": "7",
+      "title": "Diagrama de Flujo",
+      "pages": [
+        21
+      ],
+      "file": "sections/7.md",
+      "chars": 268
+    },
+    {
+      "id": "8",
+      "title": "Indicadores",
+      "pages": [
+        21,
+        22
+      ],
+      "file": "sections/8.md",
+      "chars": 973
+    },
+    {
+      "id": "9",
+      "title": "Anexos",
+      "pages": [
+        22
+      ],
+      "file": "sections/9.md",
+      "chars": 622
+    },
+    {
+      "id": "10",
+      "title": "Documentos de Referencia",
+      "pages": [
+        22
+      ],
+      "file": "sections/10.md",
+      "chars": 286
+    },
+    {
+      "id": "11",
+      "title": "Control de Cambios",
+      "pages": [
+        23,
+        24,
+        25,
+        26
+      ],
+      "file": "sections/11.md",
+      "chars": 4261
+    }
+  ]
+}

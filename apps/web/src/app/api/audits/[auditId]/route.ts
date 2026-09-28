@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { revalidatePath } from 'next/cache';
-import { createAuditRepository, createDictamenDocumentRepository, createEvidenceRepository } from '@cancelaciones/db';
+import { createAuditRepository, createEvidenceRepository } from '@cancelaciones/db';
 import { createInsForgeServerClient } from '@/server/insforge/server';
 import { getCurrentUser } from '@/server/auth/session';
 
@@ -14,7 +14,7 @@ export const dynamic = 'force-dynamic';
  * public.delete_audit() (creador de la auditoría o rol OWNER). La función
  * registra SIEMPRE en audit_log quién la eliminó, cuándo y sobre qué
  * expediente. Además se limpian (best-effort) los archivos de storage
- * asociados a evidencias y dictámenes.
+ * asociados a evidencias.
  */
 export async function DELETE(request: NextRequest, context: { params: Promise<{ auditId: string }> }) {
   const { auditId } = await context.params;
@@ -92,16 +92,6 @@ async function collectStorageKeys(client: Awaited<ReturnType<typeof createInsFor
     }
   } catch {
     // Si no se pueden leer evidencias, el borrado principal continúa igual.
-  }
-  try {
-    const documents = await createDictamenDocumentRepository(client.database).listByAudit(auditId);
-    for (const doc of documents) {
-      if (doc.storageBucket && doc.storageKey) {
-        keys.push({ bucket: doc.storageBucket, key: doc.storageKey });
-      }
-    }
-  } catch {
-    // Ídem: la limpieza de storage es best-effort.
   }
   return keys;
 }

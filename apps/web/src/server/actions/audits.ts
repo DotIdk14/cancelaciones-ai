@@ -6,7 +6,6 @@ import { createAuditRepository } from '@cancelaciones/db';
 import { createInsForgeServerClient } from '@/server/insforge/server';
 import { getCurrentUser } from '@/server/auth/session';
 import { uploadEvidenceFilesForAudit } from '@/server/evidence/upload';
-import { uploadHumanDecisionDocument } from '@/server/human-decision/service';
 import { enqueueEvidenceProcessingJobs } from '@/server/jobs/enqueue-evidence';
 
 export async function listAuditsForCurrentUser() {
@@ -25,7 +24,6 @@ export async function createAudit(formData: FormData) {
   const evidenceFiles = formData
     .getAll('evidences')
     .filter((value): value is File => value instanceof File && value.size > 0 && value.name.trim().length > 0);
-  const humanDecisionFile = formData.get('humanDecision');
 
   if (!cave) throw new Error('Falta capturar CaVe.');
   if (!classStartDate) throw new Error('Falta confirmar fecha de inicio de clases.');
@@ -40,18 +38,18 @@ export async function createAudit(formData: FormData) {
     createdBy: user.id,
     displayName,
     externalCaseId: cave,
+    classStartDate,
+    ticketStartAt: ticketStartDate,
+    studentName,
+    studentEnrollment: String(formData.get('studentEnrollment') ?? '').trim() || null,
   });
 
   const uploadResults = await uploadEvidenceFilesForAudit({ auditId: audit.id, actorId: user.id, files: evidenceFiles, database: client.database, storage: client.storage });
   const storedCount = uploadResults.filter((result) => result.status === 'STORED').length;
 
-  if (humanDecisionFile instanceof File && humanDecisionFile.size > 0 && humanDecisionFile.name.trim().length > 0) {
-    await uploadHumanDecisionDocument({ auditId: audit.id, actorId: user.id, file: humanDecisionFile, database: client.database, storage: client.storage });
-  }
-
   if (storedCount === 0) throw new Error('No fue posible almacenar ninguna evidencia.');
 
-  await client.database.from('audits').update({ status: 'PROCESSING' }).eq('id', audit.id);
+  await repo.updateStatus(audit.id, 'PROCESSING');
 
   // Encolar el procesamiento de las evidencias almacenadas para que el
   // workspace pueda retomarlas automaticamente tras el redirect.

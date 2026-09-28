@@ -84,12 +84,12 @@ export function NewAuditForm({ action }: NewAuditFormProps) {
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1.8fr)_minmax(320px,0.9fr)]">
         <div className="rounded-xl border border-line bg-surface-1 p-4">
           <label className="flex min-h-[185px] cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-line bg-background px-5 py-6 text-center hover:border-brand/60 hover:bg-surface-2">
-            <input name="evidences" required multiple type="file" accept=".pdf,.jpg,.jpeg,.png,.mp3,.wav,.csv,.xml" className="sr-only" onChange={(event) => setFiles(Array.from(event.target.files ?? []))} />
+            <input name="evidences" required multiple type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,.mp3,.wav,.m4a,.txt,.csv,.docx,.xlsx" className="sr-only" onChange={(event) => setFiles(Array.from(event.target.files ?? []))} />
             <span className="rounded-lg border border-line bg-surface-2 px-3 py-1 text-xs font-medium text-muted">Carga de archivos</span>
             <h2 className="mt-3 text-xl font-semibold text-ink">Arrastra tus archivos aquí o haz clic para explorar</h2>
             <p className="mt-1.5 max-w-2xl text-sm text-muted">Al crear la auditoría los archivos se suben y se encola su procesamiento automático.</p>
             <div className="mt-4 flex flex-wrap justify-center gap-1.5 text-xs text-subtle">
-              {['PDF', 'JPG', 'PNG', 'MP3', 'WAV', 'CSV', 'XML', 'Max. 50 MB'].map((item) => <span key={item} className="rounded-md border border-line bg-surface-1 px-2 py-0.5">{item}</span>)}
+              {['PDF', 'JPG', 'PNG', 'WEBP', 'MP3', 'WAV', 'M4A', 'TXT', 'CSV', 'DOCX', 'XLSX', 'Max. 50 MB'].map((item) => <span key={item} className="rounded-md border border-line bg-surface-1 px-2 py-0.5">{item}</span>)}
             </div>
           </label>
         </div>
@@ -113,7 +113,7 @@ export function NewAuditForm({ action }: NewAuditFormProps) {
             </label>
             <label className="block text-sm font-medium text-muted">
               Matrícula
-              <input name="studentId" placeholder="Matrícula si existe" className="mt-1 w-full rounded-lg border border-line bg-background px-3 py-1.5 text-sm text-ink outline-none placeholder:text-subtle focus:border-brand" />
+              <input name="studentEnrollment" placeholder="Matrícula si existe" className="mt-1 w-full rounded-lg border border-line bg-background px-3 py-1.5 text-sm text-ink outline-none placeholder:text-subtle focus:border-brand" />
             </label>
             <label className="block text-sm font-medium text-muted">
               Inicio clases <span className="text-danger">*</span>
@@ -124,11 +124,7 @@ export function NewAuditForm({ action }: NewAuditFormProps) {
               <input name="ticketStartDate" required type="datetime-local" className="mt-1 w-full rounded-lg border border-line bg-background px-3 py-1.5 text-sm text-ink outline-none focus:border-brand" />
             </label>
           </div>
-          <label className="mt-4 block rounded-lg border border-dashed border-brand/30 bg-brand/5 p-3 text-sm text-muted">
-            <span className="font-semibold text-ink">Dictamen humano opcional</span>
-            <span className="mt-1 block text-xs leading-5 text-muted">Se almacena separado como HUMAN_DECISION_DOCUMENT y no alimenta la línea base IA.</span>
-            <input name="humanDecision" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,.txt,.csv" className="mt-3 block w-full text-xs text-muted file:mr-3 file:rounded-md file:border-0 file:bg-surface-2 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-ink" />
-          </label>
+          <p className="mt-4 rounded-lg border border-brand/30 bg-brand/5 p-3 text-xs leading-5 text-muted">El flujo AI-native solo recibe evidencias fuente. No se carga dictamen humano ni documentos de resolución anteriores.</p>
         </aside>
 
         <FileQueue files={files} totalBytes={totalBytes} />

@@ -8,10 +8,10 @@ const nextConfig: NextConfig = {
     },
   },
   transpilePackages: [
-    '@cancelaciones/domain',
+    '@cancelaciones/shared',
     '@cancelaciones/db',
-    '@cancelaciones/reporting',
-    '@cancelaciones/rule-engine-v2',
+    '@cancelaciones/evidence',
+    '@cancelaciones/ai',
   ],
   distDir: process.env.NEXT_DIST_DIR ?? '.next',
 };

@@ -1,6 +1,6 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { createAuditLogRepository, createEvidenceRepository, type DatabaseClient } from '@cancelaciones/db';
-import { buildEvidenceStorageKey, EVIDENCE_BUCKET, validateEvidenceFile } from '@cancelaciones/domain';
+import { buildEvidenceStorageKey, EVIDENCE_BUCKET, sha256Hex, validateEvidenceFile, type EvidenceKind } from '@cancelaciones/shared';
 
 export interface PreparedEvidenceFile {
   evidenceId: string;
@@ -8,6 +8,7 @@ export interface PreparedEvidenceFile {
   safeFilename: string;
   declaredMimeType: string;
   detectedMimeType: string;
+  kind: EvidenceKind;
   sizeBytes: number;
   sha256: string;
   storageBucket: string;
@@ -42,7 +43,7 @@ export async function prepareEvidenceFile(auditId: string, file: File): Promise<
   }
 
   const evidenceId = randomUUID();
-  const sha256 = createHash('sha256').update(bytes).digest('hex');
+  const sha256 = sha256Hex(bytes);
   const storageKey = buildEvidenceStorageKey({ auditId, evidenceId, safeFilename: validation.safeFilename });
 
   return {
@@ -51,6 +52,7 @@ export async function prepareEvidenceFile(auditId: string, file: File): Promise<
     safeFilename: validation.safeFilename,
     declaredMimeType: file.type,
     detectedMimeType: validation.detectedMimeType,
+    kind: validation.kind,
     sizeBytes: file.size,
     sha256,
     storageBucket: EVIDENCE_BUCKET,
@@ -74,6 +76,11 @@ export async function uploadEvidenceFilesForAudit(input: {
     let evidenceId: string | null = null;
     try {
       const prepared = await prepareEvidenceFile(input.auditId, file);
+      const duplicate = await evidences.findByAuditAndSha256(input.auditId, prepared.sha256);
+      if (duplicate) {
+        results.push({ filename: prepared.originalFilename, evidenceId: duplicate.id, status: 'STORED', message: 'Evidencia duplicada reutilizada por sha256.' });
+        continue;
+      }
       evidenceId = prepared.evidenceId;
 
       await evidences.createPending({
@@ -83,6 +90,7 @@ export async function uploadEvidenceFilesForAudit(input: {
         safeFilename: prepared.safeFilename,
         mimeType: prepared.declaredMimeType,
         detectedMimeType: prepared.detectedMimeType,
+        kind: prepared.kind,
         sizeBytes: prepared.sizeBytes,
         sha256: prepared.sha256,
         storageBucket: prepared.storageBucket,

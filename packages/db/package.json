@@ -15,9 +15,10 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@cancelaciones/domain": "workspace:*"
+    "@cancelaciones/shared": "workspace:*"
   },
   "devDependencies": {
-    "vitest": "^2.1.9"
+    "vitest": "^2.1.9",
+    "zod": "^3.25.76"
   }
 }

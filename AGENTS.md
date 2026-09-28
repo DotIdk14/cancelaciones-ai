@@ -1,35 +1,63 @@
 # AGENTS.md
 
+## Arquitectura actual
+
+El producto es AI-native. No existe policy engine, rules engine, fact run, engine run ni catalogo ejecutable de reglas.
+
+Flujo productivo:
+
+```text
+evidencias
+  -> preparacion de evidencia
+  -> CaseAnalyst con tools
+  -> consulta del procedimiento V5 en policy/
+  -> assessment estructurado
+  -> AuditReviewer
+  -> resultado terminal
+```
+
+Paquetes:
+
+- `apps/web`: UI, API routes, auth, storage y runner de jobs.
+- `packages/shared`: schemas Zod, estados, limites, logger, validacion de evidencias.
+- `packages/evidence`: convierte evidencias en texto consultable; no decide negocio.
+- `packages/ai`: adapters OpenRouter/AssemblyAI, tools, Analyst, Reviewer y eval dataset.
+- `packages/db`: repositorios del baseline AI-native.
+- `policy/`: procedimiento `GDM_GAM_PRD_MLG_003` v5 indexado por seccion.
+
 ## Invariantes permanentes
 
-- POLICY_IS_IMMUTABLE: GDM_GAM_PRD_MLG_003 y fuentes normativas oficiales del propietario determinan que corresponde.
+- POLICY_IS_IMMUTABLE: el procedimiento oficial `GDM_GAM_PRD_MLG_003` v5 y fuentes oficiales del owner determinan el criterio.
 - ONLY_OWNER_PROVIDED_POLICY_SOURCES: no buscar ni usar politica encontrada en internet.
-- TEMPLATE_IS_NOT_POLICY: Dictamen.pdf solo define como se entrega el reporte.
-- HISTORICAL_CASES_ARE_NOT_POLICY: los CaVe historicos muestran practica, no crean reglas.
-- LEGACY_IS_NOT_POLICY: el repositorio legacy puede reutilizar tecnica, no criterios normativos.
-- AI_EXTRACTS: la IA clasifica, lee, transcribe y estructura evidencia.
-- POLICY_ENGINE_DECIDES: el motor normativo aplica reglas oficiales con datos estructurados.
-- UNKNOWN_IS_NOT_FALSE: ausencia de evidencia no equivale a condicion falsa.
-- TRACE_EVERY_DECISION: toda decision debe enlazar regla, condicion, hecho y evidencia.
-- CANONICAL_REPORT_TEMPLATE: Dictamen.pdf es la plantilla oficial de salida; el generador no debe sustituirla por un reporte alternativo.
+- TEMPLATE_IS_NOT_POLICY: `Dictamen.pdf` no es fuente normativa.
+- HISTORICAL_CASES_ARE_NOT_POLICY: casos historicos muestran practica, no crean reglas.
+- LEGACY_IS_NOT_POLICY: el historial Git puede consultarse, pero no revive criterios normativos.
+- AI_ANALYZES_WITH_TOOLS: la IA lee, consulta tools, cita evidencia y propone assessment estructurado.
+- NO_RULES_ENGINE: no reintroducir policy engine, rules engine, fact engine obligatorio, rule evaluation ni catalogos ejecutables de reglas.
+- TRACE_EVERY_DECISION: toda conclusion importante debe enlazar evidencia y seccion del procedimiento cuando aplique.
 - PRESERVE_EVIDENCE_PROVENANCE: nunca modificar originales; todo derivado conserva hash y origen.
-- PRESERVE_MACHINE_DECISION: una correccion humana no sobrescribe la decision de maquina.
-- OPERATIONAL_PRECEDENCE_IS_NOT_POLICY: cualquier prioridad aprobada por OWNER debe almacenarse y mostrarse separada de la fuente normativa.
-- DO_NOT_DUPLICATE_IMPLEMENTATIONS: una sola implementacion por capacidad.
-- INSPECT_BEFORE_IMPLEMENTING: inspeccionar fuentes, plantilla, historicos y legacy antes de sustituir.
-- REMEDIATE_BEFORE_ADVANCING: no construir sobre una fase rota.
 - NO_PII_IN_GIT: evidencias reales e historicos con PII quedan fuera de Git.
-- NO_PROCESS_LOCAL_DURABILITY: auditorias, jobs, decisiones y estados durables nunca pueden depender exclusivamente de memoria del proceso.
-- DO_NOT_REPROCESS_AI_UNNECESSARILY: una vez extraidos y persistidos los hechos, reevaluar el motor no debe volver a consumir IA salvo que cambie la evidencia que lo requiera.
-- KEEP_IT_SIMPLE: monolito modular, sin infraestructura innecesaria para ~50 auditorias/dia.
+- NO_PROCESS_LOCAL_DURABILITY: auditorias, jobs, decisions y estados durables no dependen de memoria de proceso.
+- DO_NOT_REPROCESS_AI_UNNECESSARILY: si la evidencia y sus derivados no cambian, reutilizar outputs durables.
+- KEEP_IT_SIMPLE: monolito modular; sin microservicios ni infraestructura distribuida innecesaria.
+
+## Limites duros
+
+- `MAX_AGENT_STEPS = 12`
+- `MAX_TOOL_CALLS = 20`
+- `MAX_REVIEW_ROUNDS = 2`
+- `MAX_PROVIDER_ATTEMPTS = 2`
+
+Cuando se alcanza un limite, el run debe terminar en `NEEDS_INPUT` o `FAILED`. Nunca iniciar otro run automaticamente.
 
 ## Reglas de trabajo
 
-- Documentacion, frontend y reportes en espanol.
+- Documentacion y UI en espanol.
 - Codigo tecnico puede usar ingles si mejora claridad.
-- Toda regla productiva debe citar fuente exacta: documento, version, seccion y pagina.
-- Los casos historicos solo pueden ser golden case si se validan explicitamente contra la fuente normativa.
-- El motor normativo debe ser puro, determinista, testeable y desacoplado de React, Next.js, InsForge, OpenRouter, AssemblyAI, filesystem y HTTP.
+- Toda conclusion normativa debe citar documento, version, seccion y pagina cuando exista.
+- No usar `INDETERMINADO` como resultado normal. Usar `NEEDS_INPUT` con evidencia faltante accionable.
+- No crear capas de compatibilidad para arquitectura eliminada.
+- Si aparece vocabulario `FactRun`, `EngineRun`, `RuleEvaluation`, `sourceCompleteness` o `UNKNOWN_IS_NOT_FALSE`, revisar si es residuo legacy y eliminarlo salvo razon actual explicita.
 
 <!-- INSFORGE:START -->
 ## InsForge backend

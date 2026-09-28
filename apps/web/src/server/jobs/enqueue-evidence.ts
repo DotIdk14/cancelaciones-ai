@@ -1,5 +1,5 @@
 import { createEvidenceRepository, createJobRepository, type DatabaseClient } from '@cancelaciones/db';
-import { stableFingerprint } from '@cancelaciones/domain';
+import { sha256Hex } from '@cancelaciones/shared';
 
 export interface EnqueuedEvidenceJob {
   evidenceId: string;
@@ -17,34 +17,23 @@ export async function enqueueEvidenceProcessingJobs(input: {
   database: DatabaseClient;
   auditId: string;
   actorId: string;
-  rerun?: boolean;
 }): Promise<EnqueuedEvidenceJob[]> {
   const repository = createJobRepository(input.database);
   const evidences = await createEvidenceRepository(input.database).listByAudit(input.auditId);
-  // Aislamiento de baseline: solo los documentos con rol EVIDENCE entran al
-  // pipeline de evidencias y, por lo tanto, al universo de hechos. El dictamen
-  // humano (HUMAN_DECISION_DOCUMENT) y las evidencias de adjudicación se
-  // procesan por jobs dedicados que nunca alimentan el hechario de la IA.
-  const stored = evidences.filter((evidence) => evidence.status === 'STORED' && evidence.documentRole === 'EVIDENCE');
+  const stored = evidences.filter((evidence) => evidence.status === 'STORED');
   const jobs: EnqueuedEvidenceJob[] = [];
 
   for (const evidence of stored) {
-    const version = evidence.detectedMimeType.startsWith('image/')
-      ? input.rerun
-        ? 'vision-extraction-v4'
-        : 'vision-extraction-v3'
-      : input.rerun
-        ? 'deterministic-text-v2'
-        : 'deterministic-text-v1';
-    const payload = { auditId: input.auditId, evidenceId: evidence.id, sha256: evidence.sha256, version, actorId: input.actorId };
+    const payload = { auditId: input.auditId, evidenceId: evidence.id, sha256: evidence.sha256, kind: evidence.kind, actorId: input.actorId };
     const job = await repository.enqueue({
       auditId: input.auditId,
       jobType: 'EVIDENCE_PROCESSING',
       operationScope: `evidence:${evidence.id}:process`,
-      idempotencyKey: `evidence:${evidence.id}:process:${version}`,
-      inputFingerprint: stableFingerprint(payload),
+      idempotencyKey: `evidence:${evidence.id}:process:${evidence.sha256 ?? 'nohash'}`,
+      inputFingerprint: sha256Hex(JSON.stringify(payload)),
       payload,
       evidenceId: evidence.id,
+      maxAttempts: 2,
       actorId: input.actorId,
     });
     jobs.push({ evidenceId: evidence.id, jobId: job.id });

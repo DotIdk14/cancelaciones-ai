@@ -32,11 +32,12 @@ export async function GET(request: NextRequest, context: { params: Promise<{ evi
   const forceInline = searchParams.get('inline') === '1';
   const viewable = isViewableInline(evidence.detectedMimeType);
   const disposition = forceDownload || (!forceInline && !viewable) ? 'attachment' : 'inline';
-  const filename = encodeURIComponent(evidence.safeFilename);
+  const mimeType = evidence.detectedMimeType ?? evidence.mimeType ?? 'application/octet-stream';
+  const filename = encodeURIComponent(evidence.safeFilename ?? evidence.originalFilename ?? evidence.filename);
 
   return new NextResponse(download.data, {
     headers: {
-      'Content-Type': evidence.detectedMimeType,
+      'Content-Type': mimeType,
       'Content-Disposition': `${disposition}; filename="${filename}"`,
       'Cache-Control': 'private, no-store',
     },

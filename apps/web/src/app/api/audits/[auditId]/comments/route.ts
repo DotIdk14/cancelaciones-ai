@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { createAuditLogRepository, createAuditManualCommentsRepository, createAuditRepository } from '@cancelaciones/db';
+import { createAuditLogRepository, createAuditRepository, createManualCommentsRepository } from '@cancelaciones/db';
 import { createInsForgeServerClient } from '@/server/insforge/server';
 import { getCurrentUser } from '@/server/auth/session';
 
@@ -61,9 +61,9 @@ async function saveComments(request: NextRequest, auditId: string, auth: Omit<Au
   }
 
   const normalized = buildPayload(payload);
-  const repo = createAuditManualCommentsRepository(auth.client.database);
+  const repo = createManualCommentsRepository(auth.client.database);
   const previous = await repo.findByAudit(auditId);
-  const saved = await repo.upsert({ auditId, actorId: auth.user.id, comments: normalized });
+  const saved = await repo.upsert(auditId, { ...normalized, updatedBy: auth.user.id });
 
   const previousValues = {
     backOfficeComment: previous?.backOfficeComment ?? null,
@@ -102,7 +102,7 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ au
   const { auditId } = await context.params;
   const auth = await authorized(auditId);
   if ('response' in auth && auth.response) return auth.response;
-  const comments = await createAuditManualCommentsRepository(auth.client.database).findByAudit(auditId);
+  const comments = await createManualCommentsRepository(auth.client.database).findByAudit(auditId);
   return NextResponse.json({ comments });
 }
 

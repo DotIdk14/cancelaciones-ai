@@ -1,206 +1,147 @@
 import { describe, expect, it } from 'vitest';
-import { createAuditManualCommentsRepository, createAuditRepository, createEvidenceRepository, createRuleGovernanceRepository } from './index';
+import { createClientFromInsForge, DatabaseRequestError } from './index';
 
-describe('createAuditRepository', () => {
-  it('crea y lee una auditoria usando un cliente compatible', async () => {
-    const rows: any[] = [];
-    const selectBuilder = {
-      order: () => selectBuilder,
-      limit: async () => ({ data: rows, error: null }),
-    };
-    const database = {
-      from: () => ({
-        select: () => selectBuilder,
-        insert: (input: any[]) => {
-          rows.push({
-            id: 'audit_1',
-            display_name: input[0].display_name,
-            status: 'DRAFT',
-            external_case_id: input[0].external_case_id,
-            created_by: input[0].created_by,
-            created_at: '2026-09-21T00:00:00.000Z',
-            updated_at: '2026-09-21T00:00:00.000Z',
-          });
-          return {
-            select: () => ({ single: async () => ({ data: rows[0], error: null }) }),
-          };
-        },
-      }),
-    };
+interface Captured {
+  url: string;
+  method: string;
+  headers: Record<string, string>;
+  body?: string;
+}
 
-    const repo = createAuditRepository(database);
-    const created = await repo.create({ createdBy: 'user_1', displayName: 'Auditoria sintetica', externalCaseId: 'CaVe-SINTETICO' });
-    const list = await repo.listRecent();
+function fakeFetch(rows: unknown[], captured: Captured[]) {
+  return (async (input: string | URL | Request, init?: RequestInit) => {
+    captured.push({
+      url: String(input),
+      method: init?.method ?? 'GET',
+      headers: (init?.headers ?? {}) as Record<string, string>,
+      body: typeof init?.body === 'string' ? init.body : undefined,
+    });
+    return new Response(JSON.stringify(rows), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  }) as unknown as typeof fetch;
+}
 
-    expect(created.status).toBe('DRAFT');
-    expect(list).toHaveLength(1);
-    expect(list[0].externalCaseId).toBe('CaVe-SINTETICO');
+describe('createClientFromInsForge', () => {
+  it('rechaza una configuracion incompleta antes de tocar la red', () => {
+    expect(() => createClientFromInsForge({ url: '', anonKey: 'anon' })).toThrow('la URL es obligatoria');
+    expect(() => createClientFromInsForge({ url: 'https://db.test', anonKey: '' })).toThrow('la anonKey es obligatoria');
   });
 
-  it('elimina una auditoria via rpc delete_audit con motivo opcional', async () => {
-    const calls: Array<{ fn: string; args: Record<string, unknown> }> = [];
-    const database = {
-      rpc: async (fn: string, args: Record<string, unknown>) => {
-        calls.push({ fn, args });
-        return {
-          data: [{ audit_id: 'audit_9', status: 'FROZEN', deleted_by: 'user_1' }],
-          error: null,
-        };
-      },
-    };
-
-    const repo = createAuditRepository(database as any);
-    const deleted = await repo.deleteAudit('audit_9', 'Duplicado capturado por error');
-
-    expect(calls).toEqual([
-      { fn: 'delete_audit', args: { p_audit_id: 'audit_9', p_reason: 'Duplicado capturado por error' } },
-    ]);
-    expect(deleted).toEqual({ audit_id: 'audit_9', status: 'FROZEN', deleted_by: 'user_1' });
-  });
-});
-
-describe('createEvidenceRepository', () => {
-  it('mapea metadata de evidencia', async () => {
-    const rows: any[] = [{
-      id: 'ev_1',
-      audit_id: 'audit_1',
-      original_filename: 'original.pdf',
-      safe_filename: 'original.pdf',
-      nombre_archivo: 'original.pdf',
-      mime_type: 'application/pdf',
-      detected_mime_type: 'application/pdf',
-      size_bytes: 5,
-      sha256: 'abc',
-      storage_bucket: 'dictamen-evidencias',
-      storage_key: 'audits/audit_1/originals/ev_1/original.pdf',
-      status: 'STORED',
-      uploaded_by: 'user_1',
-      created_at: '2026-09-21T00:00:00.000Z',
-      updated_at: '2026-09-21T00:00:00.000Z',
-    }];
-    const selectBuilder = {
-      eq: () => selectBuilder,
-      order: () => selectBuilder,
-      limit: async () => ({ data: rows, error: null }),
-    };
-    const database = { from: () => ({ select: () => selectBuilder }) };
-    const repo = createEvidenceRepository(database);
-    const list = await repo.listByAudit('audit_1');
-    expect(list[0].storageKey).toBe('audits/audit_1/originals/ev_1/original.pdf');
-  });
-});
-
-describe('createAuditManualCommentsRepository', () => {
-  it('inserta y recupera comentarios con mapeo de columnas', async () => {
-    const rows: any[] = [];
-    const database = {
-      from: () => ({
-        select: () => ({
-          eq: () => ({
-            limit: async () => ({ data: rows, error: null }),
-          }),
-        }),
-        insert: (input: any[]) => ({
-          select: () => ({
-            single: async () => ({ data: { ...input[0], id: 'comment_1', created_at: '2026-09-21T00:00:00.000Z', updated_at: '2026-09-21T00:00:00.000Z' }, error: null }),
-          }),
-        }),
-        update: (input: any) => ({
-          eq: () => ({
-            select: () => ({
-              single: async () => ({ data: { id: 'comment_1', audit_id: 'audit_1', ...input, created_at: '2026-09-21T00:00:00.000Z', updated_at: '2026-09-21T00:00:00.000Z' }, error: null }),
-            }),
-          }),
-        }),
-      }),
-    };
-
-    const repo = createAuditManualCommentsRepository(database);
-    const saved = await repo.upsert({
-      auditId: 'audit_1',
-      actorId: 'user_1',
-      comments: {
-        backOfficeComment: 'Comentario BO',
-        helpdeskComment: 'Comentario HelpDesk',
-        schoolServicesComment: 'Comentario SER',
-        financeComment: 'Comentario Finanzas',
-        additionalComment: 'Comentario adicional',
-      },
+  it('arma la consulta de lectura con filtros, columnas, orden y paginado', async () => {
+    const captured: Captured[] = [];
+    const client = createClientFromInsForge({
+      url: 'https://db.test/',
+      anonKey: 'anon-key',
+      fetchImpl: fakeFetch([{ id: 'audit_1' }], captured),
     });
 
-    expect(saved.backOfficeComment).toBe('Comentario BO');
-    expect(saved.helpdeskComment).toBe('Comentario HelpDesk');
-  });
-});
+    const { data } = await client
+      .from('audits')
+      .select('id,status')
+      .eq('status', 'DRAFT')
+      .order('created_at', { ascending: true })
+      .range(10, 14);
 
-describe('createRuleGovernanceRepository', () => {
-  it('crea y lista evidence requirements con orden determinista', async () => {
-    const requirements: any[] = [];
-    const selectRequirement = {
-      eq: () => selectRequirement,
-      order: () => selectRequirement,
-      then: (resolve: any) => resolve({ data: requirements, error: null }),
-    };
-    const database = {
-      from: (table: string) => ({
-        insert: (input: any[]) => ({
-          select: () => ({
-            single: async () => {
-              const row = { id: 'req_1', created_at: '2026-09-24T00:00:00.000Z', updated_at: '2026-09-24T00:00:00.000Z', ...input[0] };
-              requirements.push(row);
-              return { data: row, error: null };
-            },
-          }),
-        }),
-        select: () => table === 'evidence_requirements' ? selectRequirement : { single: async () => ({ data: null, error: null }) },
-      }),
-    };
-
-    const repo = createRuleGovernanceRepository(database as any);
-    const created = await repo.createEvidenceRequirement({ ruleId: 'rule_1', requirementKey: 'synthetic_evidence', evidenceType: 'TEXT', documentRole: 'EVIDENCE', required: true, minCount: 1, orderIndex: 2 });
-    const list = await repo.listEvidenceRequirements('rule_1');
-
-    expect(created.requirementKey).toBe('synthetic_evidence');
-    expect(created.documentRole).toBe('EVIDENCE');
-    expect(list).toHaveLength(1);
+    expect(data).toEqual([{ id: 'audit_1' }]);
+    expect(captured).toHaveLength(1);
+    expect(captured[0].url).toBe(
+      'https://db.test/api/database/audits?status=eq.DRAFT&select=id%2Cstatus&order=created_at.asc&limit=5&offset=10',
+    );
+    expect(captured[0].headers['x-api-key']).toBe('anon-key');
+    expect(captured[0].headers.Authorization).toBe('Bearer anon-key');
   });
 
-  it('rechaza evidence requirements invalidos antes de llegar a DB', async () => {
-    const repo = createRuleGovernanceRepository({ from: () => { throw new Error('DB_SHOULD_NOT_BE_CALLED'); } } as any);
-    await expect(repo.createEvidenceRequirement({ ruleId: 'rule_1', requirementKey: '', evidenceType: 'TEXT' })).rejects.toThrow('INVALID_REQUIREMENT_KEY');
-    await expect(repo.createEvidenceRequirement({ ruleId: 'rule_1', requirementKey: 'x', evidenceType: 'UNKNOWN' as never })).rejects.toThrow('INVALID_EVIDENCE_TYPE');
-    await expect(repo.createEvidenceRequirement({ ruleId: 'rule_1', requirementKey: 'x', evidenceType: 'TEXT', minCount: -1 })).rejects.toThrow('INVALID_MIN_COUNT');
-    await expect(repo.createEvidenceRequirement({ ruleId: 'rule_1', requirementKey: 'x', evidenceType: 'TEXT', minCount: 2, maxCount: 1 })).rejects.toThrow('INVALID_COUNT_RANGE');
-    await expect(repo.createEvidenceRequirement({ ruleId: 'rule_1', requirementKey: 'x', evidenceType: 'TEXT', required: true, minCount: 0 })).rejects.toThrow('REQUIRED_MIN_COUNT_MUST_BE_POSITIVE');
+  it('rechaza una baseUrl que no es una URL http/https usable', () => {
+    expect(() => createClientFromInsForge({ url: 'no-es-una-url', anonKey: 'anon' })).toThrow('URL no valida');
+    expect(() => createClientFromInsForge({ url: 'ftp://db.test', anonKey: 'anon' })).toThrow('URL no valida');
   });
 
-  it('lista rules con filtros y paginacion', async () => {
-    const calls: string[] = [];
-    const selectBuilder = {
-      eq: (col: string) => { calls.push(`eq:${col}`); return selectBuilder; },
-      order: (col: string) => { calls.push(`order:${col}`); return selectBuilder; },
-      limit: (n: number) => { calls.push(`limit:${n}`); return selectBuilder; },
-      range: (start: number, end: number) => { calls.push(`range:${start}:${end}`); return selectBuilder; },
-      then: (resolve: any) => resolve({ data: [], error: null }),
-    };
-    const database = { from: (table: string) => ({ select: () => table === 'rules' ? selectBuilder : { single: async () => ({ data: null, error: null }) } }) };
-    const repo = createRuleGovernanceRepository(database as any);
-    const list = await repo.listRules({ ruleKey: 'R-1', status: 'DRAFT', limit: 5, offset: 10 });
-    expect(list).toEqual([]);
-    expect(calls).toEqual(['eq:rule_key', 'eq:status', 'limit:5', 'range:10:14', 'order:created_at']);
+  it('inserta filas por POST con el array de registros y devuelve lo insertado', async () => {
+    const captured: Captured[] = [];
+    const client = createClientFromInsForge({
+      url: 'https://db.test',
+      anonKey: 'anon-key',
+      fetchImpl: fakeFetch([{ id: 'run_1' }], captured),
+    });
+
+    const { data, error } = await client
+      .from('audit_runs')
+      .insert([{ audit_id: 'audit_1', run_number: 1 }])
+      .select('id,run_number')
+      .single();
+
+    expect(error).toBeNull();
+    expect(data).toEqual({ id: 'run_1' });
+    expect(captured[0].method).toBe('POST');
+    expect(captured[0].url).toBe('https://db.test/api/database/audit_runs?select=id%2Crun_number&limit=1');
+    expect(captured[0].body).toBe('[{"audit_id":"audit_1","run_number":1}]');
   });
 
-  it('encuentra una rule por id sin golpear otras tablas', async () => {
-    const database = {
-      from: (table: string) => ({
-        select: () => table === 'rules' ? {
-          eq: () => ({ limit: async () => ({ data: [{ id: 'rule_1', rule_key: 'R-1', version: '1', name: 'Regla', status: 'DRAFT', created_at: '2026-09-24T00:00:00.000Z' }], error: null }) }),
-        } : { limit: async () => ({ data: [], error: null }) },
-      }),
-    };
-    const repo = createRuleGovernanceRepository(database as any);
-    const found = await repo.findRuleById('rule_1');
-    expect(found?.ruleKey).toBe('R-1');
-    expect(found?.status).toBe('DRAFT');
+  it('actualiza por PATCH conservando los filtros de la consulta', async () => {
+    const captured: Captured[] = [];
+    const client = createClientFromInsForge({
+      url: 'https://db.test',
+      anonKey: 'anon-key',
+      fetchImpl: fakeFetch([{ id: 'run_1', status: 'ANALYZING' }], captured),
+    });
+
+    const { data } = await client
+      .from('audit_runs')
+      .update({ status: 'ANALYZING' })
+      .eq('id', 'run_1')
+      .select('id,status')
+      .single();
+
+    expect(data).toEqual({ id: 'run_1', status: 'ANALYZING' });
+    expect(captured[0].method).toBe('PATCH');
+    expect(captured[0].url).toBe('https://db.test/api/database/audit_runs?id=eq.run_1&select=id%2Cstatus&limit=1');
+    expect(captured[0].body).toBe('{"status":"ANALYZING"}');
+  });
+
+  it('colapsa a una sola fila con single() y a null cuando no hay ninguna', async () => {
+    const captured: Captured[] = [];
+    const withRow = createClientFromInsForge({
+      url: 'https://db.test',
+      anonKey: 'anon-key',
+      fetchImpl: fakeFetch([{ id: 'run_1' }], captured),
+    });
+    const withoutRow = createClientFromInsForge({
+      url: 'https://db.test',
+      anonKey: 'anon-key',
+      fetchImpl: fakeFetch([], captured),
+    });
+
+    const found = await withRow.from('audit_runs').select('*').eq('id', 'run_1').single();
+    expect(found.data).toEqual({ id: 'run_1' });
+    expect(captured[0].url).toBe('https://db.test/api/database/audit_runs?id=eq.run_1&select=*&limit=1');
+
+    const missing = await withoutRow.from('audit_runs').select('*').eq('id', 'run_x').single();
+    expect(missing.data).toBeNull();
+  });
+
+  it('envia rpc por POST con sus argumentos y propaga el error de la base', async () => {
+    const captured: Captured[] = [];
+    const client = createClientFromInsForge({
+      url: 'https://db.test',
+      anonKey: 'anon-key',
+      serviceKey: 'service-key',
+      fetchImpl: fakeFetch([], captured),
+    });
+
+    const ok = await client.rpc!('delete_audit', { p_audit_id: 'audit_9' });
+    expect(ok).toEqual({ data: [], error: null });
+    expect(captured[0].method).toBe('POST');
+    expect(captured[0].url).toBe('https://db.test/api/database/rpc/delete_audit');
+    expect(captured[0].body).toBe('{"p_audit_id":"audit_9"}');
+    expect(captured[0].headers['x-api-key']).toBe('service-key');
+
+    const failing = createClientFromInsForge({
+      url: 'https://db.test',
+      anonKey: 'anon-key',
+      fetchImpl: (async () =>
+        new Response(JSON.stringify({ message: 'permiso denegado' }), { status: 403 })) as unknown as typeof fetch,
+    });
+
+    await expect(failing.rpc!('delete_audit', {})).rejects.toBeInstanceOf(DatabaseRequestError);
+    await expect(failing.rpc!('delete_audit', {})).rejects.toThrow('permiso denegado');
   });
 });

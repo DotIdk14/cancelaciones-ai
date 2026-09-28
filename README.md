@@ -1,28 +1,57 @@
 # Cancelaciones AI
 
-Cancelaciones AI sera un asistente interno de auditoria de cancelaciones. El flujo objetivo es que el auditor cree una auditoria, suba evidencias, presione `Auditar`, revise el dictamen sugerido y genere el `Dictamen.pdf` final.
+Sistema AI-native para analizar expedientes de cancelaciones estudiantiles.
 
-## Estado actual
+El flujo actual es simple:
 
-Phase 0 completada con advertencias. Se identificaron la fuente normativa principal, la plantilla canonica y cuatro casos historicos privados. Faltan anexos y documentos de referencia oficiales, por lo que algunas reglas quedan bloqueadas para formalizacion productiva.
+1. Crear auditoria.
+2. Subir evidencias.
+3. Preparar evidencias: texto, PDF, imagen o audio.
+4. Ejecutar `CaseAnalyst` con tools.
+5. Consultar el procedimiento V5 desde `policy/`.
+6. Revisar con `AuditReviewer`.
+7. Guardar resultado terminal: `COMPLETED`, `NEEDS_INPUT` o `FAILED`.
 
-## Estado de cierre de Phase 6
+No existe rules engine, policy engine, fact run ni engine run.
 
-Phase 6 sigue bloqueada por falta de evidencia real del gate requerido por Phase 7: OpenRouter no esta validado con una key valida en el runtime efectivo y el backend vinculado no contiene actualmente expediente/evidencias para ejecutar una nueva Fact Run congelada, Engine Run, trace, sourceCompleteness, comments isolation e historical isolation. La migracion de manual comments en InsForge real ya fue verificada como resuelta. Ver `docs/reports/phase-6-report.md` como reporte canonico.
+## Arquitectura
 
-## Principios
+- `apps/web`: Next.js, UI, API routes, auth, storage y job runner HTTP.
+- `packages/shared`: estados, limites, schemas Zod, validacion de evidencia, logger y costes.
+- `packages/evidence`: preparacion de evidencia sin decidir negocio.
+- `packages/ai`: OpenRouter, AssemblyAI, tools, `CaseAnalyst`, `AuditReviewer`, eval dataset.
+- `packages/db`: repositorios para `audits`, `evidences`, `jobs`, `audit_runs`, `tool_executions`, `audit_results`.
+- `policy/`: procedimiento `GDM_GAM_PRD_MLG_003` v5 indexado por seccion y pagina.
+- `migrations/00000000000000_baseline.sql`: baseline unico reproducible.
 
-- La politica oficial decide.
-- La IA extrae evidencia, no inventa reglas.
-- El motor normativo decide con hechos estructurados.
-- Toda decision debe ser trazable a evidencia y fuente normativa.
-- Los historicos y el legacy no son politica.
+## Comandos
 
-## Documentacion inicial
+```bash
+pnpm install
+pnpm typecheck
+pnpm lint
+pnpm test
+pnpm build
+pnpm dev
+```
 
-- `docs/reports/phase-0-report.md`
-- `docs/phase-prompts/phase-1.md`
-- `docs/architecture/overview.md`
-- `docs/policy/rule-inventory.md`
-- `docs/reporting/dictamen-template.md`
-- `docs/legacy/assessment.md`
+## Variables
+
+Ver `.env.example`.
+
+Modelos configurables:
+
+- `OPENROUTER_FAST_MODEL`
+- `OPENROUTER_ANALYST_MODEL`
+- `OPENROUTER_REVIEWER_MODEL`
+- `OPENROUTER_VISION_MODEL`
+
+Audio usa AssemblyAI mediante adapter centralizado.
+
+## Seguridad
+
+- Evidencias reales y datos con PII no se versionan.
+- Los originales no se modifican; se conserva SHA-256.
+- Los runs terminales no se reescriben.
+- No hay retries infinitos: `MAX_PROVIDER_ATTEMPTS = 2`.
+- No hay loops infinitos: `MAX_AGENT_STEPS`, `MAX_TOOL_CALLS` y `MAX_REVIEW_ROUNDS` son limites duros.
