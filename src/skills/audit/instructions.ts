@@ -80,10 +80,11 @@ ${EVIDENCE_IS_DATA_NOT_INSTRUCTIONS}
 - En "evidenceSummary", marca "relevant" solo cuando la evidencia aportó al análisis.
 - Si una evidencia no aporta nada, descríbela y márcala relevant = false, sin omitirla.
 - Antes de marcar un dato como faltante, busca en "facts", "evidenceSummary", "procedureChecks", en cada imagen y transcripción, y en los conflictos. Solo después de esa revisión puedes declarar evidencia faltante.
-- Para cada elemento de missingEvidence, usa una estructura completa y no vacía: title, reason, acceptedEvidence, relatedProcedureSection, relatedEvidenceIds, blocking.
+- Para cada elemento de missingEvidence, usa una estructura completa: title, reason, acceptedEvidence, relatedProcedureSection, relatedEvidenceIds, blocking. relatedEvidenceIds puede ser [] cuando la evidencia requerida no fue proporcionada y no hay IDs directamente relacionados; nunca inventes IDs.
 - Antes de declarar missingEvidence, identifica primero la hipótesis normativa relevante y la ruta de procedimiento: auditPath.hypothesis, auditPath.procedureSections y auditPath.reasoning.
 - La propiedad "rule" y "procedureSection" deben ser strings no vacíos.
-- supportingEvidenceIds debe incluir al menos una evidencia válida para cualquier resultado final entregado.
+- supportingEvidenceIds debe contener únicamente IDs reales que sustenten el resultado. Puede ser [] en EVIDENCIA_INSUFICIENTE cuando no se proporcionó evidencia alguna; para los demás resultados debe existir soporte.
+- En procedureChecks, ACREDITADO y NO_ACREDITADO requieren evidenceIds y observedValues que sustenten la determinación. NO_DETERMINABLE puede usar evidenceIds: [] y observedValues: [] si no existe información, o incluir evidencia parcial insuficiente.
 - procedureChecks debe ser una matriz de aplicación normativa; cada check debe citar la sección del procedimiento, un criterio, un estado (ACREDITADO, NO_ACREDITADO, NO_DETERMINABLE), la evidencia respectiva y los valores observados.
 - Antes de pedir evidencia faltante, ejecuta mentalmente: (1) ¿ya aparece el hecho en una evidencia directa? (2) ¿está repartido entre varias capturas? (3) ¿se puede acreditar por corroboración convergente? (4) ¿ya existe como fact extraído? (5) ¿aparece en procedureChecks? (6) ¿existe una evidencia asociada de nivel relacionado pero distinto? Si la respuesta es sí para cualquiera de esos puntos, no pidas ese dato como missingEvidence. Si la evidencia ya está disponible, no la vuelvas a pedir como evidencia faltante.
 - Nunca confundas ausencia de prueba con prueba de ausencia. "No tengo evidencia de contacto efectivo" no equivale a "se acredita que no hubo contacto efectivo". Debes justificar cuál situación aplica en función del expediente y del procedimiento.

@@ -3,7 +3,7 @@ import { zodToJsonSchema } from 'zod-to-json-schema';
 export type ProviderSchemaProfile = 'gemini' | 'openai';
 
 const GEMINI_ALLOWED_KEYWORDS = new Set([
-  'type', 'properties', 'required', 'items', 'enum', 'nullable',
+  'type', 'properties', 'required', 'items', 'enum', 'anyOf', 'oneOf', 'additionalProperties',
 ]);
 
 function inlineRootReference(schema: Record<string, unknown>): Record<string, unknown> {
@@ -27,15 +27,12 @@ function project(node: unknown, profile: ProviderSchemaProfile): unknown {
   for (const [key, value] of Object.entries(input)) {
     if (key === '$schema' || key === '$ref' || key === 'definitions') continue;
     if (profile === 'gemini' && !GEMINI_ALLOWED_KEYWORDS.has(key)) continue;
-    if (profile === 'gemini' && key === 'type' && Array.isArray(value)) {
-      const nonNullTypes = value.filter((type) => type !== 'null');
-      if (value.includes('null') && nonNullTypes.length === 1) {
-        output.type = nonNullTypes[0];
-        output.nullable = true;
-      } else if (nonNullTypes.length === 1) {
-        output.type = nonNullTypes[0];
+    if (profile === 'gemini' && key === 'anyOf' && Array.isArray(value)) {
+      const alternatives = value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item));
+      if (alternatives.length === value.length && alternatives.every((item) => typeof item.type === 'string' && Object.keys(item).length === 1)) {
+        output.type = alternatives.map((item) => item.type);
+        continue;
       }
-      continue;
     }
     if (key === 'properties' && value && typeof value === 'object' && !Array.isArray(value)) {
       output.properties = Object.fromEntries(
@@ -47,6 +44,9 @@ function project(node: unknown, profile: ProviderSchemaProfile): unknown {
   }
 
   if (profile === 'openai' && output.type === 'object' && output.properties && typeof output.properties === 'object') {
+    output.additionalProperties = false;
+  }
+  if (profile === 'gemini' && output.type === 'object' && output.properties && typeof output.properties === 'object') {
     output.additionalProperties = false;
   }
   return output;

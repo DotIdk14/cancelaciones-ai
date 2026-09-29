@@ -7,6 +7,7 @@ const REQUIRED_VARS: Record<string, string> = {
   INSFORGE_API_KEY: 'test-admin-key',
   OPENROUTER_API_KEY: 'test-or-key',
   OPENROUTER_MODEL: 'google/gemini-2.5-flash-lite',
+  AI_MAX_OUTPUT_TOKENS: '16384',
   ASSEMBLYAI_API_KEY: 'Example-Api-Key-1234567890',
 };
 

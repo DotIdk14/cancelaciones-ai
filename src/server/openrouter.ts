@@ -1,13 +1,9 @@
-// =============================================================================
+﻿// =============================================================================
 // OpenRouter — transporte de IA del Audit Skill (sección 7 del encargo).
 // =============================================================================
-// Único módulo que habla con OpenRouter. Estrategia de robustez:
-//   1. modelo primario con `response_format: json_schema` (strict)
-//   2. modelo primario con `response_format: json_object`
-//   3. modelo de respaldo con `json_schema`
-//   4. modelo de respaldo con `json_object`
-// La validación final SIEMPRE la hace Zod (parseAuditResult). Si todos los
-// intentos fallan se lanza AI_PROVIDER_ERROR: jamás se fabrica un dictamen.
+// Único módulo que habla con OpenRouter. Hay un máximo de dos llamadas reales:
+// un 400 de json_schema cambia a json_object; fallos transitorios usan retry o
+// fallback sin repetir una llamada determinista. Zod sigue siendo autoridad.
 // =============================================================================
 
 import { AiAuditAssessmentSchema } from '../skills/audit/schema.js';
@@ -29,7 +25,7 @@ export interface CallOpenRouterAuditInput {
   timeoutMs?: number;
   /** Deadline global epoch ms; cada intento usa sólo el tiempo restante. */
   deadlineMs?: number;
-  /** Validador semántico/Zod. Si falla, se reintenta como INVALID_AI_RESPONSE. */
+  /** Validador semántico/Zod aplicado localmente antes de aceptar la respuesta. */
   validate?: (parsed: unknown) => void;
 }
 
@@ -56,7 +52,8 @@ export type AttemptFailureCategory =
   | 'SCHEMA_VALIDATION_ERROR'
   | 'INVALID_EVIDENCE_REFERENCE'
   | 'TRUNCATED_OUTPUT'
-  | 'UNSUPPORTED_MODEL_CAPABILITY';
+  | 'UNSUPPORTED_MODEL_CAPABILITY'
+  | 'CAPABILITY_CATALOG_UNAVAILABLE';
 
 export interface OpenRouterAttemptDiagnostic {
   model: string;
@@ -69,6 +66,9 @@ export interface OpenRouterAttemptDiagnostic {
   completionTokens: number | null;
   totalTokens: number | null;
   cost: number | null;
+  maxOutputTokensRequested: number | null;
+  /** `false` si las capacidades salieron del perfil conocido sin confirmar el catálogo. */
+  capabilitiesVerified: boolean;
   retryable: boolean;
   failureCategory: AttemptFailureCategory | null;
   failureReason: string | null;
@@ -76,9 +76,13 @@ export interface OpenRouterAttemptDiagnostic {
 
 export class OpenRouterAuditError extends ApiError {
   constructor(category: AttemptFailureCategory, readonly diagnostics: OpenRouterAttemptDiagnostic[], message: string, status = 502) {
-    const publicCategory = ['INVALID_JSON', 'SCHEMA_VALIDATION_ERROR', 'INVALID_EVIDENCE_REFERENCE', 'TRUNCATED_OUTPUT'].includes(category)
+    const publicCategory = category === 'INVALID_JSON'
       ? 'INVALID_AI_RESPONSE'
-      : 'AI_PROVIDER_ERROR';
+      : category === 'TIMEOUT'
+        ? 'PROVIDER_UNAVAILABLE'
+        : category === 'PROVIDER_BAD_REQUEST'
+          ? 'UNSUPPORTED_MODEL_CAPABILITY'
+          : category;
     super(status, publicCategory, message);
     this.name = 'OpenRouterAuditError';
   }
@@ -135,6 +139,8 @@ function diagnostic(
     completionTokens: modelUsage.completionTokens,
     totalTokens: modelUsage.totalTokens,
     cost: modelUsage.estimatedCostUSD,
+    maxOutputTokensRequested: attempt.maxTokens,
+    capabilitiesVerified: attempt.capabilities.catalogVerified,
     retryable: false,
     failureCategory: null,
     failureReason: null,
@@ -248,7 +254,12 @@ async function singleAttempt(
     const usage = toModelUsage(okBody?.usage);
     if (finishReason === 'length') {
       throw new AttemptFailure(
-        diagnostic(attempt, startedAt, okBody?.usage, { finishReason, failureCategory: 'TRUNCATED_OUTPUT' }),
+        diagnostic(attempt, startedAt, okBody?.usage, {
+          finishReason,
+          retryable: attempt.capabilities.safeOutputLimit > attempt.maxTokens,
+          failureCategory: 'TRUNCATED_OUTPUT',
+          failureReason: 'model reached requested output-token limit',
+        }),
         'TRUNCATED_OUTPUT: respuesta truncada al alcanzar max_tokens',
       );
     }
@@ -307,9 +318,8 @@ async function singleAttempt(
 }
 
 /**
- * Llama a OpenRouter para auditar. Reintenta en cascada
- * (primario→json_object→respaldo→json_object). Nunca inventa resultados:
- * si todo falla lanza ApiError(AI_PROVIDER_ERROR).
+ * Llama a OpenRouter para auditar con dos llamadas reales como máximo.
+ * Nunca inventa resultados: el error final conserva la causa saneada.
  */
 export async function callOpenRouterAudit(
   input: CallOpenRouterAuditInput,
@@ -322,13 +332,14 @@ export async function callOpenRouterAudit(
   let finalFailure: AttemptFailureCategory = 'PROVIDER_UNAVAILABLE';
   let attemptsMade = 0;
 
-  for (const model of models) {
+  modelLoop: for (const model of models) {
     let capabilities: ModelCapabilities;
     try {
       capabilities = await getModelCapabilities(model);
     } catch (error) {
       const modelUnsupported = error instanceof Error && /UNSUPPORTED_MODEL_CAPABILITY/.test(error.message);
-      finalFailure = modelUnsupported ? 'UNSUPPORTED_MODEL_CAPABILITY' : 'PROVIDER_UNAVAILABLE';
+      const catalogUnavailable = error instanceof Error && /CAPABILITY_CATALOG_UNAVAILABLE/.test(error.message);
+      finalFailure = modelUnsupported ? 'UNSUPPORTED_MODEL_CAPABILITY' : catalogUnavailable ? 'CAPABILITY_CATALOG_UNAVAILABLE' : 'PROVIDER_UNAVAILABLE';
       diagnostics.push({
         model,
         format: 'capability',
@@ -340,9 +351,11 @@ export async function callOpenRouterAudit(
         completionTokens: null,
         totalTokens: null,
         cost: null,
+        maxOutputTokensRequested: null,
+        capabilitiesVerified: false,
         retryable: false,
         failureCategory: finalFailure,
-        failureReason: modelUnsupported && error instanceof Error ? error.message.slice(0, 160) : 'OpenRouter capability catalog unavailable',
+        failureReason: modelUnsupported ? 'model not listed or unsupported capability profile' : catalogUnavailable ? 'OpenRouter capability catalog unavailable' : 'capabilities could not be determined',
       });
       if (modelUnsupported) continue;
       break;
@@ -362,6 +375,8 @@ export async function callOpenRouterAudit(
         completionTokens: null,
         totalTokens: null,
         cost: null,
+        maxOutputTokensRequested: null,
+        capabilitiesVerified: capabilities.catalogVerified,
         retryable: false,
         failureCategory: finalFailure,
         failureReason: 'model does not support requested image/file modality',
@@ -382,6 +397,8 @@ export async function callOpenRouterAudit(
         completionTokens: null,
         totalTokens: null,
         cost: null,
+        maxOutputTokensRequested: null,
+        capabilitiesVerified: capabilities.catalogVerified,
         retryable: false,
         failureCategory: finalFailure,
         failureReason: 'model supports neither structured output nor JSON object mode',
@@ -392,7 +409,7 @@ export async function callOpenRouterAudit(
     let maxTokens: number;
     try {
       maxTokens = resolveOutputTokenBudget(capabilities, env);
-    } catch {
+    } catch (error) {
       finalFailure = 'UNSUPPORTED_MODEL_CAPABILITY';
       diagnostics.push({
         model,
@@ -405,9 +422,13 @@ export async function callOpenRouterAudit(
         completionTokens: null,
         totalTokens: null,
         cost: null,
+        maxOutputTokensRequested: null,
+        capabilitiesVerified: capabilities.catalogVerified,
         retryable: false,
         failureCategory: finalFailure,
-        failureReason: 'configured output budget exceeds model safe limit',
+        // El motivo solo contiene el valor configurado y el tope; nunca el modelo,
+        // el prompt, la evidencia ni credenciales.
+        failureReason: error instanceof Error ? error.message : 'invalid output budget',
       });
       continue;
     }
@@ -421,7 +442,10 @@ export async function callOpenRouterAudit(
       for (let tryNumber = 0; tryNumber < 2 && attemptsMade < 2; tryNumber += 1) {
         const remainingMs = deadlineMs - Date.now();
         if (remainingMs < MIN_ATTEMPT_BUDGET_MS) break;
-        const attempt: AttemptSpec = { model, format, capabilities, maxTokens };
+        const retryBudget = tryNumber > 0 && diagnostics.at(-1)?.failureCategory === 'TRUNCATED_OUTPUT'
+          ? capabilities.safeOutputLimit
+          : maxTokens;
+        const attempt: AttemptSpec = { model, format, capabilities, maxTokens: retryBudget };
         attemptsMade += 1;
         try {
           const result = await singleAttempt(attempt, input, Math.min(perAttemptTimeoutMs, remainingMs));
@@ -439,15 +463,15 @@ export async function callOpenRouterAudit(
             );
           }
           if (!error.diagnostic.retryable || tryNumber === 1 || attemptsMade >= 2) break;
-          if (error.diagnostic.failureCategory === 'PROVIDER_UNAVAILABLE') {
+          if ((error.diagnostic.failureCategory === 'PROVIDER_UNAVAILABLE' || error.diagnostic.failureCategory === 'TIMEOUT') && models.length > 1) {
             fallbackOnUnavailable = true;
             break;
           }
         }
       }
-      if (fallbackOnUnavailable) break;
-      if (attemptsMade >= 2) break;
+      if (fallbackOnUnavailable || attemptsMade >= 2) break;
     }
+    if (fallbackOnUnavailable) continue modelLoop;
     if (attemptsMade >= 2) break;
   }
 

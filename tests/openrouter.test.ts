@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { callOpenRouterAudit } from '../src/server/openrouter';
+import { getModelCapabilities } from '../src/server/ai/model-capabilities';
 import { ApiError } from '../src/server/http';
 import { setTestEnv } from './helpers/env';
 import { validAuditResult } from './fixtures/audit-result';
@@ -9,7 +10,8 @@ vi.mock('../src/server/ai/model-capabilities', () => ({
     modelId,
     provider: modelId.split('/')[0] ?? 'google',
     maxOutputTokens: 32_768,
-    recommendedOutputTokens: 8_192,
+    recommendedOutputTokens: 16_384,
+    appSafeOutputLimit: 16_384,
     safeOutputLimit: 16_384,
     contextLength: 1_000_000,
     supportsStructuredOutput: true,
@@ -23,8 +25,8 @@ vi.mock('../src/server/ai/model-capabilities', () => ({
     pricing: { prompt: '0', completion: '0' },
     supportedParameters: ['structured_outputs', 'response_format'],
   })),
-  resolveOutputTokenBudget: vi.fn((capabilities: { safeOutputLimit: number }, env: { AI_MAX_OUTPUT_TOKENS: number; AI_MAX_OUTPUT_TOKENS_CONFIGURED?: boolean }) => {
-    if (env.AI_MAX_OUTPUT_TOKENS > capabilities.safeOutputLimit && env.AI_MAX_OUTPUT_TOKENS_CONFIGURED) throw new Error('unsafe output budget');
+  resolveOutputTokenBudget: vi.fn((capabilities: { appSafeOutputLimit: number; safeOutputLimit: number }, env: { AI_MAX_OUTPUT_TOKENS: number; AI_MAX_OUTPUT_TOKENS_CONFIGURED?: boolean }) => {
+    if (env.AI_MAX_OUTPUT_TOKENS > capabilities.appSafeOutputLimit) throw new Error('unsafe output budget');
     return Math.min(env.AI_MAX_OUTPUT_TOKENS, capabilities.safeOutputLimit);
   }),
 }));
@@ -87,7 +89,7 @@ describe('callOpenRouterAudit', () => {
     expect(error).toBeInstanceOf(ApiError);
     if (error instanceof ApiError) {
       expect(error.status).toBe(502);
-      expect(error.category).toBe('AI_PROVIDER_ERROR');
+      expect(error.category).toBe('RATE_LIMIT');
       expect(error.message).toContain('rate_limit_exceeded');
     }
     // Máximo dos llamadas por modelo: retry transitorio sin gastar además otro formato.
@@ -104,7 +106,7 @@ describe('callOpenRouterAudit', () => {
       .catch((caught: unknown) => caught);
 
     expect(error).toBeInstanceOf(ApiError);
-    expect(error).toMatchObject({ status: 402, category: 'AI_PROVIDER_ERROR' });
+    expect(error).toMatchObject({ status: 402, category: 'PAYMENT_REQUIRED' });
     expect((error as Error).message).toContain('Agrega créditos');
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
@@ -133,6 +135,9 @@ describe('callOpenRouterAudit', () => {
       expect(fallbackSystem).toContain(`"${key}"`);
     }
     expect(fallbackSystem).toContain('estructura completa');
+    expect((bodies[0]?.response_format as { type?: string }).type).toBe('json_schema');
+    expect((bodies[1]?.response_format as { type?: string }).type).toBe('json_object');
+    expect(result.attempts[0]?.maxOutputTokensRequested).toBe(16_384);
     expect(result.attempts[0]).toMatchObject({ failureCategory: 'PROVIDER_BAD_REQUEST', failureReason: 'provider rejected schema/parameter: minLength', retryable: false });
   });
 
@@ -177,7 +182,7 @@ describe('callOpenRouterAudit', () => {
     }).catch((e: unknown) => e);
 
     expect(error).toBeInstanceOf(ApiError);
-    expect((error as ApiError).category).toBe('INVALID_AI_RESPONSE');
+    expect((error as ApiError).category).toBe('SCHEMA_VALIDATION_ERROR');
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
@@ -266,7 +271,7 @@ describe('callOpenRouterAudit', () => {
     expect(userParts?.[2]).toMatchObject({ type: 'file', file: { filename: 'escaneo.pdf' } });
   });
 
-  it('no envía más tokens que el límite operativo derivado de capabilities', async () => {
+  it('solicita hasta 16384 tokens cuando el modelo permite el presupuesto operativo', async () => {
     const capturedBodies: Array<{ max_tokens?: number }> = [];
     fetchMock.mockImplementationOnce(async (_url: unknown, init?: RequestInit) => {
       capturedBodies.push(JSON.parse(String(init?.body)) as { max_tokens?: number });
@@ -275,8 +280,27 @@ describe('callOpenRouterAudit', () => {
 
     await callOpenRouterAudit({ system: 's', parts: [{ type: 'text', text: 'x' }] });
 
-    expect(capturedBodies[0]?.max_tokens).toBe(8_192);
+    expect(capturedBodies[0]?.max_tokens).toBe(16_384);
     expect(capturedBodies[0]?.max_tokens).toBeLessThanOrEqual(16_384);
+  });
+
+  it('reduce la solicitud al máximo publicado cuando el modelo admite menos que el presupuesto configurado', async () => {
+    vi.mocked(getModelCapabilities).mockResolvedValueOnce({
+      modelId: 'google/gemini-2.5-flash-lite', provider: 'google', maxOutputTokens: 4096,
+      recommendedOutputTokens: 4096, appSafeOutputLimit: 16_384, safeOutputLimit: 4096, contextLength: 1_000_000,
+      supportsStructuredOutput: true, supportsJsonObject: true, supportsImages: true, supportsFiles: true,
+      productionReady: true, retryFallbackSuitable: true, retryableFailures: ['RATE_LIMIT', 'TIMEOUT', 'PROVIDER_UNAVAILABLE'],
+      schemaProfile: 'gemini', pricing: { prompt: null, completion: null }, supportedParameters: ['structured_outputs'],
+    });
+    const capturedBodies: Array<{ max_tokens?: number }> = [];
+    fetchMock.mockImplementationOnce(async (_url: unknown, init?: RequestInit) => {
+      capturedBodies.push(JSON.parse(String(init?.body)) as { max_tokens?: number });
+      return completionResponse();
+    });
+
+    await callOpenRouterAudit({ system: 's', parts: [{ type: 'text', text: 'x' }] });
+
+    expect(capturedBodies[0]?.max_tokens).toBe(4096);
   });
 
   it('identifica una respuesta truncada cuando el proveedor informa finish_reason=length', async () => {
@@ -289,5 +313,28 @@ describe('callOpenRouterAudit', () => {
 
     expect(error).toBeInstanceOf(ApiError);
     expect((error as Error).message).toContain('TRUNCATED_OUTPUT');
+    expect((error as ApiError).category).toBe('TRUNCATED_OUTPUT');
+    expect((error as { diagnostics?: Array<Record<string, unknown>> }).diagnostics?.[0]).toMatchObject({
+      finishReason: 'length', maxOutputTokensRequested: 16_384, failureCategory: 'TRUNCATED_OUTPUT',
+    });
+  });
+
+  it('eleva el presupuesto en un retry truncado solo hasta el safe limit', async () => {
+    process.env.AI_MAX_OUTPUT_TOKENS = '4096';
+    const requested: number[] = [];
+    fetchMock
+      .mockImplementationOnce(async (_url: unknown, init?: RequestInit) => {
+        requested.push((JSON.parse(String(init?.body)) as { max_tokens: number }).max_tokens);
+        return jsonResponse({ choices: [{ message: { content: '{}'}, finish_reason: 'length' }] }, 200);
+      })
+      .mockImplementationOnce(async (_url: unknown, init?: RequestInit) => {
+        requested.push((JSON.parse(String(init?.body)) as { max_tokens: number }).max_tokens);
+        return completionResponse();
+      });
+
+    const result = await callOpenRouterAudit({ system: 's', parts: [{ type: 'text', text: 'x' }] });
+
+    expect(result.parsed).toEqual(validAuditResult);
+    expect(requested).toEqual([4096, 16_384]);
   });
 });

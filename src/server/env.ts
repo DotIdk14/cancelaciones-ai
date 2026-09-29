@@ -37,15 +37,20 @@ export interface ServerEnv {
   MAX_AUDIT_MULTIMODAL_BYTES: number;
 }
 
+// Un espacio o salto de línea al final de un ID de modelo lo vuelve irresoluble en
+// el catálogo de OpenRouter y la auditoría muere como "modelo no listado". Toda
+// variable de entorno de texto se normaliza con trim al leerla.
 function required(name: string, value: string | undefined): string {
-  if (!value) {
+  const normalized = value?.trim();
+  if (!normalized) {
     throw new Error(`[env] Falta la variable de entorno ${name}`);
   }
-  return value;
+  return normalized;
 }
 
 function optional(_name: string, value: string | undefined): string | null {
-  return value && value.trim().length > 0 ? value : null;
+  const normalized = value?.trim();
+  return normalized ? normalized : null;
 }
 
 function numberEnv(name: string, value: string | undefined, fallback: number, options: { min: number; max?: number }): number {
@@ -88,7 +93,7 @@ export function getEnv(): ServerEnv {
     AI_TIMEOUT_MS: numberEnv('AI_TIMEOUT_MS', env.AI_TIMEOUT_MS, 60_000, { min: 1_000, max: 290_000 }),
     TOTAL_AUDIT_TIMEOUT_MS: numberEnv('TOTAL_AUDIT_TIMEOUT_MS', env.TOTAL_AUDIT_TIMEOUT_MS, 240_000, { min: 10_000, max: 295_000 }),
     AUDIT_STALE_AFTER_MS: numberEnv('AUDIT_STALE_AFTER_MS', env.AUDIT_STALE_AFTER_MS, 10 * 60_000, { min: 60_000 }),
-    AI_MAX_OUTPUT_TOKENS: numberEnv('AI_MAX_OUTPUT_TOKENS', env.AI_MAX_OUTPUT_TOKENS, 8_192, { min: 256, max: 16_384 }),
+    AI_MAX_OUTPUT_TOKENS: numberEnv('AI_MAX_OUTPUT_TOKENS', env.AI_MAX_OUTPUT_TOKENS, 16_384, { min: 256, max: 16_384 }),
     AI_MAX_OUTPUT_TOKENS_CONFIGURED: env.AI_MAX_OUTPUT_TOKENS !== undefined && env.AI_MAX_OUTPUT_TOKENS.trim() !== '',
 
     ASSEMBLYAI_API_KEY: optional('ASSEMBLYAI_API_KEY', env.ASSEMBLYAI_API_KEY),

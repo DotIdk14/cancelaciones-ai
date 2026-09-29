@@ -27,7 +27,7 @@ Configurar como variables de entorno del proyecto Vercel, sin prefijos `VITE_` n
 Opcionales:
 
 - `OPENROUTER_FALLBACK_MODEL`
-- `AI_MAX_OUTPUT_TOKENS=8192`
+- `AI_MAX_OUTPUT_TOKENS=16384`
 - `ASSEMBLYAI_API_KEY`
 - `INSFORGE_STORAGE_BUCKET=evidencias`
 - `MAX_EVIDENCE_BYTES=4194304`
@@ -50,7 +50,7 @@ npm.cmd run verify:release
 ```
 
 Configura los IDs del modelo solo en variables server-side. `AI_MAX_OUTPUT_TOKENS`
-por defecto es 8192, su máximo operativo es 16384 y se contrasta con el máximo
+por defecto es 16384, su máximo operativo es 16384 y se contrasta con el máximo
 publicado por OpenRouter. Zod mantiene la validación estricta; el schema de
 provider es una proyección y `json_object` recibe una estructura derivada del
 mismo schema. La cascada no repite un 400 determinista y limita a dos las

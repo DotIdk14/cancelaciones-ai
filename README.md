@@ -200,10 +200,11 @@ una métrica ni se calcula un coste estimado.
 - `src/server/ai/model-capabilities.ts` consulta el catálogo público de
   OpenRouter (cacheado brevemente por proceso) para confirmar el modelo,
   modalidades, parámetros soportados, contexto, precio publicado y máximo de
-  salida. Los modelos sin perfil de proveedor o sin capacidad publicada se
-  omiten como no compatibles.
+  salida. Un modelo explícitamente ausente o sin perfil se clasifica como
+  incompatible; una caída temporal o un catálogo incompleto se informa como
+  no disponible, no como incompatibilidad.
 - `AI_MAX_OUTPUT_TOKENS` es el presupuesto operativo solicitado. Por defecto es
-  `8192`; el perfil actual limita el uso a `16384` como máximo seguro y se
+  `16384`; el perfil actual limita el uso a `16384` como máximo seguro y se
   reduce al máximo publicado por el modelo si fuera menor. Un valor configurado
   explícitamente por encima del límite falla antes de enviar una solicitud. El
   máximo teórico del proveedor nunca se usa automáticamente.
@@ -222,7 +223,8 @@ una métrica ni se calcula un coste estimado.
 - `GET /api/health/ai` comprueba configuración/capacidades sin una llamada de
   generación. Solo devuelve metadatos públicos y estado, nunca credenciales.
 - Cada intento guarda en `audits.provider_metadata.openrouterAttempts` el modelo,
-  formato, status, finish reason, latencia, uso, coste, retryable y categoría.
+  formato, status, finish reason, latencia, uso, coste, max tokens solicitados,
+  retryable y categoría.
   No se guardan prompts, evidencias ni PII.
 
 Para cambiar de modelo, configura `OPENROUTER_MODEL` y opcionalmente

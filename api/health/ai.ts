@@ -1,5 +1,30 @@
-import { getModelCapabilities } from '../../src/server/ai/model-capabilities.js';
+import { getModelCapabilities, type ModelCapabilities } from '../../src/server/ai/model-capabilities.js';
 import { handleRoute, json, methodNotAllowed, type ApiRequest } from '../../src/server/http.js';
+
+/** Tope duro de la aplicación. Se duplica aquí a propósito: el healthcheck no llama a `getEnv()`. */
+const APP_SAFE_OUTPUT_LIMIT = 16_384;
+
+type SafeCapabilities = Pick<
+  ModelCapabilities,
+  | 'provider'
+  | 'maxOutputTokens'
+  | 'recommendedOutputTokens'
+  | 'appSafeOutputLimit'
+  | 'safeOutputLimit'
+  | 'contextLength'
+  | 'supportsStructuredOutput'
+  | 'supportsJsonObject'
+  | 'supportsImages'
+  | 'supportsFiles'
+  | 'productionReady'
+  | 'retryFallbackSuitable'
+  | 'retryableFailures'
+  | 'schemaProfile'
+  | 'pricing'
+>;
+
+const jsonCapable = (capabilities: ModelCapabilities): boolean =>
+  capabilities.supportsJsonObject || capabilities.supportsStructuredOutput;
 
 export default handleRoute(async (req: ApiRequest, res) => {
   if (req.method !== 'GET') {
@@ -10,18 +35,37 @@ export default handleRoute(async (req: ApiRequest, res) => {
   const apiKeyConfigured = Boolean(process.env.OPENROUTER_API_KEY?.trim());
   const primaryModel = process.env.OPENROUTER_MODEL?.trim() || null;
   const fallbackModel = process.env.OPENROUTER_FALLBACK_MODEL?.trim() || null;
+  const configuredBudget = process.env.AI_MAX_OUTPUT_TOKENS?.trim()
+    ? Number(process.env.AI_MAX_OUTPUT_TOKENS)
+    : APP_SAFE_OUTPUT_LIMIT;
+  // Pedir más que el tope de la aplicación es un error de configuración; pedir menos
+  // que el máximo del modelo no lo es: ahí el presupuesto se reduce automáticamente.
+  const budgetValid =
+    Number.isInteger(configuredBudget) && configuredBudget >= 256 && configuredBudget <= APP_SAFE_OUTPUT_LIMIT;
+  const reportedBudget = Number.isInteger(configuredBudget) ? configuredBudget : null;
+
   if (!apiKeyConfigured || !primaryModel) {
-    json(res, 503, { configured: false, status: 'misconfigured' });
+    json(res, 503, {
+      configured: false,
+      apiKeyConfigured,
+      primaryModel,
+      fallbackModel,
+      configuredOutputTokens: reportedBudget,
+      effectiveOutputTokens: null,
+      productionReady: false,
+      status: 'misconfigured',
+    });
     return;
   }
 
   try {
     const primaryCapabilities = await getModelCapabilities(primaryModel);
     const fallbackCapabilities = fallbackModel ? await getModelCapabilities(fallbackModel) : null;
-    const safeCapabilities = (capabilities: typeof primaryCapabilities | null) => capabilities && ({
+    const safeCapabilities = (capabilities: ModelCapabilities): SafeCapabilities => ({
       provider: capabilities.provider,
       maxOutputTokens: capabilities.maxOutputTokens,
       recommendedOutputTokens: capabilities.recommendedOutputTokens,
+      appSafeOutputLimit: capabilities.appSafeOutputLimit,
       safeOutputLimit: capabilities.safeOutputLimit,
       contextLength: capabilities.contextLength,
       supportsStructuredOutput: capabilities.supportsStructuredOutput,
@@ -35,20 +79,42 @@ export default handleRoute(async (req: ApiRequest, res) => {
       pricing: capabilities.pricing,
     });
 
+    // No se hace ninguna generación pagada ni se devuelve la API key: solo IDs de
+    // modelo, capacidades publicadas y el presupuesto que se usaría en la llamada.
+    const effectiveOutputTokens = budgetValid
+      ? Math.min(
+          configuredBudget,
+          primaryCapabilities.safeOutputLimit,
+          fallbackCapabilities?.safeOutputLimit ?? Number.POSITIVE_INFINITY,
+        )
+      : null;
+    const productionReady =
+      budgetValid &&
+      jsonCapable(primaryCapabilities) &&
+      primaryCapabilities.productionReady &&
+      (fallbackCapabilities ? jsonCapable(fallbackCapabilities) && fallbackCapabilities.productionReady : true);
+
     json(res, 200, {
       configured: true,
+      apiKeyConfigured: true,
       primaryModel,
       fallbackModel,
       primaryCapabilities: safeCapabilities(primaryCapabilities),
-      fallbackCapabilities: safeCapabilities(fallbackCapabilities),
-      status: (primaryCapabilities.supportsJsonObject || primaryCapabilities.supportsStructuredOutput) &&
-        primaryCapabilities.productionReady && (fallbackCapabilities?.productionReady ?? true) ? 'ok' : 'degraded',
+      fallbackCapabilities: fallbackCapabilities ? safeCapabilities(fallbackCapabilities) : null,
+      configuredOutputTokens: configuredBudget,
+      effectiveOutputTokens,
+      productionReady,
+      status: productionReady ? 'ok' : 'degraded',
     });
   } catch {
     json(res, 503, {
       configured: true,
+      apiKeyConfigured: true,
       primaryModel,
       fallbackModel,
+      configuredOutputTokens: reportedBudget,
+      effectiveOutputTokens: null,
+      productionReady: false,
       status: 'capability_catalog_unavailable',
     });
   }

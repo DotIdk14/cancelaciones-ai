@@ -162,6 +162,81 @@ describe('parseAuditResult (schema único)', () => {
     expect(parsed.usage.estimatedCostUSD).toBeNull();
   });
 
+  it('acepta evidencia insuficiente con relatedEvidenceIds vacío y NO_DETERMINABLE sin datos', () => {
+    const assessment = {
+      ...validResult,
+      facts: [],
+      timeline: [],
+      audit: {
+        ...validResult.audit,
+        result: 'EVIDENCIA_INSUFICIENTE',
+        supportingEvidenceIds: [],
+        provisionalResolution: {
+          result: 'CANCELACION_VENTA',
+          rationale: 'La orientación queda sujeta a recibir evidencia indispensable que falta.',
+          procedureSection: '5.8',
+          evidenceIds: ['ev-1'],
+        },
+        missingEvidence: [{
+          title: 'Registro de contacto',
+          reason: 'No se proporcionó evidencia de contacto.',
+          acceptedEvidence: ['Registro de llamada o conversación'],
+          relatedProcedureSection: '5.8',
+          relatedEvidenceIds: [],
+          blocking: true,
+        }],
+        procedureChecks: [{
+          procedureSection: '5.8',
+          criterion: 'Contacto efectivo',
+          status: 'NO_DETERMINABLE',
+          reasoning: 'No se proporcionaron registros que permitan determinarlo.',
+          evidenceIds: [],
+          observedValues: [],
+        }],
+      },
+    };
+
+    expect(parseAuditResult(assessment).audit.missingEvidence[0]?.relatedEvidenceIds).toEqual([]);
+    expect(parseAuditResult(assessment).audit.procedureChecks[0]).toMatchObject({ evidenceIds: [], observedValues: [] });
+    const evidenceFree = {
+      ...assessment,
+      case: { matricula: null, studentName: null, program: null, cycle: null, cycleStartDate: null },
+      evidenceSummary: [],
+      audit: {
+        ...assessment.audit,
+        supportingEvidenceIds: [],
+        provisionalResolution: { ...assessment.audit.provisionalResolution, evidenceIds: [] },
+      },
+    };
+    expect(parseAuditResult(evidenceFree).audit.provisionalResolution?.evidenceIds).toEqual([]);
+  });
+
+  it('exige soporte observado para ACREDITADO y NO_ACREDITADO, pero permite NO_DETERMINABLE parcial', () => {
+    const check = validResult.audit.procedureChecks[0]!;
+    for (const status of ['ACREDITADO', 'NO_ACREDITADO'] as const) {
+      const invalid = { ...validResult, audit: { ...validResult.audit, procedureChecks: [{ ...check, status, evidenceIds: [], observedValues: [] }] } };
+      expect(parseInvalid(invalid)).toContain('procedureChecks.0');
+    }
+
+    const partial = { ...check, status: 'NO_DETERMINABLE' as const, evidenceIds: ['ev-1'], observedValues: [] };
+    expect(parseAuditResult({ ...validResult, audit: { ...validResult.audit, procedureChecks: [partial] } }).audit.procedureChecks[0]?.status)
+      .toBe('NO_DETERMINABLE');
+  });
+
+  it('requiere provisionalResolution solo cuando el resultado es EVIDENCIA_INSUFICIENTE', () => {
+    const insufficient = {
+      ...validResult,
+      audit: {
+        ...validResult.audit,
+        result: 'EVIDENCIA_INSUFICIENTE',
+        provisionalResolution: null,
+        missingEvidence: [{ title: 'X', reason: 'Falta X', acceptedEvidence: ['Documento X'], relatedProcedureSection: '5.8', relatedEvidenceIds: [], blocking: true }],
+      },
+    };
+    expect(parseInvalid(insufficient)).toContain('provisionalResolution');
+    expect(parseAuditResult({ ...validResult, audit: { ...validResult.audit, provisionalResolution: null } }).audit.provisionalResolution).toBeNull();
+  });
+
   it('exige orientación provisional trazable cuando la evidencia es insuficiente', () => {
     const provisional = {
       result: 'CANCELACION_VENTA',

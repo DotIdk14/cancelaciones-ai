@@ -29,12 +29,20 @@ export type EvidenceStatus = (typeof EVIDENCE_STATUSES)[number];
 export const EVIDENCE_KINDS = ['IMAGE', 'PDF', 'AUDIO', 'TEXT'] as const;
 export type EvidenceKind = (typeof EVIDENCE_KINDS)[number];
 
-/** Categorías de error del producto (sección 25 del encargo). */
+/** Categorías de error del producto, incluidas causas detalladas del transporte IA. */
 export const ERROR_CATEGORIES = [
   'UPLOAD_ERROR',
   'TRANSCRIPTION_ERROR',
   'AI_PROVIDER_ERROR',
   'INVALID_AI_RESPONSE',
+  'TRUNCATED_OUTPUT',
+  'SCHEMA_VALIDATION_ERROR',
+  'INVALID_EVIDENCE_REFERENCE',
+  'RATE_LIMIT',
+  'PAYMENT_REQUIRED',
+  'PROVIDER_UNAVAILABLE',
+  'UNSUPPORTED_MODEL_CAPABILITY',
+  'CAPABILITY_CATALOG_UNAVAILABLE',
   'STORAGE_ERROR',
   'DATABASE_ERROR',
   'AUTH_ERROR',

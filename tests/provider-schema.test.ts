@@ -19,8 +19,8 @@ describe('provider schema proyectado desde Zod', () => {
     expect(() => assertProviderSchemaCompatible(providerSchema, 'gemini')).not.toThrow();
     expect(collectKeys(providerSchema)).not.toContain('minLength');
     expect(collectKeys(providerSchema)).not.toContain('maximum');
-    expect(collectKeys(providerSchema)).not.toContain('additionalProperties');
-    expect(collectKeys(providerSchema)).not.toContain('anyOf');
+    expect(collectKeys(providerSchema)).toContain('additionalProperties');
+    expect(collectKeys(providerSchema)).not.toContain('nullable');
     expect(providerSchema).not.toHaveProperty('$ref');
     expect(providerSchema).not.toHaveProperty('definitions');
   });
@@ -34,8 +34,8 @@ describe('provider schema proyectado desde Zod', () => {
       expect(properties).toHaveProperty(field);
       expect(required).toContain(field);
     }
-    const caseSchema = properties.case as { properties: Record<string, { type?: unknown; nullable?: unknown }> };
-    expect(caseSchema.properties.matricula).toEqual({ type: 'string', nullable: true });
+    const caseSchema = properties.case as { properties: Record<string, { type?: unknown }> };
+    expect(caseSchema.properties.matricula).toEqual({ type: ['string', 'null'] });
   });
 
   it('falla el contract check si se introduce una keyword incompatible', () => {

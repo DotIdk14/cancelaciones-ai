@@ -75,4 +75,34 @@ describe.skipIf(process.env.RUN_AI_SMOKE !== '1' || !process.env.OPENROUTER_API_
     expect(references.every((id) => evidenceIds.has(id))).toBe(true);
     process.stdout.write(`AI_SMOKE_COMPLETED model=${result.model.model} promptTokens=${result.usage.promptTokens ?? 'n/a'} completionTokens=${result.usage.completionTokens ?? 'n/a'}\n`);
   }, 120_000);
+
+  it('completa EVIDENCIA_INSUFICIENTE con requisitos ausentes sin fabricar referencias', async () => {
+    process.env.INSFORGE_BASE_URL ??= 'https://synthetic.insforge.invalid';
+    process.env.INSFORGE_ANON_KEY ??= 'synthetic-anon';
+    process.env.INSFORGE_API_KEY ??= 'synthetic-admin';
+    process.env.TRANSCRIPTION_POLL_TIMEOUT_MS = '0';
+    resetEnvCache();
+
+    const caseId = 'synthetic-missing-evidence-smoke-case';
+    const evidenceId = 'synthetic-unrelated-evidence-002';
+    seedCase({ id: caseId, student_identifier: null });
+    seedEvidence({
+      id: evidenceId,
+      case_id: caseId,
+      filename: 'nota-ficticia.txt',
+      mime_type: 'text/plain',
+      processing_status: 'READY',
+      content: 'SIMULACIÓN TÉCNICA. Nota sin fechas, matrícula, registro de contacto ni evidencia de actividad académica. No contiene datos personales reales.',
+    });
+
+    const outcome = await runAudit(fakeClient, caseId);
+    const result = (outcome.phase === 'done' ? outcome.audit.resultJson : null) as AuditResult | null;
+    expect(outcome.phase).toBe('done');
+    expect(outcome.phase === 'done' ? outcome.audit.status : null).toBe('COMPLETED');
+    expect(result?.audit.result).toBe('EVIDENCIA_INSUFICIENTE');
+    expect(result?.audit.provisionalResolution).not.toBeNull();
+    expect(result?.audit.missingEvidence.some((item) => item.relatedEvidenceIds.length === 0)).toBe(true);
+    expect(result?.audit.procedureChecks.some((item) => item.status === 'NO_DETERMINABLE' && item.evidenceIds.length === 0 && item.observedValues.length === 0)).toBe(true);
+    process.stdout.write(`AI_SMOKE_INSUFFICIENT_COMPLETED model=${result?.model.model ?? 'n/a'}\n`);
+  }, 120_000);
 });

@@ -13,7 +13,7 @@ const MissingEvidenceSchema = z.object({
   reason: z.string().min(1),
   acceptedEvidence: z.array(z.string().min(1)).min(1),
   relatedProcedureSection: z.string().min(1),
-  relatedEvidenceIds: z.array(z.string().min(1)).min(1),
+  relatedEvidenceIds: z.array(z.string().min(1)),
   blocking: z.boolean(),
 }).strict();
 
@@ -22,18 +22,18 @@ const ProcedureCheckSchema = z.object({
   criterion: z.string().min(1),
   status: z.enum(['ACREDITADO', 'NO_ACREDITADO', 'NO_DETERMINABLE']),
   reasoning: z.string().min(1),
-  evidenceIds: z.array(z.string().min(1)).min(1),
+  evidenceIds: z.array(z.string().min(1)),
   observedValues: z.array(z.object({
     label: z.string().min(1),
     value: z.string().min(1),
-  }).strict()).min(1),
+  }).strict()),
 }).strict();
 
 const ProvisionalResolutionSchema = z.object({
   result: z.enum(AUDIT_RESULTS).exclude(['EVIDENCIA_INSUFICIENTE']),
   rationale: z.string().min(1),
   procedureSection: z.string().min(1),
-  evidenceIds: z.array(z.string().min(1)).min(1),
+  evidenceIds: z.array(z.string().min(1)),
 }).strict();
 
 export const AiAuditAssessmentSchema = z
@@ -94,7 +94,7 @@ export const AiAuditAssessmentSchema = z
       provisionalResolution: ProvisionalResolutionSchema.nullable(),
       reasoning: z.string().min(1),
       confidence: z.number().min(0).max(1),
-      supportingEvidenceIds: z.array(z.string()).min(1),
+      supportingEvidenceIds: z.array(z.string().min(1)),
       missingEvidence: z.array(MissingEvidenceSchema),
       procedureChecks: z.array(ProcedureCheckSchema),
       observations: z.array(z.string()),
@@ -126,14 +126,14 @@ export function parseAuditResult(raw: unknown): AuditResult {
   return parseWithInvalidAiError(AuditResultSchema, raw);
 }
 
-function validateBusinessRules(assessment: { audit: { result: string; rule: string; procedureSection: string; supportingEvidenceIds: string[]; missingEvidence: Array<{ blocking: boolean }>; procedureChecks: Array<{ evidenceIds: string[] }>; provisionalResolution: unknown } }): void {
+function validateBusinessRules(assessment: { audit: { result: string; rule: string; procedureSection: string; supportingEvidenceIds: string[]; missingEvidence: Array<{ blocking: boolean }>; procedureChecks: Array<{ status: string; evidenceIds: string[]; observedValues: unknown[] }>; provisionalResolution: { evidenceIds: string[] } | null } }): void {
   if (assessment.audit.rule.trim().length === 0) {
     throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.rule: debe ser un string no vacío');
   }
   if (assessment.audit.procedureSection.trim().length === 0) {
     throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.procedureSection: debe ser un string no vacío');
   }
-  if (assessment.audit.supportingEvidenceIds.length === 0) {
+  if (assessment.audit.result !== 'EVIDENCIA_INSUFICIENTE' && assessment.audit.supportingEvidenceIds.length === 0) {
     throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.supportingEvidenceIds: debe incluir al menos una evidencia');
   }
   if (assessment.audit.result === 'EVIDENCIA_INSUFICIENTE') {
@@ -154,11 +154,14 @@ function validateBusinessRules(assessment: { audit: { result: string; rule: stri
   if (hasBlocking && assessment.audit.result !== 'EVIDENCIA_INSUFICIENTE') {
     throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.missingEvidence: no puede haber bloqueo cuando el resultado no es EVIDENCIA_INSUFICIENTE');
   }
-  for (const check of assessment.audit.procedureChecks) {
-    if (check.evidenceIds.length === 0) {
-      throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.procedureChecks[].evidenceIds: debe incluir al menos una evidencia');
+  assessment.audit.procedureChecks.forEach((check, index) => {
+    if (check.status === 'ACREDITADO' && (check.evidenceIds.length === 0 || check.observedValues.length === 0)) {
+      throw new ApiError(502, 'INVALID_AI_RESPONSE', `INVALID_AI_RESPONSE: audit.procedureChecks.${index}.status: ACREDITADO exige evidencia y valores observados`);
     }
-  }
+    if (check.status === 'NO_ACREDITADO' && (check.evidenceIds.length === 0 || check.observedValues.length === 0)) {
+      throw new ApiError(502, 'INVALID_AI_RESPONSE', `INVALID_AI_RESPONSE: audit.procedureChecks.${index}.status: NO_ACREDITADO exige evidencia y valores observados que sustenten la ausencia`);
+    }
+  });
 }
 
 function parseWithInvalidAiError<T>(schema: z.ZodType<T>, raw: unknown): T {
