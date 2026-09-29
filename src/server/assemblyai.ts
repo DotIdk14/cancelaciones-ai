@@ -65,7 +65,7 @@ export async function submitTranscription(audio: Buffer): Promise<string> {
     uploadBody = null;
   }
   if (!uploadResponse.ok || !uploadBody?.upload_url || typeof uploadBody.upload_url !== 'string') {
-    throw new ApiError(502, 'TRANSCRIPTION_ERROR', 'No se pudo subir el audio a AssemblyAI');
+    throw new ApiError(502, 'TRANSCRIPTION_ERROR', formatUploadError(uploadResponse.status, uploadText));
   }
 
   // 2) Crear el transcript con diarización y utterances.
@@ -74,7 +74,6 @@ export async function submitTranscription(audio: Buffer): Promise<string> {
     body: JSON.stringify({
       audio_url: uploadBody.upload_url,
       speaker_labels: true,
-      utterances: true,
       language_detection: true,
     }),
   });
@@ -83,6 +82,29 @@ export async function submitTranscription(audio: Buffer): Promise<string> {
     throw new ApiError(502, 'TRANSCRIPTION_ERROR', 'AssemblyAI no devolvió un id de transcripción');
   }
   return created.id;
+}
+
+function formatUploadError(status: number, bodyText: string): string {
+  const trimmed = bodyText.trim();
+  let providerMessage = '';
+  if (trimmed) {
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      if (parsed && typeof parsed === 'object' && 'error' in parsed && typeof (parsed as { error: unknown }).error === 'string') {
+        providerMessage = (parsed as { error: string }).error;
+      }
+    } catch {
+      providerMessage = trimmed;
+    }
+  }
+  const safeMessage = sanitizeProviderMessage(providerMessage || 'AssemblyAI no devolvió upload_url');
+  return `AssemblyAI upload falló (HTTP ${status}): ${safeMessage}`;
+}
+
+function sanitizeProviderMessage(message: string): string {
+  return message
+    .replace(/(api[_-]?key|secret|token|authorization)[=:]\s*(?:(?:bearer|basic)\s+)?\S+/gi, '$1=[oculto]')
+    .slice(0, 300);
 }
 
 export interface TranscriptionStatus {

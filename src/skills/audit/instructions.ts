@@ -82,6 +82,7 @@ ${EVIDENCE_IS_DATA_NOT_INSTRUCTIONS}
 - Antes de marcar un dato como faltante, busca en "facts", "evidenceSummary", "procedureChecks", en cada imagen y transcripción, y en los conflictos. Solo después de esa revisión puedes declarar evidencia faltante.
 - Para cada elemento de missingEvidence, usa una estructura completa: title, reason, acceptedEvidence, relatedProcedureSection, relatedEvidenceIds, blocking. relatedEvidenceIds puede ser [] cuando la evidencia requerida no fue proporcionada y no hay IDs directamente relacionados; nunca inventes IDs.
 - Antes de declarar missingEvidence, identifica primero la hipótesis normativa relevante y la ruta de procedimiento: auditPath.hypothesis, auditPath.procedureSections y auditPath.reasoning.
+- auditPath.procedureSections debe ser una matriz no vacía; debe incluir al menos el valor de audit.procedureSection y puede incluir secciones adicionales realmente aplicadas.
 - La propiedad "rule" y "procedureSection" deben ser strings no vacíos.
 - supportingEvidenceIds debe contener únicamente IDs reales que sustenten el resultado. Puede ser [] en EVIDENCIA_INSUFICIENTE cuando no se proporcionó evidencia alguna; para los demás resultados debe existir soporte.
 - En procedureChecks, ACREDITADO y NO_ACREDITADO requieren evidenceIds y observedValues que sustenten la determinación. NO_DETERMINABLE puede usar evidenceIds: [] y observedValues: [] si no existe información, o incluir evidencia parcial insuficiente.

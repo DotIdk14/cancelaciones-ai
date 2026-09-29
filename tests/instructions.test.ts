@@ -53,6 +53,8 @@ describe('Instrucciones del Skill (anti prompt-injection)', () => {
   it('incluye la ruta normativa, la comprobación de evidencia ya disponible y la corroboración convergente', () => {
     const system = buildSystemPrompt();
     expect(system).toContain('auditPath.hypothesis');
+    expect(system).toContain('auditPath.procedureSections debe ser una matriz no vacía');
+    expect(system).toContain('incluir al menos el valor de audit.procedureSection');
     expect(system).toContain('corroboración convergente');
     expect(system).toContain('Si la evidencia ya está disponible');
     expect(system).toContain('no pidas ese dato como missingEvidence');
