@@ -296,3 +296,169 @@ export function Chip({ children, title }: { children: ReactNode; title?: string 
     </span>
   );
 }
+
+// -----------------------------------------------------------------------------
+// Skeleton
+// -----------------------------------------------------------------------------
+
+/**
+ * Bloque de carga. Es decorativo: el estado de carga se anuncia con texto en
+ * el contenedor que lo envuelve, no con el propio placeholder.
+ */
+export interface SkeletonProps {
+  className?: string;
+  /** Alto en px. Se pasa por `style` porque el valor es dinámico. */
+  height?: number;
+}
+
+export function Skeleton({ className, height }: SkeletonProps): ReactNode {
+  return (
+    <div
+      aria-hidden="true"
+      style={height === undefined ? undefined : { height }}
+      className={cx('w-full animate-pulse rounded-xl bg-surface-3', className)}
+    />
+  );
+}
+
+// -----------------------------------------------------------------------------
+// StatCard
+// -----------------------------------------------------------------------------
+
+/**
+ * Cifra destacada con etiqueta y pista secundaria. `tone` afecta SOLO al icono:
+ * la cifra usa siempre `text-ink` para no depender del color para leerse.
+ */
+export interface StatCardProps {
+  label: string;
+  value: ReactNode;
+  hint?: ReactNode;
+  icon?: ReactNode;
+  tone?: Tone;
+  className?: string;
+}
+
+const TONE_ICON: Record<Tone, string> = {
+  neutral: 'text-subtle',
+  brand: 'text-brand',
+  success: 'text-success',
+  warning: 'text-warning',
+  danger: 'text-danger',
+};
+
+export function StatCard({
+  label,
+  value,
+  hint,
+  icon,
+  tone = 'neutral',
+  className,
+}: StatCardProps): ReactNode {
+  return (
+    <div className={cx('rounded-2xl border border-line bg-surface-1 p-4', className)}>
+      {icon !== undefined && (
+        <div aria-hidden="true" className={cx('flex justify-end', TONE_ICON[tone])}>
+          {icon}
+        </div>
+      )}
+      <p className="text-xs font-medium uppercase tracking-wide text-muted">{label}</p>
+      {/* `div` y no `p`: `value` acepta cualquier ReactNode y puede ser un
+          <Skeleton> (`div`), que no es válido dentro de un párrafo. */}
+      <div className="mt-1 text-2xl font-bold text-ink">{value}</div>
+      {hint !== undefined && <div className="mt-1 text-xs text-muted">{hint}</div>}
+    </div>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// ChartFrame
+// -----------------------------------------------------------------------------
+
+/**
+ * Carcasa aislada de cada gráfica. Concentra los estados (error, carga, vacío)
+ * para que una gráfica sin datos o con fallo NUNCA rompa el resto de la página.
+ *
+ * El alto del área de contenido se aplica con `style` porque el valor viene de
+ * la prop `height` en tiempo de ejecución: no existe una clase de Tailwind que
+ * pueda resolver una altura arbitraria sin generar utilities dinámicas.
+ */
+export interface ChartFrameProps {
+  title: string;
+  description?: ReactNode;
+  actions?: ReactNode;
+  isLoading?: boolean;
+  isEmpty?: boolean;
+  emptyTitle?: string;
+  emptyDescription?: ReactNode;
+  error?: string | null;
+  onRetry?: () => void;
+  /** Alto en px del área de contenido. */
+  height?: number;
+  children: ReactNode;
+}
+
+export function ChartFrame({
+  title,
+  description,
+  actions,
+  isLoading = false,
+  isEmpty = false,
+  emptyTitle = 'No hay datos para mostrar.',
+  emptyDescription,
+  error,
+  onRetry,
+  height = 260,
+  children,
+}: ChartFrameProps): ReactNode {
+  // Prioridad: el error manda sobre el resto de estados. Si la petición falló
+  // no se puede afirmar que esté cargando ni que esté vacía.
+  const showError = error !== undefined && error !== null && error !== '';
+
+  let body: ReactNode;
+  if (showError) {
+    body = <ErrorCard message={error} onRetry={onRetry} />;
+  } else if (isLoading) {
+    body = <Skeleton height={height} />;
+  } else if (isEmpty) {
+    body = <EmptyState title={emptyTitle} description={emptyDescription} />;
+  } else {
+    body = <div style={{ height }}>{children}</div>;
+  }
+
+  return (
+    <Panel title={title} description={description} actions={actions}>
+      {body}
+    </Panel>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// DataTable
+// -----------------------------------------------------------------------------
+
+/**
+ * Wrapper semántico para tablas con scroll horizontal. Se encarga del
+ * `<caption>` oculto y del `min-width` que dispara el scroll en móvil.
+ *
+ * Clases recomendadas para quien la use (no se imponen aquí):
+ *   `<thead>` -> sin clases
+ *   `<th>`    -> `border-b border-line px-3 py-2 text-left text-xs font-medium
+ *                uppercase tracking-wide text-muted`
+ *   `<td>`    -> `border-b border-line/70 px-3 py-2.5 text-ink`
+ */
+export interface DataTableProps {
+  caption: string;
+  children: ReactNode;
+  className?: string;
+}
+
+export function DataTable({ caption, children, className }: DataTableProps): ReactNode {
+  return (
+    <div className={cx('-mx-1 overflow-x-auto', className)}>
+      <table className="w-full min-w-[640px] border-collapse text-sm">
+        <caption className="sr-only">{caption}</caption>
+        {children}
+      </table>
+    </div>
+  );
+}

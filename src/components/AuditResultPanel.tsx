@@ -5,7 +5,6 @@
 // =============================================================================
 
 import type { ReactNode } from 'react';
-import type { AuditResultType } from '../skills/audit/types';
 import type { AuditDetail, Evidence } from '../lib/api';
 import {
   DASH,
@@ -18,18 +17,9 @@ import {
   shortId,
   textOrDash,
 } from '../lib/format';
-import { RESULT_DESCRIPTIONS, RESULT_LABELS, errorCategoryLabel } from '../lib/labels';
+import { RESULT_DESCRIPTIONS, RESULT_LABELS, RESULT_TONE, errorCategoryLabel } from '../lib/labels';
 import { Badge, Chip, DataRow, SectionTitle } from './ui';
 import type { Tone } from './ui';
-
-const RESULT_TONE: Record<AuditResultType, Tone> = {
-  CANCELACION_VENTA: 'brand',
-  BAJA: 'warning',
-  CANCELACION_VENTA_OPERATIVA: 'brand',
-  CANCELACION_MATRICULA: 'brand',
-  DICTAMINACION: 'success',
-  EVIDENCIA_INSUFICIENTE: 'warning',
-};
 
 export interface AuditResultPanelProps {
   audit: AuditDetail;

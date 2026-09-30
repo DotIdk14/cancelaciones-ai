@@ -9,6 +9,7 @@ import type {
   EvidenceKind,
   EvidenceStatus,
 } from '../skills/audit/types';
+import type { Tone } from '../components/ui';
 
 // -----------------------------------------------------------------------------
 // Resultado de la auditoría
@@ -34,6 +35,76 @@ export const RESULT_DESCRIPTIONS: Record<AuditResultType, string> = {
     'No fue posible emitir un dictamen confiable con la evidencia disponible.',
 };
 
+/** Tono del badge para cada resultado. Solo presentación: no altera el dictamen. */
+export const RESULT_TONE: Record<AuditResultType, Tone> = {
+  CANCELACION_VENTA: 'brand',
+  BAJA: 'warning',
+  CANCELACION_VENTA_OPERATIVA: 'brand',
+  CANCELACION_MATRICULA: 'brand',
+  DICTAMINACION: 'success',
+  EVIDENCIA_INSUFICIENTE: 'warning',
+};
+
+// -----------------------------------------------------------------------------
+// Agrupación de resultados: lectura agregada, no un cambio de dictamen
+// -----------------------------------------------------------------------------
+
+/** Grupos de resolución: clasificación de lectura, no una decisión del backend. */
+export const RESOLUTION_GROUPS = [
+  'CONCEDIDAS',
+  'REQUIERE_DICTAMINACION',
+  'EVIDENCIA_INSUFICIENTE',
+] as const;
+
+export type ResolutionGroup = (typeof RESOLUTION_GROUPS)[number];
+
+export const RESOLUTION_GROUP_LABELS: Record<ResolutionGroup, string> = {
+  CONCEDIDAS: 'Concedidas',
+  REQUIERE_DICTAMINACION: 'Requiere dictaminación',
+  EVIDENCIA_INSUFICIENTE: 'Evidencia insuficiente',
+};
+
+export const RESULT_TO_GROUP: Record<AuditResultType, ResolutionGroup> = {
+  CANCELACION_VENTA: 'CONCEDIDAS',
+  CANCELACION_VENTA_OPERATIVA: 'CONCEDIDAS',
+  CANCELACION_MATRICULA: 'CONCEDIDAS',
+  BAJA: 'CONCEDIDAS',
+  DICTAMINACION: 'REQUIERE_DICTAMINACION',
+  EVIDENCIA_INSUFICIENTE: 'EVIDENCIA_INSUFICIENTE',
+};
+
+/**
+ * Color de series en gráficas. Es semántico y NO es el mismo mapa que
+ * `RESULT_TONE` (ese da el tono del badge). Usa solo variables CSS ya
+ * existentes para que las series respeten el tema, sin colores sueltos.
+ */
+export const RESOLUTION_GROUP_CHART_COLOR: Record<ResolutionGroup, string> = {
+  CONCEDIDAS: 'var(--success)',
+  REQUIERE_DICTAMINACION: 'var(--warning)',
+  EVIDENCIA_INSUFICIENTE: 'var(--accent)',
+};
+
+// -----------------------------------------------------------------------------
+// Bandas de confianza
+// -----------------------------------------------------------------------------
+
+/**
+ * Bandas de confianza: son de PRESENTACIÓN sobre `audit.confidence` (0..1).
+ * No reclasifican el dictamen, no alteran el resultado terminal y no se envían
+ * al backend; solo eligen la etiqueta que ve la persona. Los umbrales viven
+ * aquí como constantes para no dispersarlos por los componentes.
+ */
+export const CONFIDENCE_HIGH_THRESHOLD = 0.85;
+export const CONFIDENCE_MEDIUM_THRESHOLD = 0.6;
+
+export type ConfidenceBand = 'ALTA' | 'MEDIA' | 'BAJA';
+
+export const CONFIDENCE_BAND_LABELS: Record<ConfidenceBand, string> = {
+  ALTA: 'Alta confianza',
+  MEDIA: 'Media confianza',
+  BAJA: 'Baja confianza',
+};
+
 // -----------------------------------------------------------------------------
 // Estados de caso
 // -----------------------------------------------------------------------------
@@ -50,6 +121,23 @@ export const AUDIT_RUN_STATUS_LABELS: Record<'RUNNING' | 'COMPLETED' | 'ERROR', 
   RUNNING: 'En curso',
   COMPLETED: 'Completada',
   ERROR: 'Con error',
+};
+
+/**
+ * Tono del badge según el estado técnico del caso.
+ *
+ * Vive AQUÍ, y no duplicado en cada componente, por una razón concreta: la
+ * copia de `CasesPanel` nació al extraer este mapa de `CaseListPage` y arrastró
+ * la constante. Dos copias byte a byte divergen en silencio el día que alguien
+ * cambie un tono en una de las dos, y ese fallo no lo detecta ni `tsc` ni la
+ * suite: se ve en pantalla, semanas después, como un badge de otro color.
+ */
+export const CASE_STATUS_TONE: Record<CaseStatus, Tone> = {
+  DRAFT: 'neutral',
+  READY: 'brand',
+  AUDITING: 'warning',
+  COMPLETED: 'success',
+  ERROR: 'danger',
 };
 
 // -----------------------------------------------------------------------------

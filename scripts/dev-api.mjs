@@ -11,10 +11,9 @@ function createDevApiMiddleware(server) {
   const fromRoot = (file) => `/${file}`;
 
   const routes = [
-    { methods: ['GET'], pattern: /^\/api\/auth\/me$/, file: fromRoot('api/auth/me.ts') },
-    { methods: ['POST'], pattern: /^\/api\/auth\/sign-in$/, file: fromRoot('api/auth/sign-in/index.ts') },
-    { methods: ['POST'], pattern: /^\/api\/auth\/sign-up$/, file: fromRoot('api/auth/sign-up/index.ts') },
-    { methods: ['POST'], pattern: /^\/api\/auth\/sign-out$/, file: fromRoot('api/auth/sign-out/index.ts') },
+    { methods: ['GET'], pattern: /^\/api\/dashboard\/summary$/, file: fromRoot('api/dashboard/summary.ts') },
+    { methods: ['GET'], pattern: /^\/api\/dashboard\/ai-costs$/, file: fromRoot('api/dashboard/ai-costs.ts') },
+    { methods: ['GET'], pattern: /^\/api\/dashboard\/quality$/, file: fromRoot('api/dashboard/quality.ts') },
     { methods: ['GET', 'POST'], pattern: /^\/api\/cases$/, file: fromRoot('api/cases/index.ts') },
     {
       methods: ['GET'],
@@ -75,7 +74,25 @@ function createDevApiMiddleware(server) {
         candidate.methods.includes(method) &&
         candidate.pattern.test(pathname),
     );
-    if (!route) return next();
+    if (!route) {
+      // La ruta existe pero con otro método. En Vercel el runtime invoca la
+      // función igualmente y es el handler el que responde 405 con su `Allow`;
+      // aquí se reproduce esa respuesta para que el dev server no devuelva un
+      // 404 vacío y engañe a quien prueba la API a mano.
+      const known = routes.find((candidate) => candidate.pattern.test(pathname));
+      if (known && !res.headersSent) {
+        res.statusCode = 405;
+        res.setHeader('Allow', known.methods.join(', '));
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.end(
+          JSON.stringify({
+            error: { category: 'VALIDATION_ERROR', message: `Método ${method} no soportado` },
+          }),
+        );
+        return;
+      }
+      return next();
+    }
 
     const match = pathname.match(route.pattern);
     const query = { ...Object.fromEntries(url.searchParams) };

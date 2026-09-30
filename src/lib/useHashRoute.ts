@@ -1,11 +1,26 @@
 // =============================================================================
-// Enrutado por hash manual (sin react-router). `#/` y `#/casos/:id`.
+// Enrutado por hash manual (sin react-router).
 // Hash routing hace que un refresh funcione siempre en Vercel sin rewrites.
+//
+// Rutas:
+//   `#/`            -> dashboard (Resumen)
+//   `#/calidad`     -> quality    (Calidad)
+//   `#/ia-costos`   -> ai-costs   (IA & Costos)
+//   `#/nuevo`       -> new-case   (Nuevo caso)
+//   `#/casos`       -> cases      (Casos)
+//   `#/casos/:id`   -> case       (Detalle de caso)
+// Cualquier hash desconocido cae en el dashboard.
 // =============================================================================
 
 import { useEffect, useMemo, useState } from 'react';
 
-export type AppRoute = { name: 'home' } | { name: 'case'; caseId: string };
+export type AppRoute =
+  | { name: 'dashboard' } // #/
+  | { name: 'quality' } // #/calidad
+  | { name: 'ai-costs' } // #/ia-costos
+  | { name: 'new-case' } // #/nuevo
+  | { name: 'cases' } // #/casos
+  | { name: 'case'; caseId: string }; // #/casos/:id
 
 function decodeSegment(segment: string): string {
   try {
@@ -17,12 +32,29 @@ function decodeSegment(segment: string): string {
 
 export function parseHash(hash: string): AppRoute {
   const path = hash.replace(/^#/, '').replace(/^\/+/, '').replace(/\/+$/, '');
-  if (path === '') return { name: 'home' };
+  if (path === '') return { name: 'dashboard' };
 
   const segments = path.split('/').filter(Boolean).map(decodeSegment);
   const [root, id] = segments;
-  if (root === 'casos' && typeof id === 'string' && id !== '') return { name: 'case', caseId: id };
-  return { name: 'home' };
+
+  if (root === 'casos') {
+    if (segments.length === 1) return { name: 'cases' };
+    if (typeof id === 'string' && id !== '') return { name: 'case', caseId: id };
+    return { name: 'cases' };
+  }
+  if (segments.length !== 1) return { name: 'dashboard' };
+
+  switch (root) {
+    case 'calidad':
+      return { name: 'quality' };
+    case 'ia-costos':
+      return { name: 'ai-costs' };
+    case 'nuevo':
+      return { name: 'new-case' };
+    default:
+      // Ruta desconocida: nunca dejamos al usuario en una pantalla rota.
+      return { name: 'dashboard' };
+  }
 }
 
 /** Ruta actual derivada de `location.hash`, reactiva a `hashchange`. */
@@ -53,10 +85,31 @@ export function navigate(hash: string): void {
   window.location.hash = next;
 }
 
+export function goToDashboard(): void {
+  navigate('/');
+}
+
+export function goToQuality(): void {
+  navigate('/calidad');
+}
+
+export function goToAiCosts(): void {
+  navigate('/ia-costos');
+}
+
+export function goToNewCase(): void {
+  navigate('/nuevo');
+}
+
+export function goToCases(): void {
+  navigate('/casos');
+}
+
 export function goToCase(caseId: string): void {
   navigate(`/casos/${encodeURIComponent(caseId)}`);
 }
 
+/** Alias conservado por compatibilidad: `#/` es el dashboard. */
 export function goHome(): void {
-  navigate('/');
+  goToDashboard();
 }

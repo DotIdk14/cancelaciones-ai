@@ -1,5 +1,5 @@
 // =============================================================================
-// Cabecera global: identidad del producto + cierre de sesión.
+// Cabecera global: identidad del producto y acceso al dashboard (`#/`).
 // =============================================================================
 
 import type { ReactNode } from 'react';

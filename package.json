@@ -25,9 +25,11 @@
   },
   "dependencies": {
     "@insforge/sdk": "^1.5.2",
+    "lucide-react": "^1.48.0",
     "pdfjs-dist": "^4.10.38",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
+    "recharts": "^3.10.1",
     "zod": "^3.25.76",
     "zod-to-json-schema": "^3.25.2"
   },

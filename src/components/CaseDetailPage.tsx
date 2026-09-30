@@ -5,19 +5,17 @@
 
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { CaseStatus } from '../skills/audit/types';
 import { deleteEvidence, getAudit, getCase, startAudit, toErrorState } from '../lib/api';
 import type { AuditDetail, CaseDetailResponse, ErrorState, Evidence } from '../lib/api';
 import { formatDateTime, shortId } from '../lib/format';
-import { CASE_STATUS_LABELS, errorCategoryLabel, errorCategoryMessage } from '../lib/labels';
-import { goHome } from '../lib/useHashRoute';
+import { CASE_STATUS_LABELS, CASE_STATUS_TONE, errorCategoryLabel, errorCategoryMessage } from '../lib/labels';
+import { goToCases } from '../lib/useHashRoute';
 import { usePolling } from '../lib/usePolling';
 import { AuditResultPanel } from './AuditResultPanel';
 import { EvidenceList } from './EvidenceList';
 import { EvidenceUploader } from './EvidenceUploader';
 import { EvidenceViewer } from './EvidenceViewer';
 import { Badge, Button, ErrorCard, Panel, Spinner } from './ui';
-import type { Tone } from './ui';
 
 /** Mensaje amigable cuando el servidor devuelve 401 (sesión requerida). */
 const AUTH_ERROR_MESSAGE = 'El servidor requiere autenticación. La interfaz está en modo demo: los datos no se cargarán hasta que configure una sesión válida.';
@@ -28,14 +26,6 @@ const AUDIT_POLL_MS = 4000;
 const MAX_WAIT_RETRIES = 60;
 /** Consultas de estado de una auditoría en curso (≈6 min). */
 const MAX_RUNNING_POLLS = 90;
-
-const CASE_STATUS_TONE: Record<CaseStatus, Tone> = {
-  DRAFT: 'neutral',
-  READY: 'brand',
-  AUDITING: 'warning',
-  COMPLETED: 'success',
-  ERROR: 'danger',
-};
 
 type AuditPhase = 'idle' | 'starting' | 'waiting' | 'running';
 
@@ -237,7 +227,7 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
   if (detail === null) {
     return (
       <div className="flex flex-col gap-4">
-        <Button onClick={goHome} variant="ghost">
+        <Button onClick={goToCases} variant="ghost">
           ← Volver a casos
         </Button>
         <ErrorCard
@@ -270,7 +260,7 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
         <div className="min-w-0">
           <button
             type="button"
-            onClick={goHome}
+            onClick={goToCases}
             className="rounded-lg px-2 py-1 text-sm font-medium text-muted transition-colors hover:bg-surface-3 hover:text-ink"
           >
             ← Volver a casos
