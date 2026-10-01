@@ -9,7 +9,7 @@
 // =============================================================================
 
 import type { AuditResultType, CaseStatus } from '../skills/audit/types';
-import { isRecord, readError } from './api';
+import { isRecord, readError } from './api.js';
 import type { ConfidenceBand, ResolutionGroup } from './labels';
 
 // -----------------------------------------------------------------------------

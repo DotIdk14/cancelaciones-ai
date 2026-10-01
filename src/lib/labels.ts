@@ -15,7 +15,7 @@ import {
   HUMAN_RESOLUTIONS,
   REVIEW_COMMENT_MAX,
   REVIEW_COMMENT_MIN,
-} from '../skills/review/types';
+} from '../skills/review/types.js';
 import type { Tone } from '../components/ui';
 
 // -----------------------------------------------------------------------------
