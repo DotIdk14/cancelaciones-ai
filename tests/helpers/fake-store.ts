@@ -1,6 +1,7 @@
 // =============================================================================
-// Store en memoria que reemplaza `src/server/cases` y el Storage de InsForge
-// en los tests de estado de evidencia. Sin red, sin base de datos.
+// Store en memoria que reemplaza `src/server/cases`, `src/server/reviews` y el
+// Storage de InsForge en los tests de estado de evidencia y de revisión humana.
+// Sin red, sin base de datos.
 // Solo persiste: NO implementa ninguna regla de negocio ni transición de estado
 // (esas viven en el código de producción y es justo lo que se testea).
 // =============================================================================
@@ -8,6 +9,7 @@
 import { ApiError } from '../../src/server/http';
 import type { InsForgeClient } from '../../src/server/insforge';
 import type { CaseStatus, EvidenceStatus, TranscriptData } from '../../src/skills/audit/types';
+import type { HumanResolution } from '../../src/skills/review/types';
 import type {
   AuditRow,
   AuditStatus,
@@ -16,6 +18,17 @@ import type {
   InsertAuditRow,
   InsertEvidenceRow,
 } from '../../src/server/cases';
+import type {
+  CaseReviewRow,
+  ComparisonRow,
+  ComparisonStatus,
+  CreateCaseReviewInput,
+  InsertComparisonInput,
+  RearmComparisonInput,
+  UpdateComparisonErrorInput,
+  UpdateComparisonResultInput,
+} from '../../src/server/reviews';
+import { validAuditResult } from '../fixtures/audit-result';
 
 export interface FakeTranscription {
   state: 'TRANSCRIBING' | 'READY' | 'ERROR';
@@ -26,6 +39,8 @@ export interface FakeTranscription {
 const caseRows: CaseRow[] = [];
 const evidenceRows: EvidenceRow[] = [];
 const auditRows: AuditRow[] = [];
+const reviewRows: CaseReviewRow[] = [];
+const comparisonRows: ComparisonRow[] = [];
 /** Binarios "guardados" por `storage_path` (los lee `buildAuditInputs`). */
 const blobs = new Map<string, Buffer>();
 /** Respuestas de AssemblyAI por `assemblyId`. */
@@ -47,6 +62,8 @@ export function resetStore(): void {
   caseRows.length = 0;
   evidenceRows.length = 0;
   auditRows.length = 0;
+  reviewRows.length = 0;
+  comparisonRows.length = 0;
   blobs.clear();
   transcriptions.clear();
   storageLog.uploads.length = 0;
@@ -100,6 +117,72 @@ export function setTranscription(assemblyId: string, value: FakeTranscription): 
   transcriptions.set(assemblyId, value);
 }
 
+/** Siembra una fila de `audits`. `resultJson` permite variar el dictamen. */
+export function seedAudit(overrides: Partial<AuditRow> & { resultJson?: unknown } = {}): AuditRow {
+  const { resultJson, ...rest } = overrides;
+  const row: AuditRow = {
+    id: rest.id ?? nextId('audit'),
+    case_id: rest.case_id ?? 'case-1',
+    status: rest.status ?? 'COMPLETED',
+    provider: rest.provider ?? 'openrouter',
+    model: rest.model ?? 'google/gemini-2.5-flash-lite',
+    result_json: resultJson ?? validAuditResult,
+    error_category: rest.error_category ?? null,
+    latency_ms: rest.latency_ms ?? null,
+    evidence_fingerprint: rest.evidence_fingerprint ?? 'f'.repeat(64),
+    attempt_number: rest.attempt_number ?? 1,
+    deadline_at: rest.deadline_at ?? null,
+    provider_metadata: rest.provider_metadata ?? null,
+    created_at: rest.created_at ?? '2026-02-01T10:10:00Z',
+  };
+  auditRows.push(row);
+  return { ...row };
+}
+
+/** Siembra una revisión humana (fila de `case_reviews`). */
+export function seedReview(overrides: Partial<CaseReviewRow> = {}): CaseReviewRow {
+  const row: CaseReviewRow = {
+    id: overrides.id ?? nextId('review'),
+    case_id: overrides.case_id ?? 'case-1',
+    audit_id: overrides.audit_id ?? 'audit-1',
+    result: overrides.result ?? 'BAJA',
+    comment: overrides.comment ?? 'Se acredita la baja por solicitud posterior al inicio de ciclo.',
+    created_at: overrides.created_at ?? '2026-02-02T09:00:00Z',
+    created_by: overrides.created_by ?? null,
+  };
+  reviewRows.push(row);
+  return { ...row };
+}
+
+/** Siembra una comparación (fila de `case_comparisons`). */
+export function seedComparison(overrides: Partial<ComparisonRow> = {}): ComparisonRow {
+  const row: ComparisonRow = {
+    id: overrides.id ?? nextId('comparison'),
+    case_review_id: overrides.case_review_id ?? 'review-1',
+    audit_id: overrides.audit_id ?? 'audit-1',
+    status: overrides.status ?? 'RUNNING',
+    result_json: overrides.result_json ?? null,
+    provider: overrides.provider ?? 'openrouter',
+    model: overrides.model ?? 'google/gemini-2.5-flash-lite',
+    error_category: overrides.error_category ?? null,
+    latency_ms: overrides.latency_ms ?? null,
+    attempt_count: overrides.attempt_count ?? 1,
+    deadline_at: overrides.deadline_at ?? null,
+    created_at: overrides.created_at ?? '2026-02-02T09:05:00Z',
+    updated_at: overrides.updated_at ?? overrides.created_at ?? '2026-02-02T09:05:00Z',
+  };
+  comparisonRows.push(row);
+  return { ...row };
+}
+
+export function listReviews(): CaseReviewRow[] {
+  return reviewRows.map((row) => ({ ...row }));
+}
+
+export function listComparisons(): ComparisonRow[] {
+  return comparisonRows.map((row) => ({ ...row }));
+}
+
 export function getTranscriptionState(assemblyId: string): FakeTranscription {
   return transcriptions.get(assemblyId) ?? { state: 'ERROR', transcript: null, error: 'sin transcripción' };
 }
@@ -125,7 +208,17 @@ export async function getCaseOr404(_client: unknown, caseId: string): Promise<Ca
 }
 
 export async function listCaseSummaries(): Promise<unknown[]> {
-  return caseRows.map((row) => ({ ...row, evidence: [{ count: evidenceRows.length }] }));
+  return caseRows.map((row) => {
+    const review = reviewRows.find((r) => r.case_id === row.id) ?? null;
+    const auditsForCase = auditRows.filter((a) => a.case_id === row.id && a.status === 'COMPLETED');
+    const audit = auditsForCase[auditsForCase.length - 1] ?? null;
+    return {
+      ...row,
+      evidence: [{ count: evidenceRows.filter((e) => e.case_id === row.id).length }],
+      review,
+      audit,
+    };
+  });
 }
 
 export async function createCase(
@@ -228,6 +321,121 @@ export async function updateCaseStatus(_client: unknown, caseId: string, status:
   const row = getCase(caseId);
   if (row) row.status = status;
 }
+
+export async function getAuditById(_client: unknown, auditId: string): Promise<AuditRow | null> {
+  const row = auditRows.find((item) => item.id === auditId);
+  return row ? { ...row } : null;
+}
+
+export async function latestCompletedAudit(_client: unknown, caseId: string): Promise<AuditRow | null> {
+  const rows = auditRows.filter((row) => row.case_id === caseId && row.status === 'COMPLETED');
+  const last = rows[rows.length - 1];
+  return last ? { ...last } : null;
+}
+
+// -------------------------------------- implementación de `src/server/reviews`
+
+/** Mensaje único de duplicado: el que usan producción y este store. */
+const DUPLICATE_REVIEW_MESSAGE =
+  'El caso ya tiene una revisión humana registrada; cada caso admite una sola revisión.';
+
+export async function createCaseReview(_client: unknown, input: CreateCaseReviewInput): Promise<CaseReviewRow> {
+  if (reviewRows.some((row) => row.case_id === input.caseId)) {
+    throw new ApiError(409, 'VALIDATION_ERROR', DUPLICATE_REVIEW_MESSAGE);
+  }
+  return seedReview({
+    case_id: input.caseId,
+    audit_id: input.auditId,
+    result: input.result,
+    comment: input.comment,
+    created_by: input.userId,
+  });
+}
+
+export async function getCaseReview(_client: unknown, caseId: string): Promise<CaseReviewRow | null> {
+  const row = reviewRows.find((item) => item.case_id === caseId);
+  return row ? { ...row } : null;
+}
+
+export async function insertComparison(_client: unknown, input: InsertComparisonInput): Promise<ComparisonRow> {
+  return seedComparison({
+    case_review_id: input.caseReviewId,
+    audit_id: input.auditId,
+    status: 'RUNNING',
+    attempt_count: 1,
+    deadline_at: input.deadlineAt,
+  });
+}
+
+export async function getLatestComparisonForReview(
+  _client: unknown,
+  caseReviewId: string,
+): Promise<ComparisonRow | null> {
+  const rows = comparisonRows.filter((row) => row.case_review_id === caseReviewId);
+  const last = rows[rows.length - 1];
+  return last ? { ...last } : null;
+}
+
+export async function rearmComparison(
+  _client: unknown,
+  comparisonId: string,
+  input: RearmComparisonInput,
+): Promise<ComparisonRow> {
+  const row = comparisonRows.find((item) => item.id === comparisonId);
+  if (!row) throw new ApiError(404, 'NOT_FOUND', 'Comparación no encontrada');
+  row.status = 'RUNNING';
+  row.result_json = null;
+  row.error_category = null;
+  row.latency_ms = null;
+  row.attempt_count = input.attemptCount;
+  row.deadline_at = input.deadlineAt;
+  if (input.model) row.model = input.model;
+  row.updated_at = new Date().toISOString();
+  return { ...row };
+}
+
+export async function updateComparisonResult(
+  _client: unknown,
+  comparisonId: string,
+  input: UpdateComparisonResultInput,
+): Promise<ComparisonRow> {
+  const row = comparisonRows.find((item) => item.id === comparisonId);
+  if (!row) throw new ApiError(404, 'NOT_FOUND', 'Comparación no encontrada');
+  row.status = 'COMPLETED';
+  row.result_json = input.resultJson;
+  row.provider = input.provider;
+  row.model = input.model;
+  row.error_category = null;
+  row.latency_ms = input.latencyMs;
+  row.updated_at = new Date().toISOString();
+  return { ...row };
+}
+
+export async function updateComparisonError(
+  _client: unknown,
+  comparisonId: string,
+  input: UpdateComparisonErrorInput,
+): Promise<ComparisonRow> {
+  const row = comparisonRows.find((item) => item.id === comparisonId);
+  if (!row) throw new ApiError(404, 'NOT_FOUND', 'Comparación no encontrada');
+  row.status = 'ERROR';
+  row.result_json = null;
+  row.error_category = input.errorCategory;
+  row.latency_ms = input.latencyMs;
+  row.updated_at = new Date().toISOString();
+  return { ...row };
+}
+
+export async function listComparisonsForCase(_client: unknown, caseId: string): Promise<ComparisonRow[]> {
+  const review = reviewRows.find((row) => row.case_id === caseId);
+  if (!review) return [];
+  return comparisonRows
+    .filter((row) => row.case_review_id === review.id)
+    .map((row) => ({ ...row }))
+    .reverse();
+}
+
+export type { CaseReviewRow, ComparisonRow, ComparisonStatus, HumanResolution };
 
 // ------------------------------------------------------- cliente InsForge fake
 

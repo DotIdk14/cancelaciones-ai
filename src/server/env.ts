@@ -19,6 +19,10 @@ export interface ServerEnv {
   AI_TIMEOUT_MS: number;
   TOTAL_AUDIT_TIMEOUT_MS: number;
   AUDIT_STALE_AFTER_MS: number;
+  /** Máximo de reintentos de una comparación (rearms) después del intento inicial. */
+  COMPARISON_MAX_RETRIES: number;
+  /** Backoff mínimo entre rearms de una comparación, en milisegundos. */
+  COMPARISON_RETRY_MIN_BACKOFF_MS: number;
   AI_MAX_OUTPUT_TOKENS: number;
   AI_MAX_OUTPUT_TOKENS_CONFIGURED: boolean;
 
@@ -93,6 +97,8 @@ export function getEnv(): ServerEnv {
     AI_TIMEOUT_MS: numberEnv('AI_TIMEOUT_MS', env.AI_TIMEOUT_MS, 60_000, { min: 1_000, max: 290_000 }),
     TOTAL_AUDIT_TIMEOUT_MS: numberEnv('TOTAL_AUDIT_TIMEOUT_MS', env.TOTAL_AUDIT_TIMEOUT_MS, 240_000, { min: 10_000, max: 295_000 }),
     AUDIT_STALE_AFTER_MS: numberEnv('AUDIT_STALE_AFTER_MS', env.AUDIT_STALE_AFTER_MS, 10 * 60_000, { min: 60_000 }),
+    COMPARISON_MAX_RETRIES: numberEnv('COMPARISON_MAX_RETRIES', env.COMPARISON_MAX_RETRIES, 3, { min: 1, max: 20 }),
+    COMPARISON_RETRY_MIN_BACKOFF_MS: numberEnv('COMPARISON_RETRY_MIN_BACKOFF_MS', env.COMPARISON_RETRY_MIN_BACKOFF_MS, 5_000, { min: 0 }),
     AI_MAX_OUTPUT_TOKENS: numberEnv('AI_MAX_OUTPUT_TOKENS', env.AI_MAX_OUTPUT_TOKENS, 16_384, { min: 256, max: 16_384 }),
     AI_MAX_OUTPUT_TOKENS_CONFIGURED: env.AI_MAX_OUTPUT_TOKENS !== undefined && env.AI_MAX_OUTPUT_TOKENS.trim() !== '',
 

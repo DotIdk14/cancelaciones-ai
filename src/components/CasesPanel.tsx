@@ -7,7 +7,15 @@ import { useCallback, useEffect, useState } from 'react';
 import { listCases, toErrorState } from '../lib/api';
 import type { CaseSummary } from '../lib/api';
 import { formatDateTime, shortId } from '../lib/format';
-import { CASE_STATUS_LABELS, CASE_STATUS_TONE } from '../lib/labels';
+import {
+  CASE_STATUS_LABELS,
+  CASE_STATUS_TONE,
+  RESOLUTION_SOURCE_DESCRIPTIONS,
+  RESOLUTION_SOURCE_LABELS,
+  RESOLUTION_SOURCE_TONE,
+  resolutionLabel,
+  resolutionTone,
+} from '../lib/labels';
 import { Badge, Button, EmptyState, ErrorCard, Panel, Spinner } from './ui';
 
 /** Mensaje amigable cuando el servidor devuelve 401 (sesión requerida). */
@@ -60,28 +68,63 @@ export function CasesPanel(): ReactNode {
         />
       ) : (
         <ul className="flex flex-col gap-2">
-          {(cases ?? []).map((item) => (
-            <li key={item.id}>
-              <a
-                href={`#/casos/${encodeURIComponent(item.id)}`}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-surface-2 px-4 py-3 transition-colors hover:border-brand/50 hover:bg-surface-3"
-              >
-                <div className="min-w-0">
-                  <p className="font-mono text-sm text-ink">
-                    Caso {shortId(item.id)}
-                    {item.studentIdentifier !== null && item.studentIdentifier !== '' && (
-                      <span className="ml-2 font-sans text-muted">· {item.studentIdentifier}</span>
+          {(cases ?? []).map((item) => {
+            // `undefined` y `null` significan lo mismo: no hay resolución que
+            // mostrar, y entonces la fila se dibuja exactamente como antes.
+            const resolution = item.effectiveResolution ?? null;
+            return (
+              <li key={item.id} className="flex flex-wrap items-center gap-2">
+                <a
+                  href={`#/casos/${encodeURIComponent(item.id)}`}
+                  className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-surface-2 px-4 py-3 transition-colors hover:border-brand/50 hover:bg-surface-3"
+                >
+                  <div className="min-w-0">
+                    <p className="font-mono text-sm text-ink">
+                      Caso {shortId(item.id)}
+                      {item.studentIdentifier !== null && item.studentIdentifier !== '' && (
+                        <span className="ml-2 font-sans text-muted">· {item.studentIdentifier}</span>
+                      )}
+                    </p>
+                    <p className="mt-0.5 text-xs text-muted">
+                      {item.evidenceCount === 1 ? '1 evidencia' : `${item.evidenceCount} evidencias`} ·
+                      Creado {formatDateTime(item.createdAt)} · Actualizado {formatDateTime(item.updatedAt)}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {/*
+                      La resolución viaja SIEMPRE con su origen: un resultado sin
+                      decir si lo decidió una persona o el modelo no es auditable.
+                      El distintivo no sustituye al badge de estado del caso, que
+                      es un dato técnico distinto.
+                    */}
+                    {resolution !== null && (
+                      <>
+                        <Badge tone={resolutionTone(resolution.result)}>{resolutionLabel(resolution.result)}</Badge>
+                        <Badge
+                          tone={RESOLUTION_SOURCE_TONE[resolution.source]}
+                          title={RESOLUTION_SOURCE_DESCRIPTIONS[resolution.source]}
+                        >
+                          {RESOLUTION_SOURCE_LABELS[resolution.source]}
+                        </Badge>
+                      </>
                     )}
-                  </p>
-                  <p className="mt-0.5 text-xs text-muted">
-                    {item.evidenceCount === 1 ? '1 evidencia' : `${item.evidenceCount} evidencias`} ·
-                    Creado {formatDateTime(item.createdAt)} · Actualizado {formatDateTime(item.updatedAt)}
-                  </p>
-                </div>
-                <Badge tone={CASE_STATUS_TONE[item.status]}>{CASE_STATUS_LABELS[item.status]}</Badge>
-              </a>
-            </li>
-          ))}
+                    <Badge tone={CASE_STATUS_TONE[item.status]}>{CASE_STATUS_LABELS[item.status]}</Badge>
+                  </div>
+                </a>
+                {/* Enlace hermano, nunca anidado dentro del enlace del caso:
+                    dos `<a>` uno dentro del otro es HTML inválido y rompe la
+                    navegación por teclado de forma inexplicable. */}
+                {resolution !== null && (
+                  <a
+                    href={`#/casos/${encodeURIComponent(item.id)}`}
+                    className="shrink-0 rounded-xl border border-line bg-surface-2 px-3 py-2 text-sm font-medium text-muted transition-colors hover:border-brand/50 hover:bg-surface-3 hover:text-ink"
+                  >
+                    Ver revisión
+                  </a>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
     </Panel>

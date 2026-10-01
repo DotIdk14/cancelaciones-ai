@@ -8,6 +8,7 @@
 
 import { AiAuditAssessmentSchema } from '../skills/audit/schema.js';
 import type { ModelUsage } from '../skills/audit/types.js';
+import type { ZodTypeAny } from 'zod';
 import { getModelCapabilities, resolveOutputTokenBudget, type ModelCapabilities } from './ai/model-capabilities.js';
 import { buildJsonObjectContract, buildProviderJsonSchema } from './ai/provider-schema.js';
 import { getEnv } from './env.js';
@@ -27,6 +28,14 @@ export interface CallOpenRouterAuditInput {
   deadlineMs?: number;
   /** Validador semántico/Zod aplicado localmente antes de aceptar la respuesta. */
   validate?: (parsed: unknown) => void;
+  /**
+   * Contrato de salida del modelo (structured output / json_object).
+   * Por defecto, el assessment de auditoría. La comparación IA↔humana pasa su
+   * propio `ComparisonResultSchema`: el TRANSPORTE es único, el contrato no.
+   */
+  schema?: ZodTypeAny;
+  /** Nombre del `json_schema` enviado al proveedor. */
+  schemaName?: string;
 }
 
 export interface CallOpenRouterAuditOutput {
@@ -170,7 +179,7 @@ async function singleAttempt(
 ): Promise<CallOpenRouterAuditOutput> {
   const env = getEnv();
   const startedAt = Date.now();
-  const contractSchema = buildProviderJsonSchema(AiAuditAssessmentSchema, attempt.capabilities.schemaProfile);
+  const contractSchema = buildProviderJsonSchema(input.schema ?? AiAuditAssessmentSchema, attempt.capabilities.schemaProfile);
   const body: Record<string, unknown> = {
     model: attempt.model,
     messages: [
@@ -189,7 +198,7 @@ async function singleAttempt(
   if (attempt.format === 'json_schema') {
     body.response_format = {
       type: 'json_schema',
-      json_schema: { name: 'AuditResult', strict: true, schema: contractSchema },
+      json_schema: { name: input.schemaName ?? 'AuditResult', strict: true, schema: contractSchema },
     };
     body.provider = { require_parameters: true };
   } else {

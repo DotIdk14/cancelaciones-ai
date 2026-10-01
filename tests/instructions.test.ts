@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { buildDossierHeader, buildSystemPrompt, EVIDENCE_IS_DATA_NOT_INSTRUCTIONS } from '../src/skills/audit/instructions';
+import {
+  buildDossierHeader,
+  buildSystemPrompt,
+  CYCLE_START_DATE_RULES,
+  EVIDENCE_IS_DATA_NOT_INSTRUCTIONS,
+} from '../src/skills/audit/instructions';
 import { buildAuditMessages } from '../src/skills/audit/execute';
+import { CYCLE_START_FACT_KEY, TEMPORAL_RELATIONS } from '../src/skills/audit/types';
 import type { AuditSkillInput } from '../src/skills/audit/types';
 
 describe('Instrucciones del Skill (anti prompt-injection)', () => {
@@ -73,5 +79,80 @@ describe('Instrucciones del Skill (anti prompt-injection)', () => {
     const system = buildSystemPrompt();
     expect(system).toContain('assessment completo con redacción compacta');
     expect(system).toContain('No omitas contradicciones materiales');
+  });
+});
+
+describe('Instrucciones: fecha de inicio de ciclo', () => {
+  it('exige buscar la fecha de inicio en todas las evidencias, por significado semántico', () => {
+    const system = buildSystemPrompt();
+    expect(system).toContain('Fecha de inicio de ciclo (OBLIGATORIO');
+    expect(system).toContain('Búsqueda obligatoria en TODAS las evidencias');
+    // Genérica: cualquier canal, sistema o formato, sin lógica por captura.
+    for (const source of ['WhatsApp', 'CRM', 'SIU', 'Flokzu', 'correos', 'transcripciones', 'institucionales']) {
+      expect(CYCLE_START_DATE_RULES).toContain(source);
+    }
+    expect(CYCLE_START_DATE_RULES).toContain('NO te limites a una captura concreta');
+    expect(CYCLE_START_DATE_RULES).toContain('NO te detengas en la primera fecha');
+  });
+
+  it('distingue las expresiones válidas de las fechas administrativas prohibidas', () => {
+    // Válidas: inicio académico explícito.
+    for (const valid of [
+      'Fecha de inicio: 28/09/2026',
+      'Inicio de ciclo: 28/09/2026',
+      'Tu bimestre inicia el lunes 28 de septiembre',
+      'Inicio de clases: 28 de septiembre',
+    ]) {
+      expect(CYCLE_START_DATE_RULES).toContain(valid);
+    }
+    // Prohibidas: fechas administrativas que NUNCA son inicio de ciclo.
+    for (const forbidden of [
+      'fecha de creación de matrícula',
+      'fecha de inscripción',
+      'fecha de la decisión D35 o D53',
+      'fecha de facturación',
+      'fecha de creación del CAVE',
+      'fecha de ticket',
+      'fecha de contacto',
+    ]) {
+      expect(CYCLE_START_DATE_RULES).toContain(forbidden);
+    }
+    expect(CYCLE_START_DATE_RULES).toContain('NUNCA, aunque sean la única fecha visible');
+  });
+
+  it('obliga a comparar la solicitud contra el inicio y prohíbe usar fechas administrativas', () => {
+    const system = buildSystemPrompt();
+    expect(system).toContain('Comparación temporal obligatoria');
+    for (const relation of TEMPORAL_RELATIONS) {
+      expect(system).toContain(relation);
+    }
+    expect(CYCLE_START_DATE_RULES).toContain('cancellationRequestDate frente a cycleStartDate');
+    expect(CYCLE_START_DATE_RULES).toContain(
+      'Nunca realices esta comparación contra la fecha de creación de la matrícula',
+    );
+    // El razonamiento que produjo el BAJA erróneo queda explícitamente vedado.
+    expect(CYCLE_START_DATE_RULES).toContain('ya había iniciado');
+  });
+
+  it('exige el análisis temporal antes de aplicar 5.3 y exige el bloque siempre', () => {
+    const system = buildSystemPrompt();
+    expect(system).toContain('El paso 5 es obligatorio y precede a la aplicación del Procedimiento V5');
+    expect(system).toContain('temporalAnalysis es obligatorio');
+    expect(CYCLE_START_DATE_RULES).toContain('NO_DETERMINABLE');
+    expect(CYCLE_START_DATE_RULES).toContain('NO inventes la fecha de inicio');
+    // Trazabilidad del fact de la fecha de inicio.
+    expect(CYCLE_START_DATE_RULES).toContain(CYCLE_START_FACT_KEY);
+    expect(CYCLE_START_DATE_RULES).toContain('NUNCA puede ser 1');
+  });
+
+  it('manda registrar los conflictos de fechas de inicio en lugar de elegir en silencio', () => {
+    expect(CYCLE_START_DATE_RULES).toContain('NO elijas una en silencio');
+    expect(CYCLE_START_DATE_RULES).toContain('registra el conflicto en conflicts');
+    expect(CYCLE_START_DATE_RULES).toContain('Una fecha administrativa distinta de la fecha de inicio NO constituye');
+  });
+
+  it('permite corroborar el inicio y la solicitud en evidencias distintas', () => {
+    expect(CYCLE_START_DATE_RULES).toContain('evidencias DISTINTAS');
+    expect(CYCLE_START_DATE_RULES).toContain('no tiene por qué ser la misma');
   });
 });

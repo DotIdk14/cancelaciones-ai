@@ -167,6 +167,16 @@ Shape del resultado (`audits.result_json`):
   facts: [{ key, label, value, confidence, evidenceIds, evidenceText }],
   timeline: [{ date, event, evidenceIds }],
   conflicts: [{ description, evidenceIds }],
+  temporalAnalysis: {          // comparación solicitud vs. INICIO DE CICLO
+    cycleStartDate,            // ISO YYYY-MM-DD, o null si no está acreditada
+    cycleStartEvidenceIds,     // evidencias que acreditan el inicio académico
+    cycleStartEvidenceText,    // cita que la identifica como inicio académico
+    cancellationRequestDate,   // fecha en que dijo que no quería continuar
+    cancellationRequestEvidenceIds,
+    relationToCycleStart,      // ANTES_DEL_INICIO | MISMO_DIA_DEL_INICIO
+                               // | DESPUES_DEL_INICIO | NO_DETERMINABLE
+    reasoning,
+  },
   audit: {
     result,                  // uno de los seis resultados
     rule,                    // criterio aplicado; string no vacío
@@ -191,6 +201,40 @@ Sobre `usage`: se lee lo que OpenRouter devuelve realmente
 (`usage.prompt_tokens`, `usage.completion_tokens`, `usage.total_tokens`,
 `usage.cost`). Cuando un valor no viene, se escribe `null`. **Nunca** se inventa
 una métrica ni se calcula un coste estimado.
+
+### La fecha de inicio de ciclo (`temporalAnalysis`)
+
+La sección 5.3 del procedimiento se define en función de la **fecha de inicio de
+ciclo**, no de ninguna fecha administrativa. Por eso esa fecha viaja en un bloque
+propio y trazable en lugar de ser un string suelto dentro de `case`.
+
+- El modelo la determina **por significado semántico**, buscando en todas las
+  evidencias sin importar su sistema o formato. Una fecha de creación de
+  matrícula, inscripción, decisión D35/D53, CAVE, ticket, facturación o contacto
+  **no** es una fecha de inicio de ciclo, aunque sea la única fecha visible.
+- Si ninguna evidencia acredita el inicio académico, `cycleStartDate` es `null`
+  y `relationToCycleStart` es `NO_DETERMINABLE`. **Nunca** se deduce de otra
+  fecha del expediente.
+- `relationToCycleStart` compara **solo** `cancellationRequestDate` contra
+  `cycleStartDate`, y es obligatorio resolverla antes de aplicar la sección 5.3.
+- El backend **no reclasifica**: no calcula la relación ni corrige la fecha.
+  Solo rechaza assessments internamente incoherentes, entre ellas:
+  - una `cycleStartDate` sin `cycleStartEvidenceIds` ni cita textual;
+  - una relación distinta de `NO_DETERMINABLE` sin **ambas** fechas acreditadas
+    (afirmar `DESPUES_DEL_INICIO` sin inicio acreditado es exactamente el
+    razonamiento que convertía una cancelación de venta en baja);
+  - `case.cycleStartDate` distinta de `temporalAnalysis.cycleStartDate`;
+  - confianza `1` en una fecha de inicio crítica o con cronología
+    `NO_DETERMINABLE`.
+- Una fecha de inicio afirmada exige además su fact `cycle_start_date` con
+  evidencia, cita y confianza menor que 1, para que la trazabilidad sea visible
+  en la UI.
+- Los conflictos entre dos fechas de inicio se registran en `conflicts`; no se
+  elige una en silencio. Una fecha administrativa distinta **no** es un conflicto:
+  son conceptos diferentes.
+
+Regresión: `tests/cycle-start-date.test.ts` (los cinco escenarios) y el caso real
+sintético en `tests/ai-smoke.live.test.ts` (`npm run test:ai-smoke`).
 
 ### OpenRouter: capacidades, schema y fallback
 

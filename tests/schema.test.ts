@@ -28,11 +28,28 @@ const validResult = {
       evidenceIds: ['ev-1'],
       evidenceText: 'UTEL-2026-001',
     },
+    {
+      key: 'cycle_start_date',
+      label: 'Fecha de inicio de ciclo',
+      value: '2026-01-12',
+      confidence: 0.95,
+      evidenceIds: ['ev-1'],
+      evidenceText: 'Inicio de ciclo: 12/01/2026',
+    },
   ],
   timeline: [
     { date: '2026-02-01', event: 'El estudiante solicita la cancelación.', evidenceIds: ['ev-1'] },
   ],
   conflicts: [],
+  temporalAnalysis: {
+    cycleStartDate: '2026-01-12',
+    cycleStartEvidenceIds: ['ev-1'],
+    cycleStartEvidenceText: 'Inicio de ciclo: 12/01/2026',
+    cancellationRequestDate: '2026-02-01',
+    cancellationRequestEvidenceIds: ['ev-1'],
+    relationToCycleStart: 'DESPUES_DEL_INICIO',
+    reasoning: 'La solicitud es posterior al inicio de ciclo acreditado.',
+  },
   audit: {
     result: 'CANCELACION_VENTA',
     rule: 'GDM_GAM_PRD_MLG_003 v5 — Fase de venta',
@@ -165,6 +182,19 @@ describe('parseAuditResult (schema único)', () => {
   it('acepta evidencia insuficiente con relatedEvidenceIds vacío y NO_DETERMINABLE sin datos', () => {
     const assessment = {
       ...validResult,
+      // Sin hechos ni evidencia que acredite el inicio, el análisis temporal
+      // degrada a NO_DETERMINABLE: afirmar una fecha sin respaldo sería
+      // incoherente con el resto del assessment.
+      case: { ...validResult.case, cycleStartDate: null },
+      temporalAnalysis: {
+        cycleStartDate: null,
+        cycleStartEvidenceIds: [],
+        cycleStartEvidenceText: null,
+        cancellationRequestDate: null,
+        cancellationRequestEvidenceIds: [],
+        relationToCycleStart: 'NO_DETERMINABLE',
+        reasoning: 'No hay evidencia que acredite el inicio de ciclo ni la fecha de la solicitud.',
+      },
       facts: [],
       timeline: [],
       audit: {

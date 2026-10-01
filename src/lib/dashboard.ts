@@ -248,11 +248,16 @@ export function hasKnownModelCost(row: ModelCostRow): boolean {
 // nada: ni una media, ni una banda, ni un porcentaje.
 //
 // LA REGLA DE ESTA VISTA, escrita en los tipos para que ninguna pantalla pueda
-// saltársela por descuido: la parte HUMANA de la calidad no existe, y por eso
-// llega como `null`, NUNCA como 0. Un `agreementPct: 0` afirmaría "la IA
-// coincide con el humano un 0 % de las veces", y eso es falso: no es que falle
-// siempre, es que el sistema no registra revisión humana con la que compararla.
-// La UI pinta esas tres tarjetas con `DASH` ("—"), no con `0 %`.
+// saltársela por descuido: una magnitud que NO SE HA MEDIDO llega como `null`,
+// NUNCA como 0. Un `agreementRate: 0` afirmaría "la IA coincide con el humano
+// un 0 % de las veces", y eso es falso cuando lo que pasa es que nadie ha
+// comparado todavía. La UI pinta esas tarjetas con `DASH` ("—"), no con `0 %`.
+//
+// OJO, PORQUE ES LA PARTE QUE MÁS SE CONFUNDE: el `0` SÍ es un dato válido en
+// los CONTADORES (`reviewedCases: 0` quiere decir "nadie ha revisado nada", y eso
+// es verdad). Lo que no puede ser 0 es un PROMEDIO sin nada que promediar. Por
+// eso los contadores son `number` y `agreementRate` / `avgComparisonConfidence`
+// son `number | null`.
 // -----------------------------------------------------------------------------
 
 /**
@@ -267,25 +272,47 @@ export function hasKnownModelCost(row: ModelCostRow): boolean {
 export type MissingEvidenceBucket = '0' | '1' | '2+';
 
 /**
- * Parte humana del informe de calidad: siempre ausente, y siempre por el mismo
- * motivo. El servidor no la calcula porque no puede: no hay revisión humana en
- * ninguna tabla.
+ * Parte humana del informe de calidad: la revisión que registró una persona y si
+ * el modelo coincidió con ella al comparar.
  *
- * `available` está declarado como el literal `false` (y no `boolean`) a propósito:
- * mientras siga siendo `false`, TypeScript exige que los tres campos de abajo
- * sean `null`, así que nadie puede devolver un 0 "para ir dejando hueco" sin que
- * el compilador lo diga.
+ * `agreementRate` y `avgComparisonConfidence` son `number | null`, y el `null`
+ * significa "NO SE HA MEDIDO". Se calcula en el servidor, sobre las comparaciones
+ * `COMPLETED` del periodo; el frontend sólo lo pinta.
+ *
+ * `agreementRate` es una RAZÓN entre 0 y 1, no un porcentaje: 0.667 son dos
+ * tercios. Un `0` aquí sí es un dato LEGÍTIMO (hubo comparaciones completadas y
+ * ninguna coincidió); lo que nunca puede ser 0 es "no había nada que medir", y
+ * ese estado es exactamente el `null`.
  */
 export interface HumanReviewReport {
-  available: false;
-  reason: 'NO_HUMAN_REVIEW_DATA';
-  /** Explicación en español, lista para pintar tal cual bajo las tarjetas vacías. */
+  /** `true` si existe al menos UNA revisión humana en el periodo. */
+  available: boolean;
+  /**
+   * Explicación del estado actual, en español, lista para pintar tal cual.
+   *
+   * La redacta el SERVIDOR y no la UI: la razón de por qué falta un dato tiene
+   * que vivir junto al cálculo que la produce, y los números que aparecen en el
+   * texto salen de las cifras de este mismo objeto. Un mensaje compuesto en el
+   * frontend podría decir "no hay datos" teniendo datos delante sin que nadie lo
+   * notara.
+   */
   message: string;
+  /** Revisiones humanas registradas que el periodo contiene. */
   reviewedCases: number;
-  correctedCases: number;
-  agreementPct: null;
-  confusionMatrix: null;
-  agreementByCaseType: null;
+  /** Comparaciones `COMPLETED`: las únicas con veredicto. */
+  completedComparisons: number;
+  /** Comparaciones `RUNNING`: en curso, sin veredicto todavía. */
+  pendingComparisons: number;
+  /** Comparaciones `ERROR`: terminadas en fallo, sin veredicto. */
+  failedComparisons: number;
+  /** De las completadas, cuántas afirmaron coincidencia (`agrees === true`). */
+  agreements: number;
+  /** De las completadas, cuántas afirmaron discrepancia (`agrees === false`). */
+  disagreements: number;
+  /** `agreements / completedComparisons`, o `null` si no hay comparaciones completadas. */
+  agreementRate: number | null;
+  /** Media de `confidence` de las COMPLETED que lo declararon, o `null` si ninguna. */
+  avgComparisonConfidence: number | null;
 }
 
 /** Confianza declarada por el modelo, agrupada. */

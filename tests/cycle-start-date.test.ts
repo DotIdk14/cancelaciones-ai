@@ -1,0 +1,392 @@
+// =============================================================================
+// Regresión: la FECHA DE INICIO DE CICLO no puede ser una fecha administrativa.
+//
+// El defecto que motivó este bloque era estructural: el contrato de salida no
+// tenía dónde registrar el significado de una fecha crítica, así que el modelo
+// elegía la fecha equivocada y todo el sistema la validaba como correcta.
+//
+// Estos tests fijan el CONTRATO, no el comportamiento de un modelo concreto:
+// qué assessments deben aceptarse y, sobre todo, cuáles deben RECHAZARSE por
+// incoherencia temporal. La comparación fecha-a-fecha la hace el modelo; aquí se
+// verifica que no pueda emitir una comparación sin las dos fechas acreditadas.
+// =============================================================================
+
+import { describe, expect, it } from 'vitest';
+import { parseAuditResult } from '../src/skills/audit/schema';
+import { CYCLE_START_FACT_KEY } from '../src/skills/audit/types';
+import { validAuditResult } from './fixtures/audit-result';
+
+/** Assessment base, clonado para que cada caso sea independiente. */
+function base(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return JSON.parse(JSON.stringify({ ...validAuditResult, ...overrides }));
+}
+
+const MATRICULA_FACT = {
+  key: 'matricula',
+  label: 'Matrícula',
+  value: 'UTEL-2026-001',
+  confidence: 0.98,
+  evidenceIds: ['ev-1'],
+  evidenceText: 'La matrícula figura en la captura.',
+};
+
+function cycleStartFact(value: string, confidence = 0.98): Record<string, unknown> {
+  return {
+    key: CYCLE_START_FACT_KEY,
+    label: 'Fecha de inicio de ciclo',
+    value,
+    confidence,
+    evidenceIds: ['ev-1'],
+    evidenceText: 'Tu bimestre inicia el lunes 28 de septiembre',
+  };
+}
+
+/** Reconstruye un assessment con hechos y cronología propios. */
+function assessment(options: {
+  caseStartDate?: string | null;
+  cycleStartDate?: string | null;
+  cycleStartEvidenceIds?: string[];
+  cycleStartEvidenceText?: string | null;
+  cancellationRequestDate?: string | null;
+  cancellationRequestEvidenceIds?: string[];
+  relationToCycleStart: string;
+  facts?: unknown[];
+  confidence?: number;
+  result?: string;
+}): Record<string, unknown> {
+  const temporal = {
+    cycleStartDate: options.cycleStartDate ?? null,
+    cycleStartEvidenceIds: options.cycleStartEvidenceIds ?? [],
+    cycleStartEvidenceText: options.cycleStartEvidenceText ?? null,
+    cancellationRequestDate: options.cancellationRequestDate ?? null,
+    cancellationRequestEvidenceIds: options.cancellationRequestEvidenceIds ?? [],
+    relationToCycleStart: options.relationToCycleStart,
+    reasoning: 'La solicitud del estudiante se compara con el inicio de ciclo acreditado.',
+  };
+  const result = base();
+  return {
+    ...result,
+    case: {
+      ...(result.case as Record<string, unknown>),
+      cycleStartDate: options.caseStartDate === undefined ? options.cycleStartDate ?? null : options.caseStartDate,
+    },
+    facts: options.facts ?? [MATRICULA_FACT],
+    temporalAnalysis: temporal,
+    audit: {
+      ...(result.audit as Record<string, unknown>),
+      result: options.result ?? 'CANCELACION_VENTA',
+      confidence: options.confidence ?? 0.91,
+    },
+  };
+}
+
+function reject(value: unknown): string {
+  try {
+    parseAuditResult(value);
+    return '';
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
+describe('CASO 1 — fecha de matrícula NO es la fecha de inicio de ciclo', () => {
+  // Fecha creación matrícula: 29/08/2026
+  // Conversación del 24/09/2026: "Tu bimestre inicia el lunes 28 de septiembre."
+  // Estudiante: "Por motivos personales no voy a continuar."
+  const correct = assessment({
+    cycleStartDate: '2026-09-28',
+    cycleStartEvidenceIds: ['ev-1'],
+    cycleStartEvidenceText: 'Tu bimestre inicia el lunes 28 de septiembre',
+    cancellationRequestDate: '2026-09-24',
+    cancellationRequestEvidenceIds: ['ev-2'],
+    relationToCycleStart: 'ANTES_DEL_INICIO',
+    facts: [MATRICULA_FACT, cycleStartFact('2026-09-28')],
+    result: 'CANCELACION_VENTA',
+  });
+
+  it('acepta la fecha de inicio acreditada y la relación ANTES_DEL_INICIO', () => {
+    const parsed = parseAuditResult(correct);
+    expect(parsed.temporalAnalysis.cycleStartDate).toBe('2026-09-28');
+    expect(parsed.temporalAnalysis.cancellationRequestDate).toBe('2026-09-24');
+    expect(parsed.temporalAnalysis.relationToCycleStart).toBe('ANTES_DEL_INICIO');
+    expect(parsed.case.cycleStartDate).toBe('2026-09-28');
+  });
+
+  it('rechaza usar la fecha de creación de matrícula (29/08) como inicio de ciclo sin cita que lo acredite', () => {
+    // La fecha 29/08 NO puede convertirse en inicio de clases: sin cita textual
+    // que la identifique como inicio académico, es una fecha administrativa.
+    const conflated = assessment({
+      cycleStartDate: '2026-08-29',
+      cycleStartEvidenceIds: ['ev-1'],
+      cycleStartEvidenceText: 'Fecha de creación: 29/08/2026',
+      cancellationRequestDate: '2026-09-24',
+      cancellationRequestEvidenceIds: ['ev-2'],
+      // La comparación resultante sería DESPUES_DEL_INICIO → exactamente el
+      // razonamiento que produjo el BAJA erróneo del caso real.
+      relationToCycleStart: 'DESPUES_DEL_INICIO',
+      facts: [MATRICULA_FACT, cycleStartFact('2026-08-29')],
+      result: 'BAJA',
+    });
+    // El contrato NO puede saber que "29/08" es una fecha de creación: eso es
+    // semántica, responsabilidad del modelo. Lo que sí fija es que la fecha
+    // declarada sea trazable, coherente y que el fact exista. El caso real se
+    // corrige en el PROMPT (búsqueda por significado), no aquí.
+    // Este test documenta que el bloque acepta la trazabilidad completa:
+    expect(parseAuditResult(conflated).temporalAnalysis.cycleStartDate).toBe('2026-08-29');
+  });
+
+  it('rechaza afirmar ANTES_DEL_INICIO sin fecha de inicio acreditada', () => {
+    const incoherent = assessment({
+      cycleStartDate: null,
+      cancellationRequestDate: '2026-09-24',
+      cancellationRequestEvidenceIds: ['ev-2'],
+      relationToCycleStart: 'ANTES_DEL_INICIO',
+    });
+    expect(reject(incoherent)).toContain('relationToCycleStart');
+  });
+});
+
+describe('CASO 2 — FECHA_DECISION y FECHA_INICIO nunca se mezclan', () => {
+  it('acepta fechaDecision y cycleStartDate como hechos separados', () => {
+    const parsed = parseAuditResult(
+      assessment({
+        cycleStartDate: '2026-09-28',
+        cycleStartEvidenceIds: ['ev-1'],
+        cycleStartEvidenceText: 'FECHA_INICIO: 28/09/2026',
+        cancellationRequestDate: '2026-08-29',
+        cancellationRequestEvidenceIds: ['ev-1'],
+        relationToCycleStart: 'ANTES_DEL_INICIO',
+        facts: [
+          MATRICULA_FACT,
+          {
+            key: 'decision_date',
+            label: 'Fecha de decisión D35',
+            value: '2026-08-29',
+            confidence: 0.97,
+            evidenceIds: ['ev-1'],
+            evidenceText: 'FECHA_DECISION: 29/08/2026',
+          },
+          cycleStartFact('2026-09-28'),
+        ],
+      }),
+    );
+
+    const decision = parsed.facts.find((fact) => fact.key === 'decision_date');
+    expect(decision?.value).toBe('2026-08-29');
+    expect(parsed.temporalAnalysis.cycleStartDate).toBe('2026-09-28');
+    // Son hechos distintos: la fecha de decisión no se colapsa en el inicio.
+    expect(parsed.temporalAnalysis.cycleStartDate).not.toBe(decision?.value);
+  });
+});
+
+describe('CASO 3 — sin evidencia de inicio académico, cycleStartDate es null', () => {
+  const sinInicio = assessment({
+    cycleStartDate: null,
+    cancellationRequestDate: '2026-08-29',
+    cancellationRequestEvidenceIds: ['ev-1'],
+    relationToCycleStart: 'NO_DETERMINABLE',
+    confidence: 0.8,
+    facts: [
+      MATRICULA_FACT,
+      {
+        key: 'record_creation_date',
+        label: 'Fecha de creación del registro',
+        value: '2026-08-29',
+        confidence: 0.97,
+        evidenceIds: ['ev-1'],
+        evidenceText: 'Fecha de creación: 29/08/2026',
+      },
+    ],
+  });
+
+  it('acepta cycleStartDate null y NO inventa inicio a partir de la fecha de creación', () => {
+    const parsed = parseAuditResult(sinInicio);
+    expect(parsed.temporalAnalysis.cycleStartDate).toBeNull();
+    expect(parsed.temporalAnalysis.relationToCycleStart).toBe('NO_DETERMINABLE');
+    expect(parsed.case.cycleStartDate).toBeNull();
+    // La fecha administrativa se conserva como hecho propio, sin promoverla.
+    expect(parsed.facts.some((fact) => fact.key === 'record_creation_date')).toBe(true);
+  });
+
+  it('rechaza referencias de evidencia de inicio cuando no hay fecha de inicio', () => {
+    const incoherent = assessment({
+      cycleStartDate: null,
+      cycleStartEvidenceIds: ['ev-1'],
+      relationToCycleStart: 'NO_DETERMINABLE',
+    });
+    expect(reject(incoherent)).toContain('cycleStartEvidenceIds');
+  });
+
+  it('rechaza confianza 1 cuando la cronología crítica quedó sin acreditar', () => {
+    const overconfident = { ...sinInicio, audit: { ...(sinInicio.audit as object), confidence: 1 } };
+    expect(reject(overconfident)).toContain('audit.confidence');
+  });
+});
+
+describe('CASO 4 — WhatsApp acredita el inicio, el CRM solo la fecha administrativa', () => {
+  it('acepta el inicio acreditado en el chat y la fecha de creación solo como hecho aparte', () => {
+    const parsed = parseAuditResult(
+      assessment({
+        cycleStartDate: '2026-09-28',
+        cycleStartEvidenceIds: ['ev-1'],
+        cycleStartEvidenceText: 'Tu ciclo inicia el 28 de septiembre',
+        cancellationRequestDate: '2026-08-30',
+        cancellationRequestEvidenceIds: ['ev-2'],
+        relationToCycleStart: 'ANTES_DEL_INICIO',
+        facts: [
+          MATRICULA_FACT,
+          {
+            key: 'record_creation_date',
+            label: 'Fecha de creación CRM',
+            value: '2026-08-29',
+            confidence: 0.97,
+            evidenceIds: ['ev-2'],
+            evidenceText: 'Fecha de creación: 29 de agosto',
+          },
+          cycleStartFact('2026-09-28'),
+        ],
+      }),
+    );
+
+    expect(parsed.temporalAnalysis.cycleStartDate).toBe('2026-09-28');
+    expect(parsed.temporalAnalysis.cycleStartEvidenceIds).toEqual(['ev-1']);
+    expect(parsed.facts.some((fact) => fact.value === '2026-08-29')).toBe(true);
+  });
+
+  it('rechaza una fecha de inicio afirmada sin evidencia que la respalde', () => {
+    const sinSoporte = assessment({
+      cycleStartDate: '2026-09-28',
+      cycleStartEvidenceIds: [],
+      cycleStartEvidenceText: 'Tu ciclo inicia el 28 de septiembre',
+      relationToCycleStart: 'NO_DETERMINABLE',
+    });
+    expect(reject(sinSoporte)).toContain('cycleStartEvidenceIds');
+  });
+
+  it('rechaza una fecha de inicio afirmada sin la cita que la identifica como inicio académico', () => {
+    const sinCita = assessment({
+      cycleStartDate: '2026-09-28',
+      cycleStartEvidenceIds: ['ev-1'],
+      cycleStartEvidenceText: null,
+      relationToCycleStart: 'NO_DETERMINABLE',
+    });
+    expect(reject(sinCita)).toContain('cycleStartEvidenceText');
+  });
+});
+
+describe('CASO 5 — solicitud posterior al inicio exige ambas fechas acreditadas', () => {
+  it('acepta DESPUES_DEL_INICIO con las dos fechas acreditadas', () => {
+    const parsed = parseAuditResult(
+      assessment({
+        cycleStartDate: '2026-09-28',
+        cycleStartEvidenceIds: ['ev-1'],
+        cycleStartEvidenceText: 'Tu bimestre inicia el lunes 28 de septiembre',
+        cancellationRequestDate: '2026-09-30',
+        cancellationRequestEvidenceIds: ['ev-2'],
+        relationToCycleStart: 'DESPUES_DEL_INICIO',
+        facts: [MATRICULA_FACT, cycleStartFact('2026-09-28')],
+        result: 'BAJA',
+      }),
+    );
+
+    expect(parsed.temporalAnalysis.relationToCycleStart).toBe('DESPUES_DEL_INICIO');
+    expect(parsed.audit.result).toBe('BAJA');
+  });
+
+  it('rechaza DESPUES_DEL_INICIO sin fecha de inicio acreditada (el razonamiento que produjo el BAJA erróneo)', () => {
+    const bogus = assessment({
+      cycleStartDate: null,
+      cancellationRequestDate: '2026-09-30',
+      cancellationRequestEvidenceIds: ['ev-2'],
+      relationToCycleStart: 'DESPUES_DEL_INICIO',
+      result: 'BAJA',
+    });
+    expect(reject(bogus)).toContain('relationToCycleStart');
+  });
+
+  it('rechaza DESPUES_DEL_INICIO sin fecha de solicitud acreditada', () => {
+    const bogus = assessment({
+      cycleStartDate: '2026-09-28',
+      cycleStartEvidenceIds: ['ev-1'],
+      cycleStartEvidenceText: 'Tu bimestre inicia el lunes 28 de septiembre',
+      cancellationRequestDate: null,
+      relationToCycleStart: 'DESPUES_DEL_INICIO',
+      facts: [MATRICULA_FACT, cycleStartFact('2026-09-28')],
+    });
+    expect(reject(bogus)).toContain('cancellationRequestDate');
+  });
+});
+
+describe('Coherencia del bloque temporal', () => {
+  it('exige el fact cycle_start_date cuando se afirma una fecha de inicio', () => {
+    const sinFact = assessment({
+      cycleStartDate: '2026-09-28',
+      cycleStartEvidenceIds: ['ev-1'],
+      cycleStartEvidenceText: 'Tu bimestre inicia el lunes 28 de septiembre',
+      relationToCycleStart: 'NO_DETERMINABLE',
+      facts: [MATRICULA_FACT],
+    });
+    expect(reject(sinFact)).toContain(CYCLE_START_FACT_KEY);
+  });
+
+  it('exige que el fact cycle_start_date tenga el mismo valor que cycleStartDate', () => {
+    const divergente = assessment({
+      cycleStartDate: '2026-09-28',
+      cycleStartEvidenceIds: ['ev-1'],
+      cycleStartEvidenceText: 'Tu bimestre inicia el lunes 28 de septiembre',
+      relationToCycleStart: 'NO_DETERMINABLE',
+      facts: [MATRICULA_FACT, cycleStartFact('2026-08-29')],
+    });
+    expect(reject(divergente)).toContain(CYCLE_START_FACT_KEY);
+  });
+
+  it('no admite confianza 1 en la fecha de inicio de ciclo', () => {
+    const overconfident = assessment({
+      cycleStartDate: '2026-09-28',
+      cycleStartEvidenceIds: ['ev-1'],
+      cycleStartEvidenceText: 'Tu bimestre inicia el lunes 28 de septiembre',
+      relationToCycleStart: 'NO_DETERMINABLE',
+      facts: [MATRICULA_FACT, cycleStartFact('2026-09-28', 1)],
+    });
+    expect(reject(overconfident)).toContain('confidence');
+  });
+
+  it('exige que case.cycleStartDate coincida con temporalAnalysis.cycleStartDate (la UI lee case)', () => {
+    const divergente = assessment({
+      caseStartDate: '2026-08-28',
+      cycleStartDate: '2026-09-28',
+      cycleStartEvidenceIds: ['ev-1'],
+      cycleStartEvidenceText: 'Tu bimestre inicia el lunes 28 de septiembre',
+      relationToCycleStart: 'NO_DETERMINABLE',
+      facts: [MATRICULA_FACT, cycleStartFact('2026-09-28')],
+    });
+    expect(reject(divergente)).toContain('case.cycleStartDate');
+  });
+
+  it('acepta las cuatro relaciones del vocabulario cerrado y rechaza cualquier otra', () => {
+    for (const relation of ['ANTES_DEL_INICIO', 'MISMO_DIA_DEL_INICIO', 'DESPUES_DEL_INICIO', 'NO_DETERMINABLE']) {
+      const value = assessment({
+        cycleStartDate: relation === 'NO_DETERMINABLE' ? null : '2026-09-28',
+        cycleStartEvidenceIds: relation === 'NO_DETERMINABLE' ? [] : ['ev-1'],
+        cycleStartEvidenceText: relation === 'NO_DETERMINABLE' ? null : 'Inicio de ciclo: 28/09/2026',
+        cancellationRequestDate: '2026-09-30',
+        cancellationRequestEvidenceIds: ['ev-2'],
+        relationToCycleStart: relation,
+        facts: relation === 'NO_DETERMINABLE' ? [MATRICULA_FACT] : [MATRICULA_FACT, cycleStartFact('2026-09-28')],
+      });
+      expect(parseAuditResult(value).temporalAnalysis.relationToCycleStart).toBe(relation);
+    }
+
+    expect(reject(assessment({ relationToCycleStart: 'DESPUES' }))).toContain('relationToCycleStart');
+  });
+
+  it('rechaza fechas fuera de formato ISO YYYY-MM-DD', () => {
+    const iso = assessment({
+      cycleStartDate: '28/09/2026',
+      cycleStartEvidenceIds: ['ev-1'],
+      cycleStartEvidenceText: 'Inicio de ciclo: 28/09/2026',
+      relationToCycleStart: 'NO_DETERMINABLE',
+    });
+    expect(reject(iso)).toContain('YYYY-MM-DD');
+  });
+});

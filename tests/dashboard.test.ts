@@ -6,11 +6,14 @@ import {
   COST_PER_ROW,
   DASHBOARD_MAX_ROWS,
   aggregateAiCosts,
+  aggregateHumanReview,
   aggregateQuality,
   aggregateSummary,
   confidenceBand,
+  type ComparisonMetricRow,
   type CostGranularity,
   type DashboardMetricRow,
+  type HumanReviewInput,
 } from '../src/server/dashboard';
 
 const FILTERS: DashboardFilters = { from: '2026-09-01', to: '2026-09-30', result: null, status: null };
@@ -945,8 +948,55 @@ describe('aggregateAiCosts — truncado y metadatos', () => {
 // Calidad
 // -----------------------------------------------------------------------------
 
-function quality(rows: DashboardMetricRow[], totalAvailable = rows.length) {
-  return aggregateQuality(rows, FILTERS, totalAvailable);
+function quality(
+  rows: DashboardMetricRow[],
+  totalAvailable = rows.length,
+  humanReview: HumanReviewInput = sinRevisionHumana(),
+) {
+  return aggregateQuality(rows, FILTERS, totalAvailable, humanReview);
+}
+
+/**
+ * Entrada humana por defecto del agregador: ni una revisión registrada ni una
+ * comparación. Es el estado de una instalación que todavía no ha revisado nada.
+ */
+function sinRevisionHumana(): HumanReviewInput {
+  return { reviewedCases: 0, comparisons: [], comparisonsAvailable: 0 };
+}
+
+/** Fila de `case_comparisons_dashboard_metrics` con valores por defecto válidos. */
+function comparacion(overrides: Partial<ComparisonMetricRow> = {}): ComparisonMetricRow {
+  return {
+    id: 'comparison-1',
+    case_review_id: 'review-1',
+    case_id: 'case-1',
+    case_status: 'COMPLETED',
+    audit_result: 'CANCELACION_VENTA',
+    status: 'COMPLETED',
+    created_at: '2026-09-15T12:00:00.000Z',
+    agrees: true,
+    confidence: 0.8,
+    ...overrides,
+  };
+}
+
+/**
+ * Comparación EN CURSO: la fila existe y tiene deadline, pero todavía no hay
+ * veredicto. `agrees` y `confidence` son `null` porque así los escribe
+ * `insertComparison`, no porque el modelo haya dicho "no coinciden".
+ */
+function comparacionEnCurso(overrides: Partial<ComparisonMetricRow> = {}): ComparisonMetricRow {
+  return comparacion({ status: 'RUNNING', agrees: null, confidence: null, ...overrides });
+}
+
+/** Comparación FALLIDA: `updateComparisonError` limpia `result_json` y no deja veredicto. */
+function comparacionFallida(overrides: Partial<ComparisonMetricRow> = {}): ComparisonMetricRow {
+  return comparacion({ status: 'ERROR', agrees: null, confidence: null, ...overrides });
+}
+
+/** Entrada humana de una instalación que YA tiene revisiones registradas. */
+function conRevisiones(reviewedCases: number, comparisons: ComparisonMetricRow[]): HumanReviewInput {
+  return { reviewedCases, comparisons, comparisonsAvailable: comparisons.length };
 }
 
 /** Dictamen completado con la confianza y la evidencia que se le pasan. */
@@ -1130,54 +1180,313 @@ describe('aggregateQuality — confianza según evidencia faltante', () => {
   });
 });
 
-describe('aggregateQuality — la parte humana NO existe, y no se disfraza de 0', () => {
-  it('available es false y agreementPct es null aunque haya muchos dictámenes', () => {
-    // El caso que importa: 40 dictámenes confianza 0.9 cada uno. Un
-    // `agreementPct: 0` sería la respuesta del sistema equivocado, y affirmaría
-    // "la IA coincide con el humano un 0 % de las veces". No es que falle
-    // siempre: es que nadie ha revisado ninguno, así que no hay comparación.
-    const rows = Array.from({ length: 40 }, (_, i) =>
-      conConfianza(0.9, 0, { id: `a${i}`, case_id: `c${i}` }),
-    );
+// -----------------------------------------------------------------------------
+// Parte humana: la coincidencia IA/humano, y POR QUÉ `null` no es `0`
+//
+// La regla de este bloque entero: una magnitud que no se ha MEDIDO no se
+// rellena con 0. Un `agreementRate: 0` afirmaría "hubo cero coincidencias", y
+// eso es falso cuando lo que pasa es que nadie comparó. El mismo motivo por el
+// que la vista `audit_dashboard_metrics` distingue NULL de 0 en las columnas de
+// coste, y por el que hay un test que fija esa tripleta más arriba en este
+// archivo.
+// -----------------------------------------------------------------------------
+
+describe('aggregateHumanReview — sin nada que comparar', () => {
+  it('sin revisiones: available false y los dos promedios en null, NUNCA en 0', () => {
+    const report = aggregateHumanReview(sinRevisionHumana());
+
+    expect(report.available).toBe(false);
+    expect(report.reviewedCases).toBe(0);
+    expect(report.completedComparisons).toBe(0);
+    expect(report.pendingComparisons).toBe(0);
+    expect(report.failedComparisons).toBe(0);
+    expect(report.agreements).toBe(0);
+    expect(report.disagreements).toBe(0);
+    // LA REGLA: sin comparaciones completadas, el promedio NO EXISTE.
+    expect(report.agreementRate).toBeNull();
+    expect(report.avgComparisonConfidence).toBeNull();
+  });
+
+  it('el null sobrevive a la serialización: un 0 aquí publicaría una tasa inventada', () => {
+    // El `null` sólo sirve de algo si llega como `null` al navegador. Si algún
+    // serializador lo convirtiera en 0, la tarjeta pintaría "0 % de coincidencia"
+    // sin que nadie lo afirmara: aquí se comprueba el viaje entero.
+    const wire = JSON.parse(JSON.stringify(aggregateHumanReview(sinRevisionHumana()))) as {
+      agreementRate: unknown;
+      avgComparisonConfidence: unknown;
+    };
+
+    expect(wire.agreementRate).toBeNull();
+    expect(wire.avgComparisonConfidence).toBeNull();
+  });
+
+  it('muchos dictámenes tampoco crean revisión humana: son dos fuentes distintas', () => {
+    // 40 dictámenes con confianza 0.9 no producen ni una comparación: la
+    // confianza la declara el modelo al auditar, la revisión la registra una
+    // persona. Que la primera tarjeta exista no significa que la segunda sepa
+    // algo.
+    const rows = Array.from({ length: 40 }, (_, i) => conConfianza(0.9, 0, { id: `a${i}`, case_id: `c${i}` }));
     const report = quality(rows);
 
     expect(report.confidence.auditedCases).toBe(40);
     expect(report.humanReview.available).toBe(false);
-    expect(report.humanReview.reason).toBe('NO_HUMAN_REVIEW_DATA');
-    expect(report.humanReview.agreementPct).toBeNull();
-    expect(report.humanReview.confusionMatrix).toBeNull();
-    expect(report.humanReview.agreementByCaseType).toBeNull();
+    expect(report.humanReview.agreementRate).toBeNull();
+  });
+});
+
+describe('aggregateHumanReview — sólo las comparaciones COMPLETED cuentan', () => {
+  it('una comparación RUNNING es pendiente, no un desacuerdo', () => {
+    const report = aggregateHumanReview(conRevisiones(1, [comparacionEnCurso()]));
+
+    expect(report.available).toBe(true);
+    expect(report.pendingComparisons).toBe(1);
+    expect(report.completedComparisons).toBe(0);
+    // Ni acuerdo ni desacuerdo: la comparación aún no existe como veredicto.
+    expect(report.agreements).toBe(0);
+    expect(report.disagreements).toBe(0);
+    // Y por eso la tasa NO existe: un 0 affirmaría que la IA discrepó siempre.
+    expect(report.agreementRate).toBeNull();
+    expect(report.avgComparisonConfidence).toBeNull();
   });
 
-  it('los tres contadores son 0 porque el campo no existe, no porque no se pueda', () => {
-    const report = quality([conConfianza(0.9, 0, { id: 'a', case_id: 'ca' })]);
+  it('una comparación ERROR es fallida, y tampoco cuenta en la tasa', () => {
+    const report = aggregateHumanReview(conRevisiones(1, [comparacionFallida()]));
 
-    expect(report.humanReview.reviewedCases).toBe(0);
-    expect(report.humanReview.correctedCases).toBe(0);
+    expect(report.failedComparisons).toBe(1);
+    expect(report.completedComparisons).toBe(0);
+    expect(report.pendingComparisons).toBe(0);
+    expect(report.disagreements).toBe(0);
+    expect(report.agreementRate).toBeNull();
+    expect(report.avgComparisonConfidence).toBeNull();
   });
 
-  it('el motivo es un texto en español que explica la ausencia, no un código', () => {
-    const { humanReview } = quality([]);
+  it('3 completadas con 2 coincidencias: tasa y confianza media sobre esas 3', () => {
+    const report = aggregateHumanReview(
+      conRevisiones(3, [
+        comparacion({ id: 'a', case_review_id: 'r-a', agrees: true, confidence: 0.9 }),
+        comparacion({ id: 'b', case_review_id: 'r-b', agrees: true, confidence: 0.7 }),
+        comparacion({ id: 'c', case_review_id: 'r-c', agrees: false, confidence: 0.5 }),
+      ]),
+    );
 
-    expect(humanReview.message).toContain('revisión humana');
-    expect(humanReview.message).toContain('no se puede calcular');
-    // La UI pinta este texto tal cual: tiene que ser legible por sí solo.
-    expect(humanReview.message.length).toBeGreaterThan(80);
+    expect(report.completedComparisons).toBe(3);
+    expect(report.agreements).toBe(2);
+    expect(report.disagreements).toBe(1);
+    // 2/3 redondeado a 3 decimales, como las medias de confianza del informe.
+    expect(report.agreementRate).toBe(0.667);
+    // (0.9 + 0.7 + 0.5) / 3 = 0.7
+    expect(report.avgComparisonConfidence).toBe(0.7);
   });
 
-  it('no depende de las filas: cero filas y mil filas dan el mismo informe humano', () => {
+  it('las RUNNING y ERROR no se cuelan en la media de confianza', () => {
+    // `confidence` en 0.99 de una fila en curso o fallida es ruido: la fila no
+    // trae veredicto (así la escribe `reviews.ts`), y promediarlo bajaría la
+    // confianza media de la comparación con un dato que no existe.
+    const report = aggregateHumanReview(
+      conRevisiones(3, [
+        comparacion({ id: 'a', agrees: true, confidence: 0.6 }),
+        comparacionEnCurso({ id: 'b', agrees: true, confidence: 0.99 }),
+        comparacionFallida({ id: 'c', agrees: false, confidence: 0.99 }),
+      ]),
+    );
+
+    expect(report.completedComparisons).toBe(1);
+    expect(report.avgComparisonConfidence).toBe(0.6);
+    expect(report.agreementRate).toBe(1);
+  });
+
+  it('una COMPLETED con `agrees` ausente cuenta como completada y NO como desacuerdo', () => {
+    // La fila AFIRMA que terminó, así que cuenta como completada: es lo que dice
+    // su `status`. No aportar ni acuerdo ni desacuerdo es lo único honesto,
+    // porque `disagreements: 1` publicaría una discrepancia que nadie registró.
+    // Y la tasa sale 0 porque, entre las comparaciones completadas, ninguna
+    // afirmo coincidencia. Es una forma defensiva: `updateComparisonResult`
+    // sólo escribe un `result_json` que ya pasó `ComparisonResultSchema`, así
+    // que `agrees` siempre está.
+    const report = aggregateHumanReview(conRevisiones(1, [comparacion({ agrees: null, confidence: null })]));
+
+    expect(report.completedComparisons).toBe(1);
+    expect(report.agreements).toBe(0);
+    expect(report.disagreements).toBe(0);
+    expect(report.agreementRate).toBe(0);
+    // La confianza ausente SÍ es un dato ausente: esa media no existe.
+    expect(report.avgComparisonConfidence).toBeNull();
+  });
+
+  it('acuerdo más desacuerdo cuadra con las completadas cuando todas traen veredicto', () => {
+    const report = aggregateHumanReview(
+      conRevisiones(5, [
+        ...Array.from({ length: 3 }, (_, i) => comparacion({ id: `y${i}`, agrees: true })),
+        ...Array.from({ length: 2 }, (_, i) => comparacion({ id: `n${i}`, agrees: false })),
+        comparacionEnCurso({ id: 'p0' }),
+        comparacionFallida({ id: 'f0' }),
+      ]),
+    );
+
+    expect(report.agreements + report.disagreements).toBe(report.completedComparisons);
+    expect(report.agreementRate).toBe(0.6);
+  });
+});
+
+describe('aggregateHumanReview — el mensaje describe el estado real', () => {
+  it('el texto exacto del estado "todavía no hay revisión"', () => {
+    // Se fija COMPLETO a propósito: la UI lo pinta tal cual y este es el texto
+    // que explica por qué las tarjetas salen con "—". Si cambia, cambia a
+    // propósito, no por accidente.
+    expect(aggregateHumanReview(sinRevisionHumana()).message).toBe(
+      'Todavía no hay ninguna revisión humana registrada en el periodo, así que no hay nada que comparar: ' +
+        'la coincidencia entre el dictamen de la IA y la decisión de una persona no se puede calcular. ' +
+        'Se muestra únicamente lo que sí existe: la confianza declarada por el modelo en cada dictamen.',
+    );
+  });
+
+  it('cambia entre "sin revisiones" y "revisiones sin comparación completada"', () => {
+    const sinNada = aggregateHumanReview(sinRevisionHumana());
+    const pendientes = aggregateHumanReview(
+      conRevisiones(2, [comparacionEnCurso({ id: 'a' }), comparacionEnCurso({ id: 'b', case_review_id: 'review-2' })]),
+    );
+
+    expect(pendientes.message).not.toBe(sinNada.message);
+    expect(sinNada.message).toContain('revisión humana');
+    // Y el texto nuevo nombra números que el servidor acaba de calcular: un
+    // mensaje que no puede respaldar no debe publicarse.
+    expect(pendientes.message).toContain('2 revisiones humanas');
+    expect(pendientes.message).toContain('2 comparaciones en curso');
+    expect(pendientes.message).toContain('no se puede calcular');
+  });
+
+  it('distingue "en curso" de "falló": no son el mismo estado', () => {
+    const enCurso = aggregateHumanReview(conRevisiones(1, [comparacionEnCurso()]));
+    const fallidas = aggregateHumanReview(conRevisiones(1, [comparacionFallida()]));
+
+    expect(enCurso.message).toContain('en curso');
+    expect(enCurso.message).not.toContain('fallaron');
+    expect(fallidas.message).toContain('fallaron');
+    expect(fallidas.message).not.toContain('en curso');
+  });
+
+  it('con revisiones pero sin ninguna comparación, lo dice', () => {
+    // Una revisión sin fila de comparación es un tercer estado, distinto de "en
+    // curso" y de "falló": no hay nada en curso porque no se empezó nada.
+    const report = aggregateHumanReview(conRevisiones(3, []));
+
+    expect(report.available).toBe(true);
+    expect(report.message).toContain('3 revisiones humanas');
+    expect(report.message).toContain('ninguna tiene comparación');
+  });
+
+  it('con comparaciones completadas, el mensaje dice sobre cuáles se midió', () => {
+    const report = aggregateHumanReview(
+      conRevisiones(4, [
+        comparacion({ id: 'a', case_review_id: 'r-a', agrees: true }),
+        comparacion({ id: 'b', case_review_id: 'r-b', agrees: true }),
+        comparacionEnCurso({ id: 'p0', case_review_id: 'r-c' }),
+        comparacionFallida({ id: 'f0', case_review_id: 'r-d' }),
+      ]),
+    );
+
+    expect(report.message).toContain('2 comparaciones completadas');
+    expect(report.message).toContain('1 comparación en curso');
+    expect(report.message).toContain('1 fallida');
+    expect(report.message).toContain('no cuentan ni como acuerdo ni como desacuerdo');
+  });
+
+  it('sin pendientes ni fallidas, el mensaje no inventa categorías vacías', () => {
+    const report = aggregateHumanReview(conRevisiones(1, [comparacion()]));
+
+    expect(report.message).toContain('1 comparación completada');
+    expect(report.message).not.toContain('en curso');
+    expect(report.message).not.toContain('fallida');
+  });
+
+  it('con completadas y sólo en curso, tampoco nombra las fallidas', () => {
+    // El caso que faltaba y que un enumerado ingenuo rompía: al construir la
+    // lista de estados, la rama "hay completadas y alguna más" empujaba SIEMPRE
+    // el recuento de fallidas, así que un periodo con 1 completada y 1 en curso
+    // publicaba "y 0 fallidas". Es la misma mentira del 0 en su forma más
+    // pequeña: nombrar un estado que no ocurrió hace que quien lea busque un
+    // fallo que no existe, y por eso la categoría sólo aparece si hay filas.
+    const soloEnCurso = aggregateHumanReview(
+      conRevisiones(2, [comparacion({ id: 'a' }), comparacionEnCurso({ id: 'b' })]),
+    );
+
+    expect(soloEnCurso.completedComparisons).toBe(1);
+    expect(soloEnCurso.pendingComparisons).toBe(1);
+    expect(soloEnCurso.failedComparisons).toBe(0);
+    expect(soloEnCurso.message).toContain('1 comparación completada');
+    expect(soloEnCurso.message).toContain('1 comparación en curso');
+    expect(soloEnCurso.message).not.toContain('fallida');
+    // Ningún "0 " en el texto: un recuento de cero escrito en prosa es un 0
+    // disfrazado, y aquí significaría un estado que no ocurrió.
+    expect(soloEnCurso.message).not.toContain('0 ');
+  });
+
+  it('con completadas y sólo fallidas, tampoco nombra las que están en curso', () => {
+    const soloFallidas = aggregateHumanReview(
+      conRevisiones(2, [comparacion({ id: 'a' }), comparacionFallida({ id: 'b' })]),
+    );
+
+    expect(soloFallidas.message).toContain('1 comparación completada');
+    expect(soloFallidas.message).toContain('1 fallida');
+    expect(soloFallidas.message).not.toContain('en curso');
+    expect(soloFallidas.message).not.toContain('0 ');
+  });
+
+  it('es español legible, largo y sin NaN ni undefined en ningún estado', () => {
+    const informes = [
+      aggregateHumanReview(sinRevisionHumana()),
+      aggregateHumanReview(conRevisiones(1, [comparacionEnCurso()])),
+      aggregateHumanReview(conRevisiones(1, [comparacionFallida()])),
+      aggregateHumanReview(conRevisiones(1, [])),
+      aggregateHumanReview(conRevisiones(1, [comparacion()])),
+    ];
+
+    for (const report of informes) {
+      expect(report.message.length).toBeGreaterThan(100);
+      expect(report.message).not.toMatch(/NaN|undefined|null/);
+      expect(report.message).toMatch(/[.]$/);
+    }
+  });
+});
+
+describe('aggregateQuality — la parte humana viaja dentro del informe', () => {
+  it('el bloque humano NO depende de las filas de auditoría', () => {
+    // Cero filas y mil filas dan el MISMO bloque humano: lo que hay que leer es
+    // `humanReview`, no `rows`. Si algún día se mezclaran, mover el periodo de
+    // la barra de filtros cambiaría la coincidencia por un efecto secundario.
     expect(quality([]).humanReview).toEqual(
       quality(Array.from({ length: 1000 }, (_, i) => conConfianza(0.9, 0, { id: `a${i}`, case_id: `c${i}` })))
         .humanReview,
     );
   });
+
+  it('las comparaciones del periodo conviven con la confianza sin mezclarse', () => {
+    const report = quality([conConfianza(0.8, 0, { id: 'a', case_id: 'ca' })], 1, conRevisiones(1, [comparacion()]));
+
+    expect(report.confidence.auditedCases).toBe(1);
+    expect(report.confidence.avgConfidence).toBe(0.8);
+    expect(report.humanReview.completedComparisons).toBe(1);
+    expect(report.humanReview.agreementRate).toBe(1);
+    // La confianza de la COMPARACIÓN y la del DICTAMEN son dos magnitudes
+    // distintas: una la declara el modelo al comparar, la otra al auditar.
+    expect(report.humanReview.avgComparisonConfidence).toBe(0.8);
+  });
 });
 
 describe('aggregateQuality — truncado y metadatos', () => {
-  it('truncated se activa solo si hay más filas disponibles que el tope', () => {
+  it('truncated avisa si la fuente recortada es la de auditorías o la de comparaciones', () => {
     const rows = [conConfianza(0.9, 0)];
+
     expect(quality(rows, DASHBOARD_MAX_ROWS).truncated).toBe(false);
     expect(quality(rows, DASHBOARD_MAX_ROWS + 1).truncated).toBe(true);
+    // La parte humana tiene su propio tope: si se recortó ÉSTA, la tarjeta
+    // tiene que decirlo, porque su tasa se calculó sobre menos comparaciones.
+    const truncada: HumanReviewInput = {
+      reviewedCases: 3,
+      comparisons: [comparacion()],
+      comparisonsAvailable: DASHBOARD_MAX_ROWS + 1,
+    };
+    expect(quality(rows, 1, truncada).truncated).toBe(true);
   });
 
   it('devuelve los filtros aplicados y un generatedAt ISO', () => {

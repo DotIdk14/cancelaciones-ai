@@ -73,6 +73,11 @@ function validateAssessmentReferences(assessment: ReturnType<typeof parseAiAudit
   assessment.facts.forEach((item, index) => checkIds(item.evidenceIds, `facts.${index}.evidenceIds`));
   assessment.timeline.forEach((item, index) => checkIds(item.evidenceIds, `timeline.${index}.evidenceIds`));
   assessment.conflicts.forEach((item, index) => checkIds(item.evidenceIds, `conflicts.${index}.evidenceIds`));
+  // La fecha de inicio de ciclo es un hecho crítico: su evidencia se coteja con
+  // el mismo criterio que cualquier otra referencia, porque un `cycleStartDate`
+  // apuntando a una evidencia inexistente es una fecha sin respaldo real.
+  checkIds(assessment.temporalAnalysis.cycleStartEvidenceIds, 'temporalAnalysis.cycleStartEvidenceIds');
+  checkIds(assessment.temporalAnalysis.cancellationRequestEvidenceIds, 'temporalAnalysis.cancellationRequestEvidenceIds');
   checkIds(assessment.audit.supportingEvidenceIds, 'audit.supportingEvidenceIds');
   assessment.audit.missingEvidence.forEach((item, index) => {
     checkIds(item.relatedEvidenceIds, `audit.missingEvidence.${index}.relatedEvidenceIds`);

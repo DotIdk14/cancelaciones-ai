@@ -29,13 +29,44 @@ describe('provider schema proyectado desde Zod', () => {
     const providerSchema = buildProviderJsonSchema(AiAuditAssessmentSchema, 'gemini');
     const properties = providerSchema.properties as Record<string, unknown>;
     const required = providerSchema.required as string[];
-    const rootFields = ['case', 'evidenceSummary', 'facts', 'timeline', 'conflicts', 'audit'];
+    const rootFields = ['case', 'evidenceSummary', 'facts', 'timeline', 'conflicts', 'temporalAnalysis', 'audit'];
     for (const field of rootFields) {
       expect(properties).toHaveProperty(field);
       expect(required).toContain(field);
     }
     const caseSchema = properties.case as { properties: Record<string, { type?: unknown }> };
     expect(caseSchema.properties.matricula).toEqual({ type: ['string', 'null'] });
+  });
+
+  it('expone el análisis temporal con su vocabulario cerrado de relaciones', () => {
+    const providerSchema = buildProviderJsonSchema(AiAuditAssessmentSchema, 'gemini');
+    const temporal = (providerSchema.properties as Record<string, unknown>).temporalAnalysis as {
+      properties: Record<string, { enum?: string[]; type?: unknown }>;
+      required: string[];
+    };
+
+    // El provider debe recibir el bloque y TODAS sus claves como obligatorias:
+    // es lo que obliga al modelo a emitirlo en cada auditoría.
+    for (const field of [
+      'cycleStartDate',
+      'cycleStartEvidenceIds',
+      'cycleStartEvidenceText',
+      'cancellationRequestDate',
+      'cancellationRequestEvidenceIds',
+      'relationToCycleStart',
+      'reasoning',
+    ]) {
+      expect(temporal.properties[field]).toBeDefined();
+      expect(temporal.required).toContain(field);
+    }
+
+    // El enum viaja completo: sin él, el modelo podría inventar una relación.
+    expect(temporal.properties.relationToCycleStart.enum).toEqual([
+      'ANTES_DEL_INICIO',
+      'MISMO_DIA_DEL_INICIO',
+      'DESPUES_DEL_INICIO',
+      'NO_DETERMINABLE',
+    ]);
   });
 
   it('falla el contract check si se introduce una keyword incompatible', () => {
@@ -45,7 +76,7 @@ describe('provider schema proyectado desde Zod', () => {
 
   it('genera el contrato json_object del mismo schema de negocio', () => {
     const contract = buildJsonObjectContract(buildProviderJsonSchema(AiAuditAssessmentSchema, 'gemini'));
-    for (const field of ['case', 'evidenceSummary', 'facts', 'timeline', 'conflicts', 'audit']) {
+    for (const field of ['case', 'evidenceSummary', 'facts', 'timeline', 'conflicts', 'temporalAnalysis', 'audit']) {
       expect(contract).toContain(`"${field}"`);
     }
     expect(contract).toContain('exclusivamente un objeto JSON');

@@ -7,6 +7,7 @@
 
 import type { InsForgeClient } from './insforge.js';
 import type { CaseStatus, ErrorCategory, EvidenceStatus } from '../skills/audit/types.js';
+import type { CaseReviewRow } from './reviews.js';
 import { ApiError, mapProviderError } from './http.js';
 
 export interface CaseRow {
@@ -20,6 +21,10 @@ export interface CaseRow {
 
 export interface CaseSummaryRow extends CaseRow {
   evidence?: Array<{ count: number }> | null;
+  /** Resolución humana del caso (cargada en batch junto con el listado). */
+  review?: CaseReviewRow | null;
+  /** Auditoría COMPLETED vigente del caso (cargada en batch junto con el listado). */
+  audit?: AuditRow | null;
 }
 
 export interface EvidenceRow {
@@ -77,7 +82,41 @@ export async function listCaseSummaries(client: InsForgeClient): Promise<CaseSum
     .order('created_at', { ascending: false })
     .limit(100);
   if (error || !data) dbError(error);
-  return data as CaseSummaryRow[];
+  const rows = data as CaseSummaryRow[];
+
+  // Carga en batch la revisión humana y la auditoría COMPLETED vigente de los
+  // casos de la página, para que `caseToSummary` derive `effectiveResolution`
+  // sin N+1 (FIX 1).
+  const caseIds = rows.map((row) => row.id);
+  if (caseIds.length === 0) return rows;
+
+  const [{ data: reviewsData, error: reviewsError }, { data: auditsData, error: auditsError }] = await Promise.all([
+    client.database.from('case_reviews').select('*').in('case_id', caseIds),
+    client.database
+      .from('audits')
+      .select('*')
+      .eq('status', 'COMPLETED')
+      .in('case_id', caseIds)
+      .order('created_at', { ascending: false }),
+  ]);
+  if (reviewsError) dbError(reviewsError);
+  if (auditsError) dbError(auditsError);
+
+  const reviewMap = new Map<string, CaseReviewRow>();
+  for (const review of (reviewsData as CaseReviewRow[] | null) ?? []) {
+    if (!reviewMap.has(review.case_id)) reviewMap.set(review.case_id, review);
+  }
+
+  const auditMap = new Map<string, AuditRow>();
+  for (const audit of (auditsData as AuditRow[] | null) ?? []) {
+    if (!auditMap.has(audit.case_id)) auditMap.set(audit.case_id, audit);
+  }
+
+  return rows.map((row) => ({
+    ...row,
+    review: reviewMap.get(row.id) ?? null,
+    audit: auditMap.get(row.id) ?? null,
+  }));
 }
 
 export async function getCaseOr404(client: InsForgeClient, caseId: string): Promise<CaseRow> {
@@ -174,6 +213,47 @@ export async function listAuditsByCase(client: InsForgeClient, caseId: string): 
     .order('created_at', { ascending: false });
   if (error) dbError(error);
   return (data as AuditRow[] | null) ?? [];
+}
+
+/**
+ * Una auditoría CONCRETA por id.
+ *
+ * Existe para la revisión humana: la comparación tiene que evaluar el dictamen
+ * que la revisión referencia (`case_reviews.audit_id`), no "la última del caso".
+ * Con `latestAudit` una re-auditoría posterior cambiaría bajo los pies el
+ * dictamen comparado y la comparación respondería a una pregunta que nadie
+ * preguntó. Una fila COMPLETED es inmutable, así que leerla por id es seguro.
+ */
+export async function getAuditById(client: InsForgeClient, auditId: string): Promise<AuditRow | null> {
+  const { data, error } = await client.database
+    .from('audits')
+    .select('*')
+    .eq('id', auditId)
+    .limit(1);
+  if (error) dbError(error);
+  const rows = data as AuditRow[] | null;
+  return rows?.[0] ?? null;
+}
+
+/**
+ * Auditoría COMPLETED más reciente del caso.
+ *
+ * Es el dictamen vigente: el que una revisión nueva compara por defecto y el
+ * que sostiene `effectiveResolution.source = 'AI'` mientras no exista decisión
+ * humana. NO devuelve la fila más reciente si está RUNNING o en ERROR, porque
+ * una ejecución en curso o fallida no es un dictamen.
+ */
+export async function latestCompletedAudit(client: InsForgeClient, caseId: string): Promise<AuditRow | null> {
+  const { data, error } = await client.database
+    .from('audits')
+    .select('*')
+    .eq('case_id', caseId)
+    .eq('status', 'COMPLETED')
+    .order('created_at', { ascending: false })
+    .limit(1);
+  if (error) dbError(error);
+  const rows = data as AuditRow[] | null;
+  return rows?.[0] ?? null;
 }
 
 export async function latestCompletedAuditByFingerprint(

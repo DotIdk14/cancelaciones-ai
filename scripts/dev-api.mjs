@@ -45,6 +45,23 @@ function createDevApiMiddleware(server) {
       file: fromRoot('api/cases/[caseId]/audit/index.ts'),
       params: ['caseId'],
     },
+    // Rutas de caso registradas explicitamente porque Vite no descubre
+    // /api/cases/[caseId]/** por sí solo: sin esta tabla, review y comparison
+    // darían 404 en el dev server aunque los handlers existan y en Vercel
+    // funcionen. Se declaran después de las de cases/[caseId] para no alterar
+    // el orden de resolución actual.
+    {
+      methods: ['GET', 'POST'],
+      pattern: /^\/api\/cases\/([^/]+)\/review$/,
+      file: fromRoot('api/cases/[caseId]/review/index.ts'),
+      params: ['caseId'],
+    },
+    {
+      methods: ['POST'],
+      pattern: /^\/api\/cases\/([^/]+)\/comparison$/,
+      file: fromRoot('api/cases/[caseId]/comparison/index.ts'),
+      params: ['caseId'],
+    },
   ];
 
   async function readBody(req) {

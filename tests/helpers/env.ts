@@ -9,6 +9,8 @@ const REQUIRED_VARS: Record<string, string> = {
   OPENROUTER_MODEL: 'google/gemini-2.5-flash-lite',
   AI_MAX_OUTPUT_TOKENS: '16384',
   ASSEMBLYAI_API_KEY: 'Example-Api-Key-1234567890',
+  COMPARISON_RETRY_MIN_BACKOFF_MS: '0',
+  COMPARISON_MAX_RETRIES: '3',
 };
 
 /** Aplica variables mínimas y limpia la caché de getEnv(). */

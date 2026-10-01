@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AUDIT_RESULTS } from './types.js';
+import { AUDIT_RESULTS, CYCLE_START_FACT_KEY, TEMPORAL_RELATIONS } from './types.js';
 import { ApiError } from '../../server/http.js';
 
 // =============================================================================
@@ -7,6 +7,30 @@ import { ApiError } from '../../server/http.js';
 // El LLM sólo emite el assessment. Metadata técnica (modelo/usage/coste) se
 // agrega en servidor desde OpenRouter real; nunca desde la respuesta del modelo.
 // =============================================================================
+
+/** `2026-09-28` — la fecha se normaliza a ISO para que la comparación sea unívoca. */
+const IsoDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'INVALID_AI_RESPONSE: la fecha debe estar en formato ISO YYYY-MM-DD');
+
+/**
+ * Análisis temporal solicitud vs. inicio de ciclo.
+ *
+ * Vive en el MISMO nivel que `facts`/`timeline`/`conflicts` porque es un hecho
+ * de primera clase del expediente, no una nota: es lo que impide que una fecha
+ * administrativa se use como fecha de inicio académico.
+ */
+const TemporalAnalysisSchema = z
+  .object({
+    cycleStartDate: IsoDate.nullable(),
+    cycleStartEvidenceIds: z.array(z.string().min(1)),
+    cycleStartEvidenceText: z.string().nullable(),
+    cancellationRequestDate: IsoDate.nullable(),
+    cancellationRequestEvidenceIds: z.array(z.string().min(1)),
+    relationToCycleStart: z.enum(TEMPORAL_RELATIONS),
+    reasoning: z.string().min(1),
+  })
+  .strict();
 
 const MissingEvidenceSchema = z.object({
   title: z.string().min(1),
@@ -82,6 +106,8 @@ export const AiAuditAssessmentSchema = z
       }),
     ),
 
+    temporalAnalysis: TemporalAnalysisSchema,
+
     audit: z.object({
       result: z.enum(AUDIT_RESULTS),
       rule: z.string().min(1),
@@ -126,7 +152,21 @@ export function parseAuditResult(raw: unknown): AuditResult {
   return parseWithInvalidAiError(AuditResultSchema, raw);
 }
 
-function validateBusinessRules(assessment: { audit: { result: string; rule: string; procedureSection: string; supportingEvidenceIds: string[]; missingEvidence: Array<{ blocking: boolean }>; procedureChecks: Array<{ status: string; evidenceIds: string[]; observedValues: unknown[] }>; provisionalResolution: { evidenceIds: string[] } | null } }): void {
+interface ValidatedAssessment {
+  case: { cycleStartDate: string | null };
+  facts: Array<{ key: string; value: string | number | boolean | null; confidence: number; evidenceIds: string[]; evidenceText: string | null }>;
+  temporalAnalysis: {
+    cycleStartDate: string | null;
+    cycleStartEvidenceIds: string[];
+    cycleStartEvidenceText: string | null;
+    cancellationRequestDate: string | null;
+    cancellationRequestEvidenceIds: string[];
+    relationToCycleStart: string;
+  };
+  audit: { result: string; rule: string; procedureSection: string; confidence: number; supportingEvidenceIds: string[]; missingEvidence: Array<{ blocking: boolean }>; procedureChecks: Array<{ status: string; evidenceIds: string[]; observedValues: unknown[] }>; provisionalResolution: { evidenceIds: string[] } | null };
+}
+
+function validateBusinessRules(assessment: ValidatedAssessment): void {
   if (assessment.audit.rule.trim().length === 0) {
     throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.rule: debe ser un string no vacío');
   }
@@ -162,13 +202,91 @@ function validateBusinessRules(assessment: { audit: { result: string; rule: stri
       throw new ApiError(502, 'INVALID_AI_RESPONSE', `INVALID_AI_RESPONSE: audit.procedureChecks.${index}.status: NO_ACREDITADO exige evidencia y valores observados que sustenten la ausencia`);
     }
   });
+  validateTemporalCoherence(assessment);
+}
+
+/**
+ * Coherencia del análisis temporal.
+ *
+ * NO reclasifica y NO calcula la relación: el modelo ya la emitió. Sólo rechaza
+ * assessments que son internamente imposibles, que es exactamente donde se
+ * escondía el defecto que motivó este bloque:
+ *
+ *  1. Una `cycleStartDate` afirmada sin evidencia ni cita textual no está
+ *     acreditada: sería una fecha inventada.
+ *  2. Una relación `DESPUES_DEL_INICIO` (o `ANTES_DEL_INICIO`) sin AMBAS fechas
+ *     acreditadas no es una comparación: es una afirmación. Sin `cycleStartDate`
+ *     no se puede afirmar que la solicitud fue posterior al inicio, que es
+ *     justamente el razonamiento que convertía una baja en BAJA.
+ *  3. Una fecha `null` con `evidenceIds` no vacíos referencia evidencia que no
+ *     respalda nada.
+ *  4. `case.cycleStartDate` es lo que muestra la UI. Si divergiera de
+ *     `temporalAnalysis.cycleStartDate`, la pantalla afirmaría una fecha que el
+ *     análisis temporal no sostiene.
+ *  5. Una fecha de inicio acreditada DEBE tener su fact `cycle_start_date` con
+ *     evidencia y cita, y con confianza < 1: una fecha crítica declarada con
+ *     certeza absoluta es, por definición, una fecha mal caracterizada.
+ *  6. Si la relación es `NO_DETERMINABLE`, el dictamen no puede declararse con
+ *     confianza máxima: la cronología crítica quedó sin acreditar.
+ */
+function validateTemporalCoherence(assessment: ValidatedAssessment): void {
+  const temporal = assessment.temporalAnalysis;
+  const path = 'INVALID_AI_RESPONSE: temporalAnalysis';
+
+  if (temporal.cycleStartDate !== null) {
+    if (temporal.cycleStartEvidenceIds.length === 0) {
+      throw new ApiError(502, 'INVALID_AI_RESPONSE', `${path}.cycleStartDate: una fecha de inicio de ciclo afirmada exige cycleStartEvidenceIds; sin evidencia no está acreditada`);
+    }
+    if (temporal.cycleStartEvidenceText === null || temporal.cycleStartEvidenceText.trim() === '') {
+      throw new ApiError(502, 'INVALID_AI_RESPONSE', `${path}.cycleStartEvidenceText: una fecha de inicio de ciclo afirmada exige la cita textual que la identifica como inicio académico`);
+    }
+  } else if (temporal.cycleStartEvidenceIds.length > 0) {
+    throw new ApiError(502, 'INVALID_AI_RESPONSE', `${path}.cycleStartEvidenceIds: sin cycleStartDate no puede haber evidencia que acredite el inicio de ciclo`);
+  }
+
+  if (temporal.cancellationRequestDate === null && temporal.cancellationRequestEvidenceIds.length > 0) {
+    throw new ApiError(502, 'INVALID_AI_RESPONSE', `${path}.cancellationRequestEvidenceIds: sin cancellationRequestDate no puede haber evidencia que acredite la fecha de la solicitud`);
+  }
+
+  if (temporal.relationToCycleStart !== 'NO_DETERMINABLE') {
+    if (temporal.cycleStartDate === null) {
+      throw new ApiError(502, 'INVALID_AI_RESPONSE', `${path}.relationToCycleStart: ${temporal.relationToCycleStart} exige un cycleStartDate acreditado; sin él la relación no es determinable`);
+    }
+    if (temporal.cancellationRequestDate === null) {
+      throw new ApiError(502, 'INVALID_AI_RESPONSE', `${path}.relationToCycleStart: ${temporal.relationToCycleStart} exige un cancellationRequestDate acreditado; la comparación es entre la solicitud y el inicio de ciclo`);
+    }
+  }
+
+  if (temporal.cycleStartDate !== null && assessment.case.cycleStartDate !== temporal.cycleStartDate) {
+    throw new ApiError(502, 'INVALID_AI_RESPONSE', `INVALID_AI_RESPONSE: case.cycleStartDate debe coincidir con temporalAnalysis.cycleStartDate (${temporal.cycleStartDate}); la UI muestra case.cycleStartDate`);
+  }
+
+  if (temporal.cycleStartDate !== null) {
+    const fact = assessment.facts.find((item) => item.key === CYCLE_START_FACT_KEY);
+    if (!fact) {
+      throw new ApiError(502, 'INVALID_AI_RESPONSE', `INVALID_AI_RESPONSE: facts: cycleStartDate afirmada exige el fact "${CYCLE_START_FACT_KEY}" con su evidencia y su cita`);
+    }
+    if (fact.value !== temporal.cycleStartDate) {
+      throw new ApiError(502, 'INVALID_AI_RESPONSE', `INVALID_AI_RESPONSE: facts.${CYCLE_START_FACT_KEY}.value debe ser la fecha de inicio acreditada (${temporal.cycleStartDate})`);
+    }
+    if (fact.evidenceIds.length === 0 || fact.evidenceText === null || fact.evidenceText.trim() === '') {
+      throw new ApiError(502, 'INVALID_AI_RESPONSE', `INVALID_AI_RESPONSE: facts.${CYCLE_START_FACT_KEY}: exige evidenceIds y evidenceText que acrediten la fecha de inicio`);
+    }
+    if (fact.confidence >= 1) {
+      throw new ApiError(502, 'INVALID_AI_RESPONSE', `INVALID_AI_RESPONSE: facts.${CYCLE_START_FACT_KEY}.confidence: una fecha crítica usada para el dictamen no admite confianza 1`);
+    }
+  }
+
+  if (temporal.relationToCycleStart === 'NO_DETERMINABLE' && assessment.audit.confidence >= 1) {
+    throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.confidence: con relationToCycleStart NO_DETERMINABLE el dictamen no admite confianza 1; la cronología crítica no está acreditada');
+  }
 }
 
 function parseWithInvalidAiError<T>(schema: z.ZodType<T>, raw: unknown): T {
   try {
     const parsed = schema.parse(raw);
     if (parsed && typeof parsed === 'object' && 'audit' in parsed) {
-      validateBusinessRules(parsed as Parameters<typeof validateBusinessRules>[0]);
+      validateBusinessRules(parsed as unknown as ValidatedAssessment);
     }
     return parsed;
   } catch (error) {

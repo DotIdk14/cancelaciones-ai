@@ -122,6 +122,45 @@ describe('auditSkill.execute', () => {
     await expect(auditSkill.execute(baseInput)).rejects.toMatchObject({ category: 'INVALID_AI_RESPONSE' });
   });
 
+  it('rechaza una fecha de inicio de ciclo que apunta a evidencia inexistente', async () => {
+    // Una cycleStartDate respaldada por un id inventado no está acreditada: es
+    // exactamente el hueco por el que una fecha administrativa se disfrazaba
+    // de fecha de inicio académico.
+    mockedCall.mockResolvedValue({
+      parsed: {
+        ...validAuditResult,
+        temporalAnalysis: { ...validAuditResult.temporalAnalysis, cycleStartEvidenceIds: ['ev-falso'] },
+      },
+      model: 'google/gemini-2.5-flash',
+      usage: validAuditResult.usage,
+    });
+
+    await expect(auditSkill.execute(baseInput)).rejects.toMatchObject({ category: 'INVALID_AI_RESPONSE' });
+  });
+
+  it('rechaza una fecha de solicitud que apunta a evidencia inexistente', async () => {
+    mockedCall.mockResolvedValue({
+      parsed: {
+        ...validAuditResult,
+        temporalAnalysis: { ...validAuditResult.temporalAnalysis, cancellationRequestEvidenceIds: ['ev-falso'] },
+      },
+      model: 'google/gemini-2.5-flash',
+      usage: validAuditResult.usage,
+    });
+
+    await expect(auditSkill.execute(baseInput)).rejects.toMatchObject({ category: 'INVALID_AI_RESPONSE' });
+  });
+
+  it('propaga temporalAnalysis sin alterarlo (el backend no recalcula la cronología)', async () => {
+    mockedCall.mockResolvedValue({ parsed: validAuditResult, model: 'google/gemini-2.5-flash', usage: validAuditResult.usage });
+
+    const result = await auditSkill.execute(baseInput);
+
+    expect(result.temporalAnalysis).toEqual(validAuditResult.temporalAnalysis);
+    expect(result.temporalAnalysis.cycleStartDate).toBe('2026-01-12');
+    expect(result.temporalAnalysis.relationToCycleStart).toBe('DESPUES_DEL_INICIO');
+  });
+
   it('rechaza referencias inventadas en la orientación provisional', async () => {
     mockedCall.mockResolvedValue({
       parsed: {

@@ -9,6 +9,13 @@ import type {
   EvidenceKind,
   EvidenceStatus,
 } from '../skills/audit/types';
+// Valores, no sólo tipos: el vocabulario cerrado y los límites de la revisión
+// humana se IMPORTAN del módulo que los define, no se reescriben aquí.
+import {
+  HUMAN_RESOLUTIONS,
+  REVIEW_COMMENT_MAX,
+  REVIEW_COMMENT_MIN,
+} from '../skills/review/types';
 import type { Tone } from '../components/ui';
 
 // -----------------------------------------------------------------------------
@@ -104,6 +111,81 @@ export const CONFIDENCE_BAND_LABELS: Record<ConfidenceBand, string> = {
   MEDIA: 'Media confianza',
   BAJA: 'Baja confianza',
 };
+
+// -----------------------------------------------------------------------------
+// Revisión humana: vocabulario, origen de la resolución y estados técnicos
+// -----------------------------------------------------------------------------
+
+/**
+ * Opciones del selector de resolución final.
+ *
+ * NO es una lista escrita aquí: es el vocabulario cerrado que publica el módulo
+ * de revisión (`HUMAN_RESOLUTIONS`, alias de `AUDIT_RESULTS`). Duplicarlo
+ * permitiría que la UI ofreciera una resolución que el servidor rechaza, que
+ * es la forma más silenciosa de romper un contrato cerrado. El frontend ELIGE
+ * entre opciones; no decide (NO_RULES_ENGINE).
+ */
+export const REVIEW_RESULT_OPTIONS: readonly AuditResultType[] = HUMAN_RESOLUTIONS;
+
+/** Límites del comentario humano, tomados del validador del servidor. */
+export const REVIEW_COMMENT_LIMITS = {
+  min: REVIEW_COMMENT_MIN,
+  max: REVIEW_COMMENT_MAX,
+} as const;
+
+/** Longitud válida del comentario ya recortado: la misma que valida el servidor. */
+export function isValidReviewComment(trimmedLength: number): boolean {
+  return trimmedLength >= REVIEW_COMMENT_MIN && trimmedLength <= REVIEW_COMMENT_MAX;
+}
+
+/**
+ * Origen de la resolución que gobierna el caso.
+ *
+ * El distintivo se muestra en español (`Humano` / `IA`) manteniendo el token
+ * interno (`HUMAN` / `AI`) sin traducir en el cable. Una resolución sin origen
+ * no es auditable; la descripción lleva la aclaración para quien lee con
+ * pantalla.
+ */
+export const RESOLUTION_SOURCE_LABELS: Record<'HUMAN' | 'AI', string> = {
+  HUMAN: 'Humano',
+  AI: 'IA',
+};
+
+export const RESOLUTION_SOURCE_DESCRIPTIONS: Record<'HUMAN' | 'AI', string> = {
+  HUMAN: 'Resolución registrada por una persona. Es la resolución final del caso.',
+  AI: 'Dictamen emitido por la IA. El caso no tiene revisión humana registrada.',
+};
+
+export const RESOLUTION_SOURCE_TONE: Record<'HUMAN' | 'AI', Tone> = {
+  HUMAN: 'brand',
+  AI: 'neutral',
+};
+
+/** Estados técnicos de la comparación (mismo vocabulario que `audits.status`). */
+export const COMPARISON_STATUS_LABELS: Record<'RUNNING' | 'COMPLETED' | 'ERROR', string> = {
+  RUNNING: 'Comparando',
+  COMPLETED: 'Comparación terminada',
+  ERROR: 'Comparación con error',
+};
+
+/**
+ * Etiqueta de un resultado recibido por el cable.
+ *
+ * Indexa por `string` a propósito: `effectiveResolution.result` llega como texto
+ * y una versión futura del servidor puede traer un valor que este bundle no
+ * conhece. Ante eso se devuelve el texto crudo en vez de `undefined`: mostrar el
+ * código desconocido es señal de desajuste; inventar una etiqueta sería peor.
+ */
+export function resolutionLabel(result: string | null | undefined): string {
+  if (typeof result !== 'string' || result === '') return 'Resolución no informada';
+  return RESULT_LABELS[result as AuditResultType] ?? result;
+}
+
+/** Tono del badge de un resultado recibido por el cable. */
+export function resolutionTone(result: string | null | undefined): Tone {
+  if (typeof result !== 'string' || result === '') return 'neutral';
+  return RESULT_TONE[result as AuditResultType] ?? 'neutral';
+}
 
 // -----------------------------------------------------------------------------
 // Estados de caso

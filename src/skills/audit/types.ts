@@ -26,6 +26,30 @@ export type CaseStatus = (typeof CASE_STATUSES)[number];
 export const EVIDENCE_STATUSES = ['UPLOADED', 'TRANSCRIBING', 'READY', 'ERROR'] as const;
 export type EvidenceStatus = (typeof EVIDENCE_STATUSES)[number];
 
+/**
+ * Relación temporal entre la solicitud de no continuar y el inicio del ciclo.
+ *
+ * Es un vocabulario CERRADO y describe una ÚNICA comparación: la fecha en que el
+ * estudiante expresó que no quería continuar frente a la fecha de inicio de ciclo
+ * acreditada. Nunca se calcula contra una fecha administrativa.
+ */
+export const TEMPORAL_RELATIONS = [
+  'ANTES_DEL_INICIO',
+  'MISMO_DIA_DEL_INICIO',
+  'DESPUES_DEL_INICIO',
+  'NO_DETERMINABLE',
+] as const;
+export type TemporalRelation = (typeof TEMPORAL_RELATIONS)[number];
+
+/**
+ * `key` reservado del fact que acredita la fecha de inicio de ciclo.
+ *
+ * El backend NO inventa ni deduce esta fecha: sólo verifica que, cuando el modelo
+ * afirma una `cycleStartDate`, exista este fact con su evidencia, su cita textual
+ * y una confianza menor que 1 (una fecha crítica siempre tiene calidad variable).
+ */
+export const CYCLE_START_FACT_KEY = 'cycle_start_date';
+
 export const EVIDENCE_KINDS = ['IMAGE', 'PDF', 'AUDIO', 'TEXT'] as const;
 export type EvidenceKind = (typeof EVIDENCE_KINDS)[number];
 
@@ -137,6 +161,40 @@ export interface ProvisionalResolution {
   evidenceIds: string[];
 }
 
+/**
+ * Análisis temporal de la solicitud frente al inicio de ciclo.
+ *
+ * Existe para que una fecha de inicio de ciclo NUNCA pueda ser confundida con una
+ * fecha administrativa. El modelo es el único que puede determinar `cycleStartDate`
+ * y lo hace POR SIGNIFICADO SEMÁNTICO, no porque sea la única fecha visible: cada
+ * fecha del expediente se revisa buscando la que representa el INICIO ACADÉMICO.
+ *
+ * Reglas estructurales que el backend verifica (sin reclasificar nunca):
+ *  - `cycleStartDate` exige `cycleStartEvidenceIds` y `cycleStartEvidenceText`.
+ *  - Una relación distinta de `NO_DETERMINABLE` exige AMBAS fechas acreditadas.
+ *  - Una fecha ausente implica `evidenceIds: []` (nada se referencia sin fecha).
+ *  - `case.cycleStartDate` debe coincidir con `cycleStartDate` (la UI lee `case`).
+ *
+ * Cuando no hay evidencia que acredite el inicio académico, `cycleStartDate` es
+ * `null` y `relationToCycleStart` es `NO_DETERMINABLE`. No se deduce de otras fechas.
+ */
+export interface TemporalAnalysis {
+  /** Fecha real de inicio de ciclo/clases en ISO `YYYY-MM-DD`, o null si no está acreditada. */
+  cycleStartDate: string | null;
+  /** Evidencias que acreditan explícitamente el inicio académico. */
+  cycleStartEvidenceIds: string[];
+  /** Cita textual que acredita el inicio académico. */
+  cycleStartEvidenceText: string | null;
+  /** Fecha en que el estudiante expresó que no quería continuar, o null. */
+  cancellationRequestDate: string | null;
+  /** Evidencias que acreditan la fecha de la solicitud. */
+  cancellationRequestEvidenceIds: string[];
+  /** `cancellationRequestDate` frente a `cycleStartDate`. Única comparación válida. */
+  relationToCycleStart: TemporalRelation;
+  /** Por qué la relación es esa, y por qué se descartó cada fecha administrativa. */
+  reasoning: string;
+}
+
 export interface AuditSkillOutput {
   case: {
     matricula: string | null;
@@ -169,6 +227,7 @@ export interface AuditSkillOutput {
     description: string;
     evidenceIds: string[];
   }>;
+  temporalAnalysis: TemporalAnalysis;
   audit: {
     result: AuditResultType;
     rule: string;

@@ -3,8 +3,10 @@
 // =============================================================================
 
 import type { ErrorCategory, EvidenceStatus, TranscriptData } from '../skills/audit/types.js';
+import type { ComparisonOutcomePayload } from '../skills/review/schema.js';
 import { readTranscriptFromJson } from './evidence-prep.js';
 import type { AuditRow, AuditStatus, CaseRow, CaseSummaryRow, EvidenceRow } from './cases.js';
+import type { CaseReviewRow, ComparisonRow } from './reviews.js';
 
 export interface CaseSummaryDto {
   id: string;
@@ -13,6 +15,7 @@ export interface CaseSummaryDto {
   evidenceCount: number;
   createdAt: string;
   updatedAt: string;
+  effectiveResolution: EffectiveResolution | null;
 }
 
 export interface CaseDetailDto {
@@ -66,6 +69,70 @@ export interface AuditHistoryItemDto {
   createdAt: string;
 }
 
+/**
+ * Revisión humana del caso. `result` es la RESOLUCIÓN FINAL: si existe, manda
+ * sobre el dictamen de la auditoría.
+ */
+export interface CaseReviewDto {
+  id: string;
+  caseId: string;
+  /** Auditoría cuyo dictamen se compara (inmutable). */
+  auditId: string;
+  result: string;
+  comment: string;
+  createdAt: string;
+}
+
+/**
+ * Juicio de la IA sobre si el dictamen original coincide con la decisión humana.
+ *
+ * EL VEREDICTO VA PLANO. `agrees`, `explanation`, `confidence`,
+ * `discrepancyReason`, `procedureSections` y `evidenceIds` son el contrato que
+ * consume la interfaz, y son `null` (o `[]`) mientras la comparación no esté
+ * `COMPLETED`: no se publica un veredicto a medio hacer, y `null` quiere decir
+ * "todavía no existe", no "el modelo respondeu que no".
+ */
+export interface ComparisonDto {
+  id: string;
+  caseReviewId: string;
+  auditId: string;
+  status: 'RUNNING' | 'COMPLETED' | 'ERROR';
+  agrees: boolean | null;
+  explanation: string | null;
+  confidence: number | null;
+  discrepancyReason: string | null;
+  procedureSections: string[];
+  evidenceIds: string[];
+  provider: string | null;
+  model: string | null;
+  errorCategory: ErrorCategory | null;
+  latencyMs: number | null;
+  createdAt: string;
+  // --- superset ---------------------------------------------------------------
+  // `resultJson` es el MISMO veredicto sin aplanar más la metadata real de
+  // OpenRouter (modelo y usage), y `deadlineAt`/`updatedAt` son las marcas de la
+  // fila. Se emiten porque el cliente (`src/lib/api.ts`) ya fue escrito contra
+  // ellos, y los campos planos se DERIVAN de `resultJson`, nunca al revés: no
+  // pueden divergir. Si el cliente se pasa a los planos, estos tres sobran.
+  resultJson: ComparisonOutcomePayload | null;
+  deadlineAt: string | null;
+  updatedAt: string;
+}
+
+/**
+ * Resolución que gobierna el caso en este momento, y de dónde sale.
+ *
+ * `HUMAN` cuando existe revisión: es la decisión de la persona y sustituye al
+ * dictamen. `AI` cuando no la hay: el resultado de la auditoría COMPLETED
+ * vigente. `null` cuando no hay ninguna de las dos, porque un caso sin dictamen
+ * emitido y sin decisión registrada NO tiene resolución, y afirmar una sería
+ * inventarla.
+ */
+export interface EffectiveResolution {
+  result: string;
+  source: 'HUMAN' | 'AI';
+}
+
 export function caseToSummary(row: CaseSummaryRow): CaseSummaryDto {
   const count = row.evidence?.[0]?.count ?? 0;
   return {
@@ -75,6 +142,7 @@ export function caseToSummary(row: CaseSummaryRow): CaseSummaryDto {
     evidenceCount: count,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    effectiveResolution: deriveEffectiveResolution(row.review ?? null, row.audit ?? null),
   };
 }
 
@@ -156,4 +224,73 @@ export function auditHistoryItemToDto(row: AuditRow): AuditHistoryItemDto {
     attemptNumber: row.attempt_number,
     createdAt: row.created_at,
   };
+}
+
+export function caseReviewToDto(row: CaseReviewRow): CaseReviewDto {
+  return {
+    id: row.id,
+    caseId: row.case_id,
+    auditId: row.audit_id,
+    result: row.result,
+    comment: row.comment,
+    createdAt: row.created_at,
+  };
+}
+
+/**
+ * Aplana la comparación para el contrato de la interfaz.
+ *
+ * El veredicto se lee UNA vez de `result_json` y los campos planos se derivan de
+ * esa misma lectura, así que el contrato plano y `resultJson` no pueden
+ * discrepar. Sólo se lee si la fila está `COMPLETED`: una fila RUNNING o ERROR
+ * no publica veredicto, ni siquiera parcial.
+ */
+export function comparisonToDto(row: ComparisonRow): ComparisonDto {
+  const outcome = row.status === 'COMPLETED' ? (parseJsonField(row.result_json) as ComparisonOutcomePayload | null) : null;
+  return {
+    id: row.id,
+    caseReviewId: row.case_review_id,
+    auditId: row.audit_id,
+    status: row.status,
+    agrees: outcome?.agrees ?? null,
+    explanation: outcome?.explanation ?? null,
+    confidence: outcome?.confidence ?? null,
+    discrepancyReason: outcome?.discrepancyReason ?? null,
+    procedureSections: outcome?.procedureSections ?? [],
+    evidenceIds: outcome?.evidenceIds ?? [],
+    provider: row.provider ?? null,
+    model: row.model ?? null,
+    errorCategory: row.error_category,
+    latencyMs: row.latency_ms,
+    createdAt: row.created_at,
+    resultJson: outcome,
+    deadlineAt: row.deadline_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+/**
+ * Deriva la resolución efectiva EN LECTURA. No escribe nada y no toca el
+ * dictamen: la auditoría original sigue siendo exactamente la que emitió el
+ * modelo, y esta función sólo decide qué resultado se muestra como vigente.
+ *
+ * La precedencia es la del producto: la decisión de la persona manda sobre el
+ * dictamen, en cualquier caso. `audit` debe ser la auditoría COMPLETED vigente
+ * (el que la pasa se encarga: `latestCompletedAudit`), y aquí se vuelve a
+ * comprobar el estado por si alguien pasa otra cosa.
+ */
+export function deriveEffectiveResolution(
+  review: CaseReviewRow | null,
+  audit: AuditRow | null,
+): EffectiveResolution | null {
+  if (review) {
+    return { result: review.result, source: 'HUMAN' };
+  }
+  if (!audit || audit.status !== 'COMPLETED') return null;
+  const resultJson = parseJsonField(audit.result_json);
+  const output = resultJson && typeof resultJson === 'object' ? resultJson as Record<string, unknown> : null;
+  const assessment = output && typeof output.audit === 'object' ? output.audit as Record<string, unknown> : null;
+  const result = assessment?.result;
+  if (typeof result !== 'string' || result === '') return null;
+  return { result, source: 'AI' };
 }

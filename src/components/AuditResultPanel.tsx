@@ -6,6 +6,7 @@
 
 import type { ReactNode } from 'react';
 import type { AuditDetail, Evidence } from '../lib/api';
+import type { TemporalAnalysis } from '../skills/audit/types';
 import {
   DASH,
   formatCost,
@@ -26,6 +27,14 @@ export interface AuditResultPanelProps {
   evidences: Evidence[];
 }
 
+/** Etiquetas del vocabulario cerrado de relaciones temporales. */
+const RELATION_LABELS: Record<TemporalAnalysis['relationToCycleStart'], string> = {
+  ANTES_DEL_INICIO: 'La solicitud es anterior al inicio de ciclo',
+  MISMO_DIA_DEL_INICIO: 'La solicitud es el mismo día del inicio de ciclo',
+  DESPUES_DEL_INICIO: 'La solicitud es posterior al inicio de ciclo',
+  NO_DETERMINABLE: 'No determinable con las evidencias disponibles',
+};
+
 export function AuditResultPanel({ audit, evidences }: AuditResultPanelProps): ReactNode {
   const result = audit.resultJson;
 
@@ -44,6 +53,8 @@ export function AuditResultPanel({ audit, evidences }: AuditResultPanelProps): R
   }
 
   const { audit: assessment, case: caseData, facts, timeline, conflicts, model, usage } = result;
+  // Audiencias anteriores a `temporalAnalysis` no tienen análisis temporal.
+  const temporal = (result as { temporalAnalysis?: TemporalAnalysis }).temporalAnalysis ?? null;
   const isInsufficient = assessment.result === 'EVIDENCIA_INSUFICIENTE';
   const tone: Tone = RESULT_TONE[assessment.result] ?? 'neutral';
   const safeEvidences = arrayOrEmpty(evidences);
@@ -203,6 +214,51 @@ export function AuditResultPanel({ audit, evidences }: AuditResultPanelProps): R
           <DataRow label="Fecha inicio ciclo" value={caseData.cycleStartDate ?? DASH} />
         </dl>
       </div>
+
+      {/* ------------------------------------------------- Análisis temporal
+          La fecha de inicio de ciclo es una fecha CRÍTICA: de ella depende que el
+          dictamen sea cancelación de venta o baja. Se muestra junto a la fecha de
+          la solicitud y a su relación para que la comparación sea auditable, y
+          nunca se rellena con una fecha administrativa. */}
+      {temporal !== null && (
+        <section aria-label="Análisis temporal" className="mt-5 rounded-2xl border border-line bg-surface-2 p-4">
+          <SectionTitle>Análisis temporal</SectionTitle>
+          <dl className="mt-1">
+            <DataRow label="Fecha de inicio de ciclo" value={textOrDash(temporal.cycleStartDate)} />
+            <DataRow label="Fecha de la solicitud" value={textOrDash(temporal.cancellationRequestDate)} />
+            <DataRow label="Solicitud vs. inicio" value={RELATION_LABELS[temporal.relationToCycleStart] ?? DASH} />
+          </dl>
+          {temporal.cycleStartDate === null && (
+            <p className="mt-2 text-sm text-muted">
+              No hay evidencia que acredite la fecha de inicio de ciclo; no se ha supuesto ninguna.
+            </p>
+          )}
+          {temporal.cycleStartEvidenceText !== null && temporal.cycleStartEvidenceText.trim() !== '' && (
+            <p className="mt-3 border-l-2 border-line pl-2 text-sm text-muted">
+              <span className="font-medium text-ink">Evidencia del inicio:</span> {temporal.cycleStartEvidenceText}
+            </p>
+          )}
+          {arrayOrEmpty(temporal.cycleStartEvidenceIds).length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {arrayOrEmpty(temporal.cycleStartEvidenceIds).map((id) => (
+                <Chip key={`cycle-start-${id}`} title={fileName(id)}>
+                  {fileName(id)}
+                </Chip>
+              ))}
+            </div>
+          )}
+          {arrayOrEmpty(temporal.cancellationRequestEvidenceIds).length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {arrayOrEmpty(temporal.cancellationRequestEvidenceIds).map((id) => (
+                <Chip key={`cancel-request-${id}`} title={fileName(id)}>
+                  {fileName(id)}
+                </Chip>
+              ))}
+            </div>
+          )}
+          <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-ink">{textOrDash(temporal.reasoning)}</p>
+        </section>
+      )}
 
       {/* ------------------------------------------------- Hechos encontrados */}
       <div className="mt-5">

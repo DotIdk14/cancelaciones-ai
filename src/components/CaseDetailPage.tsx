@@ -12,6 +12,7 @@ import { CASE_STATUS_LABELS, CASE_STATUS_TONE, errorCategoryLabel, errorCategory
 import { goToCases } from '../lib/useHashRoute';
 import { usePolling } from '../lib/usePolling';
 import { AuditResultPanel } from './AuditResultPanel';
+import { CaseReviewPanel, CaseReviewRecord } from './CaseReviewPanel';
 import { EvidenceList } from './EvidenceList';
 import { EvidenceUploader } from './EvidenceUploader';
 import { EvidenceViewer } from './EvidenceViewer';
@@ -179,6 +180,9 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
 
   const evidences = detail?.evidences ?? [];
   const audit = detail?.audit ?? null;
+  const review = detail?.review ?? null;
+  const comparison = detail?.comparison ?? null;
+  const effectiveResolution = detail?.effectiveResolution ?? null;
 
   const hasTranscribing = evidences.some((item) => item.processingStatus === 'TRANSCRIBING');
   const allReady = evidences.length > 0 && evidences.every((item) => item.processingStatus === 'READY');
@@ -364,6 +368,21 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
           </h2>
           <AuditResultPanel audit={audit} evidences={evidences} />
         </section>
+      )}
+
+      {/* ------------------------------------------------------ revisión
+          El dictamen de arriba NO se modifica ni se oculta. La revisión humana
+          va debajo, como una capa aparte: o existe (y entonces es la resolución
+          final) o se ofrece el formulario para registrarla. Nunca ambas. */}
+      {review !== null ? (
+        <CaseReviewRecord
+          caseId={caseId}
+          review={review}
+          comparison={comparison}
+          effectiveResolution={effectiveResolution}
+        />
+      ) : (
+        <CaseReviewPanel caseId={caseId} audit={audit} review={null} onSubmitted={() => void load()} />
       )}
 
       {/* ------------------------------------------------------ evidencias */}

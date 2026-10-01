@@ -105,4 +105,74 @@ describe.skipIf(process.env.RUN_AI_SMOKE !== '1' || !process.env.OPENROUTER_API_
     expect(result?.audit.procedureChecks.some((item) => item.status === 'NO_DETERMINABLE' && item.evidenceIds.length === 0 && item.observedValues.length === 0)).toBe(true);
     process.stdout.write(`AI_SMOKE_INSUFFICIENT_COMPLETED model=${result?.model.model ?? 'n/a'}\n`);
   }, 120_000);
+
+  it('CASO REAL: no confunde la fecha de creación de matrícula con el inicio de ciclo', async () => {
+    // Regresión end-to-end del defecto que motivó `temporalAnalysis`.
+    // Expediente sintético que reproduce la estructura del caso real: una fecha
+    // administrativa (29/08) visible en un CRM y un mensaje de bienvenida que
+    // acredita el inicio académico (28/09), con la solicitud del 24/09.
+    // Ningún dato es real: son cadenas ficticias para comprobar la semántica.
+    process.env.INSFORGE_BASE_URL ??= 'https://synthetic.insforge.invalid';
+    process.env.INSFORGE_ANON_KEY ??= 'synthetic-anon';
+    process.env.INSFORGE_API_KEY ??= 'synthetic-admin';
+    process.env.TRANSCRIPTION_POLL_TIMEOUT_MS = '0';
+    resetEnvCache();
+
+    const caseId = 'synthetic-cycle-start-case';
+    const crmId = 'synthetic-evidence-crm';
+    const chatId = 'synthetic-evidence-chat';
+    seedCase({ id: caseId, student_identifier: null });
+    seedEvidence({
+      id: crmId,
+      case_id: caseId,
+      filename: 'crm-ficticio.txt',
+      mime_type: 'text/plain',
+      processing_status: 'READY',
+      content:
+        'EJEMPLO FICTICIO. Captura de CRM: Fecha de creación: 29/08/2026. Fecha de decisión 35: 29/08/2026. Estudiante: Persona Inventada.',
+    });
+    seedEvidence({
+      id: chatId,
+      case_id: caseId,
+      filename: 'whatsapp-ficticio.txt',
+      mime_type: 'text/plain',
+      processing_status: 'READY',
+      content:
+        'EJEMPLO FICTICIO. Conversación del 24/09/2026. Asesor: "Tu bimestre inicia el lunes 28 de septiembre". Estudiante: "Por motivos personales no voy a continuar como hago para dar de baja."',
+    });
+
+    const outcome = await runAudit(fakeClient, caseId);
+    const result = (outcome.phase === 'done' ? outcome.audit.resultJson : null) as AuditResult | null;
+    if (!result) throw new Error('Synthetic cycle-start audit returned no result');
+
+    const temporal = result.temporalAnalysis;
+
+    // La fecha de inicio debe ser la ACREDITADA por el mensaje de bienvenida,
+    // nunca la fecha de creación ni la de decisión del CRM.
+    expect(temporal.cycleStartDate).toBe('2026-09-28');
+    expect(temporal.cycleStartEvidenceIds).toContain(chatId);
+    expect(temporal.cycleStartEvidenceText).not.toBeNull();
+
+    // La solicitud (24/09) es ANTERIOR al inicio (28/09): es cancelación de
+    // venta, no una baja por solicitud posterior al inicio.
+    expect(temporal.cancellationRequestDate).toBe('2026-09-24');
+    expect(temporal.relationToCycleStart).toBe('ANTES_DEL_INICIO');
+    expect(result.audit.result).not.toBe('BAJA');
+
+    // La fecha administrativa se conserva como hecho aparte, sin promoverse.
+    const creation = result.facts.find((fact) => fact.value === '2026-08-29');
+    expect(creation).toBeDefined();
+    expect(creation?.key).not.toBe('cycle_start_date');
+
+    // Trazabilidad: el fact de la fecha de inicio existe y no se afirma con
+    // certeza absoluta.
+    const cycleStartFact = result.facts.find((fact) => fact.key === 'cycle_start_date');
+    expect(cycleStartFact?.value).toBe('2026-09-28');
+    expect(cycleStartFact?.confidence).toBeLessThan(1);
+    expect(result.case.cycleStartDate).toBe(temporal.cycleStartDate);
+
+    process.stdout.write(
+      `AI_SMOKE_CYCLE_START_COMPLETED cycleStart=${temporal.cycleStartDate} request=${temporal.cancellationRequestDate} relation=${temporal.relationToCycleStart} result=${result.audit.result}\n`,
+    );
+  }, 120_000);
 });
