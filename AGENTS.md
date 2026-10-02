@@ -52,6 +52,7 @@ InsForge (DB + Storage) es **solo server-side**: el navegador nunca habla con el
 - QUOTA_SUBJECT_IS_HASHED: correo e IP se hashean con HMAC antes de persistirse. La base nunca ve el sujeto en claro.
 - NO_SIGNUP: el alta de usuarios y la autorizacion de acceso ocurren en InsForge, no en la aplicacion.
 - LEAF_MODULES_HAVE_NO_SERVER_IMPORTS: modulos que los tests sustituyen por completo (`errors.ts`, `derived.ts`) no importan nada del servidor. Un ciclo de imports aqui cuelga la suite sin fallar.
+- NO_SILENT_STALL: un presupuesto de espera acorta cuanto se espera, nunca si se observa. Si el tiempo se agota antes de leer el estado, el estado terminal (`ERROR`) no se propaga, el caso queda en `202` para siempre y el usuario no recibe ningun error que explique la espera. Toda espera acotada lee al menos una vez.
 
 ## Limites duros
 

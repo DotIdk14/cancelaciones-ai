@@ -15,7 +15,7 @@ la sección 6 y en `SECURITY.md` §9.
 | Dimensión | Estado | Nota |
 |---|---|---|
 | Seguridad de código | **Sólida** tras las correcciones | Los 4 hallazgos altos están cerrados con test de regresión |
-| Correctitud | **Sólida** | Suite completa verde; un bug de producción de cuotas corregido |
+| Correctitud | **Sólida** | Suite completa verde; corregidos dos bugs de producción (cuotas no cableadas, polling que no observaba el estado terminal) |
 | Integridad de datos | **Pendiente de operación** | Requiere aplicar migraciones y backfill en la instancia real |
 | Mantenibilidad | **Mejorada** | Ciclo de imports que colgaba la suite eliminado de raíz |
 | Documentación | **Completada** | README, SECURITY, CONTRIBUTING, docs/ coherentes con el código |
@@ -153,8 +153,26 @@ a extraer (`DO_NOT_REPROCESS_AI_UNNECESSARILY`).
 
 El fingerprint de la auditoría incluía `processing_status` y `assemblyId`, que
 son estado de control, no contenido del expediente. Un cambio de estado
-inval caching la conclusión y provocaba una llamada pagada de más. Ahora se
+invalidaba la conclusión y provocaba una llamada pagada de más. Ahora se
 excluyen y se versiona con `AUDIT_PIPELINE_VERSION`.
+
+### 3.5 El presupuesto de polling impedía observar el estado terminal
+
+`refreshTranscriptions` comprobaba el deadline **antes** de leer el estado de
+AssemblyAI. Con el presupuesto ya vencido la función hacía cero consultas: un
+audio con transcripción en `ERROR` nunca se propagaba, `runAudit` lo veía
+`TRANSCRIBING` y devolvía `202 pendingEvidence` indefinidamente. El caso quedaba
+atascado sin ruta de recuperación por UI ni por API: la misma clase de limbo que
+producía la subida huérfana (§2.4), y sin ningún error que explicara la espera.
+
+El presupuesto acorta cuánto se **espera**, no si se **observa**: ahora el estado
+se lee al menos una vez aunque la ventana haya vencido, y el deadline solo limita
+las esperas entre lecturas.
+
+El test de regresión fija el comportamiento con ventana `0`. Sin el fix falla.
+La intermitencia que lo reveló no era del handler sino del reloj: el test usaba
+una ventana de 1 ms y la lectura completaba en 0–2 ms, así que un solo `await`
+que cruzara el milisegundo convertía el caso en `202` en vez de `400`.
 
 ## 4. Cobertura de pruebas
 
@@ -165,9 +183,9 @@ excluyen y se versiona con `AUDIT_PIPELINE_VERSION`.
 | `tests/paid-quota.test.ts` | 11 | Cuota no reutilizable, `429` sin fila |
 | `tests/quotas.test.ts` | 9 | Fail-closed de cuotas, sujeto hasheado |
 | `tests/evidence-upload-guard.test.ts` | 8 | Firmas, cuota antes del efecto |
-| `tests/evidence-status.test.ts` | 24 | Ciclo de vida del dictamen según el tipo de evidencia |
+| `tests/evidence-status.test.ts` | 25 | Ciclo de vida del dictamen según el tipo de evidencia, presupuesto vencido |
 
-**Suite completa:** 32 archivos, 435 tests, 432 pasan y 3 se omiten
+**Suite completa:** 32 archivos, 436 tests, 433 pasan y 3 se omiten
 (`ai-smoke.live.test.ts`, que requiere credencial y puede facturar).
 
 `npm run verify:release` verde: lint de secretos, typecheck, contract tests,

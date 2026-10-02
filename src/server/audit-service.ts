@@ -87,7 +87,6 @@ export async function refreshTranscriptions(
   if (audioPending.length === 0) return;
 
   for (const evidence of audioPending) {
-    if (Date.now() >= deadline) return;
     const assemblyId = readAssemblyId(evidence);
     if (!assemblyId) {
       await updateEvidenceStatus(client, evidence.id, {
@@ -96,7 +95,12 @@ export async function refreshTranscriptions(
       }).catch(() => undefined);
       continue;
     }
-    while (Date.now() < deadline) {
+    // El presupuesto acota cuánto se ESPERA, no si se OBSERVA: el estado se
+    // lee al menos una vez aunque la ventana ya haya vencido. Con el chequeo
+    // antes de la lectura, un presupuesto vencido (0 ms, o 1 ms bajo carga)
+    // hacía cero consultas, una transcripción en ERROR nunca se propagaba y el
+    // caso quedaba en 202 para siempre, sin ruta de recuperación por UI ni API.
+    for (;;) {
       const status = await getTranscription(assemblyId);
       if (status.state === 'READY') {
         await updateEvidenceStatus(client, evidence.id, {
@@ -112,6 +116,7 @@ export async function refreshTranscriptions(
         }).catch(() => undefined);
         break;
       }
+      if (Date.now() >= deadline) break;
       await sleep(POLL_INTERVAL_MS);
     }
   }

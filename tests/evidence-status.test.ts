@@ -401,6 +401,22 @@ describe('el audio conserva su ciclo asíncrono UPLOADED -> TRANSCRIBING -> READ
     const evidence = listEvidence()[0];
     expect(evidenceToDto(evidence!).processingError).toBe('audio corrupto');
   });
+
+  it('un presupuesto ya vencido no impide observar el estado terminal', async () => {
+    // Regresión: el deadline se comprobaba ANTES de leer, así que con la
+    // ventana en 0 no se consultaba nada, un ERROR nunca se propagaba y el
+    // caso quedaba en 202 para siempre. El presupuesto acorta la espera, no
+    // la observación.
+    setPollWindow(0);
+    setTranscription(AUDIO_ASSEMBLY_ID, { state: 'ERROR', transcript: null, error: 'audio corrupto' });
+    await upload('audio/mpeg', 'llamada.mp3', MP3_BYTES);
+
+    await refreshTranscriptions(fakeClient, 'case-1', 0);
+
+    const evidence = listEvidence()[0];
+    expect(evidence.processing_status).toBe('ERROR');
+    expect(evidenceToDto(evidence).processingError).toBe('audio corrupto');
+  });
 });
 
 describe('invariante: ninguna evidencia nascenta deja el caso en "en proceso" eterno', () => {
