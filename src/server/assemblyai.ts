@@ -20,15 +20,50 @@ function apiKey(): string {
   return key;
 }
 
+/**
+ * Toda petición a AssemblyAI lleva timeout propio.
+ *
+ * Sin `AbortController`, un `fetch` colgado se queda hasta que Vercel mata la
+ * función (300 s) sin dejar estado: la evidencia se quedaba en UPLOADED para
+ * siempre con el dinero ya pagado. Con timeout, el error es un `ApiError` que el
+ * llamador persiste como estado terminal recuperable.
+ */
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new ApiError(
+        504,
+        'TRANSCRIPTION_ERROR',
+        `AssemblyAI no respondió en ${Math.round(timeoutMs / 1000)} s; inténtalo de nuevo`,
+      );
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function requestTimeoutMs(): number {
+  return getEnv().ASSEMBLYAI_REQUEST_TIMEOUT_MS;
+}
+
 async function assemblyFetch(path: string, init: RequestInit): Promise<unknown> {
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers: {
-      Authorization: apiKey(),
-      'Content-Type': 'application/json',
-      ...(init.headers as Record<string, string> | undefined),
+  const response = await fetchWithTimeout(
+    `${API_BASE}${path}`,
+    {
+      ...init,
+      headers: {
+        Authorization: apiKey(),
+        'Content-Type': 'application/json',
+        ...(init.headers as Record<string, string> | undefined),
+      },
     },
-  });
+    requestTimeoutMs(),
+  );
   const text = await response.text();
   let body: unknown = null;
   try {
@@ -49,14 +84,18 @@ async function assemblyFetch(path: string, init: RequestInit): Promise<unknown> 
 /** Sube el audio y crea el transcript. Devuelve el id de AssemblyAI. */
 export async function submitTranscription(audio: Buffer): Promise<string> {
   // 1) Upload del audio crudo.
-  const uploadResponse = await fetch(`${API_BASE}/upload`, {
-    method: 'POST',
-    headers: {
-      Authorization: apiKey(),
-      'Content-Type': 'application/octet-stream',
+  const uploadResponse = await fetchWithTimeout(
+    `${API_BASE}/upload`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: apiKey(),
+        'Content-Type': 'application/octet-stream',
+      },
+      body: new Uint8Array(audio),
     },
-    body: new Uint8Array(audio),
-  });
+    requestTimeoutMs(),
+  );
   const uploadText = await uploadResponse.text();
   let uploadBody: { upload_url?: unknown } | null = null;
   try {

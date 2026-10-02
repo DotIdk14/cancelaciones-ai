@@ -31,6 +31,7 @@ import {
   type CaseRow,
 } from './cases.js';
 import { buildAuditInputs } from './audit-service.js';
+import { checkPaidQuota } from './quotas.js';
 import {
   createCaseReview,
   getCaseReview,
@@ -54,8 +55,9 @@ export type StartComparisonOutcome =
 
 export interface SubmitCaseReviewInput {
   result: HumanResolution;
+  reviewerName: string;
   comment: string;
-  userId: string | null;
+  userId: string;
 }
 
 export interface SubmitCaseReviewOutcome {
@@ -100,11 +102,12 @@ export async function submitCaseReview(
     caseId,
     auditId: audit.id,
     result: input.result,
+    reviewerName: input.reviewerName,
     comment: input.comment,
     userId: input.userId,
   });
 
-  const outcome = await startComparison(client, caseId);
+  const outcome = await startComparison(client, caseId, { userId: input.userId });
   return { review: caseReviewToDto(review), comparison: outcome.comparison };
 }
 
@@ -125,7 +128,11 @@ export async function submitCaseReview(
  *   - hay RUNNING vigente   → `running` (el cliente pollea);
  *   - no hay comparación, o la RUNNING caducó → se ejecuta (fila nueva, o la misma reabierta).
  */
-export async function startComparison(client: InsForgeClient, caseId: string): Promise<StartComparisonOutcome> {
+export async function startComparison(
+  client: InsForgeClient,
+  caseId: string,
+  options?: { userId?: string },
+): Promise<StartComparisonOutcome> {
   const context = await loadContext(client, caseId);
   assertReviewableAudit(context.audit);
   const existing = context.comparison;
@@ -145,6 +152,13 @@ export async function startComparison(client: InsForgeClient, caseId: string): P
   // comparación técnica fallida detrás.
   const inputs = await buildComparisonInputs(client, context);
   const deadlineAt = new Date(Date.now() + getEnv().TOTAL_AUDIT_TIMEOUT_MS).toISOString();
+
+  // Cuota antes de abrir/reabrir la fila y antes del proveedor: reutilizar una
+  // comparación COMPLETED o una RUNNING vigente (los `return` de arriba) no
+  // cuesta dinero. Un 429 no deja fila técnica escrita ni error en el historial.
+  if (options?.userId) {
+    await checkPaidQuota(options.userId, `comparison:${caseId}:${context.review.id}`);
+  }
 
   // Una comparación RUNNING caducada se RETOMA sobre su propia fila; si no había
   // ninguna, se abre una nueva. Nunca hay dos filas por revisión.
@@ -176,7 +190,11 @@ export async function startComparison(client: InsForgeClient, caseId: string): P
  *
  * Nunca crea una revisión ni una comparación nuevas.
  */
-export async function retryComparison(client: InsForgeClient, caseId: string): Promise<ComparisonDto> {
+export async function retryComparison(
+  client: InsForgeClient,
+  caseId: string,
+  options?: { userId?: string },
+): Promise<ComparisonDto> {
   const context = await loadContext(client, caseId);
   assertReviewableAudit(context.audit);
 
@@ -202,6 +220,14 @@ export async function retryComparison(client: InsForgeClient, caseId: string): P
 
   assertCanRearm(existing);
   const inputs = await buildComparisonInputs(client, context);
+
+  // Un reintento SÍ vuelve a llamar al proveedor: cobra cuota (fail-closed si el
+  // servicio no responde). Va antes de reabrir la fila para que un 429 no deje
+  // la comparación en un estado técnico a medio camino.
+  if (options?.userId) {
+    await checkPaidQuota(options.userId, `comparison-retry:${caseId}:${existing.id}`);
+  }
+
   const deadlineAt = new Date(Date.now() + getEnv().TOTAL_AUDIT_TIMEOUT_MS).toISOString();
   const row = await rearmComparison(client, existing.id, {
     deadlineAt,

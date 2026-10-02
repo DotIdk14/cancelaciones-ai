@@ -8,6 +8,7 @@
 import type { InsForgeClient } from './insforge.js';
 import type { CaseStatus, ErrorCategory, EvidenceStatus } from '../skills/audit/types.js';
 import type { CaseReviewRow } from './reviews.js';
+import type { AuthContext } from './auth.js';
 import { ApiError, mapProviderError } from './http.js';
 
 export interface CaseRow {
@@ -37,6 +38,13 @@ export interface EvidenceRow {
   storage_path: string;
   processing_status: EvidenceStatus;
   transcript_json: unknown;
+  /**
+   * Derivado de extracción (migración `20261003010000_derived_extractions.sql`).
+   * OPCIONALES a propósito: si la migración no está aplicada, el `select('*')`
+   * sigue funcionando y sólo se pierde la caché de extracción.
+   */
+  extracted_text?: string | null;
+  extraction_pipeline_version?: string | null;
   created_at: string;
 }
 
@@ -65,22 +73,27 @@ function dbError(error: unknown, fallback: ErrorCategory = 'DATABASE_ERROR'): ne
 export async function createCase(
   client: InsForgeClient,
   studentIdentifier: string | null,
+  createdBy: string,
 ): Promise<CaseRow> {
   const { data, error } = await client.database
     .from('cases')
-    .insert([{ status: 'DRAFT', student_identifier: studentIdentifier }])
+    .insert([{ status: 'DRAFT', student_identifier: studentIdentifier, created_by: createdBy }])
     .select()
     .single();
   if (error || !data) dbError(error);
   return data as CaseRow;
 }
 
-export async function listCaseSummaries(client: InsForgeClient): Promise<CaseSummaryRow[]> {
-  const { data, error } = await client.database
+export async function listCaseSummaries(client: InsForgeClient, auth: AuthContext): Promise<CaseSummaryRow[]> {
+  let query = client.database
     .from('cases')
     .select('*,evidence(count)')
     .order('created_at', { ascending: false })
     .limit(100);
+  if (auth.role === 'user') {
+    query = query.eq('created_by', auth.sub);
+  }
+  const { data, error } = await query;
   if (error || !data) dbError(error);
   const rows = data as CaseSummaryRow[];
 
@@ -130,6 +143,32 @@ export async function getCaseOr404(client: InsForgeClient, caseId: string): Prom
   return data as CaseRow;
 }
 
+/**
+ * Caso visible para el usuario autenticado.
+ *
+ * - El dueño siempre lo ve.
+ * - Un coordinador puede LEER cualquier caso.
+ * - Ajeno o inexistente → el mismo 404 (sin enumerar existencia).
+ */
+export async function getScopedCaseOr404(
+  client: InsForgeClient,
+  caseId: string,
+  auth: AuthContext,
+): Promise<CaseRow> {
+  const row = await getCaseOr404(client, caseId);
+  if (auth.role === 'user' && row.created_by !== auth.sub) {
+    throw new ApiError(404, 'NOT_FOUND', 'Caso no encontrado');
+  }
+  return row;
+}
+
+/** Garantiza que una mutación solo toca un caso propio. */
+export function assertCaseOwner(row: CaseRow, auth: AuthContext): void {
+  if (row.created_by !== auth.sub) {
+    throw new ApiError(404, 'NOT_FOUND', 'Caso no encontrado');
+  }
+}
+
 export async function listEvidenceRows(client: InsForgeClient, caseId: string): Promise<EvidenceRow[]> {
   const { data, error } = await client.database
     .from('evidence')
@@ -139,6 +178,40 @@ export async function listEvidenceRows(client: InsForgeClient, caseId: string): 
   if (error || !data) dbError(error);
   return data as EvidenceRow[];
 }
+
+/**
+ * Persiste el texto derivado de una evidencia (PDF/TXT).
+ *
+ * Los bytes ORIGINALES nunca se tocan (PRESERVE_EVIDENCE_PROVENANCE): esto es un
+ * derivado reproducible a partir del binario, con la versión del pipeline que lo
+ * produjo. Es una caché, no una fuente de verdad: si la escritura falla (por
+ * ejemplo, si la migración `20261003010000_derived_extractions.sql` aún no está
+ * aplicada) se registra y se sigue; la auditoría vuelve a extraer y a pagar el
+ * coste de cpu, pero nunca se rompe por ello.
+ */
+export async function persistDerivedExtraction(
+  client: InsForgeClient,
+  evidenceId: string,
+  text: string,
+  pipelineVersion: string,
+): Promise<void> {
+  const { error } = await client.database
+    .from('evidence')
+    .update({ extracted_text: text, extraction_pipeline_version: pipelineVersion })
+    .eq('id', evidenceId);
+  if (error) {
+    console.warn('[evidence] no se pudo cachear la extracción; se re-extraerá', {
+      evidenceId,
+      category: 'DATABASE_ERROR',
+    });
+  }
+}
+
+// La regla de vigencia del derivado es lógica pura y vive en `derived.ts` (módulo
+// hoja) para que los tests puedan sustituir `cases.ts` sin romper el store en
+// memoria. Se reexporta aquí porque conceptualmente sigue siendo parte de la
+// evidencia.
+export { derivedExtractionOf, type DerivedExtractionCarrier } from './derived.js';
 
 export async function getEvidenceOr404(
   client: InsForgeClient,
@@ -150,6 +223,18 @@ export async function getEvidenceOr404(
     .select('*')
     .eq('id', evidenceId)
     .eq('case_id', caseId)
+    .single();
+  if (error) dbError(error);
+  if (!data) throw new ApiError(404, 'NOT_FOUND', 'Evidencia no encontrada');
+  return data as EvidenceRow;
+}
+
+/** Evidencia por id, sin filtrar por caso (el scoping se hace luego contra el caso padre). */
+export async function getEvidenceByIdOr404(client: InsForgeClient, evidenceId: string): Promise<EvidenceRow> {
+  const { data, error } = await client.database
+    .from('evidence')
+    .select('*')
+    .eq('id', evidenceId)
     .single();
   if (error) dbError(error);
   if (!data) throw new ApiError(404, 'NOT_FOUND', 'Evidencia no encontrada');

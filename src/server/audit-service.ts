@@ -23,10 +23,13 @@ import {
   sleep,
 } from './evidence-prep.js';
 import { ApiError } from './http.js';
+import { checkPaidQuota } from './quotas.js';
+import { derivedExtractionOf } from './derived.js';
 import {
   getCaseOr404,
   insertAudit,
   countAuditsByFingerprint,
+  persistDerivedExtraction,
   latestCompletedAuditByFingerprint,
   latestRunningAuditByFingerprint,
   latestAudit,
@@ -159,8 +162,22 @@ export async function buildAuditInputs(
       enforceMultimodalLimit(aggregateMultimodalBytes);
       items.push({ ...base, imageBase64: imageDataUrl(buffer, evidence.mime_type) });
     } else if (kind === 'PDF') {
+      // Camino TEXTUAL sin descarga: si el derivado ya está cacheado con esta
+      // versión de pipeline, no se vuelve a bajar el binario ni a parsear el PDF
+      // (DO_NOT_REPROCESS_AI_UNNECESSARILY).
+      const cachedText = derivedExtractionOf(evidence, EXTRACTION_PIPELINE_VERSION);
+      if (cachedText !== null && cachedText.trim().length >= PDF_MIN_TEXT_CHARS) {
+        const limited = limitEvidenceText(cachedText);
+        aggregateTextChars += limited.text.length;
+        items.push({ ...base, text: limited.text, truncated: limited.truncated, originalChars: limited.originalChars });
+        enforceAggregateTextLimit(aggregateTextChars);
+        continue;
+      }
       const buffer = await downloadEvidenceBuffer(client, evidence);
-      const text = await extractPdfText(buffer);
+      const text = cachedText ?? (await extractPdfText(buffer));
+      if (cachedText === null) {
+        await persistDerivedExtraction(client, evidence.id, text, EXTRACTION_PIPELINE_VERSION);
+      }
       if (text.trim().length >= PDF_MIN_TEXT_CHARS) {
         const limited = limitEvidenceText(text);
         aggregateTextChars += limited.text.length;
@@ -183,8 +200,14 @@ export async function buildAuditInputs(
         items.push({ ...base, transcript });
       }
     } else {
-      const buffer = await downloadEvidenceBuffer(client, evidence);
-      const limited = limitEvidenceText(buffer.toString('utf-8'));
+      // TEXTO: la lectura del binario también es un derivado cacheable.
+      let text = derivedExtractionOf(evidence, EXTRACTION_PIPELINE_VERSION);
+      if (text === null) {
+        const buffer = await downloadEvidenceBuffer(client, evidence);
+        text = buffer.toString('utf-8');
+        await persistDerivedExtraction(client, evidence.id, text, EXTRACTION_PIPELINE_VERSION);
+      }
+      const limited = limitEvidenceText(text);
       aggregateTextChars += limited.text.length;
       items.push({ ...base, text: limited.text, truncated: limited.truncated, originalChars: limited.originalChars });
     }
@@ -229,18 +252,49 @@ function limitEvidenceText(text: string): { text: string; truncated: boolean; or
   return { text: text.slice(0, max), truncated: text.length > max, originalChars: text.length };
 }
 
+/**
+ * Versión del pipeline que produce el expediente (preparación + prompt + schema).
+ * Si cambia cómo se prepara o cómo se dictamina, el fingerprint cambia y los
+ * dictámenes anteriores NO se reutilizan: es deliberado (DO_NOT_REPROCESS_AI_UNNECESSARILY
+ * aplica a la MISMA evidencia con el MISMO pipeline, no a un pipeline distinto).
+ */
+const AUDIT_PIPELINE_VERSION = 'audit-v5-pipeline-1';
+
+/**
+ * Versión del pipeline de EXTRACCIÓN (pdf.js / lectura de texto). Si cambia la
+ * lógica de extracción, el caché de derivados se invalida por completo porque
+ * la versión guardada deja de coincidir.
+ */
+const EXTRACTION_PIPELINE_VERSION = 'extract-v1';
+
+/**
+ * Huella canónica del expediente: QUÉ se audita, nunca CÓMO está el caso.
+ *
+ * Deliberadamente EXCLUIDOS:
+ * - `processing_status`: un refresco de estado (UPLOADED → TRANSCRIBING → READY)
+ *   invalidaba un COMPLETED y obligaba a volver a pagar la misma auditoría.
+ * - `assemblyId`/estados de la transcripción: se hashea el TEXTO derivado, que es
+ *   lo que entra al expediente. Re-transcribir el mismo audio con el mismo
+ *   resultado no es un expediente distinto.
+ *
+ * Incluidos: id y hash de cada original, hash del texto derivado y la versión del
+ * pipeline. Si cambia un byte de una evidencia, cambia la huella.
+ */
 export function computeEvidenceFingerprint(evidences: EvidenceRow[]): string {
   const canonical = evidences
-    .map((evidence) => ({
-      id: evidence.id,
-      hash: evidence.hash,
-      processingStatus: evidence.processing_status,
-      transcriptHash: evidence.transcript_json
-        ? createHash('sha256').update(JSON.stringify(evidence.transcript_json)).digest('hex')
-        : null,
-    }))
+    .map((evidence) => {
+      const derived = evidence.transcript_json ? readTranscriptFromJson(evidence.transcript_json) : null;
+      const derivedText = derived?.transcript ?? '';
+      return {
+        id: evidence.id,
+        hash: evidence.hash,
+        derivedHash: derivedText ? createHash('sha256').update(derivedText).digest('hex') : null,
+      };
+    })
     .sort((a, b) => a.id.localeCompare(b.id));
-  return createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
+  return createHash('sha256')
+    .update(JSON.stringify({ pipeline: AUDIT_PIPELINE_VERSION, evidence: canonical }))
+    .digest('hex');
 }
 
 /**
@@ -251,7 +305,16 @@ export function computeEvidenceFingerprint(evidences: EvidenceRow[]): string {
  * - Audit COMPLETED previo → lo devuelve (idempotente).
  * - Audit RUNNING previo → lo devuelve (el cliente pollea).
  */
-export async function runAudit(client: InsForgeClient, caseId: string): Promise<RunAuditOutcome> {
+export interface RunAuditOptions {
+  /** Usuario que pide la ejecución; se cobra cuota por él. Sin él, no se cobra. */
+  userId?: string;
+}
+
+export async function runAudit(
+  client: InsForgeClient,
+  caseId: string,
+  options?: RunAuditOptions,
+): Promise<RunAuditOutcome> {
   await getCaseOr404(client, caseId);
 
   await refreshTranscriptions(client, caseId, getEnv().TRANSCRIPTION_POLL_TIMEOUT_MS);
@@ -299,6 +362,14 @@ export async function runAudit(client: InsForgeClient, caseId: string): Promise<
   // Prepara y valida expediente antes de crear RUNNING: errores 413/validación
   // son accionables por el usuario y no deben dejar una auditoría técnica fallida.
   const inputs = await buildAuditInputs(client, caseRow, evidences);
+
+  // Cuota ANTES de la fila durable y ANTES del proveedor, y DESPUÉS de las
+  // comprobaciones de reutilización de arriba: reutilizar un COMPLETED o una
+  // RUNNING vigente no cuesta dinero y no debe devolver 429 (invariante
+  // DO_NOT_REPROCESS_AI_UNNECESSARILY). Un 429 aquí no deja estado escrito.
+  if (options?.userId) {
+    await checkPaidQuota(options.userId, `audit:${caseId}:${fingerprint}`);
+  }
 
   // La fila durable se crea ANTES de la llamada al modelo.
   const startedAt = Date.now();

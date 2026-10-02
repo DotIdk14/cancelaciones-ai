@@ -8,6 +8,10 @@ vi.mock('../src/server/cases', async () => {
   const store = await import('./helpers/fake-store');
   return {
     getCaseOr404: store.getCaseOr404,
+    getScopedCaseOr404: store.getScopedCaseOr404,
+    derivedExtractionOf: store.derivedExtractionOf,
+    persistDerivedExtraction: store.persistDerivedExtraction,
+    assertCaseOwner: store.assertCaseOwner,
     listEvidenceRows: store.listEvidenceRows,
     updateEvidenceStatus: store.updateEvidenceStatus,
     latestAudit: store.latestAudit,
@@ -68,7 +72,7 @@ describe.skipIf(process.env.RUN_AI_SMOKE !== '1' || !process.env.OPENROUTER_API_
     ];
 
     expect(result.evidenceSummary.map((item) => item.evidenceId)).toContain(evidenceId);
-    expect(result.audit.result).toMatch(/^(CANCELACION_VENTA|BAJA|CANCELACION_VENTA_OPERATIVA|CANCELACION_MATRICULA|DICTAMINACION|EVIDENCIA_INSUFICIENTE)$/);
+    expect(result.audit.result).toMatch(/^(CANCELACION_VENTA|CANCELACION_VENTA_PETICION_CLIENTE|BAJA|CANCELACION_VENTA_OPERATIVA|CANCELACION_MATRICULA|DICTAMINACION|EVIDENCIA_INSUFICIENTE)$/);
     expect(result.audit.reasoning.trim().length).toBeGreaterThan(0);
     expect(result.audit.procedureSection.trim().length).toBeGreaterThan(0);
     expect(result.audit.supportingEvidenceIds.length).toBeGreaterThan(0);

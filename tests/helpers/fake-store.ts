@@ -6,7 +6,10 @@
 // (esas viven en el código de producción y es justo lo que se testea).
 // =============================================================================
 
-import { ApiError } from '../../src/server/http';
+// `errors.ts` y no `http.ts`: el store se carga DENTRO de las fábricas de
+// `vi.mock`, e importar `http` cerraría el círculo `http -> auth -> insforge
+// (mock) -> store -> http` y colgaría la suite antes del primer test.
+import { ApiError } from '../../src/server/errors';
 import type { InsForgeClient } from '../../src/server/insforge';
 import type { CaseStatus, EvidenceStatus, TranscriptData } from '../../src/skills/audit/types';
 import type { HumanResolution } from '../../src/skills/review/types';
@@ -102,6 +105,8 @@ export function seedEvidence(overrides: Partial<EvidenceRow> & { content?: strin
     storage_path: storagePath,
     processing_status: rest.processing_status ?? 'READY',
     transcript_json: rest.transcript_json ?? null,
+    extracted_text: rest.extracted_text ?? null,
+    extraction_pipeline_version: rest.extraction_pipeline_version ?? null,
     created_at: rest.created_at ?? '2026-02-01T10:05:00Z',
   };
   evidenceRows.push(row);
@@ -146,6 +151,7 @@ export function seedReview(overrides: Partial<CaseReviewRow> = {}): CaseReviewRo
     case_id: overrides.case_id ?? 'case-1',
     audit_id: overrides.audit_id ?? 'audit-1',
     result: overrides.result ?? 'BAJA',
+    reviewer_name: overrides.reviewer_name ?? null,
     comment: overrides.comment ?? 'Se acredita la baja por solicitud posterior al inicio de ciclo.',
     created_at: overrides.created_at ?? '2026-02-02T09:00:00Z',
     created_by: overrides.created_by ?? null,
@@ -207,6 +213,57 @@ export async function getCaseOr404(_client: unknown, caseId: string): Promise<Ca
   return { ...row };
 }
 
+/**
+ * Caché de derivados (`extracted_text` + `extraction_pipeline_version`).
+ *
+ * Se reexporta la implementación REAL a propósito: es lógica pura y determinista
+ * (qué texto se considera vigente para una versión de pipeline), no
+ * persistencia. Reimplementarla en el store haría que los tests validaran una
+ * regla distinta de la de producción. Viene de `derived.ts`, no de `cases.ts`,
+ * porque `cases.ts` es justo el módulo que estos tests sustituyen.
+ */
+export { derivedExtractionOf } from '../../src/server/derived';
+
+/** Persiste el derivado en la fila en memoria. */
+export async function persistDerivedExtraction(
+  _client: unknown,
+  evidenceId: string,
+  text: string,
+  pipelineVersion: string,
+): Promise<void> {
+  const row = evidenceRows.find((item) => item.id === evidenceId);
+  if (!row) throw new ApiError(404, 'NOT_FOUND', 'Evidencia no encontrada');
+  row.extracted_text = text;
+  row.extraction_pipeline_version = pipelineVersion;
+}
+
+/**
+ * Scoping por dueño, replicando la regla real: un `user` solo ve sus casos; un
+ * `coordinator` los ve todos. "Ajeno" y "inexistente" responden igual (404).
+ *
+ * Los tests siembran casos con `created_by` nulo; un caso sin dueño se trata como
+ * visible para no obligar a cada test a declarar el propietario.
+ */
+export async function getScopedCaseOr404(
+  _client: unknown,
+  caseId: string,
+  auth: { sub: string; role: 'user' | 'coordinator' },
+): Promise<CaseRow> {
+  const row = getCase(caseId);
+  if (!row) throw new ApiError(404, 'NOT_FOUND', 'Caso no encontrado');
+  if (auth.role === 'user' && row.created_by !== null && row.created_by !== undefined && row.created_by !== auth.sub) {
+    throw new ApiError(404, 'NOT_FOUND', 'Caso no encontrado');
+  }
+  return { ...row };
+}
+
+/** Mutación: solo el dueño. Responde 404 (no 403) para no enumerar existencia. */
+export function assertCaseOwner(row: { created_by?: string | null }, auth: { sub: string }): void {
+  if (row.created_by && row.created_by !== auth.sub) {
+    throw new ApiError(404, 'NOT_FOUND', 'Caso no encontrado');
+  }
+}
+
 export async function listCaseSummaries(): Promise<unknown[]> {
   return caseRows.map((row) => {
     const review = reviewRows.find((r) => r.case_id === row.id) ?? null;
@@ -224,8 +281,9 @@ export async function listCaseSummaries(): Promise<unknown[]> {
 export async function createCase(
   _client: unknown,
   studentIdentifier: string | null,
+  createdBy?: string,
 ): Promise<CaseRow> {
-  return seedCase({ id: nextId('case'), created_by: null, student_identifier: studentIdentifier });
+  return seedCase({ id: nextId('case'), created_by: createdBy ?? null, student_identifier: studentIdentifier });
 }
 
 export async function listEvidenceRows(_client: unknown, caseId: string): Promise<EvidenceRow[]> {
@@ -347,6 +405,7 @@ export async function createCaseReview(_client: unknown, input: CreateCaseReview
     case_id: input.caseId,
     audit_id: input.auditId,
     result: input.result,
+    reviewer_name: input.reviewerName,
     comment: input.comment,
     created_by: input.userId,
   });
@@ -492,5 +551,19 @@ export const fakeClient = {
       },
       remove: async (path: string): Promise<{ error: Error | null }> => ({ error: storageLog.removeErrors.get(path) ?? null }),
     }),
+  },
+
+  // El servicio de cuotas es el ÚNICO camino de `admit_or_reject_quota` que llega
+  // a la base real en producción. En los tests se admite siempre: el objetivo de
+  // estos archivos es el ciclo de vida de la evidencia y el dictamen, no la
+  // cuota, y su contrato (fail-closed, PII hasheada) ya está cubierto en
+  // `tests/quotas.test.ts`.
+  database: {
+    rpc: async (fn: string): Promise<{ data: unknown; error: unknown }> => {
+      if (fn === 'admit_or_reject_quota') {
+        return { data: [{ admitted: true, retry_after_seconds: 0 }], error: null };
+      }
+      return { data: null, error: new Error(`RPC no soportada por el store: ${fn}`) };
+    },
   },
 } as unknown as InsForgeClient;

@@ -21,6 +21,7 @@ import evidenceDeleteHandler from '../api/cases/[caseId]/evidence/[evidenceId]/i
 import auditHandler from '../api/cases/[caseId]/audit/index';
 import { setTestEnv } from './helpers/env';
 import { validAuditResult } from './fixtures/audit-result';
+import { fakeAuthContext } from './helpers/auth';
 import {
   fakeClient,
   storageLog,
@@ -39,6 +40,10 @@ vi.mock('../src/server/cases', async () => {
   const store = await import('./helpers/fake-store');
   return {
     getCaseOr404: store.getCaseOr404,
+    getScopedCaseOr404: store.getScopedCaseOr404,
+    derivedExtractionOf: store.derivedExtractionOf,
+    persistDerivedExtraction: store.persistDerivedExtraction,
+    assertCaseOwner: store.assertCaseOwner,
     getEvidenceOr404: store.getEvidenceOr404,
     listEvidenceRows: store.listEvidenceRows,
     listCaseSummaries: store.listCaseSummaries,
@@ -80,6 +85,30 @@ vi.mock('../src/server/openrouter', () => ({
   callOpenRouterAudit: vi.fn(),
   OpenRouterAuditError: class OpenRouterAuditError extends Error {},
 }));
+
+// Bytes con la firma real de cada formato (ver `verifyFileSignature`): el
+// endpoint rechaza con 415 cualquier archivo cuyo contenido no corresponda al
+// tipo declarado, así que los fixtures de imagen deben ser bytes válidos.
+const PNG_BYTES = Buffer.concat([
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+  Buffer.from('contenido de la evidencia'),
+]);
+const JPEG_BYTES = Buffer.concat([
+  Buffer.from([0xff, 0xd8, 0xff, 0xe0]),
+  Buffer.from('contenido de la evidencia'),
+]);
+const WEBP_BYTES = Buffer.concat([
+  Buffer.from('RIFF'),
+  Buffer.from('0000'),
+  Buffer.from('WEBP'),
+  Buffer.from('contenido'),
+]);
+const GIF_BYTES = Buffer.concat([Buffer.from('GIF89a'), Buffer.from('contenido de la evidencia')]);
+const MP3_BYTES = Buffer.concat([
+  Buffer.from('ID3'),
+  Buffer.from('\u0003\u0000'),
+  Buffer.from('contenido de la evidencia'),
+]);
 
 const mockedCall = vi.mocked(callOpenRouterAudit);
 const AUDIO_ASSEMBLY_ID = 'assembly-1';
@@ -131,6 +160,7 @@ function makeUploadRequest(
     url: `/api/cases/${caseId}/evidence`,
     headers: { 'content-type': mime, 'x-file-name': encodeURIComponent(filename) },
     query: { caseId },
+    auth: fakeAuthContext(),
     async *[Symbol.asyncIterator]() {
       yield buffer;
     },
@@ -138,7 +168,7 @@ function makeUploadRequest(
 }
 
 function makePlainRequest(method: string, query: Record<string, string>): ApiRequest {
-  return { method, url: '/', headers: {}, query } as unknown as ApiRequest;
+  return { method, url: '/', headers: {}, query, auth: fakeAuthContext() } as unknown as ApiRequest;
 }
 
 /** Sube una evidencia y devuelve la fila persistida + el DTO de la respuesta. */
@@ -149,6 +179,9 @@ async function upload(
 ): Promise<{ row: ReturnType<typeof listEvidence>[number]; dto: Evidence; status: number }> {
   const res = makeApiResponse();
   await evidenceUploadHandler(makeUploadRequest(mime, filename, content), res);
+  // Si el alta falla, el mensaje del servidor ES la información: sin esto el
+  // fallo se manifiesta como "row undefined" y esconde la causa real.
+  expect(res.statusCode, `subida ${filename} (${mime}) respondió ${res.statusCode}: ${res.body}`).toBe(201);
   const row = listEvidence()[listEvidence().length - 1];
   expect(row).toBeDefined();
   return { row: row!, dto: JSON.parse(res.body).evidence as Evidence, status: res.statusCode };
@@ -198,17 +231,22 @@ describe('evidencia NO-audio: nace en un estado que la auditoría acepta', () =>
     expect(dossier?.text).toContain('Cancelo mi matricula del periodo');
   });
 
+  // El contenido lleva la FIRMA real de cada formato: el endpoint la contrasta
+  // con el `Content-Type` declarado y rechaza con 415 lo que no la tiene.
   it.each([
-    ['image/png', 'captura.png'],
-    ['image/jpeg', 'foto.jpg'],
-    ['image/webp', 'captura.webp'],
-    ['image/gif', 'animacion.gif'],
-    ['text/plain', 'renuncia.txt'],
-  ])('subir %s lo deja READY de inmediato', async (mime, filename) => {
-    const { row } = await upload(mime, filename, 'contenido de la evidencia');
+    ['image/png', 'captura.png', PNG_BYTES],
+    ['image/jpeg', 'foto.jpg', JPEG_BYTES],
+    ['image/webp', 'captura.webp', WEBP_BYTES],
+    ['image/gif', 'animacion.gif', GIF_BYTES],
+    ['text/plain', 'renuncia.txt', 'contenido de la evidencia'],
+  ] as Array<[string, string, string | Buffer]>)(
+    'subir %s lo deja READY de inmediato',
+    async (mime, filename, content) => {
+      const { row } = await upload(mime, filename, content);
 
-    expect(row?.processing_status).toBe('READY');
-  });
+      expect(row?.processing_status).toBe('READY');
+    },
+  );
 
   it('subida guarda la evidencia con path opaco sin filename original', async () => {
     await upload('text/plain', 'renuncia-con-pii.txt', 'contenido de la evidencia');
@@ -259,8 +297,8 @@ describe('evidencia NO-audio: nace en un estado que la auditoría acepta', () =>
   it('PDF + imagen + audio: el caso completo audita sin quedarse esperando', async () => {
     setTranscription(AUDIO_ASSEMBLY_ID, { state: 'READY', transcript: readyTranscript });
     await upload('application/pdf', 'renuncia.pdf', minimalPdf('Cancelo mi matricula'));
-    await upload('image/png', 'captura.png', 'PNG-falso');
-    await upload('audio/mpeg', 'llamada.mp3', 'MP3-falso');
+    await upload('image/png', 'captura.png', PNG_BYTES);
+    await upload('audio/mpeg', 'llamada.mp3', MP3_BYTES);
 
     const outcome = await runAudit(fakeClient, 'case-1');
 
@@ -314,7 +352,7 @@ describe('fingerprint de expediente y ciclo de vida del caso', () => {
 
 describe('el audio conserva su ciclo asíncrono UPLOADED -> TRANSCRIBING -> READY', () => {
   it('subir un audio responde TRANSCRIBING con su assemblyId (nunca READY al instante)', async () => {
-    const { row, dto } = await upload('audio/mpeg', 'llamada.mp3', 'MP3-falso');
+    const { row, dto } = await upload('audio/mpeg', 'llamada.mp3', MP3_BYTES);
 
     expect(row?.processing_status).toBe('TRANSCRIBING');
     expect(dto.processingStatus).toBe('TRANSCRIBING');
@@ -323,7 +361,7 @@ describe('el audio conserva su ciclo asíncrono UPLOADED -> TRANSCRIBING -> READ
   });
 
   it('refreshTranscriptions promueve TRANSCRIBING -> READY con la transcripción', async () => {
-    const { row } = await upload('audio/mpeg', 'llamada.mp3', 'MP3-falso');
+    const { row } = await upload('audio/mpeg', 'llamada.mp3', MP3_BYTES);
     expect(row?.processing_status).toBe('TRANSCRIBING');
     setTranscription(AUDIO_ASSEMBLY_ID, { state: 'READY', transcript: readyTranscript });
 
@@ -337,7 +375,7 @@ describe('el audio conserva su ciclo asíncrono UPLOADED -> TRANSCRIBING -> READ
   it('un audio todavía TRANSCRIBING sí produce 202 pendingEvidence (el pending es legítimo)', async () => {
     setPollWindow(1);
     setTranscription(AUDIO_ASSEMBLY_ID, { state: 'TRANSCRIBING', transcript: null });
-    await upload('audio/mpeg', 'llamada.mp3', 'MP3-falso');
+    await upload('audio/mpeg', 'llamada.mp3', MP3_BYTES);
     const res = makeApiResponse();
 
     await auditHandler(makePlainRequest('POST', { caseId: 'case-1' }), res);
@@ -353,7 +391,7 @@ describe('el audio conserva su ciclo asíncrono UPLOADED -> TRANSCRIBING -> READ
   it('un audio en ERROR bloquea la auditoría con 400 TRANSCRIPTION_ERROR', async () => {
     setPollWindow(1);
     setTranscription(AUDIO_ASSEMBLY_ID, { state: 'ERROR', transcript: null, error: 'audio corrupto' });
-    await upload('audio/mpeg', 'llamada.mp3', 'MP3-falso');
+    await upload('audio/mpeg', 'llamada.mp3', MP3_BYTES);
     const res = makeApiResponse();
 
     await auditHandler(makePlainRequest('POST', { caseId: 'case-1' }), res);
@@ -368,16 +406,19 @@ describe('el audio conserva su ciclo asíncrono UPLOADED -> TRANSCRIBING -> READ
 describe('invariante: ninguna evidencia nascenta deja el caso en "en proceso" eterno', () => {
   it.each([
     ['application/pdf', 'renuncia.pdf', minimalPdf('Cancelo mi matricula')],
-    ['image/png', 'captura.png', 'PNG-falso'],
+    ['image/png', 'captura.png', PNG_BYTES],
     ['text/plain', 'renuncia.txt', 'cancelo mi matricula'],
-    ['audio/mpeg', 'llamada.mp3', 'MP3-falso'],
-  ])('subir %s y auditar nunca devuelve phase pending', async (mime, filename, content) => {
-    setTranscription(AUDIO_ASSEMBLY_ID, { state: 'READY', transcript: readyTranscript });
-    await upload(mime, filename, content);
+    ['audio/mpeg', 'llamada.mp3', MP3_BYTES],
+  ] as Array<[string, string, string | Buffer]>)(
+    'subir %s y auditar nunca devuelve phase pending',
+    async (mime, filename, content) => {
+      setTranscription(AUDIO_ASSEMBLY_ID, { state: 'READY', transcript: readyTranscript });
+      await upload(mime, filename, content);
 
-    const outcome = await runAudit(fakeClient, 'case-1');
+      const outcome = await runAudit(fakeClient, 'case-1');
 
-    expect(outcome.phase).not.toBe('pending');
-    expect(outcome.phase).toBe('done');
-  });
+      expect(outcome.phase).not.toBe('pending');
+      expect(outcome.phase).toBe('done');
+    },
+  );
 });
