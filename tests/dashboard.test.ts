@@ -132,6 +132,8 @@ describe('aggregateSummary — auditoría vigente por caso', () => {
       insufficientPct: 0,
       errors: 0,
       errorsPct: 0,
+      casesWithMissingEvidence: 0,
+      casesWithMissingEvidencePct: 0,
     });
     for (const value of Object.values(summary.kpi)) {
       expect(Number.isFinite(value)).toBe(true);
@@ -341,7 +343,7 @@ describe('aggregateSummary — series fijas y tabla de recientes', () => {
     expect(summary.split.map((point) => point.group)).toEqual([...RESOLUTION_GROUPS]);
   });
 
-  it('byResult trae siempre los 6 resultados en el orden de AUDIT_RESULTS', () => {
+  it('byResult trae siempre los 7 resultados en el orden de AUDIT_RESULTS', () => {
     const summary = summarize([row({ result: 'BAJA' })]);
     expect(summary.byResult.map((point) => point.result)).toEqual([...AUDIT_RESULTS]);
     expect(summary.byResult.every((point) => point.count >= 0)).toBe(true);
@@ -667,7 +669,20 @@ describe('aggregateAiCosts — latencia', () => {
     expect(report.kpi.avgCostPerCaseUsd).toBe(0);
     expect(report.costSeries).toEqual([]);
     expect(report.byModel).toEqual([]);
-    expect(report.reliability).toEqual({ successful: 0, retried: 0, fallback: 0, failed: 0 });
+    expect(report.reliability).toEqual({
+      successful: 0,
+      retried: 0,
+      fallback: 0,
+      failed: 0,
+      executionOutcomes: {
+        available: false,
+        successfulFirstAttempt: 0,
+        successfulAfterRetry: 0,
+        fallback: null,
+        failed: 0,
+        inProgress: 0,
+      },
+    });
     for (const value of [report.kpi.totalCostUsd, report.kpi.avgCostPerCaseUsd, report.kpi.totalTokens]) {
       expect(Number.isFinite(value)).toBe(true);
     }
@@ -914,7 +929,20 @@ describe('aggregateAiCosts — fiabilidad', () => {
       row({ id: 'e', case_id: 'c5', audit_status: 'RUNNING', case_status: 'AUDITING', result: null, attempts_count: 1 }),
     ]);
 
-    expect(report.reliability).toEqual({ successful: 2, retried: 2, fallback: 1, failed: 2 });
+    expect(report.reliability).toEqual({
+      successful: 2,
+      retried: 2,
+      fallback: 1,
+      failed: 2,
+      executionOutcomes: {
+        available: true,
+        successfulFirstAttempt: 1,
+        successfulAfterRetry: 0,
+        fallback: 1,
+        failed: 2,
+        inProgress: 1,
+      },
+    });
     expect(report.kpi.auditsCounted).toBe(5);
   });
 
@@ -925,7 +953,20 @@ describe('aggregateAiCosts — fiabilidad', () => {
       completada({ id: 'b', case_id: 'c2', attempts_count: 0, provider_models: null }),
     ]);
 
-    expect(report.reliability).toEqual({ successful: 2, retried: 0, fallback: 0, failed: 0 });
+    expect(report.reliability).toEqual({
+      successful: 2,
+      retried: 0,
+      fallback: 0,
+      failed: 0,
+      executionOutcomes: {
+        available: true,
+        successfulFirstAttempt: 1,
+        successfulAfterRetry: 0,
+        fallback: 0,
+        failed: 0,
+        inProgress: 0,
+      },
+    });
   });
 });
 

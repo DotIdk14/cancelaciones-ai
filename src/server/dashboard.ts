@@ -22,6 +22,9 @@ import {
 } from '../lib/labels.js';
 import type {
   DashboardFilters,
+  DashboardDimension,
+  DashboardFilterOptions,
+  DashboardKpi,
   DashboardSummary,
   MissingEvidenceBucket,
   RecentCaseRow,
@@ -29,6 +32,7 @@ import type {
   ResultBreakdownPoint,
   TimelinePoint,
 } from '../lib/dashboard.js';
+import type { AuthContext } from './auth.js';
 import type { AuditStatus } from './cases.js';
 import { endOfDayUtc, startOfDayUtc } from './dashboard-filters.js';
 import { mapProviderError } from './http.js';
@@ -69,10 +73,75 @@ export interface DashboardMetricRow {
   attempts_completion_tokens: number | null;
   /** Nº de intentos reales de la llamada (elementos de `openrouterAttempts`). */
   attempts_count: number;
+  country: string | null;
+  campus: string | null;
+  modality: string | null;
+  project: string | null;
+  responsible: string | null;
+  guideline: string | null;
+}
+
+const DASHBOARD_DIMENSIONS: readonly DashboardDimension[] = [
+  'country',
+  'campus',
+  'modality',
+  'project',
+  'responsible',
+  'guideline',
+];
+
+/**
+ * Aplica los filtros por dimensión. Solo se filtra por las dimensiones que la
+ * vista actualmente proyecta; el tipo es mínimo (`eq`) porque este archivo no
+ * necesita conocer toda la cadena de PostgREST.
+ */
+export function applyDimensionFilters<T extends { eq(column: string, value: unknown): T }>(
+  query: T,
+  filters: DashboardFilters,
+): T {
+  let filtered = query;
+  for (const dimension of DASHBOARD_DIMENSIONS) {
+    const value = filters[dimension];
+    if (value !== null && value !== undefined) filtered = filtered.eq(dimension, value);
+  }
+  return filtered;
 }
 
 /** Tope de filas leídas de la vista. Si la vista trae más, `truncated` va en `true`. */
 export const DASHBOARD_MAX_ROWS = 5000;
+
+/** Valores presentes en la vista; los valores nulos o vacíos no crean opciones. */
+export async function getDashboardFilterOptions(client: InsForgeClient): Promise<DashboardFilterOptions> {
+  const columns = DASHBOARD_DIMENSIONS.join(',');
+  const { data, error } = await client.database
+    .from('audit_dashboard_metrics')
+    .select(columns)
+    .limit(DASHBOARD_MAX_ROWS);
+  if (error) throw mapProviderError(error);
+
+  const options: DashboardFilterOptions = {
+    country: [],
+    campus: [],
+    modality: [],
+    project: [],
+    responsible: [],
+    guideline: [],
+  };
+  const sets = Object.fromEntries(DASHBOARD_DIMENSIONS.map((key) => [key, new Set<string>()])) as Record<
+    DashboardDimension,
+    Set<string>
+  >;
+  for (const row of (data ?? []) as unknown as Array<Record<DashboardDimension, unknown>>) {
+    for (const dimension of DASHBOARD_DIMENSIONS) {
+      const value = row[dimension];
+      if (typeof value === 'string' && value.trim() !== '') sets[dimension].add(value.trim());
+    }
+  }
+  for (const dimension of DASHBOARD_DIMENSIONS) {
+    options[dimension] = [...sets[dimension]].sort((a, b) => a.localeCompare(b, 'es'));
+  }
+  return options;
+}
 
 /** Filas de la tabla "casos recientes". */
 const RECENT_CASES_LIMIT = 5;
@@ -268,11 +337,12 @@ export function aggregateSummary(
   // resultado válido, y así nunca ocurre con datos reales.
   const terminal = current.filter(isTerminalAudit);
   const auditedCases = terminal.length;
+  const casesWithMissingEvidence = terminal.filter((row) => (row.missing_evidence_count ?? 0) > 0).length;
 
   const counts: GroupCounts = { granted: 0, needsRuling: 0, insufficient: 0 };
   let errors = 0;
 
-  // Los 6 resultados en cero desde el principio: la leyenda del desglose es
+  // Todos los resultados en cero desde el principio: la leyenda del desglose es
   // estable aunque no haya ninguno (y el reparto suma lo mismo que los KPIs,
   // porque cuenta las MISMAS auditorías vigentes).
   const byResultCounts = new Map<AuditResultType, number>();
@@ -324,7 +394,6 @@ export function aggregateSummary(
     .map((row) => ({
       caseId: row.case_id,
       shortId: row.case_id.slice(0, 8),
-      studentIdentifier: row.student_identifier,
       result: row.result,
       confidence: row.confidence,
       missingEvidenceCount: row.missing_evidence_count ?? 0,
@@ -332,21 +401,28 @@ export function aggregateSummary(
       date: row.created_at,
     }));
 
+  // Los KPI siempre llevan los campos del contrato, aunque valgan 0. El 0 en
+  // `casesWithMissingEvidence` es un dato válido: "ningún caso auditado tenía
+  // evidencia faltante", no una ausencia de medición.
+  const kpi: DashboardKpi = {
+    auditedCases,
+    granted,
+    grantedPct: percentage(granted, auditedCases),
+    needsRuling,
+    needsRulingPct: percentage(needsRuling, auditedCases),
+    insufficient,
+    insufficientPct: percentage(insufficient, auditedCases),
+    errors,
+    errorsPct: percentage(errors, auditedCases),
+    casesWithMissingEvidence,
+    casesWithMissingEvidencePct: percentage(casesWithMissingEvidence, auditedCases),
+  };
+
   return {
     generatedAt: new Date().toISOString(),
     truncated: totalAvailable > DASHBOARD_MAX_ROWS,
     filters,
-    kpi: {
-      auditedCases,
-      granted,
-      grantedPct: percentage(granted, auditedCases),
-      needsRuling,
-      needsRulingPct: percentage(needsRuling, auditedCases),
-      insufficient,
-      insufficientPct: percentage(insufficient, auditedCases),
-      errors,
-      errorsPct: percentage(errors, auditedCases),
-    },
+    kpi,
     timeline: buildTimeline(rows),
     split,
     byResult,
@@ -359,6 +435,21 @@ export function aggregateSummary(
 // -----------------------------------------------------------------------------
 
 /**
+ * Conjunto de ids de casos creados por un usuario. Se usa para aplicar scope
+ * multi-tenant en memoria cuando la vista subyacente no expone `created_by`.
+ *
+ * TODO: proyectar `created_by` en `public.audit_dashboard_metrics` (y en la
+ * vista de comparaciones) para filtrar en SQL en lugar de traer filas ajenas
+ * al servidor. Hasta entonces, este filtro en memoria limita la exposición
+ * pero `truncated` sigue reflejando el recorte global previo al scope.
+ */
+async function getOwnedCaseIds(client: InsForgeClient, userId: string): Promise<Set<string>> {
+  const { data, error } = await client.database.from('cases').select('id').eq('created_by', userId);
+  if (error) throw mapProviderError(error);
+  return new Set((data ?? []).map((r) => (r as { id: string }).id));
+}
+
+/**
  * Lee la vista de métricas y devuelve el resumen ya agregado.
  * Los límites del rango son el primer y el último milisegundo del día, en UTC,
  * y ambos inclusivos: un filtro por día no puede perder la auditoría de las
@@ -367,6 +458,7 @@ export function aggregateSummary(
 export async function getDashboardSummary(
   client: InsForgeClient,
   filters: DashboardFilters,
+  auth?: AuthContext,
 ): Promise<DashboardSummary> {
   const fromIso = startOfDayUtc(filters.from);
   const toIso = endOfDayUtc(filters.to);
@@ -378,6 +470,7 @@ export async function getDashboardSummary(
     .lte('created_at', toIso);
   if (filters.result !== null) query = query.eq('result', filters.result);
   if (filters.status !== null) query = query.eq('case_status', filters.status);
+  query = applyDimensionFilters(query, filters);
 
   const { data, error, count } = await query
     .order('created_at', { ascending: true })
@@ -387,7 +480,14 @@ export async function getDashboardSummary(
   // traduce el error y sanea el mensaje (nada de tokens o URLs internas).
   if (error) throw mapProviderError(error);
 
-  const rows = (data ?? []) as DashboardMetricRow[];
+  let rows = (data ?? []) as DashboardMetricRow[];
+  // Scope multi-tenant: `coordinator` lee agregados globales; `user` solo ve
+  // filas de sus propios casos. La vista no expone `created_by`, así que el
+  // filtro ocurre en memoria después del fetch (ver TODO en `getOwnedCaseIds`).
+  if (auth?.role === 'user') {
+    const owned = await getOwnedCaseIds(client, auth.sub);
+    rows = rows.filter((row) => owned.has(row.case_id));
+  }
   return aggregateSummary(rows, filters, count ?? rows.length);
 }
 
@@ -487,7 +587,20 @@ export interface AiCostsReport {
   kpi: AiCostsKpi;
   costSeries: CostSeriesPoint[];
   byModel: ModelCostRow[];
-  reliability: { successful: number; retried: number; fallback: number; failed: number };
+  reliability: {
+    successful: number;
+    retried: number;
+    fallback: number;
+    failed: number;
+    executionOutcomes: {
+      available: boolean;
+      successfulFirstAttempt: number;
+      successfulAfterRetry: number;
+      fallback: number | null;
+      failed: number;
+      inProgress: number;
+    };
+  };
 }
 
 /**
@@ -644,6 +757,11 @@ export function aggregateAiCosts(
   let failed = 0;
   let retried = 0;
   let fallback = 0;
+  let successfulFirstAttempt = 0;
+  let successfulAfterRetry = 0;
+  let successfulFallback = 0;
+  let outcomeFailed = 0;
+  let outcomeInProgress = 0;
 
   const byBucket = new Map<string, number>();
   // `costKnownCalls` lleva el mismo nombre que el campo del DTO a propósito:
@@ -696,6 +814,25 @@ export function aggregateAiCosts(
     // Fallback de modelo: se intentó más de un modelo.
     if ((row.provider_models?.length ?? 0) > 1) fallback += 1;
 
+    if (row.audit_status === 'ERROR') {
+      outcomeFailed += 1;
+    } else if (row.audit_status === 'RUNNING') {
+      outcomeInProgress += 1;
+    } else if (row.audit_status === 'COMPLETED') {
+      const models = row.provider_models;
+      if (row.attempt_number === null || row.attempt_number < 1 || row.attempts_count < 1 || !models || models.length === 0) {
+        // Metadatos de ejecución ausentes en esta fila: no se cuenta en ningún
+        // desglose (`executionOutcomes` del interfaz queda sin poblar aquí a
+        // propósito; la salida plana de `reliability` es la que consumen UI y pruebas).
+      } else if (models.length > 1) {
+        successfulFallback += 1;
+      } else if (row.attempt_number > 1 || row.attempts_count > 1) {
+        successfulAfterRetry += 1;
+      } else {
+        successfulFirstAttempt += 1;
+      }
+    }
+
     const model = byModel.get(row.model);
     if (model === undefined) {
       byModel.set(row.model, { calls: 1, costKnownCalls: cost === null ? 0 : 1, costUsd: cost ?? 0 });
@@ -743,29 +880,51 @@ export function aggregateAiCosts(
     (a, b) => b.totalCostUsd - a.totalCostUsd || b.calls - a.calls || a.model.localeCompare(b.model),
   );
 
+  const kpi = {
+    totalCostUsd,
+    avgCostPerCaseUsd: casesCounted === 0 ? 0 : totalCostUsd / casesCounted,
+    totalTokens,
+    promptTokens,
+    completionTokens,
+    avgLatencyMs,
+    p50LatencyMs: percentileNearestRank(latencyValues, 50),
+    p95LatencyMs: percentileNearestRank(latencyValues, 95),
+    auditsCounted: rows.length,
+    casesCounted,
+    costAvailable,
+    tokensAvailable,
+    latencyAvailable,
+  };
+
+  // Salida de fiabilidad: los contadores planos se mantienen por compatibilidad
+  // con consumidores existentes; el desglose detallado refleja los outcomes de
+  // ejecución reales cuando la fila aportó metadatos suficientes.
+  const executionOutcomesAvailable =
+    successfulFirstAttempt + successfulAfterRetry + successfulFallback + outcomeFailed + outcomeInProgress > 0;
+  const reliability: AiCostsReport['reliability'] = {
+    successful,
+    retried,
+    fallback,
+    failed,
+    executionOutcomes: {
+      available: executionOutcomesAvailable,
+      successfulFirstAttempt,
+      successfulAfterRetry,
+      fallback: executionOutcomesAvailable ? successfulFallback : null,
+      failed: outcomeFailed,
+      inProgress: outcomeInProgress,
+    },
+  };
+
   return {
     generatedAt: new Date().toISOString(),
     truncated: totalAvailable > DASHBOARD_MAX_ROWS,
     filters,
     granularity,
-    kpi: {
-      totalCostUsd,
-      avgCostPerCaseUsd: casesCounted === 0 ? 0 : totalCostUsd / casesCounted,
-      totalTokens,
-      promptTokens,
-      completionTokens,
-      avgLatencyMs,
-      p50LatencyMs: percentileNearestRank(latencyValues, 50),
-      p95LatencyMs: percentileNearestRank(latencyValues, 95),
-      auditsCounted: rows.length,
-      casesCounted,
-      costAvailable,
-      tokensAvailable,
-      latencyAvailable,
-    },
+    kpi,
     costSeries,
     byModel: byModelRows,
-    reliability: { successful, retried, fallback, failed },
+    reliability,
   };
 }
 
@@ -788,6 +947,7 @@ export async function getAiCosts(
   client: InsForgeClient,
   filters: DashboardFilters,
   granularity: CostGranularity,
+  auth?: AuthContext,
 ): Promise<AiCostsReport> {
   const fromIso = startOfDayUtc(filters.from);
   const toIso = endOfDayUtc(filters.to);
@@ -797,7 +957,9 @@ export async function getAiCosts(
     .select('*', { count: 'exact' })
     .gte('created_at', fromIso)
     .lte('created_at', toIso);
+  if (filters.result !== null) query = query.eq('result', filters.result);
   if (filters.status !== null) query = query.eq('case_status', filters.status);
+  query = applyDimensionFilters(query, filters);
 
   const { data, error, count } = await query
     .order('created_at', { ascending: true })
@@ -807,7 +969,11 @@ export async function getAiCosts(
   // traduce el error y sanea el mensaje (nada de tokens o URLs internas).
   if (error) throw mapProviderError(error);
 
-  const rows = (data ?? []) as DashboardMetricRow[];
+  let rows = (data ?? []) as DashboardMetricRow[];
+  if (auth?.role === 'user') {
+    const owned = await getOwnedCaseIds(client, auth.sub);
+    rows = rows.filter((row) => owned.has(row.case_id));
+  }
   return aggregateAiCosts(rows, filters, granularity, count ?? rows.length);
 }
 
@@ -945,6 +1111,12 @@ export interface HumanReviewReport {
   message: string;
   /** Revisiones humanas registradas que el periodo contiene. */
   reviewedCases: number;
+  /**
+   * Revisiones con resultado humano y de auditoría disponibles: en el flujo de
+   * comparaciones son las `COMPLETED`, las únicas con veredicto y el
+   * denominador de `agreementRate`. Exigida por `ExactHumanReviewReport`.
+   */
+  comparableReviews: number;
   /** Comparaciones `COMPLETED`: las únicas con veredicto. */
   completedComparisons: number;
   /** Comparaciones `RUNNING`: en curso, sin veredicto todavía. */
@@ -1199,6 +1371,7 @@ export function aggregateHumanReview(input: HumanReviewInput): HumanReviewReport
     available,
     message: humanReviewMessage(input, counts, available),
     reviewedCases: input.reviewedCases,
+    comparableReviews: counts.completed,
     completedComparisons: counts.completed,
     pendingComparisons: counts.pending,
     failedComparisons: counts.failed,
@@ -1250,6 +1423,37 @@ function round3(value: number): number {
   return Math.round(value * 1000) / 1000;
 }
 
+export function aggregateExactHumanReview(input: ExactHumanReviewInput): ExactHumanReviewReport {
+  let comparableReviews = 0;
+  let agreements = 0;
+  let disagreements = 0;
+  for (const review of input.reviews) {
+    const audit = input.auditsById.get(review.audit_id);
+    if (audit?.audit_status !== 'COMPLETED' || audit.result === null) continue;
+    comparableReviews += 1;
+    if (audit.result === review.result) agreements += 1;
+    else disagreements += 1;
+  }
+
+  const available = input.reviews.length > 0;
+  const agreementRate = comparableReviews === 0 ? null : round3(agreements / comparableReviews);
+  const message = !available
+    ? 'No hay revisiones humanas registradas para las auditorías de este periodo; la coincidencia no se puede calcular.'
+    : comparableReviews === 0
+      ? `Hay ${input.reviews.length} revisión(es), pero no hay un resultado disponible en su auditoría exacta para calcular coincidencia.`
+      : `Coincidencia exacta entre el resultado humano y el de la auditoría referenciada: ${agreements} de ${comparableReviews} revisiones comparables.`;
+
+  return {
+    available,
+    message,
+    reviewedCases: input.reviews.length,
+    comparableReviews,
+    agreements,
+    disagreements,
+    agreementRate,
+  };
+}
+
 /**
  * Confianza declarada por el modelo, agrupada.
  *
@@ -1276,12 +1480,28 @@ export interface ConfidenceReport {
   }>;
 }
 
+export interface ExactHumanReviewInput {
+  reviews: Array<{ id: string; audit_id: string; result: AuditResultType }>;
+  reviewsAvailable: number;
+  auditsById: Map<string, DashboardMetricRow>;
+}
+
+export interface ExactHumanReviewReport {
+  available: boolean;
+  message: string;
+  reviewedCases: number;
+  comparableReviews: number;
+  agreements: number;
+  disagreements: number;
+  agreementRate: number | null;
+}
+
 /** Informe completo de `/api/dashboard/quality`. */
 export interface QualityReport {
   generatedAt: string;
   truncated: boolean;
   filters: DashboardFilters;
-  humanReview: HumanReviewReport;
+  humanReview: ExactHumanReviewReport;
   confidence: ConfidenceReport;
 }
 
@@ -1407,54 +1627,77 @@ export function aggregateQuality(
 export async function getHumanReviewInput(
   client: InsForgeClient,
   filters: DashboardFilters,
+  auth?: AuthContext,
 ): Promise<HumanReviewInput> {
   const fromIso = startOfDayUtc(filters.from);
   const toIso = endOfDayUtc(filters.to);
 
-  let query = client.database
+  // Scope multi-tenant: se carga una sola vez por llamada de dashboard.
+  const owned = auth?.role === 'user' ? await getOwnedCaseIds(client, auth.sub) : null;
+
+  // Fuente principal: comparaciones (qué se comparó y su estado).
+  let compQuery = client.database
     .from('case_comparisons_dashboard_metrics')
     .select('*', { count: 'exact' })
     .gte('created_at', fromIso)
     .lte('created_at', toIso);
-  if (filters.result !== null) query = query.eq('audit_result', filters.result);
-  if (filters.status !== null) query = query.eq('case_status', filters.status);
 
-  const { data, error, count } = await query
-    .order('created_at', { ascending: true })
+  if (filters.result !== null) compQuery = compQuery.eq('audit_result', filters.result);
+  if (filters.status !== null) compQuery = compQuery.eq('case_status', filters.status);
+  compQuery = applyDimensionFilters(compQuery, filters);
+
+  const { data: compsData, error: compsError, count: compsCount } = await compQuery.order('created_at', { ascending: true }).limit(DASHBOARD_MAX_ROWS);
+  if (compsError) throw mapProviderError(compsError);
+  let comparisons = (compsData ?? []) as ComparisonMetricRow[];
+  if (owned !== null) {
+    comparisons = comparisons.filter((c) => owned.has(c.case_id));
+  }
+  const comparisonsAvailable = compsCount ?? comparisons.length;
+
+  // Conteo de revisiones humanas dentro del periodo.
+  const { data: reviewsData, error: reviewsError } = await client.database
+    .from('case_reviews')
+    .select('id,case_id')
+    .gte('created_at', fromIso)
+    .lte('created_at', toIso)
     .limit(DASHBOARD_MAX_ROWS);
+  if (reviewsError) throw mapProviderError(reviewsError);
+  let reviewsInRange = (reviewsData ?? []) as Array<{ id: string; case_id: string }>;
+  if (owned !== null) {
+    reviewsInRange = reviewsInRange.filter((r) => owned.has(r.case_id));
+  }
+  const reviewIdsInRange = new Set(reviewsInRange.map((r) => r.id));
 
-  // Ningún stack trace ni detalle del proveedor al cliente: mapProviderError
-  // traduce el error y sanea el mensaje (nada de tokens o URLs internas).
+  // Las revisiones contadas son las del periodo MÁS las revisiones referenciadas
+  // por comparaciones que cayeron en el periodo aunque la revisión esté fuera.
+  const comparisonReviewIds = new Set(comparisons.map((c) => c.case_review_id).filter(Boolean as any));
+  let reviewedCases = reviewIdsInRange.size;
+  for (const id of comparisonReviewIds) {
+    if (!reviewIdsInRange.has(id)) reviewedCases += 1;
+  }
+
+  return { reviewedCases, comparisons, comparisonsAvailable };
+}
+
+export async function getExactHumanReviewInput(
+  client: InsForgeClient,
+  audits: DashboardMetricRow[],
+): Promise<ExactHumanReviewInput> {
+  const auditsById = new Map(audits.map((audit) => [audit.id, audit]));
+  const auditIds = [...auditsById.keys()];
+  if (auditIds.length === 0) {
+    return { reviews: [], reviewsAvailable: 0, auditsById };
+  }
+  const { data, error, count } = await client.database
+    .from('case_reviews')
+    .select('id,audit_id,result', { count: 'exact' })
+    .in('audit_id', auditIds)
+    .limit(DASHBOARD_MAX_ROWS);
   if (error) throw mapProviderError(error);
 
-  const comparisons = (data ?? []) as ComparisonMetricRow[];
-
-  // Las revisiones se cuentan con SÓLO su `id`. `case_reviews.comment` es texto
-  // que escribió una persona sobre un expediente con PII, y aquí no hace falta
-  // para nada: pedir `*` lo traería al servidor sin que nadie lo lea.
-  const { data: reviewRows, error: reviewError } = await client.database
-    .from('case_reviews')
-    .select('id')
-    .gte('created_at', fromIso)
-    .lte('created_at', toIso);
-  if (reviewError) throw mapProviderError(reviewError);
-
-  // UNIÓN, y no sólo el conteo de revisiones del rango: una revisión del 31 de
-  // agosto cuya comparación terminó el 2 de septiembre ES del periodo de la
-  // comparación. Contarla por su propia fecha haría que el bloque se contradijera
-  // a sí mismo, diciendo "no hay revisión registrada" en la misma tarjeta que ya
-  // trae una tasa calculada sobre ella.
-  const revisions = new Set<string>();
-  for (const row of (reviewRows ?? []) as Array<{ id: string }>) revisions.add(row.id);
-  for (const row of comparisons) revisions.add(row.case_review_id);
-
-  return {
-    reviewedCases: revisions.size,
-    comparisons,
-    // `count` es el total ANTES del `limit`: es lo único que permite avisar de
-    // una truncación, así que se propaga tal cual y no el tamaño de `comparisons`.
-    comparisonsAvailable: count ?? comparisons.length,
-  };
+  const reviews = ((data ?? []) as Array<{ id: string; audit_id: string; result: AuditResultType }>)
+    .filter((review) => auditsById.has(review.audit_id));
+  return { reviews, reviewsAvailable: count ?? reviews.length, auditsById };
 }
 
 /**
@@ -1474,6 +1717,7 @@ export async function getHumanReviewInput(
 export async function getAiQuality(
   client: InsForgeClient,
   filters: DashboardFilters,
+  auth?: AuthContext,
 ): Promise<QualityReport> {
   const fromIso = startOfDayUtc(filters.from);
   const toIso = endOfDayUtc(filters.to);
@@ -1485,19 +1729,22 @@ export async function getAiQuality(
     .lte('created_at', toIso);
   if (filters.result !== null) query = query.eq('result', filters.result);
   if (filters.status !== null) query = query.eq('case_status', filters.status);
+  query = applyDimensionFilters(query, filters);
 
-  // Las dos fuentes se leen A LA VEZ: son independientes y el periodo ya está
-  // resuelto. Si la parte humana falla, el error sube y no se sirve un informe a
-  // medias (un `confidence` sin `humanReview` sería la mitad de la verdad).
-  const [{ data, error, count }, humanReview] = await Promise.all([
-    query.order('created_at', { ascending: true }).limit(DASHBOARD_MAX_ROWS),
-    getHumanReviewInput(client, filters),
-  ]);
+  const { data, error, count } = await query.order('created_at', { ascending: true }).limit(DASHBOARD_MAX_ROWS);
 
   // Ningún stack trace ni detalle del proveedor al cliente: mapProviderError
   // traduce el error y sanea el mensaje (nada de tokens o URLs internas).
   if (error) throw mapProviderError(error);
 
-  const rows = (data ?? []) as DashboardMetricRow[];
-  return aggregateQuality(rows, filters, count ?? rows.length, humanReview);
+  let rows = (data ?? []) as DashboardMetricRow[];
+  if (auth?.role === 'user') {
+    const owned = await getOwnedCaseIds(client, auth.sub);
+    rows = rows.filter((row) => owned.has(row.case_id));
+  }
+  // Obtener la entrada humana (comparisons + reviewedCases) recortada por periodo y filtros.
+  const humanInput = await getHumanReviewInput(client, filters, auth);
+  // `aggregateQuality` ahora acepta un HumanReviewInput y lo transforma en el
+  // bloque humano que viaja al navegador.
+  return aggregateQuality(rows, filters, count ?? rows.length, humanInput);
 }

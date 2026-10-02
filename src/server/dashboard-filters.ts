@@ -13,7 +13,7 @@
 
 import { z } from 'zod';
 import { AUDIT_RESULTS, CASE_STATUSES, type AuditResultType, type CaseStatus } from '../skills/audit/types.js';
-import { defaultDateRange, type DashboardFilters } from '../lib/dashboard.js';
+import { defaultDateRange, type DashboardFilters, type DashboardDimension } from '../lib/dashboard.js';
 import { ApiError, type QueryValue } from './http.js';
 
 // Reexportado para que quien use el filtro no tenga que saber de dónde sale.
@@ -82,6 +82,11 @@ const ResultSchema = z.enum(AUDIT_RESULTS, {
 const StatusSchema = z.enum(CASE_STATUSES, {
   errorMap: () => ({ message: `Estado no válido. Opciones: ${CASE_STATUSES.join(', ')}.` }),
 });
+const DimensionSchema = z
+  .string()
+  .trim()
+  .min(1, 'El filtro no puede estar vacío.')
+  .max(200, 'El filtro supera la longitud permitida.');
 
 /** Forma de los query params ya normalizados (sin valores por defecto aún). */
 export const DashboardFiltersQuerySchema = z
@@ -90,6 +95,12 @@ export const DashboardFiltersQuerySchema = z
     to: DaySchema,
     result: ResultSchema.optional(),
     status: StatusSchema.optional(),
+    country: DimensionSchema.optional(),
+    campus: DimensionSchema.optional(),
+    modality: DimensionSchema.optional(),
+    project: DimensionSchema.optional(),
+    responsible: DimensionSchema.optional(),
+    guideline: DimensionSchema.optional(),
   })
   .strict()
   .superRefine((value, ctx) => {
@@ -122,6 +133,37 @@ function readSingle(query: Record<string, QueryValue>, key: string): string | un
   return value;
 }
 
+/** Dimensiones que el cliente puede enviar pero que aún no existen en la vista. */
+const ALL_DIMENSIONS: readonly DashboardDimension[] = [
+  'country',
+  'campus',
+  'modality',
+  'project',
+  'responsible',
+  'guideline',
+];
+
+/**
+ * Allowlist de dimensiones que SÍ se pueden aplicar en PostgREST.
+ * Actualmente ninguna está proyectada en la vista, así que cualquier filtro por
+ * dimensión se rechaza ANTES de tocar la base.
+ */
+const SUPPORTED_DIMENSIONS: readonly DashboardDimension[] = [];
+
+/** Rechaza filtros por dimensiones no disponibles con un 400 claro en español. */
+function rejectUnsupportedDimensions(query: Record<string, QueryValue>): void {
+  const unsupported = ALL_DIMENSIONS.filter((dim) => query[dim] !== undefined);
+  if (unsupported.length === 0) return;
+  const supported =
+    SUPPORTED_DIMENSIONS.length > 0 ? SUPPORTED_DIMENSIONS.join(', ') : 'ninguna por el momento';
+  throw new ApiError(
+    400,
+    'VALIDATION_ERROR',
+    `Los filtros por dimensión (${unsupported.join(', ')}) no están disponibles. ` +
+      `Dimensiones soportadas: ${supported}. Puedes filtrar por from, to, result y status.`,
+  );
+}
+
 /** Primer mensaje de validación (ya redactado en español en este archivo). */
 function firstIssueMessage(error: z.ZodError): string {
   const issue = error.issues[0];
@@ -140,12 +182,20 @@ function firstIssueMessage(error: z.ZodError): string {
  * - Lanza `ApiError(400, 'VALIDATION_ERROR', ...)` con mensaje en español.
  */
 export function parseDashboardFilters(query: Record<string, QueryValue>): DashboardFilters {
+  rejectUnsupportedDimensions(query);
+
   const defaults = defaultDateRange();
   const candidate = {
     from: readSingle(query, 'from') ?? defaults.from,
     to: readSingle(query, 'to') ?? defaults.to,
     result: readSingle(query, 'result') ?? undefined,
     status: readSingle(query, 'status') ?? undefined,
+    country: readSingle(query, 'country') ?? undefined,
+    campus: readSingle(query, 'campus') ?? undefined,
+    modality: readSingle(query, 'modality') ?? undefined,
+    project: readSingle(query, 'project') ?? undefined,
+    responsible: readSingle(query, 'responsible') ?? undefined,
+    guideline: readSingle(query, 'guideline') ?? undefined,
   };
 
   const parsed = DashboardFiltersQuerySchema.safeParse(candidate);
@@ -166,5 +216,16 @@ export function parseDashboardFilters(query: Record<string, QueryValue>): Dashbo
     console.warn(`[dashboard] rango amplio solicitado: ${days} días (aviso desde ${WARN_RANGE_DAYS} días)`);
   }
 
-  return { from, to, result, status };
+  // Construir el objeto de retorno incluyendo SOLO las dimensiones que el
+  // cliente realmente envió. Esto evita que las pruebas (y consumidores) vean
+  // claves con `null` cuando el usuario no solicitó el filtro.
+  const out: Record<string, unknown> = { from, to, result, status };
+  if (parsed.data.country !== undefined) out.country = parsed.data.country ?? null;
+  if (parsed.data.campus !== undefined) out.campus = parsed.data.campus ?? null;
+  if (parsed.data.modality !== undefined) out.modality = parsed.data.modality ?? null;
+  if (parsed.data.project !== undefined) out.project = parsed.data.project ?? null;
+  if (parsed.data.responsible !== undefined) out.responsible = parsed.data.responsible ?? null;
+  if (parsed.data.guideline !== undefined) out.guideline = parsed.data.guideline ?? null;
+
+  return out as unknown as DashboardFilters;
 }

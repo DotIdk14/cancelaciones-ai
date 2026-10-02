@@ -27,7 +27,7 @@
 
 import type { ReactNode } from 'react';
 import { useCallback, useState } from 'react';
-import { Gauge, Info, PencilLine, Scale, UserCheck } from 'lucide-react';
+import { Gauge, Info, Scale, UserCheck } from 'lucide-react';
 import type {
   DashboardFilters as DashboardFiltersValue,
   QualityReport,
@@ -56,13 +56,6 @@ const INT_FMT = new Intl.NumberFormat('es-EC');
 const EMPTY_TITLE = 'Todavía no hay datos suficientes.';
 
 /** Qué haría falta para que "IA vs resolución humana" tuviera contenido. */
-const HUMAN_RESOLUTION_DESCRIPTION =
-  'Requiere registrar la resolución final de una persona para cada caso. El sistema no guarda ese dato.';
-
-/** Por qué "Coincidencia por tipo de caso" está vacío: faltan las DOS entradas. */
-const HUMAN_BY_CASE_TYPE_DESCRIPTION =
-  'Requiere la resolución humana y el tipo de caso structurado. Ninguno de los dos existe todavía.';
-
 // -----------------------------------------------------------------------------
 // Aviso de datos humanos ausentes
 // -----------------------------------------------------------------------------
@@ -99,34 +92,6 @@ function HumanReviewNotice({ report }: { report: QualityReport | null }): ReactN
 // Tarjetas sin dato
 // -----------------------------------------------------------------------------
 
-/**
- * Tarjeta de una magnitud que el sistema NO registra.
- *
- * El valor es `DASH` y el `tone` es `neutral` en los dos casos. Lo que NO puede
- * ser es un 0: "0 casos revisados" afirma que se revisaron cero, y aquí la cifra
- * correcta es "no se registra ninguno", que es una afirmación distinta. Por eso
- * el `hint` nombra la ausencia en vez de dejar que el `—` hable solo.
- */
-function AbsentStatCard({
-  label,
-  hint,
-  icon,
-}: {
-  label: string;
-  hint: string;
-  icon: ReactNode;
-}): ReactNode {
-  return (
-    <StatCard
-      label={label}
-      tone="neutral"
-      icon={icon}
-      value={<span className="text-muted">{DASH}</span>}
-      hint={hint}
-    />
-  );
-}
-
 // -----------------------------------------------------------------------------
 // Página
 // -----------------------------------------------------------------------------
@@ -142,6 +107,7 @@ export function QualityPage(): ReactNode {
   }, [reload]);
 
   const confidence = data?.confidence;
+  const humanReview = data?.humanReview ?? null;
   const bands = confidence?.bands ?? [];
   const byEvidence = confidence?.confidenceByMissingEvidence ?? [];
 
@@ -195,9 +161,9 @@ export function QualityPage(): ReactNode {
       )}
 
       {/* Fila 1: KPIs */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         {showSkeleton ? (
-          Array.from({ length: 4 }, (_, i) => (
+          Array.from({ length: 5 }, (_, i) => (
             <StatCard
               key={i}
               label="Cargando"
@@ -206,21 +172,37 @@ export function QualityPage(): ReactNode {
           ))
         ) : (
           <>
-            {/* Las tres primeras: NO hay dato, y se dice cuál. */}
-            <AbsentStatCard
-              label="Coincidencia IA / humano"
-              hint="Requiere revisión humana registrada"
-              icon={<Scale {...ICON_PROPS} />}
-            />
-            <AbsentStatCard
-              label="Casos revisados por humano"
-              hint="Sin revisión humana registrada"
+            <StatCard
+              label="Casos revisados por persona"
+              tone="neutral"
               icon={<UserCheck {...ICON_PROPS} />}
+              value={humanReview === null ? DASH : humanReview.reviewedCases}
+              hint={humanReview?.available ? 'Revisiones enlazadas a la auditoría filtrada' : 'Sin revisiones en este periodo'}
             />
-            <AbsentStatCard
-              label="Casos corregidos"
-              hint="Sin correcciones registradas"
-              icon={<PencilLine {...ICON_PROPS} />}
+            <StatCard
+              label="Acuerdos exactos"
+              tone="success"
+              icon={<Scale {...ICON_PROPS} />}
+              value={humanReview === null ? DASH : humanReview.agreements}
+              hint={humanReview === null ? 'Sin datos' : `${humanReview.comparableReviews} revisiones comparables`}
+            />
+            <StatCard
+              label="Discrepancias exactas"
+              tone="warning"
+              icon={<Scale {...ICON_PROPS} />}
+              value={humanReview === null ? DASH : humanReview.disagreements}
+              hint="Resultado humano distinto al de la auditoría referenciada"
+            />
+            <StatCard
+              label="Coincidencia exacta"
+              tone="brand"
+              icon={<Scale {...ICON_PROPS} />}
+              value={humanReview?.agreementRate === null || humanReview === null
+                ? <span className="text-muted">{DASH}</span>
+                : formatPercent(humanReview.agreementRate)}
+              hint={humanReview?.agreementRate === null || humanReview === null
+                ? 'Sin revisiones comparables'
+                : `Sobre ${humanReview.comparableReviews} revisiones`}
             />
             {/* Esta sí es real: la confianza que declaró el modelo. */}
             <StatCard
@@ -238,7 +220,7 @@ export function QualityPage(): ReactNode {
         )}
       </div>
 
-      {/* Fila 2: los dos paneles que dependen de revisión humana (hoy, sin dato) */}
+      {/* Fila 2: comparación exacta con la auditoría referenciada por la revisión */}
       <div className="grid gap-6 lg:grid-cols-2">
         {data?.truncated === true && (
           <div className="lg:col-span-2">
@@ -247,34 +229,53 @@ export function QualityPage(): ReactNode {
         )}
 
         <ChartFrame
-          title="IA vs resolución humana"
-          description={HUMAN_RESOLUTION_DESCRIPTION}
+          title="Coincidencia exacta IA / humano"
+          description="Compara el resultado humano con el de la auditoría indicada por audit_id."
           height={300}
           isLoading={showSkeleton}
-          // Vacío SIEMPRE: no hay forma de que estos dos paneles tengan contenido
-          // mientras `humanReview.available` sea `false`. Se deja la condición
-          // escrita para que, el día que exista el dato, sea un cambio de una
-          // línea y no un rediseño.
-          isEmpty
-          emptyTitle={EMPTY_TITLE}
-          emptyDescription={HUMAN_RESOLUTION_DESCRIPTION}
+          isEmpty={!showSkeleton && !humanReview?.available}
+          emptyTitle="Sin revisiones humanas en este periodo."
+          emptyDescription="La tasa queda sin dato hasta que exista una revisión enlazada a su auditoría."
           error={null}
         >
-          {/* Sin datos: nunca se llega aquí (`isEmpty` siempre es true). */}
-          <div />
+          {humanReview?.available ? (
+            <div className="flex h-full flex-col justify-center gap-4">
+              <p className="text-sm text-muted">{humanReview.message}</p>
+              <dl className="flex flex-col gap-2">
+                <HumanMetricRow label="Revisiones registradas" value={humanReview.reviewedCases} />
+                <HumanMetricRow label="Comparables con resultado exacto" value={humanReview.comparableReviews} />
+                <HumanMetricRow
+                  label="Tasa de coincidencia"
+                  value={humanReview.agreementRate === null ? DASH : formatPercent(humanReview.agreementRate)}
+                />
+              </dl>
+            </div>
+          ) : <div />}
         </ChartFrame>
 
         <ChartFrame
-          title="Coincidencia por tipo de caso"
-          description={HUMAN_BY_CASE_TYPE_DESCRIPTION}
+          title="Acuerdos y discrepancias"
+          description="Conteo exacto de resultados iguales o distintos en los casos revisados."
           height={300}
           isLoading={showSkeleton}
-          isEmpty
-          emptyTitle={EMPTY_TITLE}
-          emptyDescription={HUMAN_BY_CASE_TYPE_DESCRIPTION}
+          isEmpty={!showSkeleton && !humanReview?.available}
+          emptyTitle="Sin revisiones humanas en este periodo."
+          emptyDescription="No se fabrican acuerdos ni discrepancias mientras no existan revisiones."
           error={null}
         >
-          <div />
+          {humanReview?.available ? (
+            <div className="flex h-full flex-col justify-center gap-4">
+              <p className="text-sm text-muted">{humanReview.message}</p>
+              <dl className="flex flex-col gap-2">
+                <HumanMetricRow label="Acuerdos exactos" value={humanReview.agreements} />
+                <HumanMetricRow label="Discrepancias exactas" value={humanReview.disagreements} />
+                <HumanMetricRow
+                  label="Sin resultado comparable"
+                  value={humanReview.reviewedCases - humanReview.comparableReviews}
+                />
+              </dl>
+            </div>
+          ) : <div />}
         </ChartFrame>
       </div>
 
@@ -308,6 +309,15 @@ export function QualityPage(): ReactNode {
           <ConfidenceByEvidenceChart data={byEvidence} ariaLabel={byEvidenceAriaLabel} />
         </ChartFrame>
       </div>
+    </div>
+  );
+}
+
+function HumanMetricRow({ label, value }: { label: string; value: string | number }): ReactNode {
+  return (
+    <div className="flex items-center justify-between gap-3 border-b border-line/70 pb-2">
+      <dt className="text-xs font-medium uppercase tracking-wide text-muted">{label}</dt>
+      <dd className="text-sm font-semibold tabular-nums text-ink">{typeof value === 'number' ? INT_FMT.format(value) : value}</dd>
     </div>
   );
 }

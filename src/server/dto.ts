@@ -33,7 +33,6 @@ export interface EvidenceDto {
   mimeType: string;
   sizeBytes: number;
   hash: string;
-  storagePath: string;
   processingStatus: EvidenceStatus;
   processingError: string | null;
   transcript: TranscriptData | null;
@@ -79,6 +78,7 @@ export interface CaseReviewDto {
   /** Auditoría cuyo dictamen se compara (inmutable). */
   auditId: string;
   result: string;
+  reviewerName: string | null;
   comment: string;
   createdAt: string;
 }
@@ -168,7 +168,6 @@ export function evidenceToDto(row: EvidenceRow): EvidenceDto {
     mimeType: row.mime_type,
     sizeBytes: row.size_bytes,
     hash: row.hash,
-    storagePath: row.storage_path,
     processingStatus: row.processing_status,
     processingError: row.processing_status === 'ERROR' && typeof transcriptData?.error === 'string'
       ? transcriptData.error
@@ -232,6 +231,7 @@ export function caseReviewToDto(row: CaseReviewRow): CaseReviewDto {
     caseId: row.case_id,
     auditId: row.audit_id,
     result: row.result,
+    reviewerName: row.reviewer_name ?? null,
     comment: row.comment,
     createdAt: row.created_at,
   };

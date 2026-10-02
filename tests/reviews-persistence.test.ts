@@ -22,7 +22,7 @@ const INPUT = {
   auditId: 'audit-1',
   result: 'BAJA' as const,
   comment: 'Se acredita la baja por solicitud posterior al inicio de ciclo.',
-  userId: null,
+  userId: 'user-test',
 };
 
 let db: FakeDatabase;

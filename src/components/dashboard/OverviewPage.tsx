@@ -8,7 +8,7 @@
 
 import type { ReactNode } from 'react';
 import { useCallback, useState } from 'react';
-import { CircleCheck, FileQuestion, Files, Scale, TriangleAlert } from 'lucide-react';
+import { CircleCheck, FileQuestion, FileWarning, Files, Scale, TriangleAlert } from 'lucide-react';
 import type { DashboardFilters as DashboardFiltersValue, KpiKey } from '../../lib/dashboard';
 import { defaultDateRange, KPI_PCT } from '../../lib/dashboard';
 import { formatPercent } from '../../lib/format';
@@ -34,6 +34,13 @@ interface KpiCard {
 
 const KPI_CARDS: KpiCard[] = [
   { key: 'auditedCases', label: 'Casos auditados', tone: 'neutral', icon: <Files {...ICON_PROPS} />, withPct: false },
+  {
+    key: 'casesWithMissingEvidence',
+    label: 'Casos con evidencia faltante',
+    tone: 'warning',
+    icon: <FileWarning {...ICON_PROPS} />,
+    withPct: true,
+  },
   { key: 'granted', label: 'Concedidas', tone: 'success', icon: <CircleCheck {...ICON_PROPS} />, withPct: true },
   { key: 'needsRuling', label: 'Requiere dictaminación', tone: 'warning', icon: <Scale {...ICON_PROPS} />, withPct: true },
   { key: 'insufficient', label: 'Evidencia insuficiente', tone: 'brand', icon: <FileQuestion {...ICON_PROPS} />, withPct: true },
@@ -82,7 +89,7 @@ export function OverviewPage(): ReactNode {
       )}
 
       {/* Fila 1: KPIs */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         {KPI_CARDS.map((card) => {
           const value = kpi?.[card.key];
           const pctKey = card.key === 'auditedCases' ? null : KPI_PCT[card.key];

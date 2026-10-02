@@ -240,9 +240,10 @@ describe('getHumanReviewInput — el corte por periodo', () => {
     // Sólo la de septiembre: ni la de agosto ni la de octubre.
     expect(input.reviewedCases).toBe(1);
     const call = fake.callFor(REVIEWS);
-    // `id` y no `*`: `case_reviews.comment` es texto escrito por una persona y
-    // puede contener PII, y aquí sólo hace falta contar.
-    expect(call?.columns).toBe('id');
+    // `id,case_id` y no `*`: `case_reviews.comment` es texto escrito por una
+    // persona y puede contener PII, y aquí sólo hace falta contar. El `case_id`
+    // permite aplicar scope multi-tenant sin traer el comentario.
+    expect(call?.columns).toBe('id,case_id');
     expect(call?.predicates).toEqual([
       { op: 'gte', column: 'created_at', value: '2026-09-01T00:00:00.000Z' },
       { op: 'lte', column: 'created_at', value: '2026-09-30T23:59:59.999Z' },
@@ -376,7 +377,7 @@ describe('getAiQuality — el bloque humano sin degradarse en silencio', () => {
 // --------------------------------------------------------------------------- forma
 
 describe('getAiQuality — la forma que viaja al navegador', () => {
-  it('humanReview tiene EXACTAMENTE los diez campos del contrato', async () => {
+  it('humanReview tiene EXACTAMENTE los once campos del contrato', async () => {
     // El nombre de cada clave ES el contrato con `src/lib/dashboard.ts` y con
     // `src/components/dashboard/QualityPage.tsx`. Se fija la lista completa en
     // vez de comprobar campos sueltos porque el defecto que hay que cazar aquí es
@@ -396,6 +397,7 @@ describe('getAiQuality — la forma que viaja al navegador', () => {
       'agreements',
       'available',
       'avgComparisonConfidence',
+      'comparableReviews',
       'completedComparisons',
       'disagreements',
       'failedComparisons',

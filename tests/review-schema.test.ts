@@ -42,7 +42,7 @@ describe('vocabulario de la resolución humana', () => {
   });
 
   it('el comentario humano tiene límites declarados', () => {
-    expect(REVIEW_COMMENT_MIN).toBe(10);
+    expect(REVIEW_COMMENT_MIN).toBe(0);
     expect(REVIEW_COMMENT_MAX).toBe(2000);
   });
 });
@@ -126,26 +126,32 @@ describe('ComparisonResultSchema', () => {
 });
 
 describe('HumanReviewInputSchema', () => {
-  const valid = { result: 'BAJA' as const, comment: 'Se acredita la baja por solicitud posterior al inicio de ciclo.' };
+  const valid = {
+    result: 'BAJA' as const,
+    reviewerName: 'Revisora de pruebas',
+    comment: 'Se acredita la baja por solicitud posterior al inicio de ciclo.',
+  };
 
   it('acepta la revisión de referencia', () => {
     expect(HumanReviewInputSchema.parse(valid)).toEqual(valid);
   });
 
-  it('rechaza comentario vacío', () => {
-    expect(HumanReviewInputSchema.safeParse({ ...valid, comment: '' }).success).toBe(false);
-    expect(HumanReviewInputSchema.safeParse({ ...valid, comment: '    ' }).success).toBe(false);
+  it('permite notas vacías porque son opcionales', () => {
+    expect(HumanReviewInputSchema.parse({ ...valid, comment: '' }).comment).toBe('');
+    expect(HumanReviewInputSchema.parse({ ...valid, comment: '    ' }).comment).toBe('');
   });
 
-  it('rechaza comentario por debajo del mínimo', () => {
-    expect(HumanReviewInputSchema.safeParse({ ...valid, comment: 'a'.repeat(REVIEW_COMMENT_MIN - 1) }).success).toBe(false);
+  it('exige identificar a la persona revisora', () => {
+    expect(HumanReviewInputSchema.safeParse({ ...valid, reviewerName: '' }).success).toBe(false);
+    expect(HumanReviewInputSchema.safeParse({ ...valid, reviewerName: '    ' }).success).toBe(false);
+    expect(HumanReviewInputSchema.safeParse({ ...valid, reviewerName: 'R'.repeat(121) }).success).toBe(false);
   });
 
   it('rechaza comentario por encima del máximo', () => {
     expect(HumanReviewInputSchema.safeParse({ ...valid, comment: 'a'.repeat(REVIEW_COMMENT_MAX + 1) }).success).toBe(false);
   });
 
-  it('acepta el comentario exactamente en los dos límites', () => {
+  it('acepta el comentario vacío y el tamaño máximo', () => {
     expect(HumanReviewInputSchema.safeParse({ ...valid, comment: 'a'.repeat(REVIEW_COMMENT_MIN) }).success).toBe(true);
     expect(HumanReviewInputSchema.safeParse({ ...valid, comment: 'a'.repeat(REVIEW_COMMENT_MAX) }).success).toBe(true);
   });

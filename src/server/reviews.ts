@@ -23,6 +23,7 @@ export interface CaseReviewRow {
   /** Auditoría cuyo dictamen se compara. Nunca "la última del caso". */
   audit_id: string;
   result: HumanResolution;
+  reviewer_name: string | null;
   comment: string;
   created_at: string;
   created_by: string | null;
@@ -51,9 +52,10 @@ export interface CreateCaseReviewInput {
   caseId: string;
   auditId: string;
   result: HumanResolution;
+  reviewerName: string;
   comment: string;
-  /** Sin sesión de usuario el producto opera como `project_admin`; se guarda `null`. */
-  userId: string | null;
+  /** Identidad de quien registra la revisión. */
+  userId: string;
 }
 
 export interface InsertComparisonInput {
@@ -126,6 +128,7 @@ export async function createCaseReview(
         case_id: input.caseId,
         audit_id: input.auditId,
         result: input.result,
+        reviewer_name: input.reviewerName,
         comment: input.comment,
         created_by: input.userId,
       },

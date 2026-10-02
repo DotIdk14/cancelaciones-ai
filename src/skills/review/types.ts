@@ -34,15 +34,9 @@ export const HUMAN_RESOLUTIONS = AUDIT_RESULTS;
 export type HumanResolution = (typeof HUMAN_RESOLUTIONS)[number];
 
 /**
- * Límites del comentario humano.
- *
- * El mínimo existe porque `comment` es la justificación que la persona Opone a
- * un dictamen: un resultado sin razonamiento no es revisable por nadie y deja
- * la fila durable sin contenido humano que comparar. El máximo existe para que
- * el comentario siga siendo un argumento y no un expediente pegado dentro de
- * una columna, y para acotar el contexto que se inyecta en la comparación.
+ * Límite superior del comentario opcional de la revisión humana.
  */
-export const REVIEW_COMMENT_MIN = 10;
+export const REVIEW_COMMENT_MIN = 0;
 export const REVIEW_COMMENT_MAX = 2000;
 
 // -----------------------------------------------------------------------------
@@ -111,6 +105,7 @@ export interface CaseReviewRecord {
   /** Auditoría cuyo dictamen se compara. La revisión NUNCA apunta a "la última". */
   auditId: string;
   result: HumanResolution;
+  reviewerName: string | null;
   comment: string;
   createdAt: string;
   createdBy: string | null;

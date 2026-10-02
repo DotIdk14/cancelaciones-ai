@@ -99,6 +99,7 @@ export interface CaseReviewDto {
   /** Auditoría cuyo dictamen se compara. Inmutable: la revisión no apunta a "la última". */
   auditId: string;
   result: AuditResultType;
+  reviewerName: string | null;
   comment: string;
   createdAt: string;
 }
@@ -213,8 +214,21 @@ export async function readError(res: Response): Promise<ApiError> {
   return new ApiError(category, message, res.status);
 }
 
+/** Señal tipada de que la sesión expiró y no pudo renovarse. */
+export class SessionExpiredError extends ApiError {
+  constructor() {
+    super('UNAUTHENTICATED', 'Tu sesión expiró. Vuelve a iniciar sesión.', 401);
+    this.name = 'SessionExpiredError';
+  }
+}
+
+export function isSessionExpiredError(error: unknown): error is SessionExpiredError {
+  return error instanceof SessionExpiredError;
+}
+
 /** Convierte cualquier excepción en un estado mostrable. */
 export function toErrorState(error: unknown): ErrorState {
+  if (error instanceof SessionExpiredError) return { category: error.category, message: error.message };
   if (error instanceof ApiError) return { category: error.category, message: error.message };
   if (error instanceof Error && error.message) {
     return { category: 'UNKNOWN', message: error.message };
@@ -232,12 +246,78 @@ interface RequestOptions {
   body?: BodyInit;
 }
 
-async function request<T>(url: string, options: RequestOptions, expected: number[]): Promise<T> {
+interface SafeFetchOptions extends RequestOptions {
+  /** Si es false, un 401 no dispara refresh automático. */
+  retryAuth?: boolean;
+}
+
+const AUTH_ENDPOINTS = new Set(['/api/auth/session', '/api/auth/refresh']);
+
+let activeRefresh: Promise<boolean> | null = null;
+
+async function performRefresh(): Promise<boolean> {
+  try {
+    const res = await fetch('/api/auth/refresh', {
+      method: 'POST',
+      headers: { 'X-App-Request': '1' },
+      credentials: 'same-origin',
+    });
+    return res.status === 200;
+  } catch {
+    return false;
+  }
+}
+
+async function refreshSessionInternal(): Promise<boolean> {
+  if (!activeRefresh) {
+    activeRefresh = performRefresh().finally(() => {
+      activeRefresh = null;
+    });
+  }
+  return activeRefresh;
+}
+
+function isMutating(method: string): boolean {
+  return ['POST', 'PATCH', 'DELETE'].includes(method);
+}
+
+/**
+ * Fetch con CSRF en mutaciones, retry único ante 401 y deduplicación de refresh.
+ *
+ * - Inyecta `X-App-Request: 1` en POST/PATCH/DELETE.
+ * - Conserva `credentials: 'same-origin'`.
+ * - Ante 401 (salvo en endpoints de auth) lanza UN refresh compartido; si
+ *   funciona, reintenta la petición original una sola vez.
+ * - Si el refresh falla o el reintento vuelve a dar 401, lanza
+ *   `SessionExpiredError` para evitar bucles infinitos.
+ */
+async function safeFetch(url: string, options: SafeFetchOptions = {}): Promise<Response> {
+  const method = options.method ?? 'GET';
+  const headers: Record<string, string> = {
+    ...(options.headers ?? {}),
+    ...(isMutating(method) ? { 'X-App-Request': '1' } : {}),
+  };
+
   const res = await fetch(url, {
-    method: options.method ?? 'GET',
-    headers: options.headers,
+    method,
+    headers,
     body: options.body,
+    credentials: 'same-origin',
   });
+
+  if (res.status === 401 && options.retryAuth !== false && !AUTH_ENDPOINTS.has(url)) {
+    const refreshed = await refreshSessionInternal();
+    if (refreshed) {
+      return safeFetch(url, { ...options, retryAuth: false });
+    }
+    throw new SessionExpiredError();
+  }
+
+  return res;
+}
+
+async function request<T>(url: string, options: RequestOptions, expected: number[]): Promise<T> {
+  const res = await safeFetch(url, options);
   if (!expected.includes(res.status)) throw await readError(res);
   return (await res.json()) as T;
 }
@@ -291,7 +371,7 @@ export async function getCase(caseId: string): Promise<CaseDetailResponse> {
  * caracteres no ASCII.
  */
 export async function uploadEvidence(caseId: string, file: File): Promise<Evidence> {
-  const res = await fetch(casePath(caseId, '/evidence'), {
+  const res = await safeFetch(casePath(caseId, '/evidence'), {
     method: 'POST',
     headers: {
       'content-type': file.type !== '' ? file.type : 'application/octet-stream',
@@ -328,7 +408,7 @@ export function evidencePreviewUrl(evidenceId: string): string {
  *  - 202 con `pendingEvidence` cuando falta transcripción.
  */
 export async function startAudit(caseId: string): Promise<StartAuditResponse> {
-  const res = await fetch(casePath(caseId, '/audit'), { method: 'POST' });
+  const res = await safeFetch(casePath(caseId, '/audit'), { method: 'POST' });
   if (res.status === 200) {
     const data = (await res.json()) as { audit: AuditDetail };
     return { kind: 'finished', audit: data.audit };
@@ -378,14 +458,18 @@ export async function getCaseReview(caseId: string): Promise<CaseReviewResponse>
  */
 export async function submitCaseReview(
   caseId: string,
-  input: { result: AuditResultType; comment: string },
+  input: { result: AuditResultType; reviewerName: string; comment: string },
 ): Promise<{ review: CaseReviewDto; comparison: ComparisonDto }> {
   const data = await request<{ review: CaseReviewDto; comparison: ComparisonDto }>(
     casePath(caseId, '/review'),
     {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ result: input.result, comment: input.comment.trim() }),
+      body: JSON.stringify({
+        result: input.result,
+        reviewerName: input.reviewerName.trim(),
+        comment: input.comment.trim(),
+      }),
     },
     [200, 201],
   );
@@ -402,4 +486,51 @@ export async function retryComparison(caseId: string): Promise<ComparisonDto> {
     201,
   ]);
   return data.comparison;
+}
+
+// -----------------------------------------------------------------------------
+// Sesión
+// -----------------------------------------------------------------------------
+
+export interface SessionUser {
+  id: string;
+  email: string;
+}
+
+export async function signIn(email: string, password: string): Promise<SessionUser> {
+  const res = await safeFetch('/api/auth/session', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email: email.trim(), password }),
+    retryAuth: false,
+  });
+  if (res.status === 401) {
+    const error = await readError(res);
+    throw error;
+  }
+  if (![200, 201].includes(res.status)) {
+    throw await readError(res);
+  }
+  const data = (await res.json()) as { user: SessionUser };
+  return data.user;
+}
+
+export async function signOut(): Promise<void> {
+  const res = await safeFetch('/api/auth/session', {
+    method: 'DELETE',
+    retryAuth: false,
+  });
+  if (res.status === 401) return; // la sesión ya no existía; las cookies se limpian en el servidor
+  if (![204, 200].includes(res.status)) {
+    throw await readError(res);
+  }
+}
+
+/** Refresco explícito. Devuelve true si la sesión sigue vigente. */
+export async function refreshSession(): Promise<boolean> {
+  const res = await safeFetch('/api/auth/refresh', {
+    method: 'POST',
+    retryAuth: false,
+  });
+  return res.status === 200;
 }

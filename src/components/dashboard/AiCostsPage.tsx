@@ -253,7 +253,7 @@ interface ReliabilityRow {
   hint: string;
 }
 
-const RELIABILITY_ROWS: ReadonlyArray<ReliabilityRow & { key: keyof AiCostsReport['reliability'] }> = [
+const RELIABILITY_ROWS: ReadonlyArray<ReliabilityRow & { key: 'successful' | 'retried' | 'fallback' | 'failed' }> = [
   { key: 'successful', label: 'Exitosas', tone: 'success', hint: 'Auditorías completadas.' },
   { key: 'retried', label: 'Reintentos', tone: 'warning', hint: 'Auditorías que reintentaron dentro de la llamada.' },
   { key: 'fallback', label: 'Fallback', tone: 'brand', hint: 'Auditorías que probaron más de un modelo.' },
@@ -286,6 +286,36 @@ function ReliabilityPanel({ report }: { report: AiCostsReport | null }): ReactNo
         Estas métricas no suman un total: una auditoría completada tras un reintento cuenta como
         exitosa y como reintentada.
       </p>
+      <div className="mt-2 border-t border-line pt-3">
+        <h3 className="text-sm font-semibold text-ink">Resultado técnico excluyente</h3>
+        {!reliability.executionOutcomes.available ? (
+          <p className="mt-2 text-xs text-muted">
+            No disponible: los intentos registrados no permiten separar con fiabilidad los resultados.
+          </p>
+        ) : (
+          <>
+            <dl className="mt-2 flex flex-col gap-2">
+              <OutcomeRow label="Exitosa al primer intento" value={reliability.executionOutcomes.successfulFirstAttempt} tone="success" />
+              <OutcomeRow label="Exitosa tras reintento" value={reliability.executionOutcomes.successfulAfterRetry} tone="warning" />
+              <OutcomeRow label="Fallback de modelo" value={reliability.executionOutcomes.fallback} tone="brand" />
+              <OutcomeRow label="Fallida" value={reliability.executionOutcomes.failed} tone="danger" />
+              <OutcomeRow label="En curso" value={reliability.executionOutcomes.inProgress} tone="neutral" />
+            </dl>
+            <p className="mt-2 text-xs text-muted">
+              Las categorías son mutuamente excluyentes y describen ejecución técnica; no indican si se concedió una cancelación.
+            </p>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function OutcomeRow({ label, value, tone }: { label: string; value: number | null; tone: Tone }): ReactNode {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <dt className="text-xs font-medium text-muted">{label}</dt>
+      <dd>{value === null ? <Badge tone="neutral">No disponible</Badge> : <Badge tone={tone}>{INT_FMT.format(value)}</Badge>}</dd>
     </div>
   );
 }

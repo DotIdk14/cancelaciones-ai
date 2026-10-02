@@ -2,7 +2,6 @@ import { z } from 'zod';
 import {
   HUMAN_RESOLUTIONS,
   REVIEW_COMMENT_MAX,
-  REVIEW_COMMENT_MIN,
 } from './types.js';
 import { ApiError } from '../../server/http.js';
 
@@ -97,9 +96,9 @@ export const ComparisonOutcomeSchema = ComparisonOutcomeObject.superRefine(valid
 /**
  * Body de `POST /api/cases/:caseId/review`.
  *
- * Es la validación de ENTRADA del servidor, no del modelo: sin ella, un
- * comentario vacío o una clasificación inventada llegarían a `case_reviews` y
- * de ahí al contexto de la comparación. `.strict()` también aquí: `auditId` no
+ * Es la validación de ENTRADA del servidor, no del modelo: sin ella, un nombre
+ * vacío, una nota demasiado larga o una clasificación inventada llegarían a
+ * `case_reviews` y de ahí al contexto de la comparación. `.strict()` también aquí: `auditId` no
  * lo elige quien revisa (lo resuelve el servidor contra la auditoría
  * COMPLETED vigente), y aceptarlo sería permitir que un cliente señale qué
  * dictamen se compara.
@@ -107,10 +106,10 @@ export const ComparisonOutcomeSchema = ComparisonOutcomeObject.superRefine(valid
 export const HumanReviewInputSchema = z
   .object({
     result: z.enum(HUMAN_RESOLUTIONS),
+    reviewerName: z.string().trim().min(1).max(120),
     comment: z
       .string()
       .trim()
-      .min(REVIEW_COMMENT_MIN, `El comentario debe tener al menos ${REVIEW_COMMENT_MIN} caracteres`)
       .max(REVIEW_COMMENT_MAX, `El comentario no puede superar ${REVIEW_COMMENT_MAX} caracteres`),
   })
   .strict();

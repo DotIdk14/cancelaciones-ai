@@ -108,7 +108,18 @@ function toUiError(error: unknown): { message: string; discardsPreviousData: boo
 
 /** Serializa los filtros a una clave: son un objeto nuevo en cada render. */
 function filterKeyOf(filters: DashboardFilters): string {
-  return `${filters.from}|${filters.to}|${filters.result ?? ''}|${filters.status ?? ''}`;
+  return [
+    filters.from,
+    filters.to,
+    filters.result ?? '',
+    filters.status ?? '',
+    filters.country ?? '',
+    filters.campus ?? '',
+    filters.modality ?? '',
+    filters.project ?? '',
+    filters.responsible ?? '',
+    filters.guideline ?? '',
+  ].join('|');
 }
 
 /**

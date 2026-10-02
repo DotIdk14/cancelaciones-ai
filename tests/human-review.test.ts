@@ -20,6 +20,7 @@ import reviewHandler from '../api/cases/[caseId]/review/index';
 import comparisonHandler from '../api/cases/[caseId]/comparison/index';
 import { setTestEnv } from './helpers/env';
 import { validAuditResult } from './fixtures/audit-result';
+import { fakeAuthContext, FAKE_USER_SUB } from './helpers/auth';
 import {
   fakeClient,
   listAudits,
@@ -40,6 +41,10 @@ vi.mock('../src/server/cases', async () => {
   const store = await import('./helpers/fake-store');
   return {
     getCaseOr404: store.getCaseOr404,
+    getScopedCaseOr404: store.getScopedCaseOr404,
+    derivedExtractionOf: store.derivedExtractionOf,
+    persistDerivedExtraction: store.persistDerivedExtraction,
+    assertCaseOwner: store.assertCaseOwner,
     listCaseSummaries: store.listCaseSummaries,
     createCase: store.createCase,
     listEvidenceRows: store.listEvidenceRows,
@@ -140,7 +145,7 @@ function makeApiResponse(): ApiResponse & { statusCode: number; body: string } {
 }
 
 function makeApiRequest(method: string, query: Record<string, string>, body?: unknown): ApiRequest {
-  return { method, url: '/', headers: {}, query, body } as unknown as ApiRequest;
+  return { method, url: '/', headers: {}, query, body, auth: fakeAuthContext() } as unknown as ApiRequest;
 }
 
 /** System prompt + expediente tal como se enviaron al modelo en la llamada `index`. */
@@ -450,7 +455,7 @@ describe('submitCaseReview — una revisión por caso', () => {
     seedAudit({ id: 'audit-error', status: 'ERROR', result_json: null });
 
     await expect(
-      submitCaseReview(fakeClient, 'case-1', { result: 'BAJA', comment: HUMAN_COMMENT, userId: null }),
+      submitCaseReview(fakeClient, 'case-1', { result: 'BAJA', reviewerName: 'Revisora de pruebas', comment: HUMAN_COMMENT, userId: FAKE_USER_SUB }),
     ).rejects.toMatchObject({ status: 400, category: 'VALIDATION_ERROR' });
 
     expect(listReviews()).toHaveLength(0);
@@ -460,7 +465,7 @@ describe('submitCaseReview — una revisión por caso', () => {
     seedAuditableCase();
     seedAudit({ id: 'audit-nueva', created_at: '2026-02-05T10:10:00Z' });
 
-    const result = await submitCaseReview(fakeClient, 'case-1', { result: 'DICTAMINACION', comment: HUMAN_COMMENT, userId: null });
+    const result = await submitCaseReview(fakeClient, 'case-1', { result: 'DICTAMINACION', reviewerName: 'Revisora de pruebas', comment: HUMAN_COMMENT, userId: FAKE_USER_SUB });
 
     expect(result.review.auditId).toBe('audit-nueva');
     expect(result.review.result).toBe('DICTAMINACION');
@@ -471,10 +476,10 @@ describe('submitCaseReview — una revisión por caso', () => {
 
   it('una segunda revisión del mismo caso es 409 y no crea fila', async () => {
     seedAuditableCase();
-    await submitCaseReview(fakeClient, 'case-1', { result: 'BAJA', comment: HUMAN_COMMENT, userId: null });
+    await submitCaseReview(fakeClient, 'case-1', { result: 'BAJA', reviewerName: 'Revisora de pruebas', comment: HUMAN_COMMENT, userId: FAKE_USER_SUB });
 
     await expect(
-      submitCaseReview(fakeClient, 'case-1', { result: 'DICTAMINACION', comment: HUMAN_COMMENT, userId: null }),
+      submitCaseReview(fakeClient, 'case-1', { result: 'DICTAMINACION', reviewerName: 'Revisora de pruebas', comment: HUMAN_COMMENT, userId: FAKE_USER_SUB }),
     ).rejects.toMatchObject({ status: 409 });
 
     expect(listReviews()).toHaveLength(1);
@@ -483,11 +488,11 @@ describe('submitCaseReview — una revisión por caso', () => {
 });
 
 describe('endpoints de revisión y comparación', () => {
-  it('POST /review con comentario demasiado corto devuelve 400 sin escribir ni llamar al modelo', async () => {
+  it('POST /review sin nombre de quien revisa devuelve 400', async () => {
     seedAuditableCase();
     const res = makeApiResponse();
 
-    await reviewHandler(makeApiRequest('POST', { caseId: 'case-1' }, { result: 'BAJA', comment: 'corto' }), res);
+    await reviewHandler(makeApiRequest('POST', { caseId: 'case-1' }, { result: 'BAJA', comment: HUMAN_COMMENT }), res);
 
     expect(res.statusCode).toBe(400);
     expect((JSON.parse(res.body) as { error: { category: string } }).error.category).toBe('VALIDATION_ERROR');
@@ -500,7 +505,7 @@ describe('endpoints de revisión y comparación', () => {
     const res = makeApiResponse();
 
     await reviewHandler(
-      makeApiRequest('POST', { caseId: 'case-1' }, { result: 'RESULTADO_INVENTADO', comment: HUMAN_COMMENT }),
+      makeApiRequest('POST', { caseId: 'case-1' }, { result: 'RESULTADO_INVENTADO', reviewerName: 'Revisora de pruebas', comment: HUMAN_COMMENT }),
       res,
     );
 
@@ -512,21 +517,22 @@ describe('endpoints de revisión y comparación', () => {
     seedAuditableCase();
     const res = makeApiResponse();
 
-    await reviewHandler(makeApiRequest('POST', { caseId: 'case-1' }, { result: 'BAJA', comment: HUMAN_COMMENT }), res);
+    await reviewHandler(makeApiRequest('POST', { caseId: 'case-1' }, { result: 'BAJA', reviewerName: 'Revisora de pruebas', comment: HUMAN_COMMENT }), res);
 
     expect(res.statusCode).toBe(201);
-    const payload = JSON.parse(res.body) as { review: { result: string; comment: string }; comparison: { status: string } };
+    const payload = JSON.parse(res.body) as { review: { result: string; reviewerName: string; comment: string }; comparison: { status: string } };
     expect(payload.review.result).toBe('BAJA');
+    expect(payload.review.reviewerName).toBe('Revisora de pruebas');
     expect(payload.review.comment).toBe(HUMAN_COMMENT);
     expect(payload.comparison.status).toBe('COMPLETED');
   });
 
   it('POST /review duplicado devuelve 409 sin crear una segunda revisión', async () => {
     seedAuditableCase();
-    await reviewHandler(makeApiRequest('POST', { caseId: 'case-1' }, { result: 'BAJA', comment: HUMAN_COMMENT }), makeApiResponse());
+    await reviewHandler(makeApiRequest('POST', { caseId: 'case-1' }, { result: 'BAJA', reviewerName: 'Revisora de pruebas', comment: HUMAN_COMMENT }), makeApiResponse());
     const res = makeApiResponse();
 
-    await reviewHandler(makeApiRequest('POST', { caseId: 'case-1' }, { result: 'DICTAMINACION', comment: HUMAN_COMMENT }), res);
+    await reviewHandler(makeApiRequest('POST', { caseId: 'case-1' }, { result: 'DICTAMINACION', reviewerName: 'Revisora de pruebas', comment: HUMAN_COMMENT }), res);
 
     expect(res.statusCode).toBe(409);
     expect(listReviews()).toHaveLength(1);
@@ -534,7 +540,7 @@ describe('endpoints de revisión y comparación', () => {
 
   it('GET /review devuelve revisión + comparación + resolución efectiva', async () => {
     seedAuditableCase();
-    await reviewHandler(makeApiRequest('POST', { caseId: 'case-1' }, { result: 'BAJA', comment: HUMAN_COMMENT }), makeApiResponse());
+    await reviewHandler(makeApiRequest('POST', { caseId: 'case-1' }, { result: 'BAJA', reviewerName: 'Revisora de pruebas', comment: HUMAN_COMMENT }), makeApiResponse());
     const res = makeApiResponse();
 
     await reviewHandler(makeApiRequest('GET', { caseId: 'case-1' }), res);

@@ -8,11 +8,20 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { deleteEvidence, getAudit, getCase, startAudit, toErrorState } from '../lib/api';
 import type { AuditDetail, CaseDetailResponse, ErrorState, Evidence } from '../lib/api';
 import { formatDateTime, shortId } from '../lib/format';
-import { CASE_STATUS_LABELS, CASE_STATUS_TONE, errorCategoryLabel, errorCategoryMessage } from '../lib/labels';
+import {
+  CASE_STATUS_LABELS,
+  CASE_STATUS_TONE,
+  RESULT_LABELS,
+  RESULT_TONE,
+  errorCategoryLabel,
+  errorCategoryMessage,
+} from '../lib/labels';
 import { goToCases } from '../lib/useHashRoute';
 import { usePolling } from '../lib/usePolling';
 import { AuditResultPanel } from './AuditResultPanel';
 import { CaseReviewPanel, CaseReviewRecord } from './CaseReviewPanel';
+import { AUDIT_RESULTS } from '../skills/audit/types';
+import type { AuditResultType } from '../skills/audit/types';
 import { EvidenceList } from './EvidenceList';
 import { EvidenceUploader } from './EvidenceUploader';
 import { EvidenceViewer } from './EvidenceViewer';
@@ -183,6 +192,9 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
   const review = detail?.review ?? null;
   const comparison = detail?.comparison ?? null;
   const effectiveResolution = detail?.effectiveResolution ?? null;
+  const reviewAuditValue = review === null ? null : detail?.audits.find((item) => item.id === review.auditId)?.result ?? null;
+  const reviewAuditResult: AuditResultType | null =
+    AUDIT_RESULTS.find((result) => result === reviewAuditValue) ?? null;
 
   const hasTranscribing = evidences.some((item) => item.processingStatus === 'TRANSCRIBING');
   const allReady = evidences.length > 0 && evidences.every((item) => item.processingStatus === 'READY');
@@ -360,11 +372,31 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
         )}
       </Panel>
 
+      {review !== null && (
+        <section
+          aria-labelledby="resolucion-humana-vigente"
+          className="rounded-2xl border border-brand/40 bg-brand/5 p-5"
+        >
+          <h2 id="resolucion-humana-vigente" className="text-base font-semibold text-ink">
+            Resolución humana vigente
+          </h2>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <Badge tone={RESULT_TONE[review.result]}>{RESULT_LABELS[review.result]}</Badge>
+            <span className="text-sm text-muted">
+              Esta decisión humana tiene prioridad y gobierna el caso.
+            </span>
+          </div>
+          <p className="mt-2 text-sm text-muted">
+            El dictamen original de IA se conserva sin cambios y se muestra debajo para comparación.
+          </p>
+        </section>
+      )}
+
       {/* ------------------------------------------------------ resultado */}
       {audit !== null && audit.status === 'COMPLETED' && (
         <section aria-labelledby="resultado-auditoria" className="flex flex-col gap-3">
           <h2 id="resultado-auditoria" className="text-base font-semibold text-ink">
-            Resultado de la auditoría
+            Dictamen original de IA
           </h2>
           <AuditResultPanel audit={audit} evidences={evidences} />
         </section>
@@ -380,6 +412,7 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
           review={review}
           comparison={comparison}
           effectiveResolution={effectiveResolution}
+          reviewAuditResult={reviewAuditResult}
         />
       ) : (
         <CaseReviewPanel caseId={caseId} audit={audit} review={null} onSubmitted={() => void load()} />

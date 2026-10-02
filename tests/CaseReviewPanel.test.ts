@@ -7,9 +7,8 @@
 //
 //   1. El formulario NO aparece si no hay dictamen emitido, NI si ya hay
 //      revisión. La revisión es ÚNICA por caso.
-//   2. El botón de enviar se DESHABILITA con el comentario inválido; no se
-//      oculta, y los límites son los del servidor (10..2000 sobre el texto
-//      recortado, no el crudo).
+//   2. El botón de enviar se DESHABILITA sin resultado o nombre de revisor, o
+//      con notas por encima del máximo del servidor (2000 caracteres recortados).
 //   3. Un 409 dice que la revisión ya existe y NO ofrece reenviarla.
 //   4. Un `comparison.status === 'RUNNING'` al montar retoma el polling contra
 //      el servidor, y recargar NO duplica revisión ni comparación.
@@ -24,6 +23,7 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AuditDetail, CaseReviewDto, ComparisonDto, EffectiveResolution } from '../src/lib/api';
 import { CaseReviewPanel, CaseReviewRecord } from '../src/components/CaseReviewPanel';
+import { RESULT_LABELS } from '../src/lib/labels';
 import { validAuditResult } from './fixtures/audit-result';
 
 // --- Fetch -------------------------------------------------------------------
@@ -94,6 +94,7 @@ function makeReview(overrides: Partial<CaseReviewDto> = {}): CaseReviewDto {
     caseId: 'case-1',
     auditId: 'audit-1',
     result: 'DICTAMINACION',
+    reviewerName: 'Revisora de pruebas',
     comment: COMMENT,
     createdAt: '2026-02-03T09:00:00Z',
     ...overrides,
@@ -156,13 +157,23 @@ function renderRecord(comparison: ComparisonDto | null): HTMLElement {
       review: makeReview(),
       comparison,
       effectiveResolution: makeEffective('DICTAMINACION', 'HUMAN'),
+      reviewAuditResult: validAuditResult.audit.result,
     }),
   );
   return view.container;
 }
 
 function commentBox(): HTMLTextAreaElement {
-  return screen.getByLabelText(/comentario/i) as HTMLTextAreaElement;
+  return screen.getByLabelText(/notas de la revisión/i) as HTMLTextAreaElement;
+}
+
+function reviewerNameBox(): HTMLInputElement {
+  return screen.getByLabelText(/nombre de quien revisa/i) as HTMLInputElement;
+}
+
+function chooseReview(resultLabel = 'Dictaminación'): void {
+  fireEvent.click(screen.getByRole('radio', { name: resultLabel }));
+  fireEvent.change(reviewerNameBox(), { target: { value: 'Revisora de pruebas' } });
 }
 
 function submitButton(): HTMLButtonElement {
@@ -218,30 +229,40 @@ describe('CaseReviewPanel — cuándo existe', () => {
     );
 
     expect(view.container.querySelector('form')).not.toBeNull();
-    expect(within(view.container).getAllByRole('radio')).toHaveLength(6);
+    expect(within(view.container).getAllByRole('radio')).toHaveLength(7);
   });
 });
 
 // =============================================================================
-describe('CaseReviewPanel — el comentario es obligatorio y acotado', () => {
-  it('el botón está deshabilitado con el comentario vacío, de 5 y de 2001 caracteres', () => {
-    const form = renderForm();
+describe('CaseReviewPanel — decisión y datos de la revisión', () => {
+  it('permite registrar conformidad con IA sin cambiar el resultado', () => {
+    renderForm();
+
+    fireEvent.click(screen.getByRole('button', { name: /estoy de acuerdo con la ia/i }));
+
+    const aiResult = validAuditResult.audit.result;
+    expect((screen.getByRole('radio', { name: RESULT_LABELS[aiResult] }) as HTMLInputElement).checked).toBe(true);
+  });
+
+  it('requiere identificar a quien revisa, pero permite dejar las notas vacías', () => {
+    renderForm();
     fireEvent.click(screen.getByRole('radio', { name: /^dictaminación$/i }));
+
+    expect(submitButton().disabled).toBe(true);
+    fireEvent.change(reviewerNameBox(), { target: { value: 'Revisora de pruebas' } });
+    expect(submitButton().disabled).toBe(false);
+  });
+
+  it('permite notas de hasta 2000 caracteres y bloquea las que exceden el límite', () => {
+    const form = renderForm();
+    chooseReview();
     const box = commentBox();
 
-    expect(submitButton().disabled).toBe(true);
-
-    fireEvent.change(box, { target: { value: 'corto' } });
-    expect(box.value).toHaveLength(5);
-    expect(submitButton().disabled).toBe(true);
+    expect(submitButton().disabled).toBe(false);
 
     fireEvent.change(box, { target: { value: 'x'.repeat(2001) } });
     expect(box.value).toHaveLength(2001);
     expect(submitButton().disabled).toBe(true);
-
-    // Y se habilita dentro de los límites que valida el servidor (10..2000).
-    fireEvent.change(box, { target: { value: 'x'.repeat(10) } });
-    expect(submitButton().disabled).toBe(false);
 
     fireEvent.change(box, { target: { value: 'x'.repeat(2000) } });
     expect(submitButton().disabled).toBe(false);
@@ -251,7 +272,7 @@ describe('CaseReviewPanel — el comentario es obligatorio y acotado', () => {
 
   it('el botón sigue deshabilitado si no se eligió resolución', () => {
     renderForm();
-    fireEvent.change(commentBox(), { target: { value: COMMENT } });
+    fireEvent.change(reviewerNameBox(), { target: { value: 'Revisora de pruebas' } });
 
     expect(submitButton().disabled).toBe(true);
   });
@@ -260,8 +281,8 @@ describe('CaseReviewPanel — el comentario es obligatorio y acotado', () => {
     renderForm();
     fireEvent.change(commentBox(), { target: { value: '12345' } });
 
-    expect(screen.getByText(/entre 10 y 2000 caracteres/i)).toBeTruthy();
     expect(screen.getByText('5 / 2000')).toBeTruthy();
+    expect(screen.getByText(/hasta 2000 caracteres/i)).toBeTruthy();
   });
 
   it('el selector es un fieldset con radios, no un desplegable', () => {
@@ -269,14 +290,14 @@ describe('CaseReviewPanel — el comentario es obligatorio y acotado', () => {
 
     const group = screen.getByRole('group', { name: /resolución final/i });
     // Una opción por cada resultado del vocabulario cerrado que expone el servidor.
-    expect(within(group).getAllByRole('radio')).toHaveLength(6);
+    expect(within(group).getAllByRole('radio')).toHaveLength(7);
     expect(screen.queryByRole('combobox')).toBeNull();
   });
 });
 
 // =============================================================================
 describe('CaseReviewPanel — envío válido', () => {
-  it('llama al endpoint con { result, comment } y muestra el estado de comparación', async () => {
+  it('llama al endpoint con { result, reviewerName, comment } y muestra el estado de comparación', async () => {
     const calls = stubFetch(() =>
       fakeResponse(201, {
         review: makeReview(),
@@ -285,7 +306,7 @@ describe('CaseReviewPanel — envío válido', () => {
     );
     const form = renderForm();
 
-    fireEvent.click(screen.getByRole('radio', { name: /^dictaminación$/i }));
+    chooseReview();
     fireEvent.change(commentBox(), { target: { value: `  ${COMMENT}  ` } });
     fireEvent.submit(form);
     await settle();
@@ -293,8 +314,12 @@ describe('CaseReviewPanel — envío válido', () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]?.url).toBe('/api/cases/case-1/review');
     expect(calls[0]?.method).toBe('POST');
-    // El comentario viaja recortado: es exactamente lo que valida el servidor.
-    expect(calls[0]?.body).toEqual({ result: 'DICTAMINACION', comment: COMMENT });
+    // Los datos viajan recortados: es exactamente lo que valida el servidor.
+    expect(calls[0]?.body).toEqual({
+      result: 'DICTAMINACION',
+      reviewerName: 'Revisora de pruebas',
+      comment: COMMENT,
+    });
 
     expect(await screen.findByText(/comparando/i)).toBeTruthy();
   });
@@ -309,7 +334,7 @@ describe('CaseReviewPanel — envío válido', () => {
     );
     const form = renderForm();
 
-    fireEvent.click(screen.getByRole('radio', { name: /^dictaminación$/i }));
+    chooseReview();
     fireEvent.change(commentBox(), { target: { value: COMMENT } });
     fireEvent.submit(form);
     await settle();
@@ -334,7 +359,7 @@ describe('CaseReviewPanel — errores', () => {
     );
     const form = renderForm();
 
-    fireEvent.click(screen.getByRole('radio', { name: /^dictaminación$/i }));
+    chooseReview();
     fireEvent.change(commentBox(), { target: { value: COMMENT } });
     fireEvent.submit(form);
     await settle();
@@ -353,7 +378,7 @@ describe('CaseReviewPanel — errores', () => {
     );
     const container = renderPanel({ onSubmitted });
 
-    fireEvent.click(screen.getByRole('radio', { name: /^dictaminación$/i }));
+    chooseReview();
     fireEvent.change(commentBox(), { target: { value: COMMENT } });
     fireEvent.submit(container.querySelector('form') as HTMLFormElement);
     await settle();
@@ -383,7 +408,7 @@ describe('CaseReviewPanel — errores', () => {
     );
     const form = renderForm();
 
-    fireEvent.click(screen.getByRole('radio', { name: /^dictaminación$/i }));
+    chooseReview();
     fireEvent.change(commentBox(), { target: { value: COMMENT } });
     fireEvent.submit(form);
     await settle();
@@ -401,11 +426,14 @@ describe('CaseReviewPanel — errores', () => {
 
 // =============================================================================
 describe('CaseReviewRecord — la revisión registrada y su comparación', () => {
-  it('muestra la resolución final de la persona como algo distinto del dictamen', () => {
+  it('muestra la resolución humana prioritaria y conserva el resultado de IA separado', () => {
     renderRecord(null);
 
     expect(screen.getByRole('heading', { name: /revisión humana/i })).toBeTruthy();
-    expect(screen.getByText('Dictaminación')).toBeTruthy();
+    expect(screen.getAllByText('Dictaminación')).toHaveLength(2);
+    expect(screen.getByText('Cancelación de venta')).toBeTruthy();
+    expect(screen.getByText('Revisora de pruebas')).toBeTruthy();
+    expect(screen.getByText('No coincide')).toBeTruthy();
     expect(screen.getByText(COMMENT)).toBeTruthy();
     // El dictamen de la auditoría vive en su propio panel: aquí se aclara que no se
     // sobrescribe y se cita a qué auditoría se compara.

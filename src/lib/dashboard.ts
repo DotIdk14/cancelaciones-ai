@@ -22,20 +22,41 @@ export type DashboardFilters = {
   to: string;
   result: string | null;
   status: string | null;
+  country?: string | null;
+  campus?: string | null;
+  modality?: string | null;
+  project?: string | null;
+  responsible?: string | null;
+  guideline?: string | null;
 };
 
 /** Endpoints de dashboard. Cada uno devuelve un `DashboardSummary`. */
 export type DashboardEndpoint = 'summary' | 'ai-costs' | 'quality';
+
+export type DashboardDimension = 'country' | 'campus' | 'modality' | 'project' | 'responsible' | 'guideline';
+
+export type DashboardFilterOptions = Record<DashboardDimension, string[]>;
+
+export const EMPTY_DASHBOARD_FILTER_OPTIONS: DashboardFilterOptions = {
+  country: [],
+  campus: [],
+  modality: [],
+  project: [],
+  responsible: [],
+  guideline: [],
+};
 
 // -----------------------------------------------------------------------------
 // KPIs
 // -----------------------------------------------------------------------------
 
 /** Claves de KPI. `auditedCases` es el denominador de los porcentajes. */
-export type KpiKey = 'auditedCases' | 'granted' | 'needsRuling' | 'insufficient' | 'errors';
+export type KpiKey = 'auditedCases' | 'casesWithMissingEvidence' | 'granted' | 'needsRuling' | 'insufficient' | 'errors';
 
 export interface DashboardKpi {
   auditedCases: number;
+  casesWithMissingEvidence: number;
+  casesWithMissingEvidencePct: number;
   granted: number;
   grantedPct: number;
   needsRuling: number;
@@ -48,6 +69,8 @@ export interface DashboardKpi {
 
 export const EMPTY_KPI: DashboardKpi = {
   auditedCases: 0,
+  casesWithMissingEvidence: 0,
+  casesWithMissingEvidencePct: 0,
   granted: 0,
   grantedPct: 0,
   needsRuling: 0,
@@ -63,6 +86,7 @@ export const EMPTY_KPI: DashboardKpi = {
  * `<clave>Pct` desparramada por los componentes.
  */
 export const KPI_PCT: Record<Exclude<KpiKey, 'auditedCases'>, keyof DashboardKpi> = {
+  casesWithMissingEvidence: 'casesWithMissingEvidencePct',
   granted: 'grantedPct',
   needsRuling: 'needsRulingPct',
   insufficient: 'insufficientPct',
@@ -97,11 +121,12 @@ export interface ResultBreakdownPoint {
 // Filas
 // -----------------------------------------------------------------------------
 
-/** Fila de la tabla de casos recientes. */
+/** Fila de la tabla de casos recientes. La PII del estudiante NO viaja aquí. */
 export interface RecentCaseRow {
   caseId: string;
   shortId: string;
-  studentIdentifier: string | null;
+  /** No se envía desde el servidor; se conserva opcional para no romper la UI. */
+  studentIdentifier?: string | null;
   result: AuditResultType | null;
   confidence: number | null;
   missingEvidenceCount: number;
@@ -206,6 +231,15 @@ export interface AiCostsReliability {
   retried: number;
   fallback: number;
   failed: number;
+  /** Partición mutuamente excluyente; `null` indica que el fallback no es identificable. */
+  executionOutcomes: {
+    available: boolean;
+    successfulFirstAttempt: number;
+    successfulAfterRetry: number;
+    fallback: number | null;
+    failed: number;
+    inProgress: number;
+  };
 }
 
 /** Informe completo de `/api/dashboard/ai-costs`. */
@@ -285,7 +319,7 @@ export type MissingEvidenceBucket = '0' | '1' | '2+';
  * ese estado es exactamente el `null`.
  */
 export interface HumanReviewReport {
-  /** `true` si existe al menos UNA revisión humana en el periodo. */
+  /** `true` si existe al menos una revisión enlazada a una auditoría filtrada. */
   available: boolean;
   /**
    * Explicación del estado actual, en español, lista para pintar tal cual.
@@ -297,22 +331,14 @@ export interface HumanReviewReport {
    * notara.
    */
   message: string;
-  /** Revisiones humanas registradas que el periodo contiene. */
+  /** Revisiones humanas enlazadas al audit_id exacto de una auditoría filtrada. */
   reviewedCases: number;
-  /** Comparaciones `COMPLETED`: las únicas con veredicto. */
-  completedComparisons: number;
-  /** Comparaciones `RUNNING`: en curso, sin veredicto todavía. */
-  pendingComparisons: number;
-  /** Comparaciones `ERROR`: terminadas en fallo, sin veredicto. */
-  failedComparisons: number;
-  /** De las completadas, cuántas afirmaron coincidencia (`agrees === true`). */
+  /** Revisiones con resultado humano y resultado de auditoría disponibles. */
+  comparableReviews: number;
   agreements: number;
-  /** De las completadas, cuántas afirmaron discrepancia (`agrees === false`). */
   disagreements: number;
-  /** `agreements / completedComparisons`, o `null` si no hay comparaciones completadas. */
+  /** Coincidencias exactas de la revisión y el audit_id al que está anclada. */
   agreementRate: number | null;
-  /** Media de `confidence` de las COMPLETED que lo declararon, o `null` si ninguna. */
-  avgComparisonConfidence: number | null;
 }
 
 /** Confianza declarada por el modelo, agrupada. */
@@ -369,6 +395,12 @@ export function defaultDateRange(): DashboardFilters {
     to: toLocalIsoDate(today),
     result: null,
     status: null,
+    country: null,
+    campus: null,
+    modality: null,
+    project: null,
+    responsible: null,
+    guideline: null,
   };
 }
 
@@ -387,7 +419,21 @@ function buildFiltersParams(filters: DashboardFilters): URLSearchParams {
   params.set('to', filters.to);
   if (filters.result !== null) params.set('result', filters.result);
   if (filters.status !== null) params.set('status', filters.status);
+  for (const dimension of ['country', 'campus', 'modality', 'project', 'responsible', 'guideline'] as const) {
+    const value = filters[dimension];
+    if (value != null) params.set(dimension, value);
+  }
   return params;
+}
+
+export async function fetchDashboardFilterOptions(signal?: AbortSignal): Promise<DashboardFilterOptions> {
+  const res = await fetch('/api/dashboard/options', { signal });
+  if (!res.ok) throw await readError(res);
+  const data: unknown = await res.json();
+  if (!isRecord(data) || !isRecord(data.options)) {
+    throw new Error('La respuesta del servidor no tiene el formato esperado.');
+  }
+  return data.options as unknown as DashboardFilterOptions;
 }
 
 /** Query del resumen, en el orden que espera `parseDashboardFilters`. */

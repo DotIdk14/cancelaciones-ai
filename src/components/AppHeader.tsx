@@ -3,8 +3,13 @@
 // =============================================================================
 
 import type { ReactNode } from 'react';
+import { Button } from './ui';
 
-export function AppHeader(): ReactNode {
+interface AppHeaderProps {
+  onSignOut: () => void;
+}
+
+export function AppHeader({ onSignOut }: AppHeaderProps): ReactNode {
   return (
     <header className="border-b border-line bg-surface-1">
       <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-6">
@@ -14,6 +19,9 @@ export function AppHeader(): ReactNode {
           </a>
           <p className="text-xs text-muted">Cancelaciones, bajas y deserción · UTEL</p>
         </div>
+        <Button variant="ghost" onClick={onSignOut}>
+          Cerrar sesión
+        </Button>
       </div>
     </header>
   );

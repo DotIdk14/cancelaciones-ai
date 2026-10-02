@@ -24,6 +24,7 @@ import type { Tone } from '../components/ui';
 
 export const RESULT_LABELS: Record<AuditResultType, string> = {
   CANCELACION_VENTA: 'Cancelación de venta',
+  CANCELACION_VENTA_PETICION_CLIENTE: 'Cancelación de venta por petición del cliente',
   BAJA: 'Baja',
   CANCELACION_VENTA_OPERATIVA: 'Cancelación de venta operativa',
   CANCELACION_MATRICULA: 'Cancelación de matrícula',
@@ -33,6 +34,8 @@ export const RESULT_LABELS: Record<AuditResultType, string> = {
 
 export const RESULT_DESCRIPTIONS: Record<AuditResultType, string> = {
   CANCELACION_VENTA: 'La evidencia sostiene una cancelación de venta.',
+  CANCELACION_VENTA_PETICION_CLIENTE:
+    'La evidencia acredita que el cliente solicitó cancelar la venta conforme al procedimiento.',
   BAJA: 'La evidencia sostiene una baja del estudiante.',
   CANCELACION_VENTA_OPERATIVA:
     'La evidencia sostiene una cancelación de venta resuelta operativamente.',
@@ -45,6 +48,7 @@ export const RESULT_DESCRIPTIONS: Record<AuditResultType, string> = {
 /** Tono del badge para cada resultado. Solo presentación: no altera el dictamen. */
 export const RESULT_TONE: Record<AuditResultType, Tone> = {
   CANCELACION_VENTA: 'brand',
+  CANCELACION_VENTA_PETICION_CLIENTE: 'brand',
   BAJA: 'warning',
   CANCELACION_VENTA_OPERATIVA: 'brand',
   CANCELACION_MATRICULA: 'brand',
@@ -73,6 +77,7 @@ export const RESOLUTION_GROUP_LABELS: Record<ResolutionGroup, string> = {
 
 export const RESULT_TO_GROUP: Record<AuditResultType, ResolutionGroup> = {
   CANCELACION_VENTA: 'CONCEDIDAS',
+  CANCELACION_VENTA_PETICION_CLIENTE: 'CONCEDIDAS',
   CANCELACION_VENTA_OPERATIVA: 'CONCEDIDAS',
   CANCELACION_MATRICULA: 'CONCEDIDAS',
   BAJA: 'CONCEDIDAS',

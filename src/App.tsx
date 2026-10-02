@@ -1,7 +1,7 @@
 // =============================================================================
 // Raiz de la SPA. Hash routing manual: `#/`, `#/calidad`, `#/ia-costos`,
 // `#/nuevo`, `#/casos` y `#/casos/:id`.
-// Sin login: el backend usa el API key administrativo de InsForge.
+// Ahora con login: la API exige sesión por cookie httpOnly.
 // =============================================================================
 
 import type { ReactNode } from 'react';
@@ -10,12 +10,14 @@ import { AppHeader } from './components/AppHeader';
 import { AppNav } from './components/AppNav';
 import { CaseDetailPage } from './components/CaseDetailPage';
 import { CaseListPage } from './components/CaseListPage';
+import { LoginScreen } from './components/LoginScreen';
 import { NewCasePanel } from './components/NewCasePanel';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Panel, Spinner } from './components/ui';
 import { cx } from './lib/cx';
 import { useHashRoute } from './lib/useHashRoute';
 import type { AppRoute } from './lib/useHashRoute';
+import { useSession } from './lib/useSession';
 
 // -----------------------------------------------------------------------------
 // Dashboard en carga diferida
@@ -85,7 +87,7 @@ function renderRoute(route: AppRoute): ReactNode {
   }
 }
 
-function Shell(): ReactNode {
+function Shell({ onSignOut }: { onSignOut: () => void }): ReactNode {
   const route = useHashRoute();
 
   return (
@@ -96,7 +98,7 @@ function Shell(): ReactNode {
       >
         Saltar al contenido
       </a>
-      <AppHeader />
+      <AppHeader onSignOut={onSignOut} />
       <AppNav />
       <main
         id="contenido"
@@ -111,10 +113,27 @@ function Shell(): ReactNode {
   );
 }
 
+function AuthLoadingScreen(): ReactNode {
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center bg-background">
+      <Spinner label="Verificando sesión" className="h-8 w-8" />
+      <p className="mt-3 text-sm text-muted">Verificando tu sesión…</p>
+    </div>
+  );
+}
+
 export function App(): ReactNode {
+  const { status, signIn, signOut, sessionExpired } = useSession();
+
   return (
     <ErrorBoundary>
-      <Shell />
+      {status === 'loading' ? (
+        <AuthLoadingScreen />
+      ) : status === 'anon' ? (
+        <LoginScreen signIn={signIn} sessionExpired={sessionExpired} />
+      ) : (
+        <Shell onSignOut={signOut} />
+      )}
     </ErrorBoundary>
   );
 }

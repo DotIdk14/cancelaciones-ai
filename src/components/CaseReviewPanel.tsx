@@ -76,6 +76,7 @@ export interface CaseReviewPanelProps {
 
 export function CaseReviewPanel({ caseId, audit, review, onSubmitted }: CaseReviewPanelProps): ReactNode {
   const [result, setResult] = useState<AuditResultType | ''>('');
+  const [reviewerName, setReviewerName] = useState('');
   const [comment, setComment] = useState('');
   const [phase, setPhase] = useState<ReviewPhase>('idle');
   const [error, setError] = useState<ErrorState | null>(null);
@@ -86,11 +87,13 @@ export function CaseReviewPanel({ caseId, audit, review, onSubmitted }: CaseRevi
     review: CaseReviewDto;
     comparison: ComparisonDto | null;
     effectiveResolution: EffectiveResolution | null;
+    reviewAuditResult: AuditResultType | null;
   } | null>(null);
 
   // El caso cambia de ruta: se descarta todo el estado del formulario anterior.
   useEffect(() => {
     setResult('');
+    setReviewerName('');
     setComment('');
     setPhase('idle');
     setError(null);
@@ -119,11 +122,13 @@ export function CaseReviewPanel({ caseId, audit, review, onSubmitted }: CaseRevi
 
   // Longitud del comentario YA RECORTADO: la misma que valida el servidor.
   const trimmed = comment.trim();
+  const trimmedReviewer = reviewerName.trim();
   const commentLength = trimmed.length;
   const commentValid = isValidReviewComment(commentLength);
   const lengthError = comment.length === 0 ? null : commentLengthError(commentLength);
+  const aiResult = audit?.resultJson?.audit?.result ?? null;
   const sending = phase === 'sending';
-  const canSubmit = result !== '' && commentValid && !sending && !conflict;
+  const canSubmit = result !== '' && trimmedReviewer !== '' && commentValid && !sending && !conflict;
 
   /*
    * Los callbacks van ANTES de cualquier `return` condicional, y no por estilo.
@@ -143,8 +148,8 @@ export function CaseReviewPanel({ caseId, audit, review, onSubmitted }: CaseRevi
       setPhase('sending');
       setError(null);
       try {
-        const data = await submitCaseReview(caseId, { result, comment: trimmed });
-        setSubmitted({ ...data, effectiveResolution: null });
+        const data = await submitCaseReview(caseId, { result, reviewerName: trimmedReviewer, comment: trimmed });
+        setSubmitted({ ...data, effectiveResolution: null, reviewAuditResult: aiResult });
         setPhase(data.comparison?.status === 'RUNNING' ? 'comparing' : 'done');
         onSubmitted?.();
       } catch (err) {
@@ -158,7 +163,7 @@ export function CaseReviewPanel({ caseId, audit, review, onSubmitted }: CaseRevi
         setPhase('error');
       }
     },
-    [canSubmit, caseId, onSubmitted, result, trimmed],
+    [aiResult, canSubmit, caseId, onSubmitted, result, trimmed, trimmedReviewer],
   );
 
   const loadExisting = useCallback(async (): Promise<void> => {
@@ -170,7 +175,12 @@ export function CaseReviewPanel({ caseId, audit, review, onSubmitted }: CaseRevi
         setError({ category: 'NOT_FOUND', message: 'No se encontró ninguna revisión registrada para este caso.' });
         return;
       }
-      setSubmitted({ review: data.review, comparison: data.comparison, effectiveResolution: data.effectiveResolution });
+      setSubmitted({
+        review: data.review,
+        comparison: data.comparison,
+        effectiveResolution: data.effectiveResolution,
+        reviewAuditResult: aiResult,
+      });
     } catch (err) {
       setError(toErrorState(err));
     } finally {
@@ -200,6 +210,7 @@ export function CaseReviewPanel({ caseId, audit, review, onSubmitted }: CaseRevi
           review={submitted.review}
           comparison={submitted.comparison}
           effectiveResolution={submitted.effectiveResolution}
+          reviewAuditResult={submitted.reviewAuditResult}
         />
       </div>
     );
@@ -232,7 +243,7 @@ export function CaseReviewPanel({ caseId, audit, review, onSubmitted }: CaseRevi
   return (
     <Panel
       title="Revisión humana"
-      description="Registra la resolución final del caso. No modifica el dictamen de la auditoría: la compara con él y deja constancia de la diferencia."
+      description="Registra la resolución de una persona sin modificar el dictamen original de la auditoría."
     >
       <form
         className="flex flex-col gap-5"
@@ -246,6 +257,21 @@ export function CaseReviewPanel({ caseId, audit, review, onSubmitted }: CaseRevi
             Elige el resultado del vocabulario vigente. Es la decisión que gobierna el caso; las
             auditorías posteriores no la sobrescriben.
           </p>
+          {aiResult !== null && (
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand/30 bg-brand/5 p-3">
+              <p className="min-w-0 text-sm text-ink">
+                Dictamen de IA: <strong>{RESULT_LABELS[aiResult]}</strong>
+              </p>
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={sending}
+                onClick={() => setResult(aiResult)}
+              >
+                Estoy de acuerdo con la IA
+              </Button>
+            </div>
+          )}
           <div className="mt-2 flex flex-col gap-2">
             {REVIEW_RESULT_OPTIONS.map((option) => {
               const inputId = `revision-result-${option}`;
@@ -283,15 +309,31 @@ export function CaseReviewPanel({ caseId, audit, review, onSubmitted }: CaseRevi
           </div>
         </fieldset>
 
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="revision-reviewer" className="text-sm font-semibold text-ink">
+            Nombre de quien revisa
+          </label>
+          <input
+            id="revision-reviewer"
+            name="reviewerName"
+            type="text"
+            autoComplete="name"
+            maxLength={120}
+            value={reviewerName}
+            onChange={(event) => setReviewerName(event.target.value)}
+            disabled={sending}
+            required
+            className="w-full rounded-xl border border-line bg-surface-2 px-3 py-2 text-sm text-ink"
+          />
+        </div>
+
         {/* ------------------------------------------------- comentario */}
         <div className="flex flex-col gap-1.5">
           <label htmlFor="revision-comment" className="text-sm font-semibold text-ink">
-            Comentario de la revisión
-            <span className="ml-1 font-normal text-danger">(obligatorio)</span>
+            Notas de la revisión <span className="font-normal text-muted">(opcional)</span>
           </label>
           <p id={commentHintId} className="text-xs text-muted">
-            Explica por qué la resolución humana coincide o difiere del dictamen original. Es la
-            justificación que la comparación citará después.
+            Agrega contexto si hace falta. La coincidencia se calcula comparando directamente ambos resultados.
           </p>
           <textarea
             id="revision-comment"
@@ -300,8 +342,6 @@ export function CaseReviewPanel({ caseId, audit, review, onSubmitted }: CaseRevi
             value={comment}
             onChange={(event) => setComment(event.target.value)}
             disabled={sending}
-            required
-            aria-required="true"
             aria-invalid={lengthError !== null ? true : undefined}
             aria-describedby={cx(
               commentHintId,
@@ -316,7 +356,7 @@ export function CaseReviewPanel({ caseId, audit, review, onSubmitted }: CaseRevi
           />
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <p className="text-xs text-muted">
-              Obligatorio: entre {REVIEW_COMMENT_LIMITS.min} y {REVIEW_COMMENT_LIMITS.max} caracteres.
+              Hasta {REVIEW_COMMENT_LIMITS.max} caracteres.
             </p>
             <p id={commentCounterId} className="font-mono text-xs text-muted">
               {commentLength} / {REVIEW_COMMENT_LIMITS.max}
@@ -382,6 +422,7 @@ export interface CaseReviewRecordProps {
   review: CaseReviewDto;
   comparison: ComparisonDto | null;
   effectiveResolution?: EffectiveResolution | null;
+  reviewAuditResult?: AuditResultType | null;
 }
 
 /**
@@ -395,6 +436,7 @@ export function CaseReviewRecord({
   review,
   comparison,
   effectiveResolution: effectiveResolutionProp = null,
+  reviewAuditResult = null,
 }: CaseReviewRecordProps): ReactNode {
   const [live, setLive] = useState<ComparisonDto | null>(comparison);
   const [retrying, setRetrying] = useState(false);
@@ -472,9 +514,32 @@ export function CaseReviewRecord({
       </div>
 
       <div className="mt-4">
+        <SectionTitle>Revisión registrada por</SectionTitle>
+        <p className="mt-1 text-sm text-ink">{review.reviewerName || 'No indicado'}</p>
+      </div>
+
+      {review.comment !== '' && <div className="mt-4">
         <SectionTitle>Comentario</SectionTitle>
         <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-ink">
           {review.comment}
+        </p>
+      </div>}
+
+      <div className="mt-5 rounded-xl border border-line bg-surface-2 p-4">
+        <SectionTitle>Coincidencia exacta con la auditoría</SectionTitle>
+        <dl className="mt-3 flex flex-col gap-2">
+          <DataRow
+            label="Resultado de la auditoría referenciada"
+            value={reviewAuditResult === null ? DASH : resolutionLabel(reviewAuditResult)}
+          />
+          <DataRow label="Resultado humano" value={resultLabel} />
+        </dl>
+        <p className={cx('mt-3 text-sm font-semibold', reviewAuditResult === null ? 'text-muted' : reviewAuditResult === review.result ? 'text-success' : 'text-warning')}>
+          {reviewAuditResult === null
+            ? 'No se puede calcular la coincidencia: el resultado de esa auditoría no está disponible.'
+            : reviewAuditResult === review.result
+              ? 'Coincide exactamente'
+              : 'No coincide'}
         </p>
       </div>
 
@@ -497,7 +562,7 @@ export function CaseReviewRecord({
 
       {/* ------------------------------------------------- comparación */}
       <div aria-live="polite" className="mt-5 flex flex-col gap-3">
-        <SectionTitle>Comparación con la IA</SectionTitle>
+        <SectionTitle>Evaluación IA de la discrepancia</SectionTitle>
 
         {live === null ? (
           <p className="text-sm text-muted">

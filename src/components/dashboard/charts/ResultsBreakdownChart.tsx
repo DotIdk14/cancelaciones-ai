@@ -1,6 +1,6 @@
 // =============================================================================
 // Detalle de resultados: una fila por cada resultado que puede emitir el Audit
-// Skill, con el total al final de la barra. Se muestran siempre las 6 filas
+// Skill, con el total al final de la barra. Se muestran siempre todas las filas
 // (incluidas las que están en cero) para que la ausencia de un resultado sea
 // visible y no se confunda con "no existe ese dictamen".
 // =============================================================================
@@ -25,6 +25,7 @@ import { AXIS_TICK_STYLE, GRID_STROKE, TOOLTIP_STYLE } from './chartTheme';
 /** Etiqueta corta para el eje Y: el texto completo no cabe en el ancho útil. */
 const SHORT_LABELS: Record<(typeof AUDIT_RESULTS)[number], string> = {
   CANCELACION_VENTA: 'Cancelación de venta',
+  CANCELACION_VENTA_PETICION_CLIENTE: 'Cancel. por petición cliente',
   BAJA: 'Baja',
   CANCELACION_VENTA_OPERATIVA: 'Cancel. venta oper.',
   CANCELACION_MATRICULA: 'Cancelación de matrícula',

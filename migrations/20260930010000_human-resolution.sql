@@ -103,7 +103,7 @@ CREATE TABLE IF NOT EXISTS public.case_reviews (
   case_id uuid NOT NULL UNIQUE REFERENCES public.cases(id) ON DELETE CASCADE,
   audit_id uuid NOT NULL REFERENCES public.audits(id) ON DELETE RESTRICT,
   result text NOT NULL,        -- vocabulario cerrado en TypeScript (AUDIT_RESULTS); sin CHECK, ver cabecera
-  comment text NOT NULL,       -- justificación humana; límites 10..2000 validados en servidor (REVIEW_COMMENT_*)
+  comment text NOT NULL,       -- notas opcionales; máximo 2000 caracteres validado en servidor (REVIEW_COMMENT_*)
   created_at timestamptz NOT NULL DEFAULT now(),
   -- NULL mientras el producto opera sin sesión (el servidor escribe con el rol
   -- `project_admin`). La columna NO es NOT NULL a propósito: con NOT NULL, el

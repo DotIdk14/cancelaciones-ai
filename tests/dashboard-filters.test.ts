@@ -66,8 +66,8 @@ describe('parseDashboardFilters (validación)', () => {
     expect(error.message).toMatch(/Estado no válido/);
   });
 
-  it('acepta los 6 resultados y los 5 estados oficiales', () => {
-    for (const result of ['CANCELACION_VENTA', 'BAJA', 'CANCELACION_VENTA_OPERATIVA', 'CANCELACION_MATRICULA', 'DICTAMINACION', 'EVIDENCIA_INSUFICIENTE']) {
+  it('acepta los 7 resultados y los 5 estados oficiales', () => {
+    for (const result of ['CANCELACION_VENTA', 'CANCELACION_VENTA_PETICION_CLIENTE', 'BAJA', 'CANCELACION_VENTA_OPERATIVA', 'CANCELACION_MATRICULA', 'DICTAMINACION', 'EVIDENCIA_INSUFICIENTE']) {
       expect(parseDashboardFilters({ result }).result).toBe(result);
     }
     for (const status of ['DRAFT', 'READY', 'AUDITING', 'COMPLETED', 'ERROR']) {
@@ -130,5 +130,13 @@ describe('parseDashboardFilters (valores válidos)', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     parseDashboardFilters({ from: '2026-09-01', to: '2026-09-29' });
     expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('rechaza filtros por dimensión que aún no existen en la vista', () => {
+    const error = failure({ from: '2026-09-01', to: '2026-09-29', country: 'MX' });
+    expect(error.status).toBe(400);
+    expect(error.category).toBe('VALIDATION_ERROR');
+    expect(error.message).toContain('country');
+    expect(error.message).toContain('from, to, result y status');
   });
 });
