@@ -5,6 +5,7 @@
 import type { ErrorCategory, EvidenceStatus, TranscriptData } from '../skills/audit/types.js';
 import type { ComparisonOutcomePayload } from '../skills/review/schema.js';
 import { readTranscriptFromJson } from './evidence-prep.js';
+import { sanitizeProviderMetadata, type AuditProviderMetadata } from './audit-observability.js';
 import type { AuditRow, AuditStatus, CaseRow, CaseSummaryRow, EvidenceRow } from './cases.js';
 import type { CaseReviewRow, ComparisonRow } from './reviews.js';
 
@@ -52,6 +53,16 @@ export interface AuditDetailDto {
   attemptNumber: number | null;
   deadlineAt: string | null;
   createdAt: string;
+  /**
+   * Metadatos técnicos del proveedor, YA SANEADOS por lista blanca
+   * (`sanitizeProviderMetadata`): sin prompts, sin expediente, sin PII y sin
+   * secretos. Sin este campo, un audit en ERROR solo decía "falló" y el motivo
+   * real (qué intento, con qué formato, si el catálogo se confirmó, cuántos
+   * tokens gastó) quedaba encerrado en `audits.provider_metadata`, sin forma
+   * de consultarlo por la API. Es aditivo: no cambia ni elimina ningún campo
+   * existente del contrato.
+   */
+  providerMetadata: AuditProviderMetadata | null;
 }
 
 export interface AuditHistoryItemDto {
@@ -203,6 +214,9 @@ export function auditToDto(row: AuditRow): AuditDetailDto {
     attemptNumber: row.attempt_number,
     deadlineAt: row.deadline_at,
     createdAt: row.created_at,
+    // `provider_metadata` es JSONB: se valida la forma antes de devolverlo y, si
+    // no hay nada reconocible, se responde `null` en vez de propagar basura.
+    providerMetadata: sanitizeProviderMetadata(row.provider_metadata),
   };
 }
 

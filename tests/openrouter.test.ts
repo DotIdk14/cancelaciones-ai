@@ -337,4 +337,215 @@ describe('callOpenRouterAudit', () => {
     expect(result.parsed).toEqual(validAuditResult);
     expect(requested).toEqual([4096, 16_384]);
   });
+
+  // ---------------------------------------------------------------------------
+  // Enrutado del último intento.
+  //
+  // `response_format: json_schema` garantiza validez ESTRUCTURAL, no SEMÁNTICA.
+  // La invariante `audit.result === 'EVIDENCIA_INSUFICIENTE' ⟺
+  // audit.provisionalResolution !== null` (src/skills/audit/schema.ts) es una
+  // restricción ENTRE campos: ninguna gramática json_schema puede declararla, así
+  // que el modelo puede emitir dos mitades individualmente válidas y una
+  // combinación inválida.
+  //
+  // Degradar a `json_object` ante ese fallo sería empeorar: `json_object` no lleva
+  // esquema, así que el reintento tendría MENOS garantías que el primer intento. El
+  // intento restante se gasta en el mismo formato estricto + feedback correctivo.
+  // El modelo de respaldo existe, pero su catálogo de capacidades no está
+  // verificado contra este esquema en producción, así que no se gasta aquí.
+  // ---------------------------------------------------------------------------
+
+  const PROVISIONAL_INVARIANT_VIOLATION = 'INVALID_AI_RESPONSE: audit.provisionalResolution: solo aplica a EVIDENCIA_INSUFICIENTE';
+
+  function rejectProvisionalInvariant(parsed: unknown): void {
+    if ((parsed as { audit?: unknown }).audit === undefined) {
+      throw new ApiError(502, 'INVALID_AI_RESPONSE', PROVISIONAL_INVARIANT_VIOLATION);
+    }
+  }
+
+  it('mantiene modelo y formato estricto en el reintento, aunque haya respaldo configurado', async () => {
+    process.env.OPENROUTER_FALLBACK_MODEL = 'openai/gpt-4o-mini';
+    const requested: Array<{ model: string; format: string }> = [];
+    fetchMock.mockImplementation(async (_url: unknown, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { model: string; response_format: { type: string } };
+      requested.push({ model: body.model, format: body.response_format.type });
+      return requested.length === 1
+        ? completionResponse({ parsed: { nope: true } })
+        : completionResponse();
+    });
+
+    const result = await callOpenRouterAudit({
+      system: 's',
+      parts: [{ type: 'text', text: 'x' }],
+      validate: rejectProvisionalInvariant,
+    });
+
+    // Lo que manda es el body de la petición, no `result.model` (OpenRouter
+    // devuelve el modelo en la respuesta y ambos campos dirían lo mismo).
+    expect(requested.map((item) => item.model)).toEqual([
+      'google/gemini-2.5-flash-lite',
+      'google/gemini-2.5-flash-lite',
+    ]);
+    // NO degrada a json_object: perder el esquema sería perder garantías.
+    expect(requested.map((item) => item.format)).toEqual(['json_schema', 'json_schema']);
+    // Y el respaldo configurado no se gasta en un fallo semántico.
+    expect(requested.map((item) => item.model)).not.toContain('openai/gpt-4o-mini');
+    // `result.model` NO se comprueba aquí a propósito: lo devuelve OpenRouter en
+    // la respuesta, así que con el mock reflejaría el default del stub y no lo que
+    // se pidió de verdad. `requested` es la única prueba del enrutado.
+    expect(result.attempts[0]).toMatchObject({ failureCategory: 'SCHEMA_VALIDATION_ERROR' });
+  });
+
+  it('mantiene modelo y formato también por INVALID_EVIDENCE_REFERENCE, no sólo por schema', async () => {
+    process.env.OPENROUTER_FALLBACK_MODEL = 'openai/gpt-4o-mini';
+    const requested: Array<{ model: string; format: string }> = [];
+    fetchMock.mockImplementation(async (_url: unknown, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { model: string; response_format: { type: string } };
+      requested.push({ model: body.model, format: body.response_format.type });
+      return requested.length === 1
+        ? completionResponse({ parsed: { nope: true } })
+        : completionResponse();
+    });
+
+    await callOpenRouterAudit({
+      system: 's',
+      parts: [{ type: 'text', text: 'x' }],
+      validate: (parsed) => {
+        if ((parsed as { audit?: unknown }).audit === undefined) {
+          throw new ApiError(502, 'INVALID_AI_RESPONSE', 'facts.3.evidenceIds referencia evidencia inexistente: ev-falso');
+        }
+      },
+    });
+
+    expect(requested.map((item) => item.model)).toEqual([
+      'google/gemini-2.5-flash-lite',
+      'google/gemini-2.5-flash-lite',
+    ]);
+    expect(requested.map((item) => item.format)).toEqual(['json_schema', 'json_schema']);
+  });
+
+  it('incluye el motivo de validación como feedback correctivo en el segundo intento', async () => {
+    process.env.OPENROUTER_FALLBACK_MODEL = 'openai/gpt-4o-mini';
+    const bodies: Array<Record<string, unknown>> = [];
+    fetchMock.mockImplementation(async (_url: unknown, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return bodies.length === 1 ? completionResponse({ parsed: { nope: true } }) : completionResponse();
+    });
+
+    await callOpenRouterAudit({
+      system: 's',
+      parts: [{ type: 'text', text: 'x' }],
+      validate: rejectProvisionalInvariant,
+    });
+
+    const firstTurns = bodies[0]?.messages as Array<{ role: string; content: unknown }>;
+    const secondTurns = bodies[1]?.messages as Array<{ role: string; content: unknown }>;
+
+    // El feedback es un turno de usuario propio; el prompt de sistema y el
+    // expediente quedan byte a byte idénticos al primer intento.
+    expect(secondTurns).toHaveLength(firstTurns.length + 1);
+    expect(secondTurns[0]?.content).toBe(firstTurns[0]?.content);
+    expect(secondTurns[1]?.content).toEqual(firstTurns[1]?.content);
+
+    const corrective = secondTurns.at(-1) as { role: string; content: Array<{ type: string; text: string }> };
+    expect(corrective.role).toBe('user');
+    expect(corrective.content[0]?.type).toBe('text');
+    const text = corrective.content[0]?.text ?? '';
+    // El mensaje de validación concreto que falló, no un "intenta de nuevo".
+    expect(text).toContain('SCHEMA_VALIDATION_ERROR');
+    expect(text).toContain('audit.provisionalResolution');
+    expect(text).toContain('solo aplica a EVIDENCIA_INSUFICIENTE');
+  });
+
+  it('NO añade feedback correctivo cuando el fallo es del proveedor al rechazar el esquema', async () => {
+    process.env.OPENROUTER_FALLBACK_MODEL = 'openai/gpt-4o-mini';
+    const bodies: Array<{ model: string; response_format: { type: string }; messages: unknown[] }> = [];
+    fetchMock.mockImplementation(async (_url: unknown, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { model: string; response_format: { type: string }; messages: unknown[] };
+      bodies.push(body);
+      return bodies.length === 1
+        ? jsonResponse({ error: { message: 'Unsupported minLength', metadata: { error_type: 'invalid_request_error' } } }, 400)
+        : completionResponse();
+    });
+
+    const result = await callOpenRouterAudit({ system: 's', parts: [{ type: 'text', text: 'x' }] });
+
+    // Un 400 no dice nada del contenido de la respuesta: no hay nada que corregir.
+    // El comportamiento histórico se conserva: mismo modelo, siguiente formato.
+    expect(bodies.map((body) => body.model)).toEqual([
+      'google/gemini-2.5-flash-lite',
+      'google/gemini-2.5-flash-lite',
+    ]);
+    expect(bodies.map((body) => body.response_format.type)).toEqual(['json_schema', 'json_object']);
+    expect(bodies[1]?.messages).toHaveLength(2);
+    expect(result.model).toBe('google/gemini-2.5-flash');
+  });
+
+  it('sin modelo de respaldo tampoco degrada el formato, solo añade el feedback', async () => {
+    const bodies: Array<{ model: string; response_format: { type: string } }> = [];
+    fetchMock.mockImplementation(async (_url: unknown, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { model: string; response_format: { type: string } };
+      bodies.push(body);
+      return bodies.length === 1 ? completionResponse({ parsed: { nope: true } }) : completionResponse();
+    });
+
+    const result = await callOpenRouterAudit({
+      system: 's',
+      parts: [{ type: 'text', text: 'x' }],
+      validate: rejectProvisionalInvariant,
+    });
+
+    expect(result.parsed).toEqual(validAuditResult);
+    expect(bodies.map((body) => body.model)).toEqual([
+      'google/gemini-2.5-flash-lite',
+      'google/gemini-2.5-flash-lite',
+    ]);
+    expect(bodies.map((body) => body.response_format.type)).toEqual(['json_schema', 'json_schema']);
+  });
+
+  it('nunca supera dos llamadas reales al proveedor, ni con respaldo configurado', async () => {
+    process.env.OPENROUTER_FALLBACK_MODEL = 'openai/gpt-4o-mini';
+    fetchMock.mockImplementation(async () => completionResponse({ parsed: { nope: true } }));
+
+    const error = await callOpenRouterAudit({
+      system: 's',
+      parts: [{ type: 'text', text: 'x' }],
+      validate: rejectProvisionalInvariant,
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).category).toBe('SCHEMA_VALIDATION_ERROR');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect((error as { diagnostics: unknown[] }).diagnostics).toHaveLength(2);
+    expect((error as { diagnostics: Array<{ model: string; format: string }> }).diagnostics.map((d) => ({ model: d.model, format: d.format })))
+      .toEqual([
+        { model: 'google/gemini-2.5-flash-lite', format: 'json_schema' },
+        { model: 'google/gemini-2.5-flash-lite', format: 'json_schema' },
+      ]);
+  });
+
+  it('el feedback correctivo no filtra el contenido de la respuesta a los diagnósticos', async () => {
+    const bodies: Array<{ messages: unknown[] }> = [];
+    fetchMock.mockImplementation(async (_url: unknown, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { messages: unknown[] };
+      bodies.push(body);
+      // Sólo el primer intento devuelve la respuesta fuera de contrato; el
+      // reintento con feedback llega bien, que es el escenario que queremos.
+      return bodies.length === 1 ? completionResponse({ parsed: { nope: true } }) : completionResponse();
+    });
+
+    const result = await callOpenRouterAudit({
+      system: 's',
+      parts: [{ type: 'text', text: 'x' }],
+      validate: rejectProvisionalInvariant,
+    });
+
+    const serialized = JSON.stringify(result.attempts);
+    expect(serialized).not.toContain('EVIDENCIA_INSUFICIENTE');
+    expect(serialized).not.toContain('solo aplica a');
+    expect(result.attempts[0]).toMatchObject({
+      failureCategory: 'SCHEMA_VALIDATION_ERROR',
+      failureReason: 'schema validation failed at audit.provisionalResolution',
+    });
+  });
 });

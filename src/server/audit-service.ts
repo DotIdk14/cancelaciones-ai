@@ -25,6 +25,7 @@ import {
 import { ApiError } from './http.js';
 import { checkPaidQuota } from './quotas.js';
 import { derivedExtractionOf } from './derived.js';
+import { buildAuditFailureLog } from './audit-observability.js';
 import {
   getCaseOr404,
   insertAudit,
@@ -418,12 +419,34 @@ export async function runAudit(
   } catch (error) {
     const category: ErrorCategory = error instanceof ApiError ? error.category : 'AI_PROVIDER_ERROR';
     const latencyMs = Date.now() - startedAt;
+    const diagnostics = error instanceof OpenRouterAuditError ? error.diagnostics : null;
+    // Una sola línea JSON: en producción un SCHEMA_VALIDATION_ERROR solo dejaba
+    // ruido de `pdfjs-dist` en `vercel logs`, así que el motivo real era
+    // indescifrable. Se registra la categoría, el modelo, la latencia y el
+    // detalle saneado de cada intento. Deliberadamente NO se registra
+    // `error.message` (puede traer texto del proveedor, expediente o PII) ni el
+    // prompt, el expediente, las transcripciones o las claves: solo el TIPO de
+    // la excepción y los contadores de `buildAuditFailureLog`.
+    console.error(
+      '[audit] fallo de auditoría',
+      JSON.stringify(
+        buildAuditFailureLog({
+          auditId: auditRow.id,
+          caseId,
+          errorCategory: category,
+          error,
+          model: auditRow.model,
+          latencyMs,
+          diagnostics: diagnostics ?? [],
+        }),
+      ),
+    );
     await updateAuditResult(client, auditRow.id, {
       status: 'ERROR',
       result_json: null,
       error_category: category,
       latency_ms: latencyMs,
-      provider_metadata: error instanceof OpenRouterAuditError ? { openrouterAttempts: error.diagnostics } : null,
+      provider_metadata: diagnostics ? { openrouterAttempts: diagnostics } : null,
     }).catch(() => undefined);
     await updateCaseStatus(client, caseId, 'ERROR').catch(() => undefined);
     if (error instanceof ApiError) throw error;

@@ -56,6 +56,34 @@ export interface Evidence {
 
 export type AuditRunStatus = 'RUNNING' | 'COMPLETED' | 'ERROR';
 
+/**
+ * Un intento de OpenRouter tal como lo expone el servidor (ya saneado por lista
+ * blanca en `src/server/audit-observability.ts`). Es diagnóstico técnico: la UI
+ * no lo necesita para mostrar el dictamen, pero forma parte del contrato de la
+ * API y sirve para explicar un fallo.
+ */
+export interface AuditAttemptDiagnostic {
+  format: string;
+  failureCategory: string | null;
+  status: number | null;
+  finishReason: string | null;
+  latencyMs: number;
+  promptTokens: number | null;
+  completionTokens: number | null;
+  retryable: boolean;
+  capabilitiesVerified: boolean;
+  failureReason: string | null;
+}
+
+/** Metadatos técnicos del proveedor, sin prompts, expediente, PII ni secretos. */
+export interface AuditProviderMetadata {
+  openrouterAttempts?: AuditAttemptDiagnostic[];
+  usage?: { promptTokens: number | null; completionTokens: number | null; totalTokens: number | null; estimatedCostUSD: number | null } | null;
+  stale?: boolean;
+  deadlineAt?: string;
+  fingerprint?: string;
+}
+
 export interface AuditDetail {
   id: string;
   caseId: string;
@@ -69,6 +97,12 @@ export interface AuditDetail {
   attemptNumber: number | null;
   deadlineAt: string | null;
   createdAt: string;
+  /**
+   * Opcional a propósito: es un campo agregado al contrato y la UI tolera que
+   * no llegue (respuestas old, caché, otros despliegues). `AuditResultPanel` no
+   * lo lee, así que añadirlo no altera el render del dictamen.
+   */
+  providerMetadata?: AuditProviderMetadata | null;
 }
 
 export interface AuditHistoryItem {
