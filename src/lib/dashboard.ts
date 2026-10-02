@@ -56,8 +56,6 @@ export const DIMENSION_LABELS: Record<DashboardDimension, string> = {
   guideline: 'Lineamiento',
 };
 
-export type DashboardDimension = 'country' | 'campus' | 'modality' | 'project' | 'responsible' | 'guideline';
-
 export type DashboardFilterOptions = Record<DashboardDimension, string[]>;
 
 export const EMPTY_DASHBOARD_FILTER_OPTIONS: DashboardFilterOptions = {
@@ -420,24 +418,6 @@ export interface AiCostsResponse {
 // `src/server/dashboard-filters.ts`; el servidor es la fuente de verdad.
 // -----------------------------------------------------------------------------
 
-/** Una dimensión con los valores que EXISTEN en la base. */
-export interface DimensionOption {
-  dimension: DashboardDimension;
-  label: string;
-  /**
-   * `values: []` significa que la dimensión no tiene datos en el rango, y el
-   * frontend la OCULTA. No es un dato vacío que se pueda mostrar como "sin
-   * resultados": es que todavía no hay catálogo, y ofrecer un desplegable con
-   * cero opciones sería peor que no ofrecerlo.
-   */
-  values: string[];
-}
-
-export interface DashboardFilterOptions {
-  generatedAt: string;
-  options: DimensionOption[];
-}
-
 export interface DashboardOptionsResponse {
   options: DashboardFilterOptions;
 }
@@ -713,8 +693,13 @@ export async function fetchDashboardOptions(
   if (!res.ok) throw await readError(res);
 
   const data: unknown = await res.json();
-  if (!isRecord(data) || !isRecord(data.options) || !Array.isArray(data.options.options)) {
+  if (!isRecord(data) || !isRecord(data.options)) {
     throw new Error('La respuesta del servidor no tiene el formato esperado.');
+  }
+  for (const dimension of DASHBOARD_DIMENSIONS) {
+    if (!Array.isArray(data.options[dimension])) {
+      throw new Error('La respuesta del servidor no tiene el formato esperado.');
+    }
   }
   return data.options as unknown as DashboardFilterOptions;
 }

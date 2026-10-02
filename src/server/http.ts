@@ -1,6 +1,6 @@
 ﻿// =============================================================================
 // Helpers HTTP compartidos por todas las rutas /api (funcionan igual en
-// Vercel Functions y en el dev server de Vite v├¡a scripts/dev-api.mjs).
+// Vercel Functions y en el dev server de Vite vía scripts/dev-api.mjs).
 // =============================================================================
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -12,11 +12,11 @@ import { getEnv } from './env.js';
 export type QueryValue = string | string[] | undefined;
 
 export interface ApiRequest extends IncomingMessage {
-  /** Params de ruta + query string (Vercel inyecta aqu├¡ los params `[casoId]`). */
+  /** Params de ruta + query string (Vercel inyecta aquí los params `[casoId]`). */
   query: Record<string, QueryValue>;
   /** Body JSON ya parseado (en Vercel lo hace el runtime; en dev lo hace dev-api.mjs). */
   body?: unknown;
-  /** Contexto de autenticaci├│n resuelto por `handleRoute` (o inyectado en tests). */
+  /** Contexto de autenticación resuelto por `handleRoute` (o inyectado en tests). */
   auth?: AuthContext;
 }
 
@@ -24,31 +24,31 @@ export type ApiResponse = ServerResponse;
 
 export type ApiHandler = (req: ApiRequest, res: ApiResponse) => Promise<void> | void;
 
-// `ApiError` y `mapProviderError` viven en `errors.ts` (m├│dulo hoja) para que la
+// `ApiError` y `mapProviderError` viven en `errors.ts` (módulo hoja) para que la
 // capa de datos no dependa de la capa HTTP y para que los tests puedan
-// sustituirlos sin cerrar un c├¡rculo de importaciones. Se re-exportan aqu├¡ para
+// sustituirlos sin cerrar un círculo de importaciones. Se re-exportan aquí para
 // no cambiar ni un solo `import { ApiError } from './http.js'` del proyecto.
 export { ApiError, mapProviderError, type ErrorCategory } from './errors.js';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Valida que un par├ímetro de ruta sea un UUID (en producci├│n) o un identificador seguro. */
+/** Valida que un parámetro de ruta sea un UUID (en producción) o un identificador seguro. */
 export function requiredUuid(query: Record<string, QueryValue>, key: string): string {
   const value = requiredString(query, key);
   if (process.env.NODE_ENV === 'test') {
-    // Los tests usan identificadores sint├®ticos; la validaci├│n de producci├│n es UUID.
+    // Los tests usan identificadores sint├®ticos; la validación de producción es UUID.
     if (value.includes('/') || value.includes('\\') || value.includes('..')) {
-      throw new ApiError(400, 'VALIDATION_ERROR', `El par├ímetro ${key} no es un identificador v├ílido`);
+      throw new ApiError(400, 'VALIDATION_ERROR', `El parámetro ${key} no es un identificador válido`);
     }
     return value;
   }
   if (!UUID_REGEX.test(value)) {
-    throw new ApiError(400, 'VALIDATION_ERROR', `El par├ímetro ${key} debe ser un UUID v├ílido`);
+    throw new ApiError(400, 'VALIDATION_ERROR', `El parámetro ${key} debe ser un UUID válido`);
   }
   return value;
 }
 
-/** Protecci├│n CSRF para mutaciones: Origin propio + header X-App-Request. */
+/** Protección CSRF para mutaciones: Origin propio + header X-App-Request. */
 function assertMutatingCsrf(req: ApiRequest): void {
   if (!req.method || !['POST', 'PATCH', 'DELETE'].includes(req.method)) return;
 
@@ -74,14 +74,14 @@ function assertMutatingCsrf(req: ApiRequest): void {
 }
 
 interface HandleRouteOptions {
-  /** Si es true, la ruta no exige sesi├│n (p. ej. login, healthcheck). */
+  /** Si es true, la ruta no exige sesión (p. ej. login, healthcheck). */
   public?: boolean;
 }
 
 /**
- * Envuelve un handler con autenticaci├│n, CSRF en mutaciones y manejo de errores.
+ * Envuelve un handler con autenticación, CSRF en mutaciones y manejo de errores.
  *
- * - Por defecto exige sesi├│n v├ílida y membership en `app_memberships`.
+ * - Por defecto exige sesión válida y membership en `app_memberships`.
  * - Las mutaciones (POST/PATCH/DELETE) exigen Origin propio y X-App-Request: 1.
  * - Los tests pueden inyectar `req.auth` para saltar ambas capas.
  */
@@ -89,16 +89,16 @@ export function handleRoute(handler: ApiHandler, options?: HandleRouteOptions): 
   return async (req, res) => {
     try {
       const isMutating = req.method === 'POST' || req.method === 'PATCH' || req.method === 'DELETE';
-      // Si el test ya inyect├│ un contexto, no lo re-resuelve: es el ├║nico bypass
-      // intencional de auth/CSRF y nunca ocurre en producci├│n.
+      // Si el test ya inyectó un contexto, no lo re-resuelve: es el único bypass
+      // intencional de auth/CSRF y nunca ocurre en producción.
       if (req.auth) {
         /* contexto inyectado (tests) o ya resuelto: no re-resolver */
       } else if (options?.public) {
-        // Rutas p├║blicas: las mutaciones siguen exigiendo CSRF para no aceptar
+        // Rutas públicas: las mutaciones siguen exigiendo CSRF para no aceptar
         // solicitudes cross-site (fail-closed).
         if (isMutating) assertMutatingCsrf(req);
       } else {
-        // Rutas protegidas: CSRF primero, luego autenticaci├│n. Si CSRF falla,
+        // Rutas protegidas: CSRF primero, luego autenticación. Si CSRF falla,
         // no llegamos a consultar el proveedor de identidad.
         if (isMutating) assertMutatingCsrf(req);
         req.auth = await requireAuth(req, res);
@@ -137,7 +137,7 @@ export function sendError(res: ApiResponse, error: unknown): void {
     errorJson(res, error.status, error.category, error.message);
     return;
   }
-  // Nunca exponer stack traces ni detalles internos en producci├│n:
+  // Nunca exponer stack traces ni detalles internos en producción:
   // se loguea en el servidor y se responde gen├®rico.
   const message = error instanceof Error ? error.message : 'error desconocido';
   console.error('[api] error no controlado:', message);
@@ -152,7 +152,7 @@ export function methodNotAllowed(req: ApiRequest, res: ApiResponse, allow?: stri
 export function requiredString(query: Record<string, QueryValue>, key: string): string {
   const value = query[key];
   if (typeof value !== 'string' || value.trim() === '') {
-    throw new ApiError(400, 'VALIDATION_ERROR', `Falta el par├ímetro requerido: ${key}`);
+    throw new ApiError(400, 'VALIDATION_ERROR', `Falta el parámetro requerido: ${key}`);
   }
   return value;
 }
@@ -179,26 +179,26 @@ export async function readJsonBody(req: ApiRequest): Promise<unknown> {
   if (req.body !== undefined) {
     if (typeof req.body === 'string') {
       if (Buffer.byteLength(req.body, 'utf-8') > MAX_JSON_BODY_BYTES) {
-        throw new ApiError(413, 'VALIDATION_ERROR', 'El cuerpo JSON excede el l├¡mite de 1 MB');
+        throw new ApiError(413, 'VALIDATION_ERROR', 'El cuerpo JSON excede el límite de 1 MB');
       }
       if (req.body.trim().length === 0) return {};
       try {
         return JSON.parse(req.body);
       } catch {
-        throw new ApiError(400, 'VALIDATION_ERROR', 'El body no es JSON v├ílido');
+        throw new ApiError(400, 'VALIDATION_ERROR', 'El body no es JSON válido');
       }
     }
     return req.body;
   }
   const raw = await readRawBody(req);
   if (raw.length > MAX_JSON_BODY_BYTES) {
-    throw new ApiError(413, 'VALIDATION_ERROR', 'El cuerpo JSON excede el l├¡mite de 1 MB');
+    throw new ApiError(413, 'VALIDATION_ERROR', 'El cuerpo JSON excede el límite de 1 MB');
   }
   if (raw.length === 0) return {};
   try {
     return JSON.parse(raw.toString('utf-8'));
   } catch {
-    throw new ApiError(400, 'VALIDATION_ERROR', 'El body no es JSON v├ílido');
+    throw new ApiError(400, 'VALIDATION_ERROR', 'El body no es JSON válido');
   }
 }
 
@@ -246,7 +246,7 @@ export function clearCookie(res: ApiResponse, name: string): void {
   res.appendHeader('Set-Cookie', `${name}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax`);
 }
 
-/** Env├¡a un buffer binario (descarga o preview de evidencia). */
+/** Envía un buffer binario (descarga o preview de evidencia). */
 export function sendBinary(
   res: ApiResponse,
   buffer: Buffer,

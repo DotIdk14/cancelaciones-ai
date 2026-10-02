@@ -39,6 +39,7 @@ function sanitizeErrorMessage(message: string): string {
   // Cubre tanto `Authorization=Bearer xyz` como `Authorization=xyz`.
   return message
     .replace(/(api[_-]?key|secret|token|authorization)[=:]\s*(?:(?:bearer|basic)\s+)?\S+/gi, '$1=[oculto]')
+    .replace(/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, '[url oculta]')
     .slice(0, 300);
 }
 

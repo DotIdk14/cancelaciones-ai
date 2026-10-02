@@ -346,26 +346,6 @@ export async function getAuditById(client: InsForgeClient, auditId: string): Pro
   return rows?.[0] ?? null;
 }
 
-/**
- * Auditoría COMPLETED más reciente del caso.
- *
- * Es el dictamen vigente: el que una revisión nueva compara por defecto y el
- * que sostiene `effectiveResolution.source = 'AI'` mientras no exista decisión
- * humana. NO devuelve la fila más reciente si está RUNNING o en ERROR, porque
- * una ejecución en curso o fallida no es un dictamen.
- */
-export async function latestCompletedAudit(client: InsForgeClient, caseId: string): Promise<AuditRow | null> {
-  const { data, error } = await client.database
-    .from('audits')
-    .select('*')
-    .eq('case_id', caseId)
-    .eq('status', 'COMPLETED')
-    .order('created_at', { ascending: false })
-    .limit(1);
-  if (error) dbError(error);
-  const rows = data as AuditRow[] | null;
-  return rows?.[0] ?? null;
-}
 
 export async function latestCompletedAuditByFingerprint(
   client: InsForgeClient,

@@ -3,6 +3,8 @@
 // =============================================================================
 
 import type { ReactNode } from 'react';
+import { shellWidth } from '../lib/layout';
+import { useHashRoute } from '../lib/useHashRoute';
 import { Button } from './ui';
 
 interface AppHeaderProps {
@@ -10,6 +12,7 @@ interface AppHeaderProps {
 }
 
 export function AppHeader({ onSignOut }: AppHeaderProps): ReactNode {
+  const route = useHashRoute();
   return (
     <header className="border-b border-line bg-surface-1">
       <div

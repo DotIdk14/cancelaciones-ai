@@ -29,9 +29,16 @@ const DIMENSION_LABELS: Record<DashboardDimension, string> = {
 export interface DashboardFiltersBarProps {
   value: DashboardFilters;
   onChange: (next: DashboardFilters) => void;
+  /**
+   * `false` en las páginas cuyo endpoint ignora `result` A PROPÓSITO: en
+   * "IA & Costos" filtrar por dictamen ocultaría el gasto de los intentos
+   * fallidos, que es justo lo que esa pantalla mide. Ofrecer un control que no
+   * cambia el resultado es peor que no ofrecerlo, así que se retira.
+   */
+  allowResultFilter?: boolean;
 }
 
-export function DashboardFilters({ value, onChange }: DashboardFiltersBarProps): ReactNode {
+export function DashboardFilters({ value, onChange, allowResultFilter = true }: DashboardFiltersBarProps): ReactNode {
   const baseId = useId();
   const [options, setOptions] = useState<DashboardFilterOptions>(EMPTY_DASHBOARD_FILTER_OPTIONS);
   const [optionsError, setOptionsError] = useState(false);
@@ -125,29 +132,31 @@ export function DashboardFilters({ value, onChange }: DashboardFiltersBarProps):
         />
       </div>
 
-      <div className="sm:w-52">
-        <label htmlFor={resultId} className={LABEL_CLASS}>
-          Resultado de la auditor├¡a
-        </label>
-        <select
-          id={resultId}
-          name="result"
-          value={value.result ?? ''}
-          onChange={(event) => onChange({ ...value, result: event.target.value === '' ? null : event.target.value })}
-          aria-describedby={resultHintId}
-          className={CONTROL_CLASS}
-        >
-          <option value="">Todos los resultados</option>
-          {AUDIT_RESULTS.map((result) => (
-            <option key={result} value={result}>
-              {RESULT_LABELS[result]}
-            </option>
-          ))}
-        </select>
-        <p id={resultHintId} className={HINT_CLASS}>
-          Filtra por el dictamen que emiti├│ la auditor├¡a. Sin selecci├│n se muestran todos.
-        </p>
-      </div>
+      {allowResultFilter ? (
+        <div className="sm:w-52">
+          <label htmlFor={resultId} className={LABEL_CLASS}>
+            Resultado de la auditor├¡a
+          </label>
+          <select
+            id={resultId}
+            name="result"
+            value={value.result ?? ''}
+            onChange={(event) => onChange({ ...value, result: event.target.value === '' ? null : event.target.value })}
+            aria-describedby={resultHintId}
+            className={CONTROL_CLASS}
+          >
+            <option value="">Todos los resultados</option>
+            {AUDIT_RESULTS.map((result) => (
+              <option key={result} value={result}>
+                {RESULT_LABELS[result]}
+              </option>
+            ))}
+          </select>
+          <p id={resultHintId} className={HINT_CLASS}>
+            Filtra por el dictamen que emiti├│ la auditor├¡a. Sin selecci├│n se muestran todos.
+          </p>
+        </div>
+      ) : null}
 
       <div className="sm:w-52">
         <label htmlFor={statusId} className={LABEL_CLASS}>

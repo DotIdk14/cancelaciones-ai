@@ -148,10 +148,13 @@ describe('capa de datos del dashboard — consulta construida', () => {
     await getAiCosts(b.client, BASE, 'day');
     await getAiQuality(c.client, BASE);
 
-    for (const queries of [a.queries, b.queries, c.queries]) {
+    for (const queries of [a.queries, b.queries]) {
       expect(queries).toHaveLength(1);
       expect(queries[0].table).toBe('audit_dashboard_metrics');
     }
+    // `getAiQuality` lee la vista principal y, además, las fuentes de revisión humana.
+    expect(c.queries[0].table).toBe('audit_dashboard_metrics');
+    expect(c.queries.slice(1).every((q) => ['case_comparisons_dashboard_metrics', 'case_reviews'].includes(q.table))).toBe(true);
   });
 
   it('acota el rango con los límites del día en UTC (no con la fecha cruda)', async () => {
