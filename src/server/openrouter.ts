@@ -3,7 +3,9 @@
 // =============================================================================
 // Único módulo que habla con OpenRouter. Hay un máximo de dos llamadas reales:
 // un 400 de json_schema cambia a json_object; fallos transitorios usan retry o
-// fallback sin repetir una llamada determinista. Zod sigue siendo autoridad.
+// fallback sin repetir una llamada determinista; y una salida que el validador
+// LOCAL rechaza se reintenta en el modelo de respaldo con feedback correctivo
+// (ver `resolveSecondAttemptRoute`). Zod sigue siendo autoridad.
 // =============================================================================
 
 import { AiAuditAssessmentSchema } from '../skills/audit/schema.js';
@@ -116,9 +118,86 @@ function toModelUsage(usage: unknown): ModelUsage {
 }
 
 class AttemptFailure extends Error {
-  constructor(readonly diagnostic: OpenRouterAttemptDiagnostic, message: string) {
+  constructor(
+    readonly diagnostic: OpenRouterAttemptDiagnostic,
+    message: string,
+    /**
+     * Fallo del validador LOCAL sobre la respuesta del modelo. Viaja
+     * únicamente dentro de la petición correctiva saliente: `detail` se sanea
+     * antes de usarlo y ni `detail` ni el contenido del modelo se registran ni
+     * se guardan en el diagnóstico, que sí consume la UI. `undefined` cuando el
+     * fallo no proviene de validar la respuesta (transporte, HTTP, timeout...).
+     */
+    readonly validation?: { detail: string; path: string },
+  ) {
     super(message);
   }
+}
+
+// =============================================================================
+// Enrutado del último intento.
+// =============================================================================
+
+/**
+ * Fallos cuyo origen es la SALIDA del modelo, no el transporte: el proveedor
+ * respondió 200 y devolvió JSON, pero ese JSON no cumple el contrato.
+ *
+ * Son DOS familias distintas y por eso el último intento se enruta distinto:
+ *  - `SCHEMA_VALIDATION_ERROR` / `INVALID_EVIDENCE_REFERENCE` nacen de reglas que
+ *    `json_schema` no puede expresar. La decodificación restringida garantiza
+ *    validez ESTRUCTURAL, nunca SEMÁNTICA; la invariante
+ *    `audit.result === 'EVIDENCIA_INSUFICIENTE' ⟺ audit.provisionalResolution !== null`
+ *    de `src/skills/audit/schema.ts` es una restricción ENTRE campos que ninguna
+ *    gramática json_schema puede declarar, así que el modelo puede emitir dos
+ *    mitades individualmente válidas y una combinación inválida. En `json_object`
+ *    directamente no hay ninguna garantía estructural (típico:
+ *    `facts[i].value` como objeto en vez de `string|number|boolean|null`).
+ *  - `PROVIDER_BAD_REQUEST` / `UNSUPPORTED_MODEL_CAPABILITY` dicen sólo que el
+ *    PROVEEDOR rechazó la petición. No hay nada del contenido que corregir.
+ */
+const MODEL_OUTPUT_VALIDATION_FAILURES: ReadonlySet<AttemptFailureCategory> = new Set<AttemptFailureCategory>([
+  'SCHEMA_VALIDATION_ERROR',
+  'INVALID_EVIDENCE_REFERENCE',
+]);
+
+/** Tope del detalle del validador dentro del feedback correctivo. */
+const CORRECTIVE_FEEDBACK_MAX_CHARS = 240;
+
+/**
+ * Sanea el mensaje del validador para poder reenviarlo al modelo. Se acota el
+ * largo, se colapsan espacios y se restringe a ASCII imprimible: el detalle de
+ * Zod puede interpolar valores emitidos por el modelo, y no queremos arrastrar
+ * bloques largos de texto libre (ni nada que parezca credencial) al prompt.
+ */
+function sanitizeValidationDetail(message: string): string {
+  return message
+    .replace(/INVALID_AI_RESPONSE:\s*/gi, '')
+    .replace(/[^\x20-\x7E]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, CORRECTIVE_FEEDBACK_MAX_CHARS);
+}
+
+/**
+ * Feedback correctivo para el reintento. Sin él, el segundo intento es la misma
+ * lotería de siempre: mismo prompt, misma temperatura, mismo modelo, y la única
+ * diferencia sería el formato — insuficiente frente a un fallo cuyo origen es
+ * una combinación de campos.
+ */
+function buildCorrectiveFeedback(category: AttemptFailureCategory, validation: { detail: string; path: string }): string {
+  const detail = sanitizeValidationDetail(validation.detail);
+  return [
+    '## Corrección requerida: tu respuesta anterior fue rechazada',
+    '',
+    'La respuesta que acabas de emitir NO superó la validación del contrato de salida:',
+    `- Categoría del fallo: ${category}`,
+    `- Ruta que falló: ${validation.path}`,
+    ...(detail ? [`- Detalle del validador: ${detail}`] : []),
+    '',
+    'Reemite el objeto JSON COMPLETO con la misma estructura, corrigiendo exactamente ese punto.',
+    'Algunas reglas del contrato son invariantes ENTRE campos y ningún formato de salida puede garantizarlas: revísalas tú mismo antes de responder.',
+    'No inventes datos ni cites evidencia que no aparezca en el expediente.',
+  ].join('\n');
 }
 
 function diagnostic(
@@ -167,21 +246,32 @@ async function singleAttempt(
   attempt: AttemptSpec,
   input: CallOpenRouterAuditInput,
   timeoutMs: number,
+  /**
+   * Feedback correctivo del intento anterior (ya saneado). Viaja como turno de
+   * usuario PROPIO para que el prompt de sistema y el expediente queden byte a
+   * byte idénticos al primer intento: así el modelo puede contrastar qué se le
+   * pidió contra qué se le rechaza.
+   */
+  correction?: string,
 ): Promise<CallOpenRouterAuditOutput> {
   const env = getEnv();
   const startedAt = Date.now();
   const contractSchema = buildProviderJsonSchema(AiAuditAssessmentSchema, attempt.capabilities.schemaProfile);
+  const messages: unknown[] = [
+    {
+      role: 'system',
+      content: attempt.format === 'json_object'
+        ? `${input.system}\n\n## Contrato JSON requerido\n${buildJsonObjectContract(contractSchema)}`
+        : input.system,
+    },
+    { role: 'user', content: input.parts },
+  ];
+  if (correction) {
+    messages.push({ role: 'user', content: [{ type: 'text', text: correction }] });
+  }
   const body: Record<string, unknown> = {
     model: attempt.model,
-    messages: [
-      {
-        role: 'system',
-        content: attempt.format === 'json_object'
-          ? `${input.system}\n\n## Contrato JSON requerido\n${buildJsonObjectContract(contractSchema)}`
-          : input.system,
-      },
-      { role: 'user', content: input.parts },
-    ],
+    messages,
     temperature: 0,
     max_tokens: attempt.maxTokens,
   };
@@ -295,6 +385,7 @@ async function singleAttempt(
           failureReason: category === 'INVALID_EVIDENCE_REFERENCE' ? 'unknown evidence reference' : `schema validation failed at ${schemaPath}`,
         }),
         `${category}: ${schemaPath}`,
+        { detail: message, path: schemaPath },
       );
     }
 
@@ -331,6 +422,12 @@ export async function callOpenRouterAudit(
   const models = [env.OPENROUTER_MODEL, env.OPENROUTER_FALLBACK_MODEL].filter((model): model is string => Boolean(model));
   let finalFailure: AttemptFailureCategory = 'PROVIDER_UNAVAILABLE';
   let attemptsMade = 0;
+  /**
+   * Feedback correctivo pendiente del último fallo de validación de salida. Se
+   * consume en el siguiente intento (y sólo en ése): es lo que convierte el
+   * reintento en algo distinto de repetir la misma lotería.
+   */
+  let correctiveFeedback: string | null = null;
 
   modelLoop: for (const model of models) {
     let capabilities: ModelCapabilities;
@@ -447,8 +544,17 @@ export async function callOpenRouterAudit(
           : maxTokens;
         const attempt: AttemptSpec = { model, format, capabilities, maxTokens: retryBudget };
         attemptsMade += 1;
+        // El feedback se consume una sola vez: si este intento también falla, el
+        // siguiente feedback se reconstruye a partir del fallo más reciente.
+        const feedbackForThisAttempt = correctiveFeedback;
+        correctiveFeedback = null;
         try {
-          const result = await singleAttempt(attempt, input, Math.min(perAttemptTimeoutMs, remainingMs));
+          const result = await singleAttempt(
+            attempt,
+            input,
+            Math.min(perAttemptTimeoutMs, remainingMs),
+            feedbackForThisAttempt ?? undefined,
+          );
           return { ...result, attempts: [...diagnostics, ...result.attempts] };
         } catch (error) {
           if (!(error instanceof AttemptFailure)) throw error;
@@ -462,6 +568,36 @@ export async function callOpenRouterAudit(
               402,
             );
           }
+
+          // ── Enrutado del segundo y último intento ────────────────────────
+          // El validador LOCAL rechazó una respuesta que el proveedor SÍ aceptó
+          // (HTTP 200 con JSON bien formado pero fuera de contrato). Aquí
+          // degradar `json_schema` -> `json_object` es EXACTAMENTE lo
+          // contrario de lo que sirve: `json_object` no lleva esquema, así que
+          // el segundo intento tendría MENOS garantías de validez estructural
+          // que el primero. Lo que falló no fue la forma, fue una invariante
+          // entre campos (p. ej. `result` <-> `provisionalResolution`), y eso
+          // solo se comunica en texto.
+          //
+          // Por eso el intento restante se gasta en MÁS información y no en
+          // MENOS restricciones: mismo modelo (el proveedor ya demostrado en
+          // producción), mismo formato estricto, más el feedback correctivo.
+          // No se escala a otro proveedor: su catálogo de capacidades no está
+          // verificado contra este esquema en producción.
+          //
+          // Un rechazo del PROVEEDOR al esquema (HTTP 400 /
+          // `PROVIDER_BAD_REQUEST` / `UNSUPPORTED_MODEL_CAPABILITY`) NO entra
+          // por aquí: no dice nada del contenido, y el comportamiento histórico
+          // (mismo modelo, siguiente formato) se conserva intacto.
+          if (MODEL_OUTPUT_VALIDATION_FAILURES.has(finalFailure) && error.validation) {
+            correctiveFeedback ??= buildCorrectiveFeedback(finalFailure, error.validation);
+            // `continue` reintenta el MISMO formato con el feedback pendiente;
+            // las guardas `tryNumber < 2` y `attemptsMade < 2` lo acotan a una
+            // única llamada extra.
+            if (tryNumber === 0 && attemptsMade < 2) continue;
+            break;
+          }
+
           if (!error.diagnostic.retryable || tryNumber === 1 || attemptsMade >= 2) break;
           if ((error.diagnostic.failureCategory === 'PROVIDER_UNAVAILABLE' || error.diagnostic.failureCategory === 'TIMEOUT') && models.length > 1) {
             fallbackOnUnavailable = true;
