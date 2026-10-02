@@ -1,12 +1,12 @@
 ﻿// =============================================================================
-// Filtros del dashboard ÔÇö validación de los query params de /api/dashboard/*.
+// Filtros del dashboard — validación de los query params de /api/dashboard/*.
 // =============================================================================
 // Aquí no hay lógica de negocio ni acceso a datos: solo se traduce el query
 // string a un objeto `DashboardFilters` ya validado, o se responde 400 con un
 // mensaje legible en español. El error crudo de Zod nunca sale de este archivo.
 //
 // Los `from`/`to` son DÍAS (`YYYY-MM-DD`), tal y como los define
-// `src/lib/dashboard.ts` (única definición del tipo, tambi├®n consumida por la
+// `src/lib/dashboard.ts` (única definición del tipo, también consumida por la
 // UI). El paso a instantes UTC ocurre al construir los límites de la consulta
 // (`startOfDayUtc` / `endOfDayUtc`), que es donde de verdad importa.
 // =============================================================================

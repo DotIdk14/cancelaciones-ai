@@ -1,5 +1,5 @@
 ﻿// =============================================================================
-// DTOs ÔÇö forma exacta que consume la UI (contrato de API).
+// DTOs — forma exacta que consume la UI (contrato de API).
 // =============================================================================
 
 import type { ErrorCategory, EvidenceStatus, TranscriptData } from '../skills/audit/types.js';
@@ -99,7 +99,7 @@ export interface CaseReviewDto {
  *
  * EL VEREDICTO VA PLANO. `agrees`, `explanation`, `confidence`,
  * `discrepancyReason`, `procedureSections` y `evidenceIds` son el contrato que
- * consume la interfaz, y son `null` (o `[]`) mientras la comparación no est├®
+ * consume la interfaz, y son `null` (o `[]`) mientras la comparación no esté
  * `COMPLETED`: no se publica un veredicto a medio hacer, y `null` quiere decir
  * "todavía no existe", no "el modelo respondeu que no".
  */
@@ -123,7 +123,7 @@ export interface ComparisonDto {
   // `resultJson` es el MISMO veredicto sin aplanar más la metadata real de
   // OpenRouter (modelo y usage), y `deadlineAt`/`updatedAt` son las marcas de la
   // fila. Se emiten porque el cliente (`src/lib/api.ts`) ya fue escrito contra
-  // ellos, y los campos planos se DERIVAN de `resultJson`, nunca al rev├®s: no
+  // ellos, y los campos planos se DERIVAN de `resultJson`, nunca al revés: no
   // pueden divergir. Si el cliente se pasa a los planos, estos tres sobran.
   resultJson: ComparisonOutcomePayload | null;
   deadlineAt: string | null;
@@ -286,7 +286,7 @@ export function comparisonToDto(row: ComparisonRow): ComparisonDto {
 /**
  * Deriva la resolución efectiva EN LECTURA. No escribe nada y no toca el
  * dictamen: la auditoría original sigue siendo exactamente la que emitió el
- * modelo, y esta función sólo decide qu├® resultado se muestra como vigente.
+ * modelo, y esta función sólo decide qué resultado se muestra como vigente.
  *
  * La precedencia es la del producto: la decisión de la persona manda sobre el
  * dictamen, en cualquier caso. `audit` debe ser la auditoría COMPLETED vigente

@@ -36,7 +36,7 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 export function requiredUuid(query: Record<string, QueryValue>, key: string): string {
   const value = requiredString(query, key);
   if (process.env.NODE_ENV === 'test') {
-    // Los tests usan identificadores sint├®ticos; la validación de producción es UUID.
+    // Los tests usan identificadores sintéticos; la validación de producción es UUID.
     if (value.includes('/') || value.includes('\\') || value.includes('..')) {
       throw new ApiError(400, 'VALIDATION_ERROR', `El parámetro ${key} no es un identificador válido`);
     }
@@ -138,7 +138,7 @@ export function sendError(res: ApiResponse, error: unknown): void {
     return;
   }
   // Nunca exponer stack traces ni detalles internos en producción:
-  // se loguea en el servidor y se responde gen├®rico.
+  // se loguea en el servidor y se responde genérico.
   const message = error instanceof Error ? error.message : 'error desconocido';
   console.error('[api] error no controlado:', message);
   errorJson(res, 500, 'UNKNOWN', 'Error interno del servidor');
@@ -146,7 +146,7 @@ export function sendError(res: ApiResponse, error: unknown): void {
 
 export function methodNotAllowed(req: ApiRequest, res: ApiResponse, allow?: string | string[]): void {
   if (allow) res.setHeader('Allow', Array.isArray(allow) ? allow.join(', ') : allow);
-  errorJson(res, 405, 'VALIDATION_ERROR', `M├®todo ${req.method ?? '?'} no soportado`);
+  errorJson(res, 405, 'VALIDATION_ERROR', `Método ${req.method ?? '?'} no soportado`);
 }
 
 export function requiredString(query: Record<string, QueryValue>, key: string): string {

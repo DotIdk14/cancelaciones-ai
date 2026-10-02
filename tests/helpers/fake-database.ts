@@ -1,11 +1,11 @@
 ﻿// =============================================================================
-// Cliente InsForge m├¡nimo (PostgREST en memoria) para probar la CAPA DE DATOS
+// Cliente InsForge mínimo (PostgREST en memoria) para probar la CAPA DE DATOS
 // real (`src/server/reviews.ts`) sin red y sin base de datos.
 //
-// Reproduce S├ôLO las operaciones que usa la capa de datos (`select`/`insert`/
+// Reproduce SÓLO las operaciones que usa la capa de datos (`select`/`insert`/
 // `update` encadenados con `eq`/`order`/`limit`/`single`). No implementa RLS,
-// pol├¡ticas ni ninguna regla de negocio: el objetivo es que el c├│digo de
-// producci├│n se ejecute de verdad y el test observe las filas que escribe.
+// políticas ni ninguna regla de negocio: el objetivo es que el código de
+// producción se ejecute de verdad y el test observe las filas que escribe.
 // =============================================================================
 
 import type { InsForgeClient } from '../../src/server/insforge';
@@ -133,7 +133,7 @@ class FakeDatabaseImpl {
 export interface FakeDatabase {
   /** Cliente InsForge fake, listo para `createCaseReview(fake, ...)`. */
   client: InsForgeClient;
-  /** Copia de las filas de una tabla (para observar qu├® se escribi├│). */
+  /** Copia de las filas de una tabla (para observar qué se escribió). */
   rows(table: string): Row[];
   reset(): void;
 }

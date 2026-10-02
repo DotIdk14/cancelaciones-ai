@@ -1,5 +1,5 @@
 ﻿// =============================================================================
-// Dashboard ÔÇö agregación de m├®tricas de auditoría.
+// Dashboard — agregación de métricas de auditoría.
 // =============================================================================
 // La agregación (`aggregateSummary`) es PURA: recibe filas y devuelve el
 // `DashboardSummary` que consume la UI, sin tocar red ni base de datos. Solo
@@ -48,7 +48,7 @@ import type { InsForgeClient } from './insforge.js';
 // dashboard tenga su propia lista y que las dos se separen sin que nada falle.
 import type { ComparisonStatusRow } from './reviews.js';
 
-// El tipo vive en `src/lib/dashboard.ts` (única definición, tambi├®n la usa la
+// El tipo vive en `src/lib/dashboard.ts` (única definición, también la usa la
 // UI). Se reexporta para no obligar a los importadores a saber de dónde viene.
 export type { DashboardFilters };
 
@@ -178,8 +178,8 @@ const RESULT_GROUP_BY_RESULT: Partial<Record<AuditResultType, ResolutionGroup>> 
  * Bucket de día en UTC. Se usa `toISOString()` y NUNCA la zona horaria local a
  * propósito: la serie temporal es un dato compartido, y si dependiera del
  * navegador, un caso de las 23:00 se contaría en un día distinto según dónde se
- * mirara la gráfica (en UTCÔêÆ5, en el día anterior). Con UTC, dos personas ven el
- * mismo periodo aunque est├®n en paises distintos.
+ * mirara la gráfica (en UTC−5, en el día anterior). Con UTC, dos personas ven el
+ * mismo periodo aunque estén en paises distintos.
  */
 function utcDayBucket(iso: string): string {
   const ms = Date.parse(iso);
@@ -264,7 +264,7 @@ function bumpGroup(counts: GroupCounts, group: ResolutionGroup): void {
  * la `timeline` muestra el **volumen de dictámenes emitidos por día** (un caso
  * reauditado cuenta una vez por cada dictamen emitido). Los KPIs cuentan **cada
  * caso una sola vez**, por su estado vigente. Por eso ambos números no tienen por
- * qu├® coincidir.
+ * qué coincidir.
  *
  * Se agrupan TODAS las filas (no solo las vigentes por caso), porque lo que
  * mide la gráfica es la actividad del periodo: los dictámenes emitidos, no el
@@ -489,7 +489,7 @@ export function aggregateSummary(
   //
   // Matiz: si un `COMPLETED` llega con `result` nulo o de otra versión, queda
   // sin grupo y sin ser error (dato ausente, no fallo). Eso rompería el reparto,
-  // pero es una forma defensiva: el contrato Zod garantiza `COMPLETED` ÔçÆ
+  // pero es una forma defensiva: el contrato Zod garantiza `COMPLETED` ⇒
   // resultado válido, y así nunca ocurre con datos reales.
   const terminal = current.filter(isTerminalAudit);
   const auditedCases = terminal.length;
@@ -542,7 +542,7 @@ export function aggregateSummary(
   // lista no cuadrase con lo que la persona ve en el listado de casos.
   const recentCases: RecentCaseRow[] = [...current]
     // `reverse()` antes de ordenar para que, en empate de timestamp, gane la fila
-    // que estaba despu├®s en el array (misma regla que `isSameOrNewer`). El
+    // que estaba después en el array (misma regla que `isSameOrNewer`). El
     // `sort` de JS es estable, así que el orden inverso se conserva.
     .reverse()
     .sort((a, b) => millisOf(b.created_at) - millisOf(a.created_at))
@@ -609,7 +609,7 @@ async function getOwnedCaseIds(client: InsForgeClient, userId: string): Promise<
 }
 
 /**
- * Lee la vista de m├®tricas y devuelve el resumen ya agregado.
+ * Lee la vista de métricas y devuelve el resumen ya agregado.
  * Los límites del rango son el primer y el último milisegundo del día, en UTC,
  * y ambos inclusivos: un filtro por día no puede perder la auditoría de las
  * 23:59:59.999.
@@ -647,7 +647,7 @@ export async function getDashboardSummary(
   let rows = (data ?? []) as unknown as DashboardMetricRow[];
   // Scope multi-tenant: `coordinator` lee agregados globales; `user` solo ve
   // filas de sus propios casos. La vista no expone `created_by`, así que el
-  // filtro ocurre en memoria despu├®s del fetch (ver TODO en `getOwnedCaseIds`).
+  // filtro ocurre en memoria después del fetch (ver TODO en `getOwnedCaseIds`).
   if (auth?.role === 'user') {
     const owned = await getOwnedCaseIds(client, auth.sub);
     rows = rows.filter((row) => owned.has(row.case_id));
@@ -773,7 +773,7 @@ export interface AiCostsReport {
  * DESCONOCIDO. No se devuelve 0 y NUNCA se recalcula un precio a partir de los
  * tokens: hacerlo sería inventar la tarifa del modelo aquí y dejarla congelada
  * para siempre, y además daría un 0 falso que la UI no puede distinguir de un
- * gasto real de 0 (una llamada gratis o un cr├®dito a coste 0).
+ * gasto real de 0 (una llamada gratis o un crédito a coste 0).
  *
  * Los tokens siguen la misma regla, cada magnitud con su propio COALESCE.
  *
@@ -782,7 +782,7 @@ export interface AiCostsReport {
  *   (0.02, null) -> 0.02   `usage_cost_usd` manda cuando existe.
  *   (null,    0) -> 0      un 0 LITERAL se respeta como 0.
  *
- * El tercer caso es el que hace que la función NO est├® arreglando el defecto
+ * El tercer caso es el que hace que la función NO esté arreglando el defecto
  * que se le atribuyó: `public.audit_dashboard_metrics` antes devolvía
  * `attempts_cost_usd = 0` cuando ningún intento reportaba `cost`, así que este
  * `??` devolvía ese 0 y la UI pintaba `$0` para auditorías cuyo coste se
@@ -801,7 +801,7 @@ const PROMPT_TOKENS_PER_ROW = (row: DashboardMetricRow): number | null => row.us
 const COMPLETION_TOKENS_PER_ROW = (row: DashboardMetricRow): number | null =>
   row.usage_completion_tokens ?? row.attempts_completion_tokens;
 
-/** Milisegundos por día, para aritm├®tica de periodos en UTC. */
+/** Milisegundos por día, para aritmética de periodos en UTC. */
 const COST_MS_PER_DAY = 86_400_000;
 
 /** Milisegundos por semana ISO (7 días completos). */
@@ -1084,7 +1084,7 @@ export function aggregateAiCosts(
 }
 
 /**
- * Lee la vista de m├®tricas y devuelve el informe de costes ya agregado.
+ * Lee la vista de métricas y devuelve el informe de costes ya agregado.
  *
  * MISMOS límites que `getDashboardSummary`: el rango va del primer al último
  * milisegundo del día, en UTC y ambos inclusivos (un filtro por día no puede
@@ -1157,7 +1157,7 @@ export async function getAiCosts(
 //  1. LA CONFIANZA que declaró el modelo en cada dictamen. Vive desde el primer
 //     dictamen, y se lee de `public.audit_dashboard_metrics`.
 //
-//  2. LA REVISIÓN HUMANA: qu├® decidió una persona, y si el modelo coincidió con
+//  2. LA REVISIÓN HUMANA: qué decidió una persona, y si el modelo coincidió con
 //     esa decisión al comparar. Nació con el módulo de revisión humana
 //     (`case_reviews` + `case_comparisons`) y se lee de
 //     `public.case_comparisons_dashboard_metrics`.
@@ -1168,9 +1168,9 @@ export async function getAiCosts(
 // es que la IA falle siempre, es que todavía no hay nada que medir. Lo que se
 // devuelve es `null` más un motivo legible, y la UI lo pinta como "sin dato",
 // nunca como cero. Es el mismo criterio que ya separa NULL de 0 en las columnas
-// de coste de la vista de m├®tricas (`COST_PER_ROW`, con su tripleta fijada por
+// de coste de la vista de métricas (`COST_PER_ROW`, con su tripleta fijada por
 // un test más arriba en este archivo), y por eso aquí hay tests que lo fijan
-// tambi├®n.
+// también.
 //
 // NADA DE ESTA SECCIÓN CLASIFICA (NO_RULES_ENGINE). El bloque humano no
 // reinterpreta el veredicto de la comparación: `agrees` y `confidence` los
@@ -1207,7 +1207,7 @@ const CONFIDENCE_BAND_ORDER: readonly ConfidenceBand[] = ['ALTA', 'MEDIA', 'BAJA
  * `agrees` y `confidence`, que son dos números.
  *
  * `agrees` y `confidence` son `null` cuando la fila está `RUNNING` o `ERROR` (es
- * así como las escribe `reviews.ts`) y tambi├®n cuando el `result_json` no trae
+ * así como las escribe `reviews.ts`) y también cuando el `result_json` no trae
  * un valor legible. `null` significa "no hay dato", y por eso el agregador nunca
  * lo cuenta como desacuerdo.
  */
@@ -1215,7 +1215,7 @@ export interface ComparisonMetricRow {
   id: string;
   case_review_id: string;
   case_id: string;
-  /** Estado del CASO, para que el filtro `status` del dashboard aplique tambi├®n aquí. */
+  /** Estado del CASO, para que el filtro `status` del dashboard aplique también aquí. */
   case_status: CaseStatus | null;
   /** Dictamen de la auditoría COMPARADA, para que el filtro `result` aplique. */
   audit_result: AuditResultType | null;
@@ -1275,7 +1275,7 @@ export interface HumanReviewReport {
    * Explicación del estado actual, en español, lista para pintar tal cual.
    *
    * La redacta el SERVIDOR y no el frontend a propósito: la explicación de por
-   * qu├® falta un dato tiene que vivir junto al cálculo que la produce, y todos
+   * qué falta un dato tiene que vivir junto al cálculo que la produce, y todos
    * los números que aparecen en el texto salen de las cifras de este mismo
    * objeto. Si el mensaje lo compusiera la UI, podría decir "no hay datos" con
    * datos delante sin que nadie lo notara.
@@ -1335,7 +1335,7 @@ interface HumanReviewCounts {
  *
  * `agrees === null` en una fila `COMPLETED` es una forma defensiva: la fila
  * AFIRMA que terminó (eso dice su `status`, y es un dato), pero no trae
- * veredicto legible. Suma a `completed` ÔÇöporque terminóÔÇö y ni a `agreements` ni a
+ * veredicto legible. Suma a `completed` —porque terminó— y ni a `agreements` ni a
  * `disagreements`, porque no hay nada que repartir entre esos dos. Nunca ocurre
  * con datos reales: `updateComparisonResult` sólo escribe un `result_json` que ya
  * pasó `ComparisonResultSchema` (src/skills/review/schema.ts).
@@ -1411,10 +1411,10 @@ function cabeceraRevisiones(reviewedCases: number): string {
 /**
  * POR QUÉ EL SERVIDOR REDACTA EL `message` Y NO LA UI
  *
- * La explicación de por qu├® falta un dato tiene que vivir JUNTO al cálculo que la
+ * La explicación de por qué falta un dato tiene que vivir JUNTO al cálculo que la
  * produce, o las dos piezas se desincronizan sin que nada falle. Con el mensaje
- * aquí, todos los números que aparecen en el texto salen de `counts` ÔÇöel mismo
- * objeto que alimenta las cifras de la tarjetaÔÇö y la UI lo pinta tal cual
+ * aquí, todos los números que aparecen en el texto salen de `counts` —el mismo
+ * objeto que alimenta las cifras de la tarjeta— y la UI lo pinta tal cual
  * (`src/components/dashboard/QualityPage.tsx`).
  *
  * Y hay un criterio más fuerte que el de no contradecirse: el texto no puede
@@ -1563,7 +1563,7 @@ const MISSING_EVIDENCE_BUCKET_ORDER: readonly MissingEvidenceBucket[] = ['0', '1
 /**
  * Etiquetas de cada bucket.
  *
- * El `2+` NO se desglosa en `2`, `3`, `4`ÔÇª a propósito: la pregunta que responde
+ * El `2+` NO se desglosa en `2`, `3`, `4`… a propósito: la pregunta que responde
  * esta vista es "¿la confianza baja cuando el expediente está incompleto?", y para
  * eso interesa el efecto de una ausencia grande, no la cola de expedientes con
  * seis evidencias ausentes. Además, un bucket por cada valor real haría que la
@@ -1633,7 +1633,7 @@ export function aggregateExactHumanReview(input: ExactHumanReviewInput): ExactHu
  * información ("nunca hubo confianza baja"), y sin ella la gráfica cambiaría de
  * forma al mover el periodo en vez de al dato.
  *
- * `confidenceByMissingEvidence` es al rev├®s a propósito: solo incluye los buckets
+ * `confidenceByMissingEvidence` es al revés a propósito: solo incluye los buckets
  * con al menos una fila. Poner un bucket en cero ahí sería afirmar "con un
  * expediente completo la confianza media es 0 %", que es falso: es que no hay
  * ningún expediente completo en el periodo.
@@ -1778,7 +1778,7 @@ export function aggregateQuality(
  * Lee la entrada humana del periodo: las comparaciones de la vista de
  * comparaciones y el conteo de revisiones humanas.
  *
- * DOS FUENTES, UNA TARJETA. `case_comparisons` responde de qu├® se midió la
+ * DOS FUENTES, UNA TARJETA. `case_comparisons` responde de qué se midió la
  * coincidencia y `case_reviews` de cuántas personas registraron su decisión. Se
  * cuentan por separado porque son hechos distintos: una revisión sin comparación
  * cuenta igual, y una comparación sin revisión NO PUEDE existir (el `UNIQUE` de
@@ -1808,7 +1808,7 @@ export async function getHumanReviewInput(
   // Scope multi-tenant: se carga una sola vez por llamada de dashboard.
   const owned = auth?.role === 'user' ? await getOwnedCaseIds(client, auth.sub) : null;
 
-  // Fuente principal: comparaciones (qu├® se comparó y su estado).
+  // Fuente principal: comparaciones (qué se comparó y su estado).
   let compQuery = client.database
     .from('case_comparisons_dashboard_metrics')
     .select('*', { count: 'exact' })
@@ -1842,7 +1842,7 @@ export async function getHumanReviewInput(
   const reviewIdsInRange = new Set(reviewsInRange.map((r) => r.id));
 
   // Las revisiones contadas son las del periodo MÁS las revisiones referenciadas
-  // por comparaciones que cayeron en el periodo aunque la revisión est├® fuera.
+  // por comparaciones que cayeron en el periodo aunque la revisión esté fuera.
   const comparisonReviewIds = new Set(comparisons.map((c) => c.case_review_id).filter(Boolean as any));
   let reviewedCases = reviewIdsInRange.size;
   for (const id of comparisonReviewIds) {

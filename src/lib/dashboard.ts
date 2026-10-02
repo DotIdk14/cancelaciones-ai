@@ -1,9 +1,9 @@
 ﻿// =============================================================================
 // Contrato de datos de la vista "Resumen" (dashboard).
 //
-// Tipos, constantes y el cliente HTTP que pide el agregado: aqu├¡ no hay
-// agregaci├│n ni criterio. El backend resuelve el periodo y devuelve el
-// agregado ya calculado; el frontend ├║nicamente lo pinta. Cualquier decisi├│n
+// Tipos, constantes y el cliente HTTP que pide el agregado: aquí no hay
+// agregación ni criterio. El backend resuelve el periodo y devuelve el
+// agregado ya calculado; el frontend únicamente lo pinta. Cualquier decisión
 // de negocio sigue viviendo en el Audit Skill y en el servidor, nunca en este
 // archivo.
 // =============================================================================
@@ -110,7 +110,7 @@ export const EMPTY_KPI: DashboardKpi = {
 };
 
 /**
- * Campo de porcentaje asociado a cada KPI. Evita repetir la convenci├│n
+ * Campo de porcentaje asociado a cada KPI. Evita repetir la convención
  * `<clave>Pct` desparramada por los componentes.
  */
 export const KPI_PCT: Record<Exclude<KpiKey, 'auditedCases'>, keyof DashboardKpi> = {
@@ -125,7 +125,7 @@ export const KPI_PCT: Record<Exclude<KpiKey, 'auditedCases'>, keyof DashboardKpi
 // Series
 // -----------------------------------------------------------------------------
 
-/** Punto de la evoluci├│n temporal por bucket (d├¡a o semana seg├║n el periodo). */
+/** Punto de la evolución temporal por bucket (día o semana según el periodo). */
 export interface TimelinePoint {
   bucket: string;
   granted: number;
@@ -133,13 +133,13 @@ export interface TimelinePoint {
   insufficient: number;
 }
 
-/** Reparto por grupo de resoluci├│n. */
+/** Reparto por grupo de resolución. */
 export interface ResolutionSplitPoint {
   group: ResolutionGroup;
   count: number;
 }
 
-/** Reparto por resultado de auditor├¡a (sin agrupar). */
+/** Reparto por resultado de auditoría (sin agrupar). */
 export interface ResultBreakdownPoint {
   result: AuditResultType;
   count: number;
@@ -149,11 +149,11 @@ export interface ResultBreakdownPoint {
 // Filas
 // -----------------------------------------------------------------------------
 
-/** Fila de la tabla de casos recientes. La PII del estudiante NO viaja aqu├¡. */
+/** Fila de la tabla de casos recientes. La PII del estudiante NO viaja aquí. */
 export interface RecentCaseRow {
   caseId: string;
   shortId: string;
-  /** No se env├¡a desde el servidor; se conserva opcional para no romper la UI. */
+  /** No se envía desde el servidor; se conserva opcional para no romper la UI. */
   studentIdentifier?: string | null;
   result: AuditResultType | null;
   confidence: number | null;
@@ -277,7 +277,7 @@ export interface HumanMismatchRow {
 
 export interface DashboardSummary {
   generatedAt: string;
-  /** `true` cuando el servidor trunc├│ el conjunto para poder agregarlo. */
+  /** `true` cuando el servidor truncó el conjunto para poder agregarlo. */
   truncated: boolean;
   filters: DashboardFilters;
   kpi: DashboardKpi;
@@ -311,22 +311,22 @@ export interface SummaryCostKpi {
 // -----------------------------------------------------------------------------
 // Informe de costes de IA (`/api/dashboard/ai-costs`)
 //
-// Estos tipos son el ESPEJO de los que agrega `src/server/dashboard.ts`. Aqu├¡
+// Estos tipos son el ESPEJO de los que agrega `src/server/dashboard.ts`. Aquí
 // no se calcula nada: ni un precio, ni un percentil, ni una media. Solo se
 // declara la forma que llega para poder pintarla sin adivinar.
 //
 // Dos advertencias que la UI debe respetar y que por eso quedan escritas en los
 // tipos, no en un comentario suelto del componente:
-//   1. Un 0 en `avgLatencyMs`/`p50`/`p95` no significa "instant├íneo": el servidor
+//   1. Un 0 en `avgLatencyMs`/`p50`/`p95` no significa "instantáneo": el servidor
 //      devuelve `null` cuando no hay mediciones, y `null` se pinta como `DASH`.
-//   2. En `reliability` los cuatro contadores NO son una partici├│n: se solapan
-//      (una auditor├¡a completada tras un reintento cuenta en las dos). Sumarlos
-//      dar├¡a un total que no cuadra con `auditsCounted`.
+//   2. En `reliability` los cuatro contadores NO son una partición: se solapan
+//      (una auditoría completada tras un reintento cuenta en las dos). Sumarlos
+//      daría un total que no cuadra con `auditsCounted`.
 // -----------------------------------------------------------------------------
 
 /**
  * Granularidad de la serie de coste. La clave de `bucket` cambia de forma:
- * `day` -> `YYYY-MM-DD`, `week` -> `YYYY-Www` (a├▒o ISO), `month` -> `YYYY-MM`.
+ * `day` -> `YYYY-MM-DD`, `week` -> `YYYY-Www` (año ISO), `month` -> `YYYY-MM`.
  * El frontend NO la parsea: la muestra tal cual.
  */
 export type CostGranularity = 'day' | 'week' | 'month';
@@ -334,9 +334,9 @@ export type CostGranularity = 'day' | 'week' | 'month';
 /**
  * Cabecera de coste, latencia y volumen del periodo.
  *
- * Las banderas `*Available` son la ├║nica forma fiable de distinguir "no hay
+ * Las banderas `*Available` son la única forma fiable de distinguir "no hay
  * datos" de "hay datos y valen cero": sin ellas, un `0` de facto es unknowable
- * y la UI acabar├¡a mintiendo con un `$0.0000` o un `0 ms` de Aspecto real.
+ * y la UI acabaría mintiendo con un `$0.0000` o un `0 ms` de Aspecto real.
  */
 export interface AiCostsKpi {
   totalCostUsd: number;
@@ -348,7 +348,7 @@ export interface AiCostsKpi {
   avgLatencyMs: number | null;
   p50LatencyMs: number | null;
   p95LatencyMs: number | null;
-  /** Auditor├¡as que entraron en el agregado (noAuditor├¡as, no llamadas al modelo). */
+  /** Auditorías que entraron en el agregado (noAuditorías, no llamadas al modelo). */
   auditsCounted: number;
   /** Casos distintos con al menos una llamada con coste conocido. */
   casesCounted: number;
@@ -370,26 +370,26 @@ export interface ModelCostRow {
   totalCostUsd: number;
   avgCostUsd: number;
   /**
-   * Llamadas de este modelo con coste CONOCIDO. Opcional a prop├│sito: si el
-   * servidor todav├¡a no lo env├¡a, `hasKnownModelCost` cae a un criterio seguro
+   * Llamadas de este modelo con coste CONOCIDO. Opcional a propósito: si el
+   * servidor todavía no lo envía, `hasKnownModelCost` cae a un criterio seguro
    * (0 en total Y 0 en promedio) en lugar de asumir que todo se conoce.
    *
    * Cuando vale `0` el coste del modelo es DESCONOCIDO, no cero: ninguna de sus
-   * llamadas inform├│ `usage_cost_usd` ni `attempts_cost_usd`.
+   * llamadas informó `usage_cost_usd` ni `attempts_cost_usd`.
    */
   costKnownCalls?: number;
 }
 
 /**
  * Contadores de fiabilidad. NO suman un total: cada uno mide una cosa distinta
- * y las categor├¡as se solapan.
+ * y las categorías se solapan.
  */
 export interface AiCostsReliability {
   successful: number;
   retried: number;
   fallback: number;
   failed: number;
-  /** Partici├│n mutuamente excluyente; `null` indica que el fallback no es identificable. */
+  /** Partición mutuamente excluyente; `null` indica que el fallback no es identificable. */
   executionOutcomes: {
     available: boolean;
     successfulFirstAttempt: number;
@@ -403,7 +403,7 @@ export interface AiCostsReliability {
 /** Informe completo de `/api/dashboard/ai-costs`. */
 export interface AiCostsReport {
   generatedAt: string;
-  /** `true` cuando el servidor trunc├│ el conjunto para poder agregarlo. */
+  /** `true` cuando el servidor truncó el conjunto para poder agregarlo. */
   truncated: boolean;
   filters: DashboardFilters;
   granularity: CostGranularity;
@@ -432,9 +432,9 @@ export interface DashboardOptionsResponse {
 /**
  * `true` cuando el coste del modelo se puede mostrar como cifra.
  *
- * Es la ├ÜNICA fuente de verdad para esa decisi├│n, para que ninguna pantalla
- * imprima `$0.0000` por un dato que el proveedor nunca report├│. Criterios, en
- * orden: el campo expl├¡cito si viene; si no, la forma degenerada (total y
+ * Es la ÚNICA fuente de verdad para esa decisión, para que ninguna pantalla
+ * imprima `$0.0000` por un dato que el proveedor nunca reportó. Criterios, en
+ * orden: el campo explícito si viene; si no, la forma degenerada (total y
  * promedio a 0) que un modelo sin coste conocido produce siempre.
  */
 export function hasKnownModelCost(row: ModelCostRow): boolean {
@@ -447,16 +447,16 @@ export function hasKnownModelCost(row: ModelCostRow): boolean {
 // -----------------------------------------------------------------------------
 // Informe de calidad (`/api/dashboard/quality`)
 //
-// ESPEJO de los tipos que agrega `src/server/dashboard.ts`. Aqu├¡ no se calcula
+// ESPEJO de los tipos que agrega `src/server/dashboard.ts`. Aquí no se calcula
 // nada: ni una media, ni una banda, ni un porcentaje.
 //
 // LA REGLA DE ESTA VISTA, escrita en los tipos para que ninguna pantalla pueda
-// salt├írsela por descuido: una magnitud que NO SE HA MEDIDO llega como `null`,
-// NUNCA como 0. Un `agreementRate: 0` afirmar├¡a "la IA coincide con el humano
+// saltársela por descuido: una magnitud que NO SE HA MEDIDO llega como `null`,
+// NUNCA como 0. Un `agreementRate: 0` afirmaría "la IA coincide con el humano
 // un 0 % de las veces", y eso es falso cuando lo que pasa es que nadie ha
-// comparado todav├¡a. La UI pinta esas tarjetas con `DASH` ("ÔÇö"), no con `0 %`.
+// comparado todavía. La UI pinta esas tarjetas con `DASH` ("—"), no con `0 %`.
 //
-// OJO, PORQUE ES LA PARTE QUE M├üS SE CONFUNDE: el `0` S├ì es un dato v├ílido en
+// OJO, PORQUE ES LA PARTE QUE MÁS SE CONFUNDE: el `0` SÍ es un dato válido en
 // los CONTADORES (`reviewedCases: 0` quiere decir "nadie ha revisado nada", y eso
 // es verdad). Lo que no puede ser 0 es un PROMEDIO sin nada que promediar. Por
 // eso los contadores son `number` y `agreementRate` / `avgComparisonConfidence`
@@ -466,55 +466,55 @@ export function hasKnownModelCost(row: ModelCostRow): boolean {
 /**
  * Bucket de evidencia faltante.
  *
- * Vive aqu├¡, y no en `src/server/dashboard.ts`, por la misma raz├│n que
- * `DashboardFilters`: la lista de tipos del dashboard est├í en el cliente para que
+ * Vive aquí, y no en `src/server/dashboard.ts`, por la misma razón que
+ * `DashboardFilters`: la lista de tipos del dashboard está en el cliente para que
  * el servidor la importe y la reexporte, en vez de haber dos definiciones que
- * puedan divergir. Es texto y no n├║mero porque `'2+'` no es un valor: es "dos o
- * m├ís", un conjunto que no cabe en un entero.
+ * puedan divergir. Es texto y no número porque `'2+'` no es un valor: es "dos o
+ * más", un conjunto que no cabe en un entero.
  */
 export type MissingEvidenceBucket = '0' | '1' | '2+';
 
 /**
- * Parte humana del informe de calidad: la revisi├│n que registr├│ una persona y si
- * el modelo coincidi├│ con ella al comparar.
+ * Parte humana del informe de calidad: la revisión que registró una persona y si
+ * el modelo coincidió con ella al comparar.
  *
  * `agreementRate` y `avgComparisonConfidence` son `number | null`, y el `null`
  * significa "NO SE HA MEDIDO". Se calcula en el servidor, sobre las comparaciones
- * `COMPLETED` del periodo; el frontend s├│lo lo pinta.
+ * `COMPLETED` del periodo; el frontend sólo lo pinta.
  *
- * `agreementRate` es una RAZ├ôN entre 0 y 1, no un porcentaje: 0.667 son dos
- * tercios. Un `0` aqu├¡ s├¡ es un dato LEG├ìTIMO (hubo comparaciones completadas y
- * ninguna coincidi├│); lo que nunca puede ser 0 es "no hab├¡a nada que medir", y
+ * `agreementRate` es una RAZÓN entre 0 y 1, no un porcentaje: 0.667 son dos
+ * tercios. Un `0` aquí sí es un dato LEGÍTIMO (hubo comparaciones completadas y
+ * ninguna coincidió); lo que nunca puede ser 0 es "no había nada que medir", y
  * ese estado es exactamente el `null`.
  */
 export interface HumanReviewReport {
-  /** `true` si existe al menos una revisi├│n enlazada a una auditor├¡a filtrada. */
+  /** `true` si existe al menos una revisión enlazada a una auditoría filtrada. */
   available: boolean;
   /**
-   * Explicaci├│n del estado actual, en espa├▒ol, lista para pintar tal cual.
+   * Explicación del estado actual, en español, lista para pintar tal cual.
    *
-   * La redacta el SERVIDOR y no la UI: la raz├│n de por qu├® falta un dato tiene
-   * que vivir junto al c├ílculo que la produce, y los n├║meros que aparecen en el
+   * La redacta el SERVIDOR y no la UI: la razón de por qué falta un dato tiene
+   * que vivir junto al cálculo que la produce, y los números que aparecen en el
    * texto salen de las cifras de este mismo objeto. Un mensaje compuesto en el
-   * frontend podr├¡a decir "no hay datos" teniendo datos delante sin que nadie lo
+   * frontend podría decir "no hay datos" teniendo datos delante sin que nadie lo
    * notara.
    */
   message: string;
-  /** Revisiones humanas enlazadas al audit_id exacto de una auditor├¡a filtrada. */
+  /** Revisiones humanas enlazadas al audit_id exacto de una auditoría filtrada. */
   reviewedCases: number;
-  /** Revisiones con resultado humano y resultado de auditor├¡a disponibles. */
+  /** Revisiones con resultado humano y resultado de auditoría disponibles. */
   comparableReviews: number;
   agreements: number;
   disagreements: number;
-  /** Coincidencias exactas de la revisi├│n y el audit_id al que est├í anclada. */
+  /** Coincidencias exactas de la revisión y el audit_id al que está anclada. */
   agreementRate: number | null;
 }
 
 /** Confianza declarada por el modelo, agrupada. */
 export interface ConfidenceReport {
-  /** Dict├ímenes COMPLETED con confianza declarada (denominador de `pct`). */
+  /** Dictámenes COMPLETED con confianza declarada (denominador de `pct`). */
   auditedCases: number;
-  /** `null` cuando ning├║n dictamen declar├│ confianza. */
+  /** `null` cuando ningún dictamen declaró confianza. */
   avgConfidence: number | null;
   /** Siempre las 3 bandas en orden fijo (ALTA, MEDIA, BAJA), aunque valgan 0. */
   bands: Array<{ band: ConfidenceBand; label: string; count: number; pct: number }>;
@@ -530,7 +530,7 @@ export interface ConfidenceReport {
 /** Informe completo de `/api/dashboard/quality`. */
 export interface QualityReport {
   generatedAt: string;
-  /** `true` cuando el servidor trunc├│ el conjunto para poder agregarlo. */
+  /** `true` cuando el servidor truncó el conjunto para poder agregarlo. */
   truncated: boolean;
   filters: DashboardFilters;
   humanReview: HumanReviewReport;
@@ -546,7 +546,7 @@ export interface QualityResponse {
 // Utilidades
 // -----------------------------------------------------------------------------
 
-/** `Date` -> `YYYY-MM-DD` en hora local (no UTC: evita el salto de d├¡a). */
+/** `Date` -> `YYYY-MM-DD` en hora local (no UTC: evita el salto de día). */
 function toLocalIsoDate(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -554,7 +554,7 @@ function toLocalIsoDate(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
-/** ├Ültimos 30 d├¡as (hoy y hace 30 d├¡as), en hora local y sin dependencias. */
+/** Últimos 30 días (hoy y hace 30 días), en hora local y sin dependencias. */
 export function defaultDateRange(): DashboardFilters {
   const today = new Date();
   const from = new Date(today.getTime());
@@ -578,8 +578,8 @@ export function defaultDateRange(): DashboardFilters {
 // -----------------------------------------------------------------------------
 
 /**
- * Query com├║n a los endpoints del dashboard. `result` y `status` se omiten
- * cuando valen `null`: mandarlos como la cadena `"null"` har├¡a que el servidor
+ * Query común a los endpoints del dashboard. `result` y `status` se omiten
+ * cuando valen `null`: mandarlos como la cadena `"null"` haría que el servidor
  * no los reconociera como ausentes.
  */
 function buildFiltersParams(filters: DashboardFilters): URLSearchParams {
@@ -617,7 +617,7 @@ export function buildSummaryQuery(filters: DashboardFilters): string {
  *
  * Lanza `ApiError` (mismo contrato que el resto de `api.ts`) cuando la
  * respuesta no es `200`, para que la UI pueda normalizar el error sin conocer
- * los c├│digos HTTP.
+ * los códigos HTTP.
  */
 export async function fetchDashboardSummary(
   filters: DashboardFilters,
@@ -637,9 +637,9 @@ export async function fetchDashboardSummary(
 /**
  * Pide el informe de costes de IA del periodo. Mismo contrato que
  * `fetchDashboardSummary`: ruta relativa, `ApiError` en respuesta no exitosa y
- * validaci├│n de que el envoltorio venga antes de castear a ciegas.
+ * validación de que el envoltorio venga antes de castear a ciegas.
  *
- * `granularity` va siempre expl├¡cito (aunque sea `day`): omitirlo obliga al
+ * `granularity` va siempre explícito (aunque sea `day`): omitirlo obliga al
  * cliente a adivinar el criterio por defecto del servidor.
  */
 export async function fetchAiCosts(
@@ -664,11 +664,11 @@ export async function fetchAiCosts(
 /**
  * Pide el informe de calidad de IA del periodo. Mismo contrato que
  * `fetchAiCosts`: ruta relativa, `ApiError` en respuesta no exitosa y
- * validaci├│n del envoltorio antes de castear a ciegas.
+ * validación del envoltorio antes de castear a ciegas.
  *
  * El cliente NO decide si hay datos humanos ni completa los que faltan: si el
- * servidor dice que no hay revisi├│n humana, aqu├¡ llega igual y la pantalla lo
- * explica. Calcularlo "por si acaso" en el frontend ser├¡a el sitio peor para
+ * servidor dice que no hay revisión humana, aquí llega igual y la pantalla lo
+ * explica. Calcularlo "por si acaso" en el frontend sería el sitio peor para
  * inventar una cifra de coincidencia.
  */
 export async function fetchAiQuality(

@@ -1,13 +1,13 @@
 ﻿// =============================================================================
-// Revisi├│n humana y comparaci├│n con IA ÔÇö orquestaci├│n durable y endpoints.
+// Revisión humana y comparación con IA — orquestación durable y endpoints.
 //
-// Lo que estos tests fijan, y que es la parte f├ícil de romper sin darse cuenta:
+// Lo que estos tests fijan, y que es la parte fácil de romper sin darse cuenta:
 //
-//   1. La comparaci├│n eval├║a el dictamen de `case_reviews.audit_id`, NUNCA el de
-//      la auditor├¡a m├ís reciente del caso.
-//   2. Una revisi├│n humana por caso y una comparaci├│n por revisi├│n: reanudar o
+//   1. La comparación evalúa el dictamen de `case_reviews.audit_id`, NUNCA el de
+//      la auditoría más reciente del caso.
+//   2. Una revisión humana por caso y una comparación por revisión: reanudar o
 //      reintentar abre la MISMA fila, nunca crea una segunda.
-//   3. La resoluci├│n efectiva se DERIVA en lectura y NO modifica el dictamen.
+//   3. La resolución efectiva se DERIVA en lectura y NO modifica el dictamen.
 // =============================================================================
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -36,7 +36,7 @@ import {
   updateComparisonError,
 } from './helpers/fake-store';
 
-// --- Persistencia de casos/evidencias/auditor├¡as: store en memoria -------------
+// --- Persistencia de casos/evidencias/auditorías: store en memoria -------------
 vi.mock('../src/server/cases', async () => {
   const store = await import('./helpers/fake-store');
   return {
@@ -86,7 +86,7 @@ vi.mock('../src/server/insforge', async (importOriginal) => {
   return { ...actual, createServerClient: vi.fn(() => store.fakeClient) };
 });
 
-// --- OpenRouter: el modelo responde con una comparaci├│n v├ílida --------------
+// --- OpenRouter: el modelo responde con una comparación válida --------------
 vi.mock('../src/server/openrouter', () => ({
   callOpenRouterAudit: vi.fn(),
   OpenRouterAuditError: class OpenRouterAuditError extends Error {},
@@ -95,23 +95,23 @@ vi.mock('../src/server/openrouter', () => ({
 const mockedCall = vi.mocked(callOpenRouterAudit);
 
 const HUMAN_COMMENT =
-  'La persona responsable revis├│ el expediente y considera acreditado el contacto efectivo previo.';
+  'La persona responsable revisó el expediente y considera acreditado el contacto efectivo previo.';
 
 const validComparison = {
   agrees: false,
-  explanation: 'El dictamen original no consider├│ el contacto efectivo previo que la persona acredit├│ en el expediente.',
+  explanation: 'El dictamen original no consideró el contacto efectivo previo que la persona acreditó en el expediente.',
   confidence: 0.74,
-  discrepancyReason: 'El dictamen original aplic├│ la baja sin evaluar el supuesto de solicitud previa al inicio.',
+  discrepancyReason: 'El dictamen original aplicó la baja sin evaluar el supuesto de solicitud previa al inicio.',
   procedureSections: ['5.3', '5.8'],
   evidenceIds: ['ev-1'],
 };
 
 const NO_USAGE = { promptTokens: 800, completionTokens: 120, totalTokens: 920, estimatedCostUSD: 0.0003 };
 
-/** Siembra el escenario m├¡nimo auditable: caso + evidencia READY + dictamen. */
+/** Siembra el escenario mínimo auditable: caso + evidencia READY + dictamen. */
 function seedAuditableCase(options: { auditId?: string; createdAt?: string; rule?: string } = {}): AuditRow {
   seedCase();
-  seedEvidence({ id: 'ev-1', processing_status: 'READY', content: 'El estudiante solicita cancelar la matr├¡cula.' });
+  seedEvidence({ id: 'ev-1', processing_status: 'READY', content: 'El estudiante solicita cancelar la matrícula.' });
   return seedAudit({
     id: options.auditId ?? 'audit-1',
     created_at: options.createdAt ?? '2026-02-01T10:10:00Z',
@@ -169,8 +169,8 @@ beforeEach(() => {
 });
 
 // =============================================================================
-describe('startComparison ÔÇö los cuatro caminos', () => {
-  it('sin revisi├│n humana responde 400 y ni siquiera abre la fila de comparaci├│n', async () => {
+describe('startComparison — los cuatro caminos', () => {
+  it('sin revisión humana responde 400 y ni siquiera abre la fila de comparación', async () => {
     seedAuditableCase();
 
     await expect(startComparison(fakeClient, 'case-1')).rejects.toMatchObject({
@@ -182,7 +182,7 @@ describe('startComparison ÔÇö los cuatro caminos', () => {
     expect(mockedCall).not.toHaveBeenCalled();
   });
 
-  it('sin comparaci├│n previa: crea RUNNING, llama al modelo y termina en done', async () => {
+  it('sin comparación previa: crea RUNNING, llama al modelo y termina en done', async () => {
     seedAuditableCase();
     seedReview({ audit_id: 'audit-1', result: 'DICTAMINACION', comment: HUMAN_COMMENT });
 
@@ -190,12 +190,12 @@ describe('startComparison ÔÇö los cuatro caminos', () => {
 
     expect(outcome.phase).toBe('done');
     expect(outcome.comparison.status).toBe('COMPLETED');
-    // UNA fila: se abri├│ en RUNNING antes del modelo y se cerr├│ sobre esa misma fila.
+    // UNA fila: se abrió en RUNNING antes del modelo y se cerró sobre esa misma fila.
     expect(listComparisons()).toHaveLength(1);
     expect(mockedCall).toHaveBeenCalledTimes(1);
   });
 
-  it('con comparaci├│n RUNNING vigente devuelve running sin volver a llamar al modelo', async () => {
+  it('con comparación RUNNING vigente devuelve running sin volver a llamar al modelo', async () => {
     seedAuditableCase();
     const review = seedReview({ audit_id: 'audit-1' });
     seedComparison({
@@ -209,12 +209,12 @@ describe('startComparison ÔÇö los cuatro caminos', () => {
     const outcome = await startComparison(fakeClient, 'case-1');
 
     expect(outcome.phase).toBe('running');
-    // DO_NOT_REPROCESS_AI_UNNECESSARILY: una comparaci├│n viva no se relanza.
+    // DO_NOT_REPROCESS_AI_UNNECESSARILY: una comparación viva no se relanza.
     expect(mockedCall).not.toHaveBeenCalled();
     expect(listComparisons()).toHaveLength(1);
   });
 
-  it('con comparaci├│n COMPLETED devuelve done y reutiliza el resultado durable', async () => {
+  it('con comparación COMPLETED devuelve done y reutiliza el resultado durable', async () => {
     seedAuditableCase();
     const review = seedReview({ audit_id: 'audit-1' });
     seedComparison({
@@ -231,7 +231,7 @@ describe('startComparison ÔÇö los cuatro caminos', () => {
     expect(listComparisons()).toHaveLength(1);
   });
 
-  it('con comparaci├│n ERROR devuelve error y NO relanza nada por su cuenta', async () => {
+  it('con comparación ERROR devuelve error y NO relanza nada por su cuenta', async () => {
     seedAuditableCase();
     const review = seedReview({ audit_id: 'audit-1' });
     seedComparison({
@@ -245,12 +245,12 @@ describe('startComparison ÔÇö los cuatro caminos', () => {
 
     expect(outcome.phase).toBe('error');
     expect(outcome.phase === 'error' && outcome.errorCategory).toBe('RATE_LIMIT');
-    // Reintentar es una decisi├│n EXPL├ìCITA de quien llama, no un efecto secundario.
+    // Reintentar es una decisión EXPLÍCITA de quien llama, no un efecto secundario.
     expect(mockedCall).not.toHaveBeenCalled();
     expect(listComparisons()).toHaveLength(1);
   });
 
-  it('una comparaci├│n RUNNING caducada se retoma SOBRE LA MISMA fila (cero duplicados)', async () => {
+  it('una comparación RUNNING caducada se retoma SOBRE LA MISMA fila (cero duplicados)', async () => {
     seedAuditableCase();
     const review = seedReview({ audit_id: 'audit-1' });
     const stale = seedComparison({
@@ -269,11 +269,11 @@ describe('startComparison ÔÇö los cuatro caminos', () => {
     expect(listComparisons()[0]?.id).toBe(stale.id);
   });
 
-  it('una revisi├│n cuya auditor├¡a no es COMPLETED no es revisable: 409', async () => {
+  it('una revisión cuya auditoría no es COMPLETED no es revisable: 409', async () => {
     seedAuditableCase();
     const review = seedReview({ audit_id: 'audit-1' });
     seedComparison({ case_review_id: review.id, audit_id: 'audit-1', status: 'RUNNING' });
-    // La auditor├¡a referenciada deja de estar COMPLETED (RUNNING en curso o ERROR).
+    // La auditoría referenciada deja de estar COMPLETED (RUNNING en curso o ERROR).
     await updateAuditResult(fakeClient, 'audit-1', {
       status: 'ERROR',
       result_json: null,
@@ -286,8 +286,8 @@ describe('startComparison ÔÇö los cuatro caminos', () => {
   });
 });
 
-describe('startComparison ÔÇö expediente desde case_reviews.audit_id', () => {
-  it('compara el dictamen REFERENCIADO por la revisi├│n, no el de la auditor├¡a m├ís reciente', async () => {
+describe('startComparison — expediente desde case_reviews.audit_id', () => {
+  it('compara el dictamen REFERENCIADO por la revisión, no el de la auditoría más reciente', async () => {
     seedAuditableCase({ auditId: 'audit-referenciada', createdAt: '2026-02-01T10:10:00Z', rule: 'REGLA-REFERENCIADA' });
     seedAudit({
       id: 'audit-reciente',
@@ -301,7 +301,7 @@ describe('startComparison ÔÇö expediente desde case_reviews.audit_id', () => 
     const text = sentText();
     expect(text).toContain('REGLA-REFERENCIADA');
     expect(text).not.toContain('REGLA-RECIENTE');
-    // La resoluci├│n humana y su comentario entran al expediente...
+    // La resolución humana y su comentario entran al expediente...
     expect(text).toContain('CANCELACION_VENTA');
     expect(text).toContain(HUMAN_COMMENT);
     // ...junto al Procedimiento V5 completo y al bloque anti prompt-injection.
@@ -309,7 +309,7 @@ describe('startComparison ÔÇö expediente desde case_reviews.audit_id', () => 
     expect(text.toLowerCase()).toContain('no confiable');
   });
 
-  it('rechaza que la comparaci├│n cite evidencia que no existe en el expediente', async () => {
+  it('rechaza que la comparación cite evidencia que no existe en el expediente', async () => {
     seedAuditableCase();
     seedReview({ audit_id: 'audit-1' });
     mockedCall.mockResolvedValue({
@@ -322,12 +322,12 @@ describe('startComparison ÔÇö expediente desde case_reviews.audit_id', () => 
       category: 'INVALID_AI_RESPONSE',
     });
 
-    // La fila durable queda en ERROR (no hu├®rfana en RUNNING) y es reintentable.
+    // La fila durable queda en ERROR (no huérfana en RUNNING) y es reintentable.
     expect(listComparisons()).toHaveLength(1);
     expect(listComparisons()[0]?.status).toBe('ERROR');
   });
 
-  it('un fallo del proveedor deja la comparaci├│n en ERROR y no fabrica veredicto', async () => {
+  it('un fallo del proveedor deja la comparación en ERROR y no fabrica veredicto', async () => {
     seedAuditableCase();
     seedReview({ audit_id: 'audit-1' });
     mockedCall.mockRejectedValue(new Error('HTTP 429 rate_limit_exceeded'));
@@ -341,8 +341,8 @@ describe('startComparison ÔÇö expediente desde case_reviews.audit_id', () => 
   });
 });
 
-describe('retryComparison ÔÇö s├│lo desde ERROR', () => {
-  it('reintenta una comparaci├│n en ERROR sin duplicar revisi├│n ni comparaci├│n', async () => {
+describe('retryComparison — sólo desde ERROR', () => {
+  it('reintenta una comparación en ERROR sin duplicar revisión ni comparación', async () => {
     seedAuditableCase();
     const review = seedReview({ audit_id: 'audit-1', result: 'BAJA' });
     const failed = seedComparison({
@@ -358,7 +358,7 @@ describe('retryComparison ÔÇö s├│lo desde ERROR', () => {
     expect(mockedCall).toHaveBeenCalledTimes(1);
     expect(listReviews()).toHaveLength(1);
     expect(listComparisons()).toHaveLength(1);
-    // Se reabri├│ la fila existente, no se cre├│ otra.
+    // Se reabrió la fila existente, no se creó otra.
     expect(listComparisons()[0]?.id).toBe(failed.id);
     expect(listComparisons()[0]?.error_category).toBeNull();
   });
@@ -429,7 +429,7 @@ describe('retryComparison ÔÇö s├│lo desde ERROR', () => {
     expect(mockedCall).not.toHaveBeenCalled();
   });
 
-  it('sin comparaci├│n previa tampoco es reintentable: 400', async () => {
+  it('sin comparación previa tampoco es reintentable: 400', async () => {
     seedAuditableCase();
     seedReview({ audit_id: 'audit-1' });
 
@@ -439,7 +439,7 @@ describe('retryComparison ÔÇö s├│lo desde ERROR', () => {
     expect(mockedCall).not.toHaveBeenCalled();
   });
 
-  it('sin revisi├│n humana tampoco hay nada que reintentar: 400', async () => {
+  it('sin revisión humana tampoco hay nada que reintentar: 400', async () => {
     seedAuditableCase();
 
     await expect(retryComparison(fakeClient, 'case-1')).rejects.toMatchObject({ status: 400 });
@@ -448,8 +448,8 @@ describe('retryComparison ÔÇö s├│lo desde ERROR', () => {
   });
 });
 
-describe('submitCaseReview ÔÇö una revisi├│n por caso', () => {
-  it('sin auditor├¡a COMPLETED devuelve 400 y no registra nada', async () => {
+describe('submitCaseReview — una revisión por caso', () => {
+  it('sin auditoría COMPLETED devuelve 400 y no registra nada', async () => {
     seedCase();
     seedEvidence({ id: 'ev-1', processing_status: 'READY', content: 'contenido' });
     seedAudit({ id: 'audit-error', status: 'ERROR', result_json: null });
@@ -461,7 +461,7 @@ describe('submitCaseReview ÔÇö una revisi├│n por caso', () => {
     expect(listReviews()).toHaveLength(0);
   });
 
-  it('registra la revisi├│n apuntando a la auditor├¡a COMPLETED m├ís reciente y arranca la comparaci├│n', async () => {
+  it('registra la revisión apuntando a la auditoría COMPLETED más reciente y arranca la comparación', async () => {
     seedAuditableCase();
     seedAudit({ id: 'audit-nueva', created_at: '2026-02-05T10:10:00Z' });
 
@@ -474,7 +474,7 @@ describe('submitCaseReview ÔÇö una revisi├│n por caso', () => {
     expect(listComparisons()).toHaveLength(1);
   });
 
-  it('una segunda revisi├│n del mismo caso es 409 y no crea fila', async () => {
+  it('una segunda revisión del mismo caso es 409 y no crea fila', async () => {
     seedAuditableCase();
     await submitCaseReview(fakeClient, 'case-1', { result: 'BAJA', reviewerName: 'Revisora de pruebas', comment: HUMAN_COMMENT, userId: FAKE_USER_SUB });
 
@@ -487,7 +487,7 @@ describe('submitCaseReview ÔÇö una revisi├│n por caso', () => {
   });
 });
 
-describe('endpoints de revisi├│n y comparaci├│n', () => {
+describe('endpoints de revisión y comparación', () => {
   it('POST /review sin nombre de quien revisa devuelve 400', async () => {
     seedAuditableCase();
     const res = makeApiResponse();
@@ -500,7 +500,7 @@ describe('endpoints de revisi├│n y comparaci├│n', () => {
     expect(mockedCall).not.toHaveBeenCalled();
   });
 
-  it('POST /review con resoluci├│n fuera del vocabulario devuelve 400', async () => {
+  it('POST /review con resolución fuera del vocabulario devuelve 400', async () => {
     seedAuditableCase();
     const res = makeApiResponse();
 
@@ -513,7 +513,7 @@ describe('endpoints de revisi├│n y comparaci├│n', () => {
     expect(listReviews()).toHaveLength(0);
   });
 
-  it('POST /review crea la revisi├│n y arranca la comparaci├│n en la misma llamada (201)', async () => {
+  it('POST /review crea la revisión y arranca la comparación en la misma llamada (201)', async () => {
     seedAuditableCase();
     const res = makeApiResponse();
 
@@ -527,7 +527,7 @@ describe('endpoints de revisi├│n y comparaci├│n', () => {
     expect(payload.comparison.status).toBe('COMPLETED');
   });
 
-  it('POST /review duplicado devuelve 409 sin crear una segunda revisi├│n', async () => {
+  it('POST /review duplicado devuelve 409 sin crear una segunda revisión', async () => {
     seedAuditableCase();
     await reviewHandler(makeApiRequest('POST', { caseId: 'case-1' }, { result: 'BAJA', reviewerName: 'Revisora de pruebas', comment: HUMAN_COMMENT }), makeApiResponse());
     const res = makeApiResponse();
@@ -538,7 +538,7 @@ describe('endpoints de revisi├│n y comparaci├│n', () => {
     expect(listReviews()).toHaveLength(1);
   });
 
-  it('GET /review devuelve revisi├│n + comparaci├│n + resoluci├│n efectiva', async () => {
+  it('GET /review devuelve revisión + comparación + resolución efectiva', async () => {
     seedAuditableCase();
     await reviewHandler(makeApiRequest('POST', { caseId: 'case-1' }, { result: 'BAJA', reviewerName: 'Revisora de pruebas', comment: HUMAN_COMMENT }), makeApiResponse());
     const res = makeApiResponse();
@@ -557,7 +557,7 @@ describe('endpoints de revisi├│n y comparaci├│n', () => {
     expect(payload.effectiveResolution).toEqual({ result: 'BAJA', source: 'HUMAN' });
   });
 
-  it('GET /review sin revisi├│n devuelve nulls y la resoluci├│n de la IA, no un 404', async () => {
+  it('GET /review sin revisión devuelve nulls y la resolución de la IA, no un 404', async () => {
     seedAuditableCase();
     const res = makeApiResponse();
 
@@ -574,7 +574,7 @@ describe('endpoints de revisi├│n y comparaci├│n', () => {
     expect(payload.effectiveResolution).toEqual({ result: 'CANCELACION_VENTA', source: 'AI' });
   });
 
-  it('GET /review sana una comparaci├│n RUNNING caducada y POST /comparison la retoma', async () => {
+  it('GET /review sana una comparación RUNNING caducada y POST /comparison la retoma', async () => {
     seedAuditableCase();
     const review = seedReview({ audit_id: 'audit-1', result: 'BAJA' });
     seedComparison({
@@ -600,7 +600,7 @@ describe('endpoints de revisi├│n y comparaci├│n', () => {
     expect(listComparisons()).toHaveLength(1);
   });
 
-  it('POST /comparison reintenta s├│lo desde ERROR (200) y es 400 desde COMPLETED', async () => {
+  it('POST /comparison reintenta sólo desde ERROR (200) y es 400 desde COMPLETED', async () => {
     seedAuditableCase();
     const review = seedReview({ audit_id: 'audit-1', result: 'BAJA' });
     const done = seedComparison({
@@ -615,7 +615,7 @@ describe('endpoints de revisi├│n y comparaci├│n', () => {
     expect(notRetryable.statusCode).toBe(400);
     expect(mockedCall).not.toHaveBeenCalled();
 
-    // La misma fila pasa a ERROR y entonces s├¡ es reintentable.
+    // La misma fila pasa a ERROR y entonces sí es reintentable.
     const row = listComparisons()[0];
     if (row) {
       await updateComparisonError(fakeClient, row.id, {
@@ -633,12 +633,12 @@ describe('endpoints de revisi├│n y comparaci├│n', () => {
     expect(listComparisons()[0]?.id).toBe(done.id);
   });
 
-  it('POST /comparison rechaza 409 si la auditor├¡a de la revisi├│n no est├í COMPLETED', async () => {
+  it('POST /comparison rechaza 409 si la auditoría de la revisión no está COMPLETED', async () => {
     seedAuditableCase();
     const review = seedReview({ audit_id: 'audit-1' });
     seedComparison({ case_review_id: review.id, audit_id: 'audit-1', status: 'ERROR', error_category: 'RATE_LIMIT' });
-    // Aunque la comparaci├│n est├® en ERROR (reintentable), la revisabilidad se
-    // comprueba ANTES: si el dictamen dej├│ de existir, no se reintenta.
+    // Aunque la comparación esté en ERROR (reintentable), la revisabilidad se
+    // comprueba ANTES: si el dictamen dejó de existir, no se reintenta.
     await updateAuditResult(fakeClient, 'audit-1', {
       status: 'ERROR',
       result_json: null,
@@ -656,7 +656,7 @@ describe('endpoints de revisi├│n y comparaci├│n', () => {
     expect(listComparisons()[0]?.status).toBe('ERROR');
   });
 
-  it('POST /comparison nunca crea una segunda revisi├│n', async () => {
+  it('POST /comparison nunca crea una segunda revisión', async () => {
     seedAuditableCase();
     const review = seedReview({ audit_id: 'audit-1' });
     seedComparison({ case_review_id: review.id, audit_id: 'audit-1', status: 'ERROR', error_category: 'RATE_LIMIT' });
@@ -669,7 +669,7 @@ describe('endpoints de revisi├│n y comparaci├│n', () => {
     expect(listComparisons()).toHaveLength(1);
   });
 
-  it('PATCH /review ÔåÆ 405 sin tocar la base', async () => {
+  it('PATCH /review → 405 sin tocar la base', async () => {
     const res = makeApiResponse();
 
     await reviewHandler(makeApiRequest('PATCH', { caseId: 'case-1' }), res);
@@ -679,7 +679,7 @@ describe('endpoints de revisi├│n y comparaci├│n', () => {
     expect(listReviews()).toHaveLength(0);
   });
 
-  it('GET /comparison ÔåÆ 405', async () => {
+  it('GET /comparison → 405', async () => {
     const res = makeApiResponse();
 
     await comparisonHandler(makeApiRequest('GET', { caseId: 'case-1' }), res);
@@ -689,8 +689,8 @@ describe('endpoints de revisi├│n y comparaci├│n', () => {
   });
 });
 
-describe('effectiveResolution ÔÇö se deriva en lectura, no muta el dictamen', () => {
-  it('sin revisi├│n humana la resoluci├│n efectiva es la de la auditor├¡a (source AI)', () => {
+describe('effectiveResolution — se deriva en lectura, no muta el dictamen', () => {
+  it('sin revisión humana la resolución efectiva es la de la auditoría (source AI)', () => {
     const audit = seedAuditableCase();
 
     expect(deriveEffectiveResolution(null, audit)).toEqual({
@@ -699,16 +699,16 @@ describe('effectiveResolution ÔÇö se deriva en lectura, no muta el dictamen',
     });
   });
 
-  it('con revisi├│n humana manda la persona aunque el dictamen diga otra cosa', () => {
+  it('con revisión humana manda la persona aunque el dictamen diga otra cosa', () => {
     const audit = seedAuditableCase();
     const review = seedReview({ audit_id: 'audit-1', result: 'DICTAMINACION' });
 
     expect(deriveEffectiveResolution(review, audit)).toEqual({ result: 'DICTAMINACION', source: 'HUMAN' });
-    // El dictamen original sigue intacto: la revisi├│n no reescribe la auditor├¡a.
+    // El dictamen original sigue intacto: la revisión no reescribe la auditoría.
     expect((audit.result_json as { audit: { result: string } }).audit.result).toBe('CANCELACION_VENTA');
   });
 
-  it('sin auditor├¡a completada no inventa resoluci├│n efectiva', () => {
+  it('sin auditoría completada no inventa resolución efectiva', () => {
     expect(deriveEffectiveResolution(null, null)).toBeNull();
     expect(deriveEffectiveResolution(null, { status: 'ERROR', result_json: null } as never)).toBeNull();
   });
