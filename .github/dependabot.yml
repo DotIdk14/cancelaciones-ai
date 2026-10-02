@@ -1,0 +1,35 @@
+# Actualizaciones automáticas de dependencias y de actions de CI.
+#
+# `cooldown.default-days: 7`: ventana mínima antes de abrir un PR de update.
+# Sin él, Dependabot puede abrir el PR el mismo día del release y zizmor lo
+# reporta como riesgo de supply chain (`dependabot-cooldown`): no queda tiempo
+# de detectar un release malicioso. Clave verificada contra el fuente de
+# Dependabot (updater/lib/dependabot/job/cooldown_definition.rb).
+version: 2
+updates:
+  # Dependencias de la app: un solo paquete npm en la raíz del repo.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+    commit-message:
+      prefix: chore(deps)
+
+  # Actions pineadas por SHA en .github/workflows/ci.yml: Dependabot mantiene
+  # el SHA y el comentario de versión (# vX.Y.Z) tras cada bump.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+    commit-message:
+      prefix: chore(ci)

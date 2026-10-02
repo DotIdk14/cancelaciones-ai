@@ -1,0 +1,103 @@
+name: Reporte de bug
+description: Algo no funciona como se espera. Reportalo con evidencia real.
+title: "[bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Antes de abrir el issue: ejecutá `npm run verify:release` y comprobá
+        si el fallo ya aparece ahí. Buscá issues abiertos que reporten lo mismo.
+
+        Este repo es **público**. No pegues datos de pacientes, casos reales,
+        correos, teléfonos ni claves de API. Usá placeholders
+        (`<CORREO>`, `<CASE_ID>`).
+
+  - type: textarea
+    id: que-paso
+    attributes:
+      label: Qué pasó
+      description: Comportamiento observado vs. comportamiento esperado.
+      placeholder: |
+        Observable: la auditoría queda en NEEDS_INPUT.
+        Esperado: dictamen con resultado válido.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduccion
+    attributes:
+      label: Comandos exactos para reproducirlo
+      description: Copiá y pegá los comandos literales, con la ruta donde los corriste.
+      render: bash
+      placeholder: |
+        # desde la raíz del repo
+        npm ci
+        npm run test:contract
+    validations:
+      required: true
+
+  - type: textarea
+    id: resultado-real
+    attributes:
+      label: Resultado real (literal, sin parafrasear)
+      description: |
+        Pegá la salida exacta del comando, con el mensaje de error tal cual lo
+        imprimió la herramienta. Si hay stack trace, incluí solo las líneas
+        relevantes. **Redactá cualquier valor sensible antes de pegar.**
+      render: text
+    validations:
+      required: true
+
+  - type: input
+    id: entorno
+    attributes:
+      label: Entorno
+      description: SO, versión de Node y commit o tag probados.
+      placeholder: Windows 11 / Node 22.14.0 / commit a1b2c3d
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Área afectada
+      description: Según la estructura del repo (ver AGENTS.md).
+      options:
+        - UI (src/components)
+        - API (api/**)
+        - Servidor (src/server)
+        - Skill de auditoría (src/skills/audit)
+        - Policy V5 (policy/**)
+        - Base de datos / migrations
+        - CI / GitHub Actions
+        - Testing / scripts
+        - No lo sé
+    validations:
+      required: true
+
+  - type: dropdown
+    id: impacto-seguridad
+    attributes:
+      label: ¿Tiene impacto de seguridad?
+      description: |
+        Marcá "Sí" si el bug expone datos, salta autorización, filtra secretos
+        o afecta credenciales. Si es "Sí" y el vector no es obvio, **no lo
+        detailles acá**: seguí SECURITY.md.
+      options:
+        - "Sí"
+        - "No"
+        - "No lo sé"
+    validations:
+      required: true
+
+  - type: textarea
+    id: contexto-extra
+    attributes:
+      label: Contexto adicional
+      description: Screenshots, logs, intentos previos, workarounds. Opcional.
+      placeholder: |
+        Probé X y Y; el fallo persiste. No toqué el host ni la config de red.
+    validations:
+      required: false

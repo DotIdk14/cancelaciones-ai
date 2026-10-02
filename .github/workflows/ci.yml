@@ -5,13 +5,30 @@ on:
   push:
     branches: [main]
 
+# Una sola ejecución por rama/PR: la nueva cancela a la anterior pendiente.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Mínimo privilegio. Ningún job de este workflow escribe en el repo ni
+# expone tokens: los 358 tests usan stores fake y no requieren claves externas.
+permissions:
+  contents: read
+
 jobs:
   validate:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      # SHAs de commit pineados a la última release v4 de cada action
+      # (requisito de supply chain; zizmor `unpinned-actions`).
+      # persist-credentials: false → el runner no deja el token de GitHub
+      # en el working copy: este workflow no hace push ni sube artefactos.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           # package.json exige >=22.0.0 en engines; 22 funciona con el toolchain
           # actual (Vite 6 / Vitest 2 / TypeScript 5.8). Subir a 24 cuando
@@ -21,6 +38,7 @@ jobs:
 
       - run: npm ci
 
-      # verify:release incluye contract tests obligatorios para OpenRouter/schema,
-      # typecheck, suite completa, lint de secretos y build en cada PR y push.
+      # verify:release encadena lint de secretos (check-no-public-secrets.mjs),
+      # typecheck, contract tests de OpenRouter/schema, suite Vitest completa y
+      # build. Se ejecuta sin inyectar secretos: ver package.json -> scripts.
       - run: npm run verify:release

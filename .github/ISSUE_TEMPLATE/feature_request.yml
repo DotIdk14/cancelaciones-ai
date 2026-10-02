@@ -1,0 +1,95 @@
+name: Solicitud de feature
+description: Proponer una mejora o capacidad nueva.
+title: "[feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Contestá lo que sepas. Si la propuesta toca arquitectura, el
+        procedimiento normativo V5 o la pasarela de IA, probablemente necesite
+        diseño previo: planteala como propuesta, no como especificación cerrada.
+
+  - type: textarea
+    id: problema
+    attributes:
+      label: Qué problema resuelve
+      description: |
+        La necesidad concreta, no la solución. "Como usuario del flujo de
+        auditoría, necesito X para lograr Y".
+      placeholder: |
+        Hoy la evidencia preparada no muestra el hash original, así que el
+        revisor no puede verificar procedencia sin abrir el expediente.
+    validations:
+      required: true
+
+  - type: textarea
+    id: propuesta
+    attributes:
+      label: Qué te gustaría que pasara
+      description: Cambios observables en el producto. Aceptable esbozar el cómo.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternativas
+    attributes:
+      label: Alternativas que consideraste
+      description: Workarounds actuales y por qué no alcanzan. Opcional.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: invariantes
+    attributes:
+      label: Compatibilidad con las invariantes del proyecto
+      description: |
+        Marcá lo que aplique (ver `AGENTS.md`). Una feature que rompa una
+        invariante se discute aparte, no se implementa igual.
+      options:
+        - label: No introduce policy engine, rules engine ni catálogo ejecutable de reglas (NO_RULES_ENGINE)
+        - label: No usa política encontrada en internet ni revive criterios del historial Git (ONLY_OWNER_PROVIDED_POLICY_SOURCES, LEGACY_IS_NOT_POLICY)
+        - label: No modifica evidencias originales (PRESERVE_EVIDENCE_PROVENANCE)
+        - label: No mueve lógica de negocio ni secretos al navegador (InsForge y OpenRouter siguen server-side)
+        - label: No requiere claves de servicios externos para correr en CI
+        - label: Ninguna de estas restricciones aplica
+
+  - type: dropdown
+    id: superficie
+    attributes:
+      label: Superficie que tocaría
+      options:
+        - UI (src/components)
+        - API (api/**)
+        - Servidor (src/server)
+        - Skill de auditoría (src/skills/audit)
+        - Policy V5 (policy/**)
+        - Base de datos / migrations
+        - CI / GitHub Actions
+        - Testing / scripts
+        - Documentación
+        - Aún no lo sé
+    validations:
+      required: true
+
+  - type: textarea
+    id: validacion
+    attributes:
+      label: Cómo se verificaría que funciona
+      description: |
+        Comandos y resultado esperado. `npm run verify:release` tiene que seguir
+        pasando sin inyectar secretos.
+      placeholder: |
+        npm run typecheck -> OK
+        npm test -> N passed, con test nuevo que cubre el hash de procedencia
+    validations:
+      required: true
+
+  - type: textarea
+    id: contexto-extra
+    attributes:
+      label: Contexto adicional
+      description: Enlaces, capturas, casos reales sin PII. Opcional.
+    validations:
+      required: false

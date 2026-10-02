@@ -23,6 +23,10 @@
     "verify:release": "npm run lint:secrets && npm run typecheck && npm run test:contract && npm test && npm run build",
     "verify:release:live": "npm run verify:release && npm run test:ai-smoke"
   },
+  "overrides": {
+    "path-to-regexp": "^6.3.0",
+    "undici": "^5.28.5"
+  },
   "dependencies": {
     "@insforge/sdk": "^1.5.2",
     "lucide-react": "^1.48.0",

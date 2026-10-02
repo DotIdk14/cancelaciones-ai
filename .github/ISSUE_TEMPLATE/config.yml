@@ -1,0 +1,30 @@
+# Configuración de templates de issue (GitHub Issue Forms).
+#
+# TODO(SECURITY.md): los enlaces de abajo apuntan a la política de seguridad
+# del repo. SECURITY.md **todavía no existe en la raíz**; hay que crearlo antes
+# de que estos enlaces resuelvan. Queda fuera del alcance de este cambio
+# (.github/**) y debe tomarlo otro agente.
+blank_issues_enabled: false
+contact_links:
+  # Canal correcto para reportar vulnerabilidades: privado, no queda expuesto
+  # en un issue público. Requiere que el repo tenga habilitado
+  # "Private security advisories" en Settings → Security.
+  - name: Reportar una vulnerabilidad de seguridad
+    url: https://github.com/DotIdk14/cancelaciones-ai/security/advisories/new
+    about: >-
+      Falló autenticación o autorización, se filtraron secretos, datos de
+      pacientes u otros PII. No abras un issue público con esto.
+
+  - name: Cómo reportamos seguridad (política del repo)
+    url: https://github.com/DotIdk14/cancelaciones-ai/security/policy
+    about: >-
+      Qué consideramos vulnerabilidad, plazos de respuesta y qué no entra en
+      el alcance. Ver SECURITY.md en la raíz del repo.
+
+  # El producto procesa evidencias con datos personales: la conversación
+  # pública no es lugar para casos reales.
+  - name: Dudas de uso o del procedimiento V5
+    url: https://github.com/DotIdk14/cancelaciones-ai#readme
+    about: >-
+      Preguntas sobre el flujo de auditoría y el procedimiento
+      GDM_GAM_PRD_MLG_003 v5. No compartas evidencias reales ni PII.
