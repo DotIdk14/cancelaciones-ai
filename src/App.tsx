@@ -15,7 +15,8 @@ import { NewCasePanel } from './components/NewCasePanel';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Panel, Spinner } from './components/ui';
 import { cx } from './lib/cx';
-import { shellWidth } from './lib/layout';
+import { isDashboardRoute, shellWidth } from './lib/layout';
+import { isLocalDashboardPreview } from './lib/local-dashboard-preview';
 import { useHashRoute } from './lib/useHashRoute';
 import type { AppRoute } from './lib/useHashRoute';
 import { useSession } from './lib/useSession';
@@ -85,8 +86,18 @@ function renderRoute(route: AppRoute): ReactNode {
   }
 }
 
-function Shell({ onSignOut }: { onSignOut: () => void }): ReactNode {
+function Shell({
+  onSignOut,
+  previewOnly = false,
+}: {
+  onSignOut?: () => void;
+  previewOnly?: boolean;
+}): ReactNode {
   const route = useHashRoute();
+  const displayRoute =
+    previewOnly && !isDashboardRoute(route.name)
+      ? ({ name: 'dashboard' } as const)
+      : route;
 
   /**
    * El skip link NO puede usar `href="#contenido"`: el hash lo interpreta el
@@ -112,15 +123,23 @@ function Shell({ onSignOut }: { onSignOut: () => void }): ReactNode {
         Saltar al contenido
       </a>
       <AppHeader onSignOut={onSignOut} />
-      <AppNav />
+      {previewOnly && (
+        <div
+          role="status"
+          className="border-b border-warning/30 bg-surface-2 px-4 py-2 text-center text-sm text-warning"
+        >
+          Vista previa local: datos ficticios, sin conexión a InsForge.
+        </div>
+      )}
+      <AppNav previewOnly={previewOnly} />
       <main
         id="contenido"
         // `tabIndex={-1}` hace que el destino del skip link reciba el foco de
         // forma programática sin entrar en el orden de tabulación.
         tabIndex={-1}
-        className={cx('mx-auto w-full px-4 py-6 sm:px-6', shellWidth(route.name))}
+        className={cx('mx-auto w-full px-4 py-6 sm:px-6', shellWidth(displayRoute.name))}
       >
-        <CurrentRoute route={route} />
+        <CurrentRoute route={displayRoute} />
       </main>
     </div>
   );
@@ -135,18 +154,20 @@ function AuthLoadingScreen(): ReactNode {
   );
 }
 
-export function App(): ReactNode {
+function AuthenticatedApp(): ReactNode {
   const { status, signIn, signOut, sessionExpired } = useSession();
+
+  if (status === 'loading') return <AuthLoadingScreen />;
+  if (status === 'anon') return <LoginScreen signIn={signIn} sessionExpired={sessionExpired} />;
+  return <Shell onSignOut={signOut} />;
+}
+
+export function App(): ReactNode {
+  const localPreview = isLocalDashboardPreview();
 
   return (
     <ErrorBoundary>
-      {status === 'loading' ? (
-        <AuthLoadingScreen />
-      ) : status === 'anon' ? (
-        <LoginScreen signIn={signIn} sessionExpired={sessionExpired} />
-      ) : (
-        <Shell onSignOut={signOut} />
-      )}
+      {localPreview ? <Shell previewOnly /> : <AuthenticatedApp />}
     </ErrorBoundary>
   );
 }

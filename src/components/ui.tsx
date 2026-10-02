@@ -489,7 +489,7 @@ export function DataTable({ caption, children, className }: DataTableProps): Rea
     // podría desplazar la tabla para ver las columnas de la derecha. `role` +
     // `aria-label` la convierten en región navegable y anunciada.
     <div
-    className={cx('-mx-1 overflow-x-auto', className)}
+    className={cx('-mx-1 contain-paint overflow-x-auto', className)}
     tabIndex={0}
     role="region"
     aria-label={caption}

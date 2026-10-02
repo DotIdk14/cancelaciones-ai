@@ -133,15 +133,17 @@ export function QualityPage(): ReactNode {
   return (
     <div className="flex flex-col gap-6">
       {/* Fila 0: título + filtros */}
-      <header className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <h1 className="text-xl font-semibold text-ink">Calidad</h1>
-          <p className="mt-1 text-sm text-muted">
-            Qué tan bien está auditando la IA y con qué evidencia.
-          </p>
-        </div>
-        <DashboardFilters value={filters} onChange={setFilters} />
-      </header>
+      <section className="rounded-2xl border border-line bg-surface-1 p-4">
+        <header className="flex flex-col gap-4">
+          <div>
+            <h1 className="text-xl font-semibold text-ink">Calidad</h1>
+            <p className="mt-1 text-sm text-muted">
+              Qué tan bien está auditando la IA y con qué evidencia.
+            </p>
+          </div>
+          <DashboardFilters value={filters} onChange={setFilters} />
+        </header>
+      </section>
 
       {/* Aviso de por qué las tres primeras tarjetas están vacías. Va lo PRIMERO
           después del header, por encima incluso del error: es una propiedad
@@ -168,6 +170,7 @@ export function QualityPage(): ReactNode {
               key={i}
               label="Cargando"
               value={<Skeleton className="h-8 w-24" />}
+              isLoading
             />
           ))
         ) : (

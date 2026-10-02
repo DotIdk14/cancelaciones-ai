@@ -11,6 +11,13 @@
 import type { AuditResultType, CaseStatus } from '../skills/audit/types';
 import { isRecord, readError } from './api.js';
 import type { ConfidenceBand, ResolutionGroup } from './labels';
+import {
+  getLocalDashboardPreviewCosts,
+  getLocalDashboardPreviewFilterOptions,
+  getLocalDashboardPreviewQuality,
+  getLocalDashboardPreviewSummary,
+  isLocalDashboardPreview,
+} from './local-dashboard-preview';
 
 // -----------------------------------------------------------------------------
 // Filtros
@@ -589,6 +596,7 @@ function buildFiltersParams(filters: DashboardFilters): URLSearchParams {
 }
 
 export async function fetchDashboardFilterOptions(signal?: AbortSignal): Promise<DashboardFilterOptions> {
+  if (isLocalDashboardPreview()) return getLocalDashboardPreviewFilterOptions();
   const res = await fetch('/api/dashboard/options', { signal });
   if (!res.ok) throw await readError(res);
   const data: unknown = await res.json();
@@ -615,6 +623,7 @@ export async function fetchDashboardSummary(
   filters: DashboardFilters,
   signal?: AbortSignal,
 ): Promise<DashboardSummary> {
+  if (isLocalDashboardPreview()) return getLocalDashboardPreviewSummary(filters);
   const res = await fetch(`/api/dashboard/summary?${buildSummaryQuery(filters)}`, { signal });
   if (!res.ok) throw await readError(res);
 
@@ -638,6 +647,7 @@ export async function fetchAiCosts(
   granularity: CostGranularity,
   signal?: AbortSignal,
 ): Promise<AiCostsReport> {
+  if (isLocalDashboardPreview()) return getLocalDashboardPreviewCosts(filters, granularity);
   const params = buildFiltersParams(filters);
   params.set('granularity', granularity);
 
@@ -665,6 +675,7 @@ export async function fetchAiQuality(
   filters: DashboardFilters,
   signal?: AbortSignal,
 ): Promise<QualityReport> {
+  if (isLocalDashboardPreview()) return getLocalDashboardPreviewQuality(filters);
   const res = await fetch(`/api/dashboard/quality?${buildFiltersParams(filters).toString()}`, { signal });
   if (!res.ok) throw await readError(res);
 

@@ -1,7 +1,7 @@
-﻿// =============================================================================
+// =============================================================================
 // Barra de filtros del Resumen. Solo lectura y estado local: al cambiar un
 // control se emite el objeto completo de filtros (nunca mutado) para que la
-// p├ígina decida cu├índo recargar.
+// página decida cuándo recargar.
 // =============================================================================
 
 import type { ReactNode } from 'react';
@@ -18,7 +18,7 @@ const CONTROL_CLASS =
 const LABEL_CLASS = 'mb-1 block text-xs font-medium uppercase tracking-wide text-muted';
 const HINT_CLASS = 'sr-only';
 const DIMENSION_LABELS: Record<DashboardDimension, string> = {
-  country: 'Pa├¡s',
+  country: 'País',
   guideline: 'Lineamiento',
   modality: 'Modalidad',
   project: 'Proyecto',
@@ -29,16 +29,14 @@ const DIMENSION_LABELS: Record<DashboardDimension, string> = {
 export interface DashboardFiltersBarProps {
   value: DashboardFilters;
   onChange: (next: DashboardFilters) => void;
-  /**
-   * `false` en las páginas cuyo endpoint ignora `result` A PROPÓSITO: en
-   * "IA & Costos" filtrar por dictamen ocultaría el gasto de los intentos
-   * fallidos, que es justo lo que esa pantalla mide. Ofrecer un control que no
-   * cambia el resultado es peor que no ofrecerlo, así que se retira.
-   */
   allowResultFilter?: boolean;
 }
 
-export function DashboardFilters({ value, onChange, allowResultFilter = true }: DashboardFiltersBarProps): ReactNode {
+export function DashboardFilters({
+  value,
+  onChange,
+  allowResultFilter = true,
+}: DashboardFiltersBarProps): ReactNode {
   const baseId = useId();
   const [options, setOptions] = useState<DashboardFilterOptions>(EMPTY_DASHBOARD_FILTER_OPTIONS);
   const [optionsError, setOptionsError] = useState(false);
@@ -75,12 +73,12 @@ export function DashboardFilters({ value, onChange, allowResultFilter = true }: 
   };
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      <fieldset>
-        <legend className={LABEL_CLASS}>Rango de fechas</legend>
-        <div className="flex gap-2">
-          <div>
+    <div className="flex flex-col gap-2">
+      <div className="grid gap-2 lg:grid-cols-12">
+        <fieldset className="lg:col-span-5">
+          <legend className={LABEL_CLASS}>Rango de fechas</legend>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <div>
             <label htmlFor={fromId} className={HINT_CLASS}>
               Desde
             </label>
@@ -95,10 +93,10 @@ export function DashboardFilters({ value, onChange, allowResultFilter = true }: 
               className={CONTROL_CLASS}
             />
             <p id={fromHintId} className={HINT_CLASS}>
-              Fecha inicial del periodo, en formato a├▒o-mes-d├¡a.
+              Fecha inicial del periodo, en formato año-mes-día.
             </p>
-          </div>
-          <div>
+            </div>
+            <div>
             <label htmlFor={toId} className={HINT_CLASS}>
               Hasta
             </label>
@@ -113,95 +111,98 @@ export function DashboardFilters({ value, onChange, allowResultFilter = true }: 
               className={CONTROL_CLASS}
             />
             <p id={toHintId} className={HINT_CLASS}>
-              Fecha final del periodo, en formato a├▒o-mes-d├¡a.
+              Fecha final del periodo, en formato año-mes-día.
+            </p>
+            </div>
+          </div>
+        </fieldset>
+
+        <div className="lg:col-span-2">
+          <label htmlFor={monthId} className={LABEL_CLASS}>Mes</label>
+          <input
+            id={monthId}
+            name="month"
+            type="month"
+            value={monthValue}
+            onChange={(event) => setMonth(event.target.value)}
+            aria-label="Filtrar un mes completo"
+            className={CONTROL_CLASS}
+          />
+        </div>
+
+        {allowResultFilter && (
+          <div className="lg:col-span-3">
+            <label htmlFor={resultId} className={LABEL_CLASS}>
+              Resultado de la auditoría
+            </label>
+            <select
+              id={resultId}
+              name="result"
+              value={value.result ?? ''}
+              onChange={(event) => onChange({ ...value, result: event.target.value === '' ? null : event.target.value })}
+              aria-describedby={resultHintId}
+              className={CONTROL_CLASS}
+            >
+              <option value="">Todos los resultados</option>
+              {AUDIT_RESULTS.map((result) => (
+                <option key={result} value={result}>
+                  {RESULT_LABELS[result]}
+                </option>
+              ))}
+            </select>
+            <p id={resultHintId} className={HINT_CLASS}>
+              Filtra por el dictamen que emitió la auditoría. Sin selección se muestran todos.
             </p>
           </div>
-        </div>
-      </fieldset>
+        )}
 
-      <div>
-        <label htmlFor={monthId} className={LABEL_CLASS}>Mes</label>
-        <input
-          id={monthId}
-          name="month"
-          type="month"
-          value={monthValue}
-          onChange={(event) => setMonth(event.target.value)}
-          aria-label="Filtrar un mes completo"
-          className={CONTROL_CLASS}
-        />
-      </div>
-
-      {allowResultFilter ? (
-        <div className="sm:w-52">
-          <label htmlFor={resultId} className={LABEL_CLASS}>
-            Resultado de la auditor├¡a
+        <div className="lg:col-span-2">
+          <label htmlFor={statusId} className={LABEL_CLASS}>
+            Estado del caso
           </label>
           <select
-            id={resultId}
-            name="result"
-            value={value.result ?? ''}
-            onChange={(event) => onChange({ ...value, result: event.target.value === '' ? null : event.target.value })}
-            aria-describedby={resultHintId}
+            id={statusId}
+            name="status"
+            value={value.status ?? ''}
+            onChange={(event) => onChange({ ...value, status: event.target.value === '' ? null : event.target.value })}
+            aria-describedby={statusHintId}
             className={CONTROL_CLASS}
           >
-            <option value="">Todos los resultados</option>
-            {AUDIT_RESULTS.map((result) => (
-              <option key={result} value={result}>
-                {RESULT_LABELS[result]}
+            <option value="">Todos los estados</option>
+            {CASE_STATUSES.map((status) => (
+              <option key={status} value={status}>
+                {CASE_STATUS_LABELS[status]}
               </option>
             ))}
           </select>
-          <p id={resultHintId} className={HINT_CLASS}>
-            Filtra por el dictamen que emiti├│ la auditor├¡a. Sin selecci├│n se muestran todos.
+          <p id={statusHintId} className={HINT_CLASS}>
+            Filtra por el estado del caso. Sin selección se muestran todos.
           </p>
         </div>
-      ) : null}
 
-      <div className="sm:w-52">
-        <label htmlFor={statusId} className={LABEL_CLASS}>
-          Estado del caso
-        </label>
-        <select
-          id={statusId}
-          name="status"
-          value={value.status ?? ''}
-          onChange={(event) => onChange({ ...value, status: event.target.value === '' ? null : event.target.value })}
-          aria-describedby={statusHintId}
-          className={CONTROL_CLASS}
-        >
-          <option value="">Todos los estados</option>
-          {CASE_STATUSES.map((status) => (
-            <option key={status} value={status}>
-              {CASE_STATUS_LABELS[status]}
-            </option>
-          ))}
-        </select>
-        <p id={statusHintId} className={HINT_CLASS}>
-          Filtra por el estado del caso. Sin selecci├│n se muestran todos.
-        </p>
       </div>
 
-      {(Object.keys(DIMENSION_LABELS) as DashboardDimension[]).map((dimension) => {
-        const values = options[dimension];
-        if (values.length === 0) return null;
-        const id = `${baseId}-${dimension}`;
-        return (
-          <div key={dimension}>
-            <label htmlFor={id} className={LABEL_CLASS}>{DIMENSION_LABELS[dimension]}</label>
-            <select
-              id={id}
-              name={dimension}
-              value={value[dimension] ?? ''}
-              onChange={(event) => onChange({ ...value, [dimension]: event.target.value || null })}
-              className={CONTROL_CLASS}
-            >
-              <option value="">Todos</option>
-              {values.map((option) => <option key={option} value={option}>{option}</option>)}
-            </select>
-          </div>
-        );
-      })}
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+        {(Object.keys(DIMENSION_LABELS) as DashboardDimension[]).map((dimension) => {
+          const values = options[dimension];
+          if (values.length === 0) return null;
+          const id = `${baseId}-${dimension}`;
+          return (
+            <div key={dimension}>
+              <label htmlFor={id} className={LABEL_CLASS}>{DIMENSION_LABELS[dimension]}</label>
+              <select
+                id={id}
+                name={dimension}
+                value={value[dimension] ?? ''}
+                onChange={(event) => onChange({ ...value, [dimension]: event.target.value || null })}
+                className={CONTROL_CLASS}
+              >
+                <option value="">Todos</option>
+                {values.map((option) => <option key={option} value={option}>{option}</option>)}
+              </select>
+            </div>
+          );
+        })}
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-2">

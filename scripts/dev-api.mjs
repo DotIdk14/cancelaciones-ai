@@ -1,5 +1,5 @@
 ﻿// =============================================================================
-// dev-api ÔÇö monta los handlers de Vercel /api dentro del dev server de Vite.
+// dev-api — monta los handlers de Vercel /api dentro del dev server de Vite.
 // =============================================================================
 // Importa cada ruta con server.ssrLoadModule() (transforma TS sobre la marcha)
 // y traduce Node http req/res al mismo contrato que usa Vercel:
@@ -50,10 +50,10 @@ function createDevApiMiddleware(server) {
       params: ['caseId'],
     },
     // Rutas de caso registradas explicitamente porque Vite no descubre
-    // /api/cases/[caseId]/** por s├¡ solo: sin esta tabla, review y comparison
-    // dar├¡an 404 en el dev server aunque los handlers existan y en Vercel
-    // funcionen. Se declaran despu├®s de las de cases/[caseId] para no alterar
-    // el orden de resoluci├│n actual.
+    // /api/cases/[caseId]/** por sí solo: sin esta tabla, review y comparison
+    // darían 404 en el dev server aunque los handlers existan y en Vercel
+    // funcionen. Se declaran después de las de cases/[caseId] para no alterar
+    // el orden de resolución actual.
     {
       methods: ['GET', 'POST'],
       pattern: /^\/api\/cases\/([^/]+)\/review$/,
@@ -96,10 +96,10 @@ function createDevApiMiddleware(server) {
         candidate.pattern.test(pathname),
     );
     if (!route) {
-      // La ruta existe pero con otro m├®todo. En Vercel el runtime invoca la
-      // funci├│n igualmente y es el handler el que responde 405 con su `Allow`;
-      // aqu├¡ se reproduce esa respuesta para que el dev server no devuelva un
-      // 404 vac├¡o y enga├▒e a quien prueba la API a mano.
+      // La ruta existe pero con otro método. En Vercel el runtime invoca la
+      // función igualmente y es el handler el que responde 405 con su `Allow`;
+      // aquí se reproduce esa respuesta para que el dev server no devuelva un
+      // 404 vacío y engañe a quien prueba la API a mano.
       const known = routes.find((candidate) => candidate.pattern.test(pathname));
       if (known && !res.headersSent) {
         res.statusCode = 405;
@@ -107,7 +107,7 @@ function createDevApiMiddleware(server) {
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
         res.end(
           JSON.stringify({
-            error: { category: 'VALIDATION_ERROR', message: `M├®todo ${method} no soportado` },
+            error: { category: 'VALIDATION_ERROR', message: `Método ${method} no soportado` },
           }),
         );
         return;

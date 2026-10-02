@@ -4,7 +4,7 @@
 //
 // El ancho viene de `shellWidth` (ver `src/lib/layout.ts`), el MISMO que usan
 // la cabecera y el contenido: si el nav midiera menos que el contenido, las
-// pestañas no cadrearían con los bloques que enmarcan.
+// pestañas no cuadrarían con los bloques que enmarcan.
 // =============================================================================
 
 import type { ReactNode } from 'react';
@@ -53,15 +53,21 @@ const ENTRIES: readonly NavEntry[] = [
   { name: 'cases', hash: '#/casos', label: 'Casos', Icon: FolderOpen },
 ];
 
-export function AppNav(): ReactNode {
+/** En el preview local solo tienen sentido las vistas de dashboard. */
+const PREVIEW_ROUTES = new Set<AppRoute['name']>(['dashboard', 'quality', 'ai-costs']);
+
+export function AppNav({ previewOnly = false }: { previewOnly?: boolean }): ReactNode {
   const route = useHashRoute();
+  const entries = previewOnly
+    ? ENTRIES.filter((entry): entry is NavItem => entry !== false && PREVIEW_ROUTES.has(entry.name))
+    : ENTRIES;
 
   return (
     <nav aria-label="Navegación principal" className="border-b border-line bg-surface-1">
       <div
         className={`mx-auto flex w-full items-center gap-1 overflow-x-auto px-4 sm:px-6 ${shellWidth(route.name)}`}
       >
-        {ENTRIES.map((entry) => {
+        {entries.map((entry) => {
           if (entry === false) {
             return (
               <span
@@ -84,7 +90,7 @@ export function AppNav(): ReactNode {
               href={hash}
               aria-current={isActive ? 'page' : undefined}
               className={cx(
-                'flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium transition-colors',
+                'flex items-center gap-2 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium transition-colors',
                 isActive
                   ? 'border-brand text-ink'
                   : 'border-transparent text-muted hover:border-line hover:text-ink',

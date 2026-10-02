@@ -38,12 +38,12 @@ export function NewCasePanel(): ReactNode {
   return (
     <Panel
       title="Nuevo caso"
-      description="Agrupa las evidencias de una sola cancelación, baja o deserción para poder auditarlas."
+      description="Crea el expediente y ábrelo para cargar evidencias y auditar."
     >
-      <form onSubmit={(event) => void handleCreate(event)} className="flex flex-col gap-3 sm:flex-row sm:items-end">
-        <div className="flex-1">
+      <form onSubmit={(event) => void handleCreate(event)} className="flex flex-col gap-3">
+        <div>
           <label htmlFor={identifierId} className="mb-1 block text-sm font-medium text-ink">
-            Matrícula / identificador del estudiante (opcional)
+            Matrícula / identificador del estudiante
           </label>
           <input
             id={identifierId}
@@ -56,11 +56,11 @@ export function NewCasePanel(): ReactNode {
             className="w-full rounded-xl border border-line bg-surface-2 px-3 py-2 text-sm text-ink placeholder:text-muted"
           />
           <p id={`${formId}-hint`} className="mt-1 text-xs text-muted">
-            También puedes identificar al estudiante más adelante con la evidencia.
+            Campo opcional. Si lo omites, podrás capturarlo después en el expediente.
           </p>
         </div>
-        <Button type="submit" variant="primary" loading={creating} loadingLabel="Creando caso">
-          Nuevo caso
+        <Button type="submit" variant="primary" loading={creating} loadingLabel="Creando caso" fullWidth>
+          Abrir caso
         </Button>
       </form>
       {createError !== null && <ErrorCard className="mt-3" message={createError} />}
