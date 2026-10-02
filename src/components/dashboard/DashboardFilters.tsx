@@ -1,7 +1,7 @@
-// =============================================================================
+﻿// =============================================================================
 // Barra de filtros del Resumen. Solo lectura y estado local: al cambiar un
 // control se emite el objeto completo de filtros (nunca mutado) para que la
-// página decida cuándo recargar.
+// p├ígina decida cu├índo recargar.
 // =============================================================================
 
 import type { ReactNode } from 'react';
@@ -18,7 +18,7 @@ const CONTROL_CLASS =
 const LABEL_CLASS = 'mb-1 block text-xs font-medium uppercase tracking-wide text-muted';
 const HINT_CLASS = 'sr-only';
 const DIMENSION_LABELS: Record<DashboardDimension, string> = {
-  country: 'País',
+  country: 'Pa├¡s',
   guideline: 'Lineamiento',
   modality: 'Modalidad',
   project: 'Proyecto',
@@ -88,7 +88,7 @@ export function DashboardFilters({ value, onChange }: DashboardFiltersBarProps):
               className={CONTROL_CLASS}
             />
             <p id={fromHintId} className={HINT_CLASS}>
-              Fecha inicial del periodo, en formato año-mes-día.
+              Fecha inicial del periodo, en formato a├▒o-mes-d├¡a.
             </p>
           </div>
           <div>
@@ -106,7 +106,7 @@ export function DashboardFilters({ value, onChange }: DashboardFiltersBarProps):
               className={CONTROL_CLASS}
             />
             <p id={toHintId} className={HINT_CLASS}>
-              Fecha final del periodo, en formato año-mes-día.
+              Fecha final del periodo, en formato a├▒o-mes-d├¡a.
             </p>
           </div>
         </div>
@@ -127,7 +127,7 @@ export function DashboardFilters({ value, onChange }: DashboardFiltersBarProps):
 
       <div className="sm:w-52">
         <label htmlFor={resultId} className={LABEL_CLASS}>
-          Resultado de la auditoría
+          Resultado de la auditor├¡a
         </label>
         <select
           id={resultId}
@@ -145,7 +145,7 @@ export function DashboardFilters({ value, onChange }: DashboardFiltersBarProps):
           ))}
         </select>
         <p id={resultHintId} className={HINT_CLASS}>
-          Filtra por el dictamen que emitió la auditoría. Sin selección se muestran todos.
+          Filtra por el dictamen que emiti├│ la auditor├¡a. Sin selecci├│n se muestran todos.
         </p>
       </div>
 
@@ -169,7 +169,7 @@ export function DashboardFilters({ value, onChange }: DashboardFiltersBarProps):
           ))}
         </select>
         <p id={statusHintId} className={HINT_CLASS}>
-          Filtra por el estado del caso. Sin selección se muestran todos.
+          Filtra por el estado del caso. Sin selecci├│n se muestran todos.
         </p>
       </div>
 

@@ -77,9 +77,17 @@ export function ConfidenceByEvidenceChart({ data, ariaLabel }: ConfidenceByEvide
   }));
 
   return (
-    <div role="img" aria-label={ariaLabel} className="h-full w-full">
+    <div className="h-full w-full">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={rows} margin={{ top: 20, right: 8, bottom: 0, left: -12 }}>
+        {/* `title`/`desc` en el `<svg>` en vez de un wrapper `role="img"`: ese
+            rol es de hijos presentacionales y eliminaría la capa de
+            accesibilidad de Recharts 3 (teclado + tooltip `role="status"`). */}
+        <BarChart
+          data={rows}
+          margin={{ top: 20, right: 8, bottom: 0, left: -12 }}
+          title="Confianza media según las evidencias que faltan"
+          desc={ariaLabel}
+        >
           <CartesianGrid stroke={GRID_STROKE} strokeDasharray="3 3" vertical={false} horizontal={true} />
           <XAxis
             dataKey="label"
@@ -125,6 +133,17 @@ export function ConfidenceByEvidenceChart({ data, ariaLabel }: ConfidenceByEvide
           </Bar>
         </BarChart>
       </ResponsiveContainer>
+      {/* Alternativa textual de 1.1.1 con los valores de cada grupo. */}
+      <p className="sr-only">
+        {`Confianza media según evidencias faltantes. Umbral de alta confianza: ${formatPercent(
+          CONFIDENCE_HIGH_THRESHOLD,
+        )}. ${rows
+          .map(
+            (row) =>
+              `${row.label}: ${row.display === NO_DATA_LABEL ? NO_DATA_LABEL : row.display} sobre ${row.count} caso(s)`,
+          )
+          .join('; ')}.`}
+      </p>
     </div>
   );
 }

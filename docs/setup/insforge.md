@@ -51,10 +51,18 @@ arrancar con `[env] Falta la variable de entorno <NOMBRE>`.
 
 ## Base de datos y Storage
 
-- El esquema es **una única migración baseline**:
+- El esquema base es **una migración baseline**:
   `migrations/00000000000000_baseline.sql` (3 tablas `cases`, `evidence`,
   `audits`; RLS por `created_by = auth.uid()`; trigger `set_updated_at` solo en
   `cases`). Se aplica sobre una base **vacía** de InsForge.
+- Encima corre `migrations/20260929040000_audit-dashboard-metrics.sql`, que crea
+  la vista **de solo lectura** `public.audit_dashboard_metrics` que leen las
+  pantallas de Resumen, IA & Costos y Calidad. No escribe datos ni altera
+  `cases`, `evidence` ni `audits`. Si no está aplicada, los tres endpoints del
+  dashboard devuelven error hasta que se aplique.
+- Aplicar todas las migraciones: `npx @insforge/cli db migrations up --all`
+  (la CLI lee el directorio `migrations/` por convención; no hay script npm que
+  las aplique).
 - Storage: bucket **único** `evidencias`. El path del objeto es
   `{caseId}/{uuid}-{sanitizedFilename}` — el nombre del archivo nunca controla la
   ruta. El bucket **no lo crea la aplicación**: se crea con la CLI de InsForge.

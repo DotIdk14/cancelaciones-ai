@@ -1,12 +1,16 @@
 // =============================================================================
-// Navegación principal horizontal. NO es sidebar: el layout es `max-w-5xl`
-// centrado y mobile-first, así que un sidebar fijo rompería el diseño.
-// Las vistas del dashboard van más anchas (`max-w-6xl`) desde `App.tsx`.
+// Navegación principal horizontal. NO es sidebar: el layout es centrado y
+// mobile-first, así que un sidebar fijo rompería el diseño.
+//
+// El ancho viene de `shellWidth` (ver `src/lib/layout.ts`), el MISMO que usan
+// la cabecera y el contenido: si el nav midiera menos que el contenido, las
+// pestañas no cadrearían con los bloques que enmarcan.
 // =============================================================================
 
 import type { ReactNode } from 'react';
 import { Coins, FilePlus2, FolderOpen, LayoutDashboard, ShieldCheck } from 'lucide-react';
 import { cx } from '../lib/cx';
+import { shellWidth } from '../lib/layout';
 import { useHashRoute } from '../lib/useHashRoute';
 import type { AppRoute } from '../lib/useHashRoute';
 
@@ -54,7 +58,9 @@ export function AppNav(): ReactNode {
 
   return (
     <nav aria-label="Navegación principal" className="border-b border-line bg-surface-1">
-      <div className="mx-auto flex w-full max-w-5xl items-center gap-1 overflow-x-auto px-4 sm:px-6">
+      <div
+        className={`mx-auto flex w-full items-center gap-1 overflow-x-auto px-4 sm:px-6 ${shellWidth(route.name)}`}
+      >
         {ENTRIES.map((entry) => {
           if (entry === false) {
             return (

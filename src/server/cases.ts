@@ -290,6 +290,32 @@ export async function latestAudit(client: InsForgeClient, caseId: string): Promi
   return rows[0] ?? null;
 }
 
+/**
+ * Última auditoría COMPLETADA del caso, o `null` si no hay ninguna.
+ *
+ * Distinta de `latestAudit` a propósito: esa devuelve la más reciente sea cual
+ * sea su estado, y la más reciente puede estar `RUNNING` o haber fallado. Para
+ * registrar una revisión humana hace falta un dictamen que exista de verdad, así
+ * que se filtra por `COMPLETED` en SQL en vez de traer todas y descartar en
+ * memoria.
+ */
+export async function latestCompletedAudit(
+  client: InsForgeClient,
+  caseId: string,
+): Promise<AuditRow | null> {
+  const { data, error } = await client.database
+    .from('audits')
+    .select('*')
+    .eq('case_id', caseId)
+    .eq('status', 'COMPLETED')
+    .order('created_at', { ascending: false })
+    .limit(1);
+  if (error) dbError(error);
+  const rows = data as AuditRow[] | null;
+  if (rows === null || rows.length === 0) return null;
+  return rows[0] ?? null;
+}
+
 export async function listAuditsByCase(client: InsForgeClient, caseId: string): Promise<AuditRow[]> {
   const { data, error } = await client.database
     .from('audits')

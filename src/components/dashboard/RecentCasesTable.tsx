@@ -58,9 +58,12 @@ export function RecentCasesTable({ cases }: { cases: RecentCaseRow[] }): ReactNo
       <tbody>
         {rows.map((row) => (
           <tr key={row.caseId}>
-            <td className={TD_CLASS}>
+            {/* 1.3.1: el identificador es la cabecera natural de la fila. Las
+                demás celdas son estado/dictamen, así que sin `scope="row"` al
+                recorrer la tabla se perdía de qué caso habla cada una. */}
+            <th scope="row" className={cx(TD_CLASS, 'font-normal text-left')}>
               <span className="font-mono text-sm">{row.shortId}</span>
-            </td>
+            </th>
             <td className={TD_CLASS}>{textOrDash(row.studentIdentifier)}</td>
             <td className={TD_CLASS}>
               {row.result === null ? (

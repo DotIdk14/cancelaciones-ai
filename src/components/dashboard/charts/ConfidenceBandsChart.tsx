@@ -45,9 +45,17 @@ export function ConfidenceBandsChart({ data, ariaLabel }: ConfidenceBandsChartPr
   if (data.length === 0) return null;
 
   return (
-    <div role="img" aria-label={ariaLabel} className="h-full w-full">
+    <div className="h-full w-full">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={{ top: 20, right: 8, bottom: 0, left: -12 }}>
+        {/* La etiqueta va como `title`/`desc` del `<svg>`, no en un wrapper
+            `role="img"`: ese rol es de hijos presentacionales y borraría la
+            capa de accesibilidad de Recharts 3 (teclado + tooltip `status`). */}
+        <BarChart
+          data={data}
+          margin={{ top: 20, right: 8, bottom: 0, left: -12 }}
+          title="Distribución de la confianza declarada en los dictamenes"
+          desc={ariaLabel}
+        >
           <CartesianGrid stroke={GRID_STROKE} strokeDasharray="3 3" vertical={false} horizontal={true} />
           <XAxis
             dataKey="label"
@@ -93,6 +101,18 @@ export function ConfidenceBandsChart({ data, ariaLabel }: ConfidenceBandsChartPr
           </Bar>
         </BarChart>
       </ResponsiveContainer>
+      {/* Alternativa textual de 1.1.1 con los CONTEOS: una etiqueta que solo
+          describe el eje no permite entender el reparto sin ver el color. */}
+      <p className="sr-only">{bandsSummary(data)}</p>
     </div>
   );
+}
+
+/** Reparto de dictamenes por banda, en una frase legible. */
+function bandsSummary(data: Band[]): string {
+  const parte = data
+    .map((band) => `${CONFIDENCE_BAND_LABELS[band.band]}: ${band.count} (${formatPercent(band.pct / 100)})`)
+    .join('; ');
+  const total = data.reduce((sum, band) => sum + band.count, 0);
+  return `Distribución de la confianza sobre ${total} dictamen(es). ${parte}.`;
 }

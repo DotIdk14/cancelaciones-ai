@@ -39,8 +39,15 @@ export function parseHash(hash: string): AppRoute {
 
   if (root === 'casos') {
     if (segments.length === 1) return { name: 'cases' };
-    if (typeof id === 'string' && id !== '') return { name: 'case', caseId: id };
-    return { name: 'cases' };
+    // Exigimos EXACTAMENTE dos segmentos (`#/casos/:id`). Un hash con segmentos
+    // de más (`#/casos/abc/extra`) no es una ruta de la app: antes se aceptaba
+    // en silencio usando solo el id, de modo que `#/casos/a/b` y `#/calidad/b`
+    // se comportaban de forma distinta. Ahora toda ruta no reconocida cae al
+    // dashboard, como dice el contrato de este archivo.
+    if (segments.length === 2 && typeof id === 'string' && id !== '') {
+      return { name: 'case', caseId: id };
+    }
+    return segments.length > 2 ? { name: 'dashboard' } : { name: 'cases' };
   }
   if (segments.length !== 1) return { name: 'dashboard' };
 
@@ -75,7 +82,7 @@ export function useHashRoute(): AppRoute {
 }
 
 /** Navegación imperativa (mantiene el refresh seguro). */
-export function navigate(hash: string): void {
+function navigate(hash: string): void {
   const next = hash.startsWith('#') ? hash : `#${hash}`;
   if (window.location.hash === next) {
     // Fuerza el evento cuando la ruta no cambia.
@@ -85,31 +92,10 @@ export function navigate(hash: string): void {
   window.location.hash = next;
 }
 
-export function goToDashboard(): void {
-  navigate('/');
-}
-
-export function goToQuality(): void {
-  navigate('/calidad');
-}
-
-export function goToAiCosts(): void {
-  navigate('/ia-costos');
-}
-
-export function goToNewCase(): void {
-  navigate('/nuevo');
-}
-
 export function goToCases(): void {
   navigate('/casos');
 }
 
 export function goToCase(caseId: string): void {
   navigate(`/casos/${encodeURIComponent(caseId)}`);
-}
-
-/** Alias conservado por compatibilidad: `#/` es el dashboard. */
-export function goHome(): void {
-  goToDashboard();
 }

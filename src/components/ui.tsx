@@ -199,7 +199,12 @@ export interface EmptyStateProps {
 
 export function EmptyState({ title, description, icon, action }: EmptyStateProps): ReactNode {
   return (
-    <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-line bg-surface-2 px-6 py-10 text-center">
+    // 4.1.3: "no hay datos" es un cambio de estado que hay que anunciar, no un
+    // hueco silencioso. `role="status"` lo hace sin interrumpir.
+    <div
+      role="status"
+      className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-line bg-surface-2 px-6 py-10 text-center"
+    >
       {icon !== undefined && (
         <div aria-hidden="true" className="text-2xl">
           {icon}
@@ -335,6 +340,12 @@ export interface StatCardProps {
   hint?: ReactNode;
   icon?: ReactNode;
   tone?: Tone;
+  /**
+   * `true` mientras `value` es un esqueleto. Activa `aria-busy` y un texto
+   * "cargando" para que la tarjeta no sea un hueco mudo (WCAG 4.1.3). Por
+   * defecto se deduce: si `value` es un `Skeleton`, está cargando.
+   */
+  isLoading?: boolean;
   className?: string;
 }
 
@@ -352,6 +363,7 @@ export function StatCard({
   hint,
   icon,
   tone = 'neutral',
+  isLoading = false,
   className,
 }: StatCardProps): ReactNode {
   return (
@@ -364,7 +376,16 @@ export function StatCard({
       <p className="text-xs font-medium uppercase tracking-wide text-muted">{label}</p>
       {/* `div` y no `p`: `value` acepta cualquier ReactNode y puede ser un
           <Skeleton> (`div`), que no es válido dentro de un párrafo. */}
-      <div className="mt-1 text-2xl font-bold text-ink">{value}</div>
+      {/* 4.1.3: mientras `value` es el `Skeleton` (que es `aria-hidden`), la
+          tarjeta solo exponía la etiqueta. Este texto anuncia que el valor
+          está en camino. */}
+      <div
+        aria-busy={isLoading}
+        className="mt-1 text-2xl font-bold text-ink"
+      >
+        {isLoading ? <span className="sr-only">{`Cargando ${label.toLowerCase()}…`}</span> : null}
+        {value}
+      </div>
       {hint !== undefined && <div className="mt-1 text-xs text-muted">{hint}</div>}
     </div>
   );
@@ -418,7 +439,16 @@ export function ChartFrame({
   if (showError) {
     body = <ErrorCard message={error} onRetry={onRetry} />;
   } else if (isLoading) {
-    body = <Skeleton height={height} />;
+    // 4.1.3 Status Messages: el `Skeleton` es `aria-hidden`, así que sin este
+    // texto la región quedaría muda al cambiar un filtro y el usuario de lector
+    // de pantalla no sabría que hay algo cargando. Se anuncia con `role="status"`
+    // (político, no agresivo: recargar un filtro no requiere interrumpir).
+    body = (
+      <div role="status" aria-busy="true" className="flex flex-col gap-2">
+        <span className="sr-only">{`Cargando ${title.toLowerCase()}…`}</span>
+        <Skeleton height={height} />
+      </div>
+    );
   } else if (isEmpty) {
     body = <EmptyState title={emptyTitle} description={emptyDescription} />;
   } else {
@@ -454,7 +484,16 @@ export interface DataTableProps {
 
 export function DataTable({ caption, children, className }: DataTableProps): ReactNode {
   return (
-    <div className={cx('-mx-1 overflow-x-auto', className)}>
+    // 2.1.1 Keyboard: en pantallas estrechas esta región scrollea en horizontal.
+    // Sin `tabIndex` no se puede enfocar, así que un usuario de teclado no
+    // podría desplazar la tabla para ver las columnas de la derecha. `role` +
+    // `aria-label` la convierten en región navegable y anunciada.
+    <div
+    className={cx('-mx-1 overflow-x-auto', className)}
+    tabIndex={0}
+    role="region"
+    aria-label={caption}
+  >
       <table className="w-full min-w-[640px] border-collapse text-sm">
         <caption className="sr-only">{caption}</caption>
         {children}

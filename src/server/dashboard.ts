@@ -1,14 +1,14 @@
+﻿// =============================================================================
+// Dashboard ÔÇö agregaci├│n de m├®tricas de auditor├¡a.
 // =============================================================================
-// Dashboard — agregación de métricas de auditoría.
-// =============================================================================
-// La agregación (`aggregateSummary`) es PURA: recibe filas y devuelve el
+// La agregaci├│n (`aggregateSummary`) es PURA: recibe filas y devuelve el
 // `DashboardSummary` que consume la UI, sin tocar red ni base de datos. Solo
 // `getDashboardSummary` habla con InsForge, y lo hace leyendo la vista
 // `public.audit_dashboard_metrics`, que proyecta escalares de `audits`+`cases`.
 //
-// Aquí no hay criterio: los grupos de resolución salen de `RESULT_TO_GROUP`
+// Aqu├¡ no hay criterio: los grupos de resoluci├│n salen de `RESULT_TO_GROUP`
 // (src/lib/labels.ts) y la banda de confianza de los umbrales de ese mismo
-// archivo. Este módulo cuenta, no dictamina.
+// archivo. Este m├│dulo cuenta, no dictamina.
 // =============================================================================
 
 import { AUDIT_RESULTS, type AuditResultType, type CaseStatus, type ErrorCategory } from '../skills/audit/types.js';
@@ -34,16 +34,16 @@ import type {
 } from '../lib/dashboard.js';
 import type { AuthContext } from './auth.js';
 import type { AuditStatus } from './cases.js';
-import { endOfDayUtc, startOfDayUtc } from './dashboard-filters.js';
+import { CASE_DIMENSIONS, CASE_DIMENSION_COLUMN, endOfDayUtc, startOfDayUtc } from './dashboard-filters.js';
 import { mapProviderError } from './http.js';
 import type { InsForgeClient } from './insforge.js';
-// El vocabulario de los estados de una comparación vive UNA vez, en la capa que
-// escribe esas filas. Importarlo (sólo tipo, sin coste en runtime) evita que el
+// El vocabulario de los estados de una comparaci├│n vive UNA vez, en la capa que
+// escribe esas filas. Importarlo (s├│lo tipo, sin coste en runtime) evita que el
 // dashboard tenga su propia lista y que las dos se separen sin que nada falle.
 import type { ComparisonStatusRow } from './reviews.js';
 
-// El tipo vive en `src/lib/dashboard.ts` (única definición, también la usa la
-// UI). Se reexporta para no obligar a los importadores a saber de dónde viene.
+// El tipo vive en `src/lib/dashboard.ts` (├║nica definici├│n, tambi├®n la usa la
+// UI). Se reexporta para no obligar a los importadores a saber de d├│nde viene.
 export type { DashboardFilters };
 
 /** Fila de `public.audit_dashboard_metrics`. Solo escalares: nada de jsonb crudo. */
@@ -71,7 +71,7 @@ export interface DashboardMetricRow {
   attempts_total_tokens: number | null;
   attempts_prompt_tokens: number | null;
   attempts_completion_tokens: number | null;
-  /** Nº de intentos reales de la llamada (elementos de `openrouterAttempts`). */
+  /** N┬║ de intentos reales de la llamada (elementos de `openrouterAttempts`). */
   attempts_count: number;
   country: string | null;
   campus: string | null;
@@ -91,8 +91,8 @@ const DASHBOARD_DIMENSIONS: readonly DashboardDimension[] = [
 ];
 
 /**
- * Aplica los filtros por dimensión. Solo se filtra por las dimensiones que la
- * vista actualmente proyecta; el tipo es mínimo (`eq`) porque este archivo no
+ * Aplica los filtros por dimensi├│n. Solo se filtra por las dimensiones que la
+ * vista actualmente proyecta; el tipo es m├¡nimo (`eq`) porque este archivo no
  * necesita conocer toda la cadena de PostgREST.
  */
 export function applyDimensionFilters<T extends { eq(column: string, value: unknown): T }>(
@@ -107,10 +107,10 @@ export function applyDimensionFilters<T extends { eq(column: string, value: unkn
   return filtered;
 }
 
-/** Tope de filas leídas de la vista. Si la vista trae más, `truncated` va en `true`. */
+/** Tope de filas le├¡das de la vista. Si la vista trae m├ís, `truncated` va en `true`. */
 export const DASHBOARD_MAX_ROWS = 5000;
 
-/** Valores presentes en la vista; los valores nulos o vacíos no crean opciones. */
+/** Valores presentes en la vista; los valores nulos o vac├¡os no crean opciones. */
 export async function getDashboardFilterOptions(client: InsForgeClient): Promise<DashboardFilterOptions> {
   const columns = DASHBOARD_DIMENSIONS.join(',');
   const { data, error } = await client.database
@@ -146,13 +146,13 @@ export async function getDashboardFilterOptions(client: InsForgeClient): Promise
 /** Filas de la tabla "casos recientes". */
 const RECENT_CASES_LIMIT = 5;
 
-/** Orden fijo de las categorías del donut: siempre las 3, aunque valgan 0. */
+/** Orden fijo de las categor├¡as del donut: siempre las 3, aunque valgan 0. */
 const SPLIT_ORDER: readonly ResolutionGroup[] = RESOLUTION_GROUPS;
 
 /**
  * `RESULT_TO_GROUP` indexado de forma parcial: `result` sale de `result_json`
- * (jsonb libre, escrito por el adaptador), así que puede traer un valor de otra
- * versión que no exista en el mapa. Eso se trata como "dato ausente", no como
+ * (jsonb libre, escrito por el adaptador), as├¡ que puede traer un valor de otra
+ * versi├│n que no exista en el mapa. Eso se trata como "dato ausente", no como
  * fallo.
  */
 const RESULT_GROUP_BY_RESULT: Partial<Record<AuditResultType, ResolutionGroup>> = RESULT_TO_GROUP;
@@ -162,11 +162,11 @@ const RESULT_GROUP_BY_RESULT: Partial<Record<AuditResultType, ResolutionGroup>> 
 // -----------------------------------------------------------------------------
 
 /**
- * Bucket de día en UTC. Se usa `toISOString()` y NUNCA la zona horaria local a
- * propósito: la serie temporal es un dato compartido, y si dependiera del
- * navegador, un caso de las 23:00 se contaría en un día distinto según dónde se
- * mirara la gráfica (en UTC−5, en el día anterior). Con UTC, dos personas ven el
- * mismo periodo aunque estén en paises distintos.
+ * Bucket de d├¡a en UTC. Se usa `toISOString()` y NUNCA la zona horaria local a
+ * prop├│sito: la serie temporal es un dato compartido, y si dependiera del
+ * navegador, un caso de las 23:00 se contar├¡a en un d├¡a distinto seg├║n d├│nde se
+ * mirara la gr├ífica (en UTCÔêÆ5, en el d├¡a anterior). Con UTC, dos personas ven el
+ * mismo periodo aunque est├®n en paises distintos.
  */
 function utcDayBucket(iso: string): string {
   const ms = Date.parse(iso);
@@ -181,15 +181,15 @@ function millisOf(iso: string): number {
 
 /**
  * `true` si `candidate` es al menos tan reciente como `current`. El `>=` es
- * deliberado: en empate de timestamp gana la fila que aparece DESPUÉS en el
- * array, que es la misma fila que quedaría primera con un
+ * deliberado: en empate de timestamp gana la fila que aparece DESPU├ëS en el
+ * array, que es la misma fila que quedar├¡a primera con un
  * `ORDER BY created_at DESC` estable.
  */
 function isSameOrNewer(candidate: DashboardMetricRow, current: DashboardMetricRow): boolean {
   return millisOf(candidate.created_at) >= millisOf(current.created_at);
 }
 
-/** Auditoría vigente de cada caso: la de `created_at` más reciente. */
+/** Auditor├¡a vigente de cada caso: la de `created_at` m├ís reciente. */
 function currentAuditsByCase(rows: DashboardMetricRow[]): DashboardMetricRow[] {
   const latest = new Map<string, DashboardMetricRow>();
   for (const row of rows) {
@@ -201,7 +201,7 @@ function currentAuditsByCase(rows: DashboardMetricRow[]): DashboardMetricRow[] {
   return [...latest.values()];
 }
 
-/** Grupo de resolución de un resultado, o `null` si no se puede clasificar. */
+/** Grupo de resoluci├│n de un resultado, o `null` si no se puede clasificar. */
 function groupForResult(result: AuditResultType | null): ResolutionGroup | null {
   if (result === null) return null;
   return RESULT_GROUP_BY_RESULT[result] ?? null;
@@ -216,12 +216,12 @@ function percentage(part: number, total: number): number {
 }
 
 /**
- * Estados TERMINALES de una auditoría: ya emitió dictamen (`COMPLETED`) o ya
- * cerró en fallo (`ERROR`). `RUNNING` NO es terminal: la auditoría sigue viva.
+ * Estados TERMINALES de una auditor├¡a: ya emiti├│ dictamen (`COMPLETED`) o ya
+ * cerr├│ en fallo (`ERROR`). `RUNNING` NO es terminal: la auditor├¡a sigue viva.
  */
 const TERMINAL_AUDIT_STATUSES: ReadonlySet<AuditStatus> = new Set<AuditStatus>(['COMPLETED', 'ERROR']);
 
-/** `true` si la auditoría ya cerró, emitiendo dictamen o fallando. */
+/** `true` si la auditor├¡a ya cerr├│, emitiendo dictamen o fallando. */
 function isTerminalAudit(row: DashboardMetricRow): boolean {
   return TERMINAL_AUDIT_STATUSES.has(row.audit_status);
 }
@@ -233,7 +233,7 @@ interface GroupCounts {
   insufficient: number;
 }
 
-/** Acumula `+1` en la categoría del grupo. */
+/** Acumula `+1` en la categor├¡a del grupo. */
 function bumpGroup(counts: GroupCounts, group: ResolutionGroup): void {
   if (group === 'CONCEDIDAS') counts.granted += 1;
   else if (group === 'REQUIERE_DICTAMINACION') counts.needsRuling += 1;
@@ -245,27 +245,27 @@ function bumpGroup(counts: GroupCounts, group: ResolutionGroup): void {
 // -----------------------------------------------------------------------------
 
 /**
- * Serie temporal por día UTC.
+ * Serie temporal por d├¡a UTC.
  *
- * SEMÁNTICA DELIBERADAMENTE DISTINTA DE LA DE LOS KPIs:
- * la `timeline` muestra el **volumen de dictámenes emitidos por día** (un caso
+ * SEM├üNTICA DELIBERADAMENTE DISTINTA DE LA DE LOS KPIs:
+ * la `timeline` muestra el **volumen de dict├ímenes emitidos por d├¡a** (un caso
  * reauditado cuenta una vez por cada dictamen emitido). Los KPIs cuentan **cada
- * caso una sola vez**, por su estado vigente. Por eso ambos números no tienen por
- * qué coincidir.
+ * caso una sola vez**, por su estado vigente. Por eso ambos n├║meros no tienen por
+ * qu├® coincidir.
  *
  * Se agrupan TODAS las filas (no solo las vigentes por caso), porque lo que
- * mide la gráfica es la actividad del periodo: los dictámenes emitidos, no el
+ * mide la gr├ífica es la actividad del periodo: los dict├ímenes emitidos, no el
  * estado final de cada caso.
  *
  * Reglas:
- *  - Cada fila `COMPLETED` cuenta en SU propio grupo, según `RESULT_TO_GROUP`.
+ *  - Cada fila `COMPLETED` cuenta en SU propio grupo, seg├║n `RESULT_TO_GROUP`.
  *  - Las filas `ERROR` y `RUNNING` no aportan a ninguno de los tres grupos. Los
  *    errores se miden aparte, en su propio KPI, y un dictamen ausente no es un
- *    dictamen contrario. Por eso un día CON dictámenes nunca sale en 0/0/0,
- *    aunque su última auditoría haya sido un ERROR (si manda solo la última del
- *    día, el día entero se pierde).
- *  - Solo emite punto un día con al menos un dictamen. Un día sin dictámenes
- *    tampoco aporta volumen, y un punto en cero sería una barra plana que
+ *    dictamen contrario. Por eso un d├¡a CON dict├ímenes nunca sale en 0/0/0,
+ *    aunque su ├║ltima auditor├¡a haya sido un ERROR (si manda solo la ├║ltima del
+ *    d├¡a, el d├¡a entero se pierde).
+ *  - Solo emite punto un d├¡a con al menos un dictamen. Un d├¡a sin dict├ímenes
+ *    tampoco aporta volumen, y un punto en cero ser├¡a una barra plana que
  *    inventa actividad donde no la hubo.
  */
 function buildTimeline(rows: DashboardMetricRow[]): TimelinePoint[] {
@@ -273,9 +273,9 @@ function buildTimeline(rows: DashboardMetricRow[]): TimelinePoint[] {
 
   for (const row of rows) {
     // Solo `COMPLETED` emite dictamen: `ERROR` y `RUNNING` quedan fuera de los
-    // tres grupos por diseño, no por oversight.
+    // tres grupos por dise├▒o, no por oversight.
     if (row.audit_status !== 'COMPLETED') continue;
-    // `result` ausente o de otra versión: es dato ausente, no un grupo inventado.
+    // `result` ausente o de otra versi├│n: es dato ausente, no un grupo inventado.
     const group = groupForResult(row.result);
     if (group === null) continue;
 
@@ -291,7 +291,7 @@ function buildTimeline(rows: DashboardMetricRow[]): TimelinePoint[] {
   }
 
   const timeline: TimelinePoint[] = [];
-  // Orden ascendente: `YYYY-MM-DD` ordena lexicográficamente igual que por fecha.
+  // Orden ascendente: `YYYY-MM-DD` ordena lexicogr├íficamente igual que por fecha.
   for (const day of [...byDay.keys()].sort()) {
     const counts = byDay.get(day);
     if (counts === undefined) continue;
@@ -306,7 +306,7 @@ function buildTimeline(rows: DashboardMetricRow[]): TimelinePoint[] {
 }
 
 // -----------------------------------------------------------------------------
-// Agregación
+// Agregaci├│n
 // -----------------------------------------------------------------------------
 
 /**
@@ -314,7 +314,7 @@ function buildTimeline(rows: DashboardMetricRow[]): TimelinePoint[] {
  * Pura: sin red, sin reloj (salvo `generatedAt`) y sin efectos secundarios.
  *
  * `totalAvailable` es el total de filas que la base dice que hay (count exacto),
- * no el tamaño de `rows`: es lo único que permite avisar de una truncación.
+ * no el tama├▒o de `rows`: es lo ├║nico que permite avisar de una truncaci├│n.
  */
 export function aggregateSummary(
   rows: DashboardMetricRow[],
@@ -323,18 +323,18 @@ export function aggregateSummary(
 ): DashboardSummary {
   const current = currentAuditsByCase(rows);
 
-  // POR QUÉ UN CASO EN CURSO QUEDA FUERA DEL DENOMINADOR:
-  // `RUNNING` no ha emitido dictamen ni ha fallado, así que el caso todavía no
-  // está auditado: meterlo en `auditedCases` lo inflaría y, sobre todo, hacerlo
-  // aparecer en `errors` haría que una tarjeta titulada "Errores" mintiera. Una
-  // auditoría EN CURSO no es un fallo. Por lo tanto `auditedCases` cuenta solo
-  // los casos cuya auditoría vigente es TERMINAL (`COMPLETED` o `ERROR`), y los
-  // cuatro grupos suman exactamente ese número.
+  // POR QU├ë UN CASO EN CURSO QUEDA FUERA DEL DENOMINADOR:
+  // `RUNNING` no ha emitido dictamen ni ha fallado, as├¡ que el caso todav├¡a no
+  // est├í auditado: meterlo en `auditedCases` lo inflar├¡a y, sobre todo, hacerlo
+  // aparecer en `errors` har├¡a que una tarjeta titulada "Errores" mintiera. Una
+  // auditor├¡a EN CURSO no es un fallo. Por lo tanto `auditedCases` cuenta solo
+  // los casos cuya auditor├¡a vigente es TERMINAL (`COMPLETED` o `ERROR`), y los
+  // cuatro grupos suman exactamente ese n├║mero.
   //
-  // Matiz: si un `COMPLETED` llega con `result` nulo o de otra versión, queda
-  // sin grupo y sin ser error (dato ausente, no fallo). Eso rompería el reparto,
-  // pero es una forma defensiva: el contrato Zod garantiza `COMPLETED` ⇒
-  // resultado válido, y así nunca ocurre con datos reales.
+  // Matiz: si un `COMPLETED` llega con `result` nulo o de otra versi├│n, queda
+  // sin grupo y sin ser error (dato ausente, no fallo). Eso romper├¡a el reparto,
+  // pero es una forma defensiva: el contrato Zod garantiza `COMPLETED` ÔçÆ
+  // resultado v├ílido, y as├¡ nunca ocurre con datos reales.
   const terminal = current.filter(isTerminalAudit);
   const auditedCases = terminal.length;
   const casesWithMissingEvidence = terminal.filter((row) => (row.missing_evidence_count ?? 0) > 0).length;
@@ -344,19 +344,19 @@ export function aggregateSummary(
 
   // Todos los resultados en cero desde el principio: la leyenda del desglose es
   // estable aunque no haya ninguno (y el reparto suma lo mismo que los KPIs,
-  // porque cuenta las MISMAS auditorías vigentes).
+  // porque cuenta las MISMAS auditor├¡as vigentes).
   const byResultCounts = new Map<AuditResultType, number>();
   for (const result of AUDIT_RESULTS) byResultCounts.set(result, 0);
 
   for (const row of terminal) {
-    // `terminal` solo contiene COMPLETED y ERROR, así que lo que queda aquí es
-    // COMPLETED. `ERROR` es el único estado no completado que es un fallo real.
+    // `terminal` solo contiene COMPLETED y ERROR, as├¡ que lo que queda aqu├¡ es
+    // COMPLETED. `ERROR` es el ├║nico estado no completado que es un fallo real.
     if (row.audit_status === 'ERROR') {
       errors += 1;
       continue;
     }
     // `result` sale de `result_json` (jsonb libre): puede traer un valor de otra
-    // versión. `Map.has` lo descarta sin inventar un grupo.
+    // versi├│n. `Map.has` lo descarta sin inventar un grupo.
     const result = row.result as AuditResultType;
     if (byResultCounts.has(result)) {
       byResultCounts.set(result, (byResultCounts.get(result) ?? 0) + 1);
@@ -381,13 +381,13 @@ export function aggregateSummary(
   }));
 
   // `recentCases` refleja lo que hay en la tabla, NO el veredicto: por eso usa
-  // `current` y no `terminal`, y un caso con auditoría `RUNNING` sigue
-  // apareciendo (con `result` y `confidence` en `null`). Ocultarlo haría que la
+  // `current` y no `terminal`, y un caso con auditor├¡a `RUNNING` sigue
+  // apareciendo (con `result` y `confidence` en `null`). Ocultarlo har├¡a que la
   // lista no cuadrase con lo que la persona ve en el listado de casos.
   const recentCases: RecentCaseRow[] = [...current]
     // `reverse()` antes de ordenar para que, en empate de timestamp, gane la fila
-    // que estaba después en el array (misma regla que `isSameOrNewer`). El
-    // `sort` de JS es estable, así que el orden inverso se conserva.
+    // que estaba despu├®s en el array (misma regla que `isSameOrNewer`). El
+    // `sort` de JS es estable, as├¡ que el orden inverso se conserva.
     .reverse()
     .sort((a, b) => millisOf(b.created_at) - millisOf(a.created_at))
     .slice(0, RECENT_CASES_LIMIT)
@@ -402,8 +402,8 @@ export function aggregateSummary(
     }));
 
   // Los KPI siempre llevan los campos del contrato, aunque valgan 0. El 0 en
-  // `casesWithMissingEvidence` es un dato válido: "ningún caso auditado tenía
-  // evidencia faltante", no una ausencia de medición.
+  // `casesWithMissingEvidence` es un dato v├ílido: "ning├║n caso auditado ten├¡a
+  // evidencia faltante", no una ausencia de medici├│n.
   const kpi: DashboardKpi = {
     auditedCases,
     granted,
@@ -427,6 +427,9 @@ export function aggregateSummary(
     split,
     byResult,
     recentCases,
+    execution: aggregateExecution(terminal),
+    agreement: aggregateHumanAgreement(current),
+    cost: aggregateSummaryCost(rows),
   };
 }
 
@@ -440,7 +443,7 @@ export function aggregateSummary(
  *
  * TODO: proyectar `created_by` en `public.audit_dashboard_metrics` (y en la
  * vista de comparaciones) para filtrar en SQL en lugar de traer filas ajenas
- * al servidor. Hasta entonces, este filtro en memoria limita la exposición
+ * al servidor. Hasta entonces, este filtro en memoria limita la exposici├│n
  * pero `truncated` sigue reflejando el recorte global previo al scope.
  */
 async function getOwnedCaseIds(client: InsForgeClient, userId: string): Promise<Set<string>> {
@@ -450,9 +453,9 @@ async function getOwnedCaseIds(client: InsForgeClient, userId: string): Promise<
 }
 
 /**
- * Lee la vista de métricas y devuelve el resumen ya agregado.
- * Los límites del rango son el primer y el último milisegundo del día, en UTC,
- * y ambos inclusivos: un filtro por día no puede perder la auditoría de las
+ * Lee la vista de m├®tricas y devuelve el resumen ya agregado.
+ * Los l├¡mites del rango son el primer y el ├║ltimo milisegundo del d├¡a, en UTC,
+ * y ambos inclusivos: un filtro por d├¡a no puede perder la auditor├¡a de las
  * 23:59:59.999.
  */
 export async function getDashboardSummary(
@@ -472,18 +475,23 @@ export async function getDashboardSummary(
   if (filters.status !== null) query = query.eq('case_status', filters.status);
   query = applyDimensionFilters(query, filters);
 
+  // Orden DESCENDENTE. Con `ascending: true` + `limit(5000)` la ventana traía
+  // las 5000 filas MÁS ANTIGUAS del rango, y como `recentCases` se construye
+  // desde ellas, la tabla titulada "Casos recientes" mostraba los más viejos
+  // cuando el periodo superaba el tope. En una herramienta de auditoría eso es
+  // una lectura de datos incorrecta, no un detalle de presentación.
   const { data, error, count } = await query
-    .order('created_at', { ascending: true })
+    .order('created_at', { ascending: false })
     .limit(DASHBOARD_MAX_ROWS);
 
-  // Ningún stack trace ni detalle del proveedor al cliente: mapProviderError
+  // Ning├║n stack trace ni detalle del proveedor al cliente: mapProviderError
   // traduce el error y sanea el mensaje (nada de tokens o URLs internas).
   if (error) throw mapProviderError(error);
 
   let rows = (data ?? []) as DashboardMetricRow[];
   // Scope multi-tenant: `coordinator` lee agregados globales; `user` solo ve
-  // filas de sus propios casos. La vista no expone `created_by`, así que el
-  // filtro ocurre en memoria después del fetch (ver TODO en `getOwnedCaseIds`).
+  // filas de sus propios casos. La vista no expone `created_by`, as├¡ que el
+  // filtro ocurre en memoria despu├®s del fetch (ver TODO en `getOwnedCaseIds`).
   if (auth?.role === 'user') {
     const owned = await getOwnedCaseIds(client, auth.sub);
     rows = rows.filter((row) => owned.has(row.case_id));
@@ -494,15 +502,6 @@ export async function getDashboardSummary(
 // -----------------------------------------------------------------------------
 // Bandas de confianza
 // -----------------------------------------------------------------------------
-
-/**
- * Umbrales de confianza reexportados para el servidor: son los mismos que
- * usa la UI (`src/lib/labels.ts`), no una segunda copia que pueda divergir.
- */
-export const CONFIDENCE_THRESHOLDS = {
-  high: CONFIDENCE_HIGH_THRESHOLD,
-  medium: CONFIDENCE_MEDIUM_THRESHOLD,
-} as const;
 
 /**
  * Banda de confianza de un valor 0..1. `null` si no hay dato: la ausencia de
@@ -519,9 +518,9 @@ export function confidenceBand(value: number | null): ConfidenceBand | null {
 // IA & Costos
 // =============================================================================
 // Misma fuente (`audit_dashboard_metrics`) y mismo agregador puro que el
-// Resumen, pero con una regla que la otra vista no necesita: aquí el AUSENTE es
-// lo importante. Un coste que OpenRouter no reportó NO es un coste cero: es un
-// coste desconocido. Todo el módulo nace de esa distinción, y por eso los KPI
+// Resumen, pero con una regla que la otra vista no necesita: aqu├¡ el AUSENTE es
+// lo importante. Un coste que OpenRouter no report├│ NO es un coste cero: es un
+// coste desconocido. Todo el m├│dulo nace de esa distinci├│n, y por eso los KPI
 // llevan banderas `*Available` y los percentiles son `null` en vez de 0.
 // =============================================================================
 
@@ -555,14 +554,14 @@ export interface CostSeriesPoint {
  * Consumo por modelo.
  *
  * `totalCostUsd` sigue siendo `number` y NO puede ser `null`: es la SUMA de los
- * costes conocidos, y la suma de una lista vacía es 0, un valor válido. El 0 de
- * un modelo sin coste conocido no significa "este modelo costó cero": significa
- * que no se sabe cuánto costó. Para distinguirlo está `costKnownCalls`.
+ * costes conocidos, y la suma de una lista vac├¡a es 0, un valor v├ílido. El 0 de
+ * un modelo sin coste conocido no significa "este modelo cost├│ cero": significa
+ * que no se sabe cu├ínto cost├│. Para distinguirlo est├í `costKnownCalls`.
  *
  * `avgCostUsd` es `null` cuando `costKnownCalls === 0`, porque el promedio de un
- * conjunto vacío no es 0: no hay nada que promediar, así que el dato no existe.
- * Devolver 0 ahí publicaría una cifra inventada justo donde el riesgo es mayor
- * (auditorías en `ERROR`, que no traen `usage` ni coste por intento).
+ * conjunto vac├¡o no es 0: no hay nada que promediar, as├¡ que el dato no existe.
+ * Devolver 0 ah├¡ publicar├¡a una cifra inventada justo donde el riesgo es mayor
+ * (auditor├¡as en `ERROR`, que no traen `usage` ni coste por intento).
  */
 export interface ModelCostRow {
   model: string;
@@ -573,7 +572,7 @@ export interface ModelCostRow {
   /**
    * Llamadas del modelo con coste CONOCIDO. `0` significa "coste desconocido",
    * no "coste cero": es el dato de origen que la UI necesita para no imprimir
-   * un `$0.0000` que parecería un gasto real.
+   * un `$0.0000` que parecer├¡a un gasto real.
    */
   costKnownCalls: number;
 }
@@ -604,37 +603,37 @@ export interface AiCostsReport {
 }
 
 /**
- * REGLA ÚNICA DE COSTE, en un solo sitio para que ningún consumidor pueda
+ * REGLA ├ÜNICA DE COSTE, en un solo sitio para que ning├║n consumidor pueda
  * inventarse la suya.
  *
- * `usage_cost_usd` es lo que OpenRouter Facturó en la llamada que terminó;
- * `attempts_cost_usd` es la suma de lo que costarían TODOS los intentos
- * registrados, incluido el que falló. Se prefiere el primero porque es el dato
- * real de gasto y el segundo es una estimación por SUMA de datos parciales; el
- * segundo solo aparece cuando el primero no existe (auditorías en `ERROR`, que
+ * `usage_cost_usd` es lo que OpenRouter Factur├│ en la llamada que termin├│;
+ * `attempts_cost_usd` es la suma de lo que costar├¡an TODOS los intentos
+ * registrados, incluido el que fall├│. Se prefiere el primero porque es el dato
+ * real de gasto y el segundo es una estimaci├│n por SUMA de datos parciales; el
+ * segundo solo aparece cuando el primero no existe (auditor├¡as en `ERROR`, que
  * casi nunca llegan a `usage`).
  *
- * Si AMBOS son `null`, el resultado es `null`: el coste de esa auditoría es
+ * Si AMBOS son `null`, el resultado es `null`: el coste de esa auditor├¡a es
  * DESCONOCIDO. No se devuelve 0 y NUNCA se recalcula un precio a partir de los
- * tokens: hacerlo sería inventar la tarifa del modelo aquí y dejarla congelada
- * para siempre, y además daría un 0 falso que la UI no puede distinguir de un
- * gasto real de 0 (una llamada gratis o un crédito a coste 0).
+ * tokens: hacerlo ser├¡a inventar la tarifa del modelo aqu├¡ y dejarla congelada
+ * para siempre, y adem├ís dar├¡a un 0 falso que la UI no puede distinguir de un
+ * gasto real de 0 (una llamada gratis o un cr├®dito a coste 0).
  *
  * Los tokens siguen la misma regla, cada magnitud con su propio COALESCE.
  *
- * LA TRIPLETA QUE ESTA EXPRESIÓN RESUELVE, y que fija un test:
+ * LA TRIPLETA QUE ESTA EXPRESI├ôN RESUELVE, y que fija un test:
  *   (null, null) -> null   el dato no existe.
  *   (0.02, null) -> 0.02   `usage_cost_usd` manda cuando existe.
  *   (null,    0) -> 0      un 0 LITERAL se respeta como 0.
  *
- * El tercer caso es el que hace que la función NO esté arreglando el defecto
- * que se le atribuyó: `public.audit_dashboard_metrics` antes devolvía
- * `attempts_cost_usd = 0` cuando ningún intento reportaba `cost`, así que este
- * `??` devolvía ese 0 y la UI pintaba `$0` para auditorías cuyo coste se
- * desconocía. La vista ya no lo emite (el CTE `att` devuelve NULL cuando ningún
- * intento trajo el valor), y `(null, 0) -> 0` sigue siendo lo correcto aquí:
- * un 0 explícito es un dato afirmado, y descartar un dato afirmado sería
- * inventar un hueco por la vía contraria. Esta función no valida de dónde viene
+ * El tercer caso es el que hace que la funci├│n NO est├® arreglando el defecto
+ * que se le atribuy├│: `public.audit_dashboard_metrics` antes devolv├¡a
+ * `attempts_cost_usd = 0` cuando ning├║n intento reportaba `cost`, as├¡ que este
+ * `??` devolv├¡a ese 0 y la UI pintaba `$0` para auditor├¡as cuyo coste se
+ * desconoc├¡a. La vista ya no lo emite (el CTE `att` devuelve NULL cuando ning├║n
+ * intento trajo el valor), y `(null, 0) -> 0` sigue siendo lo correcto aqu├¡:
+ * un 0 expl├¡cito es un dato afirmado, y descartar un dato afirmado ser├¡a
+ * inventar un hueco por la v├¡a contraria. Esta funci├│n no valida de d├│nde viene
  * cada columna; la vista es la que garantiza no fabricar ceros.
  */
 export const COST_PER_ROW = (row: DashboardMetricRow): number | null => row.usage_cost_usd ?? row.attempts_cost_usd;
@@ -646,38 +645,38 @@ const PROMPT_TOKENS_PER_ROW = (row: DashboardMetricRow): number | null => row.us
 const COMPLETION_TOKENS_PER_ROW = (row: DashboardMetricRow): number | null =>
   row.usage_completion_tokens ?? row.attempts_completion_tokens;
 
-/** Milisegundos por día, para aritmética de periodos en UTC. */
+/** Milisegundos por d├¡a, para aritm├®tica de periodos en UTC. */
 const COST_MS_PER_DAY = 86_400_000;
 
-/** Milisegundos por semana ISO (7 días completos). */
+/** Milisegundos por semana ISO (7 d├¡as completos). */
 const COST_MS_PER_WEEK = 604_800_000;
 
 /**
  * Semana ISO en formato `YYYY-Www`.
  *
- * NO es "la semana del año calendario": ISO-8601 define que la semana 1 es la
- * que contiene el PRIMER JUEVES del año, y que la semana empieza el lunes. Las
- * dos reglas juntas producen los casos límite que un dashboard tiene que ver
- * bien: el 1 de enero puede caer en la semana 53 del año anterior
+ * NO es "la semana del a├▒o calendario": ISO-8601 define que la semana 1 es la
+ * que contiene el PRIMER JUEVES del a├▒o, y que la semana empieza el lunes. Las
+ * dos reglas juntas producen los casos l├¡mite que un dashboard tiene que ver
+ * bien: el 1 de enero puede caer en la semana 53 del a├▒o anterior
  * (2021-01-01 -> `2020-W53`) y el 31 de diciembre puede caer ya en la semana 1
- * del año siguiente (2025-12-31 -> `2026-W01`). Por eso la clave lleva el AÑO
- * ISO, calculado desde el jueves de la semana, y no el año calendario de la
- * fecha: agrupar un rango que cruza Nocheviebre por el año calendario partiría
- * en dos la misma semana y la serie mostraría un salto que no existe.
+ * del a├▒o siguiente (2025-12-31 -> `2026-W01`). Por eso la clave lleva el A├æO
+ * ISO, calculado desde el jueves de la semana, y no el a├▒o calendario de la
+ * fecha: agrupar un rango que cruza Nocheviebre por el a├▒o calendario partir├¡a
+ * en dos la misma semana y la serie mostrar├¡a un salto que no existe.
  */
 function isoWeekBucket(ms: number): string {
   const date = new Date(ms);
   // Lunes = 0 ... domingo = 6.
   const dayOfWeek = (date.getUTCDay() + 6) % 7;
-  // El jueves de la semana en curso es lo que define el año ISO: la semana que
-  // lo contiene es la última del año pasado o la primera del nuevo, y el jueves
-  // siempre cae dentro del año al que pertenece la semana.
+  // El jueves de la semana en curso es lo que define el a├▒o ISO: la semana que
+  // lo contiene es la ├║ltima del a├▒o pasado o la primera del nuevo, y el jueves
+  // siempre cae dentro del a├▒o al que pertenece la semana.
   const thursdayMs = ms + (3 - dayOfWeek) * COST_MS_PER_DAY;
   const isoYear = new Date(thursdayMs).getUTCFullYear();
 
   // Lunes de la semana 1 = lunes de la semana que contiene el 4 de enero. Se usa
-  // el 4 y NO el 1 porque el 1 de enero puede caer en sábado o domingo, es decir
-  // en la ÚLTIMA semana del año ISO anterior: con el 1, "enero de 2023" daría
+  // el 4 y NO el 1 porque el 1 de enero puede caer en s├íbado o domingo, es decir
+  // en la ├ÜLTIMA semana del a├▒o ISO anterior: con el 1, "enero de 2023" dar├¡a
   // una semana 1 que empieza el 26 de diciembre de 2022.
   const jan4Ms = Date.UTC(isoYear, 0, 4);
   const jan4DayOfWeek = (new Date(jan4Ms).getUTCDay() + 6) % 7;
@@ -690,13 +689,13 @@ function isoWeekBucket(ms: number): string {
 /**
  * Clave de periodo en UTC de una fila. Se usa UTC y NUNCA la zona horaria
  * local, por el mismo motivo que en `utcDayBucket`: la serie es un dato
- * compartido y con hora local un mismo gasto caería en un día distinto según
- * dónde se mire.
+ * compartido y con hora local un mismo gasto caer├¡a en un d├¡a distinto seg├║n
+ * d├│nde se mire.
  */
 function costBucket(iso: string, granularity: CostGranularity): string {
   const ms = Date.parse(iso);
-  // `created_at` es un timestamptz de Postgres y siempre es ISO válido; esta
-  // rama solo evita un NaN que rompería la serie entera con una fecha ilegible.
+  // `created_at` es un timestamptz de Postgres y siempre es ISO v├ílido; esta
+  // rama solo evita un NaN que romper├¡a la serie entera con una fecha ilegible.
   if (Number.isNaN(ms)) return utcDayBucket(iso);
   if (granularity === 'month') return new Date(ms).toISOString().slice(0, 7);
   if (granularity === 'week') return isoWeekBucket(ms);
@@ -706,14 +705,14 @@ function costBucket(iso: string, granularity: CostGranularity): string {
 /**
  * Percentil nearest-rank sobre el array YA ORDENADO ascendentemente.
  *
- * Fórmula: `idx = clamp(ceil(p / 100 * n) - 1, 0, n - 1)`, es decir el primer
- * elemento cuya posición (1-indexada) es `ceil(p/100 * n)`. El `clamp` protege
+ * F├│rmula: `idx = clamp(ceil(p / 100 * n) - 1, 0, n - 1)`, es decir el primer
+ * elemento cuya posici├│n (1-indexada) es `ceil(p/100 * n)`. El `clamp` protege
  * los dos extremos: p50 con n par cae en la mitad inferior del rango, y un
- * redondeo de coma flotante nunca puede devolver un índice fuera del array.
+ * redondeo de coma flotante nunca puede devolver un ├¡ndice fuera del array.
  *
- * Se elige nearest-rank y no interpolación porque el P95 de latencia va
+ * Se elige nearest-rank y no interpolaci├│n porque el P95 de latencia va
  * junto a un P50 literal: mixing percentiles "de facto" hace que la UI pueda
- * señalar filas concretas, y el nearest-rank siempre señala una fila real.
+ * se├▒alar filas concretas, y el nearest-rank siempre se├▒ala una fila real.
  */
 function percentileNearestRank(sorted: number[], p: number): number | null {
   const n = sorted.length;
@@ -721,8 +720,8 @@ function percentileNearestRank(sorted: number[], p: number): number | null {
   const raw = Math.ceil((p / 100) * n) - 1;
   const idx = Math.min(Math.max(raw, 0), n - 1);
   const value = sorted[idx];
-  // `idx` está acotado a [0, n-1] y n > 0, así que esto no se da: es para que el
-  // compilador sepa que hay un número y no un `undefined` silencioso.
+  // `idx` est├í acotado a [0, n-1] y n > 0, as├¡ que esto no se da: es para que el
+  // compilador sepa que hay un n├║mero y no un `undefined` silencioso.
   if (value === undefined) return null;
   return Math.round(value);
 }
@@ -732,7 +731,7 @@ function percentileNearestRank(sorted: number[], p: number): number | null {
  * Pura: sin red, sin reloj (salvo `generatedAt`) y sin efectos secundarios.
  *
  * `totalAvailable` es el total de filas que la base dice que hay (count exacto),
- * no el tamaño de `rows`: es lo único que permite avisar de una truncación.
+ * no el tama├▒o de `rows`: es lo ├║nico que permite avisar de una truncaci├│n.
  */
 export function aggregateAiCosts(
   rows: DashboardMetricRow[],
@@ -764,7 +763,7 @@ export function aggregateAiCosts(
   let outcomeInProgress = 0;
 
   const byBucket = new Map<string, number>();
-  // `costKnownCalls` lleva el mismo nombre que el campo del DTO a propósito:
+  // `costKnownCalls` lleva el mismo nombre que el campo del DTO a prop├│sito:
   // es el contador que decide si la fila tiene un coste conocido o solo llamadas.
   const byModel = new Map<string, { calls: number; costKnownCalls: number; costUsd: number }>();
 
@@ -788,22 +787,22 @@ export function aggregateAiCosts(
     const completion = COMPLETION_TOKENS_PER_ROW(row);
     if (completion !== null && Number.isFinite(completion)) completionTokens += completion;
 
-    // POR QUÉ SOLO `COMPLETED`: `latency_ms` es el tiempo que tardó la llamada
-    // cuando la auditoría terminó bien. En una fila `ERROR` es el tiempo hasta
+    // POR QU├ë SOLO `COMPLETED`: `latency_ms` es el tiempo que tard├│ la llamada
+    // cuando la auditor├¡a termin├│ bien. En una fila `ERROR` es el tiempo hasta
     // el fallo (o hasta el deadline), que no es la misma magnitud. Y en las
-    // auditorías "stale" curadas por `audit-service.ts` el valor es literalmente
-    // la EDAD del run, no su duración: mezclarlo en la media inflaría el P95
-    // con horas que no fueron de cómputo. Se mide la latencia de lo que funcionó;
+    // auditor├¡as "stale" curadas por `audit-service.ts` el valor es literalmente
+    // la EDAD del run, no su duraci├│n: mezclarlo en la media inflar├¡a el P95
+    // con horas que no fueron de c├│mputo. Se mide la latencia de lo que funcion├│;
     // los fallos se miden aparte, en `reliability.failed`.
     if (row.audit_status === 'COMPLETED' && row.latency_ms !== null && Number.isFinite(row.latency_ms)) {
       latencyValues.push(row.latency_ms);
     }
 
     // ADVERTENCIA PARA LA UI: `successful`, `retried` y `fallback` NO son
-    // categorías excluyentes. Una auditoría completada tras un reintento cuenta
+    // categor├¡as excluyentes. Una auditor├¡a completada tras un reintento cuenta
     // en las tres, y eso es correcto: cada bloque mide una cosa distinta (o succeeded,
-    // o cuánto costó insistir). Si la UI los SUMA como si fueran una
-    // partición, el total no cuadrará con `auditsCounted` y aparecerá un bug
+    // o cu├ínto cost├│ insistir). Si la UI los SUMA como si fueran una
+    // partici├│n, el total no cuadrar├í con `auditsCounted` y aparecer├í un bug
     // donde no lo hay.
     if (row.audit_status === 'COMPLETED') successful += 1;
     if (row.audit_status === 'ERROR') failed += 1;
@@ -811,7 +810,7 @@ export function aggregateAiCosts(
     // `openrouterAttempts`). Es otra cosa que `attempt_number`, que cuenta
     // re-ejecuciones del run completo desde `audit-service.ts`.
     if (row.attempts_count > 1) retried += 1;
-    // Fallback de modelo: se intentó más de un modelo.
+    // Fallback de modelo: se intent├│ m├ís de un modelo.
     if ((row.provider_models?.length ?? 0) > 1) fallback += 1;
 
     if (row.audit_status === 'ERROR') {
@@ -821,9 +820,9 @@ export function aggregateAiCosts(
     } else if (row.audit_status === 'COMPLETED') {
       const models = row.provider_models;
       if (row.attempt_number === null || row.attempt_number < 1 || row.attempts_count < 1 || !models || models.length === 0) {
-        // Metadatos de ejecución ausentes en esta fila: no se cuenta en ningún
-        // desglose (`executionOutcomes` del interfaz queda sin poblar aquí a
-        // propósito; la salida plana de `reliability` es la que consumen UI y pruebas).
+        // Metadatos de ejecuci├│n ausentes en esta fila: no se cuenta en ning├║n
+        // desglose (`executionOutcomes` del interfaz queda sin poblar aqu├¡ a
+        // prop├│sito; la salida plana de `reliability` es la que consumen UI y pruebas).
       } else if (models.length > 1) {
         successfulFallback += 1;
       } else if (row.attempt_number > 1 || row.attempts_count > 1) {
@@ -854,8 +853,8 @@ export function aggregateAiCosts(
 
   const costSeries: CostSeriesPoint[] = [];
   // Orden ascendente por clave de texto: en las tres granularidades la clave
-  // empieza por el año (en `week`, el AÑO ISO) y los dos dígitos siguientes van
-  // crecientes, así que el orden lexicográfico coincide con el cronológico.
+  // empieza por el a├▒o (en `week`, el A├æO ISO) y los dos d├¡gitos siguientes van
+  // crecientes, as├¡ que el orden lexicogr├ífico coincide con el cronol├│gico.
   for (const bucket of [...byBucket.keys()].sort()) {
     costSeries.push({ bucket, costUsd: byBucket.get(bucket) ?? 0 });
   }
@@ -863,18 +862,18 @@ export function aggregateAiCosts(
   const byModelRows: ModelCostRow[] = [...byModel.entries()].map(([model, agg]) => ({
     model,
     calls: agg.calls,
-    // La SUMA sigue siendo `number` aunque no haya ningún coste conocido: 0 es la
-    // suma válida de una lista vacía. Lo que dice "no lo sabemos" es
+    // La SUMA sigue siendo `number` aunque no haya ning├║n coste conocido: 0 es la
+    // suma v├ílida de una lista vac├¡a. Lo que dice "no lo sabemos" es
     // `costKnownCalls`, y por eso el promedio de abajo es `null` y no 0.
     totalCostUsd: agg.costUsd,
     // Denominador: las llamadas del modelo con coste CONOCIDO, no `calls`. Si
-    // una llamada no tiene coste, promediar sobre `calls` la bajaría a la nada.
+    // una llamada no tiene coste, promediar sobre `calls` la bajar├¡a a la nada.
     // Y si NINGUNA la tiene, no hay promedio: `null`, no 0.
     avgCostUsd: agg.costKnownCalls === 0 ? null : agg.costUsd / agg.costKnownCalls,
     costKnownCalls: agg.costKnownCalls,
   }));
-  // El orden NO mira `avgCostUsd`: con `avgCostUsd: null` una resta daría NaN y
-  // el comparador quedaría sin criterio. Se ordena por la suma (que sí es
+  // El orden NO mira `avgCostUsd`: con `avgCostUsd: null` una resta dar├¡a NaN y
+  // el comparador quedar├¡a sin criterio. Se ordena por la suma (que s├¡ es
   // comparable entre dos modelos), luego por llamadas y luego por nombre.
   byModelRows.sort(
     (a, b) => b.totalCostUsd - a.totalCostUsd || b.calls - a.calls || a.model.localeCompare(b.model),
@@ -898,7 +897,7 @@ export function aggregateAiCosts(
 
   // Salida de fiabilidad: los contadores planos se mantienen por compatibilidad
   // con consumidores existentes; el desglose detallado refleja los outcomes de
-  // ejecución reales cuando la fila aportó metadatos suficientes.
+  // ejecuci├│n reales cuando la fila aport├│ metadatos suficientes.
   const executionOutcomesAvailable =
     successfulFirstAttempt + successfulAfterRetry + successfulFallback + outcomeFailed + outcomeInProgress > 0;
   const reliability: AiCostsReport['reliability'] = {
@@ -929,20 +928,31 @@ export function aggregateAiCosts(
 }
 
 /**
- * Lee la vista de métricas y devuelve el informe de costes ya agregado.
+ * Lee la vista de m├®tricas y devuelve el informe de costes ya agregado.
  *
- * MISMOS límites que `getDashboardSummary`: el rango va del primer al último
- * milisegundo del día, en UTC y ambos inclusivos (un filtro por día no puede
- * perder la auditoría de las 23:59:59.999), el tope de filas es el mismo y
- * `count: 'exact'` es lo que permite avisar de una truncación.
+ * MISMOS l├¡mites que `getDashboardSummary`: el rango va del primer al ├║ltimo
+ * milisegundo del d├¡a, en UTC y ambos inclusivos (un filtro por d├¡a no puede
+ * perder la auditor├¡a de las 23:59:59.999), el tope de filas es el mismo y
+ * `count: 'exact'` es lo que permite avisar de una truncaci├│n.
  *
- * POR QUÉ AQUÍ NO SE FILTRA POR `result` (y en el Resumen sí): el coste de una
- * auditoría es el mismo sea cual sea su dictamen, y las auditorías en `ERROR`
- * no tienen `result` que filtrar. Filtrar por dictamen haría desaparecer
+ * POR QU├ë AQU├ì NO SE FILTRA POR `result` (y en el Resumen s├¡): el coste de una
+ * auditor├¡a es el mismo sea cual sea su dictamen, y las auditor├¡as en `ERROR`
+ * no tienen `result` que filtrar. Filtrar por dictamen har├¡a desaparecer
  * justamente el gasto de los intentos que fallaron, que es la mitad de la
- * pregunta que responde este dashboard. El filtro `status` (estado del caso) sí
- * se mantiene: ese criterio lo puso quien está mirando, y no oculta coste.
+ * pregunta que responde este dashboard. El filtro `status` (estado del caso) s├¡
+ * se mantiene: ese criterio lo puso quien est├í mirando, y no oculta coste.
  */
+
+/**
+ * Columnas que la vista de costes necesita. `student_identifier` queda FUERA a
+ * propósito: esta ruta no emite datos personales y no debe pedirlos.
+ */
+const AI_COSTS_COLUMNS =
+  'id, case_id, created_at, model, provider_models, audit_status, latency_ms, ' +
+  'attempts_count, attempts_cost_usd, attempts_total_tokens, attempts_prompt_tokens, ' +
+  'attempts_completion_tokens, usage_cost_usd, usage_total_tokens, usage_prompt_tokens, ' +
+  'usage_completion_tokens, country, campus, modality, project, responsible, guideline';
+
 export async function getAiCosts(
   client: InsForgeClient,
   filters: DashboardFilters,
@@ -954,7 +964,12 @@ export async function getAiCosts(
 
   let query = client.database
     .from('audit_dashboard_metrics')
-    .select('*', { count: 'exact' })
+    // Columnas EXPLICITAS, no `*`. Esta ruta nunca devuelve datos personales, así
+    // que pedir `student_identifier` (y las otras 20 columnas) sería hacer
+    // viajar PII por la red —hasta 5000 filas por petición— para descartarla
+    // justo después (minimización de datos, GDPR Art. 5(1)(c)). También acorta
+    // el `count: 'exact'`, que con `*` cuenta sobre 24 columnas.
+    .select(AI_COSTS_COLUMNS, { count: 'exact' })
     .gte('created_at', fromIso)
     .lte('created_at', toIso);
   if (filters.result !== null) query = query.eq('result', filters.result);
@@ -965,7 +980,7 @@ export async function getAiCosts(
     .order('created_at', { ascending: true })
     .limit(DASHBOARD_MAX_ROWS);
 
-  // Ningún stack trace ni detalle del proveedor al cliente: mapProviderError
+  // Ning├║n stack trace ni detalle del proveedor al cliente: mapProviderError
   // traduce el error y sanea el mensaje (nada de tokens o URLs internas).
   if (error) throw mapProviderError(error);
 
@@ -980,40 +995,40 @@ export async function getAiCosts(
 // =============================================================================
 // Calidad
 // =============================================================================
-// Esta vista tiene DOS fuentes, y sólo una de las dos existe por construcción:
+// Esta vista tiene DOS fuentes, y s├│lo una de las dos existe por construcci├│n:
 //
-//  1. LA CONFIANZA que declaró el modelo en cada dictamen. Vive desde el primer
+//  1. LA CONFIANZA que declar├│ el modelo en cada dictamen. Vive desde el primer
 //     dictamen, y se lee de `public.audit_dashboard_metrics`.
 //
-//  2. LA REVISIÓN HUMANA: qué decidió una persona, y si el modelo coincidió con
-//     esa decisión al comparar. Nació con el módulo de revisión humana
+//  2. LA REVISI├ôN HUMANA: qu├® decidi├│ una persona, y si el modelo coincidi├│ con
+//     esa decisi├│n al comparar. Naci├│ con el m├│dulo de revisi├│n humana
 //     (`case_reviews` + `case_comparisons`) y se lee de
 //     `public.case_comparisons_dashboard_metrics`.
 //
-// LA DIFERENCIA ENTRE UNA PANTALLA HONESTA Y UNA QUE MIENTE ESTÁ ENTERA EN LO QUE
-// HACE ESTE ARCHIVO CUANDO NO HAY DATO. Un `agreementRate: 0` afirmaría "hubo
-// cero coincidencias", y eso es FALSO cuando lo que pasa es que nadie comparó: no
-// es que la IA falle siempre, es que todavía no hay nada que medir. Lo que se
-// devuelve es `null` más un motivo legible, y la UI lo pinta como "sin dato",
+// LA DIFERENCIA ENTRE UNA PANTALLA HONESTA Y UNA QUE MIENTE EST├ü ENTERA EN LO QUE
+// HACE ESTE ARCHIVO CUANDO NO HAY DATO. Un `agreementRate: 0` afirmar├¡a "hubo
+// cero coincidencias", y eso es FALSO cuando lo que pasa es que nadie compar├│: no
+// es que la IA falle siempre, es que todav├¡a no hay nada que medir. Lo que se
+// devuelve es `null` m├ís un motivo legible, y la UI lo pinta como "sin dato",
 // nunca como cero. Es el mismo criterio que ya separa NULL de 0 en las columnas
-// de coste de la vista de métricas (`COST_PER_ROW`, con su tripleta fijada por
-// un test más arriba en este archivo), y por eso aquí hay tests que lo fijan
-// también.
+// de coste de la vista de m├®tricas (`COST_PER_ROW`, con su tripleta fijada por
+// un test m├ís arriba en este archivo), y por eso aqu├¡ hay tests que lo fijan
+// tambi├®n.
 //
-// NADA DE ESTA SECCIÓN CLASIFICA (NO_RULES_ENGINE). El bloque humano no
-// reinterpreta el veredicto de la comparación: `agrees` y `confidence` los
-// escribió el modelo y ya pasaron por `ComparisonResultSchema`
-// (src/skills/review/schema.ts). Aquí sólo se cuentan y se promedian. La
-// resolución final del caso sigue siendo la de la persona, y el modelo dice si
-// discrepa, no reemplaza la decisión.
+// NADA DE ESTA SECCI├ôN CLASIFICA (NO_RULES_ENGINE). El bloque humano no
+// reinterpreta el veredicto de la comparaci├│n: `agrees` y `confidence` los
+// escribi├│ el modelo y ya pasaron por `ComparisonResultSchema`
+// (src/skills/review/schema.ts). Aqu├¡ s├│lo se cuentan y se promedian. La
+// resoluci├│n final del caso sigue siendo la de la persona, y el modelo dice si
+// discrepa, no reemplaza la decisi├│n.
 // =============================================================================
 
 /**
- * Etiqueta CORTA de cada banda, para el eje X de la gráfica (donde "Alta
- * confianza" no cabe y "Media confianza" se solaparía con la vecina).
+ * Etiqueta CORTA de cada banda, para el eje X de la gr├ífica (donde "Alta
+ * confianza" no cabe y "Media confianza" se solapar├¡a con la vecina).
  *
  * NO sustituye a `CONFIDENCE_BAND_LABELS` (`src/lib/labels.ts`), que sigue siendo
- * la forma larga y canónica: el `band` viaja siempre junto a `label`, así que
+ * la forma larga y can├│nica: el `band` viaja siempre junto a `label`, as├¡ que
  * cualquiera que necesite el nombre completo lo tiene sin volver a pedirlo.
  */
 const CONFIDENCE_BAND_SHORT_LABELS: Record<ConfidenceBand, string> = {
@@ -1029,13 +1044,13 @@ const CONFIDENCE_BAND_ORDER: readonly ConfidenceBand[] = ['ALTA', 'MEDIA', 'BAJA
  * Fila de `public.case_comparisons_dashboard_metrics`.
  *
  * ESCALARES SOLO, igual que `DashboardMetricRow`: la vista no expone
- * `result_json` ni el comentario humano, y no los expone por una razón concreta.
- * `explanation` y `discrepancyReason` son texto que el modelo escribió sobre un
+ * `result_json` ni el comentario humano, y no los expone por una raz├│n concreta.
+ * `explanation` y `discrepancyReason` son texto que el modelo escribi├│ sobre un
  * expediente con PII, y nadie los necesita para contar; lo que hace falta son
- * `agrees` y `confidence`, que son dos números.
+ * `agrees` y `confidence`, que son dos n├║meros.
  *
- * `agrees` y `confidence` son `null` cuando la fila está `RUNNING` o `ERROR` (es
- * así como las escribe `reviews.ts`) y también cuando el `result_json` no trae
+ * `agrees` y `confidence` son `null` cuando la fila est├í `RUNNING` o `ERROR` (es
+ * as├¡ como las escribe `reviews.ts`) y tambi├®n cuando el `result_json` no trae
  * un valor legible. `null` significa "no hay dato", y por eso el agregador nunca
  * lo cuenta como desacuerdo.
  */
@@ -1043,12 +1058,12 @@ export interface ComparisonMetricRow {
   id: string;
   case_review_id: string;
   case_id: string;
-  /** Estado del CASO, para que el filtro `status` del dashboard aplique también aquí. */
+  /** Estado del CASO, para que el filtro `status` del dashboard aplique tambi├®n aqu├¡. */
   case_status: CaseStatus | null;
-  /** Dictamen de la auditoría COMPARADA, para que el filtro `result` aplique. */
+  /** Dictamen de la auditor├¡a COMPARADA, para que el filtro `result` aplique. */
   audit_result: AuditResultType | null;
   status: ComparisonStatusRow;
-  /** Fecha de la comparación: es la que recorta el periodo de este bloque. */
+  /** Fecha de la comparaci├│n: es la que recorta el periodo de este bloque. */
   created_at: string;
   agrees: boolean | null;
   confidence: number | null;
@@ -1057,26 +1072,26 @@ export interface ComparisonMetricRow {
 /**
  * Entrada humana del agregador: lo que la consulta deja para el periodo.
  *
- * Se pasa SEPARADA de las filas de `DashboardMetricRow` a propósito. Son dos
+ * Se pasa SEPARADA de las filas de `DashboardMetricRow` a prop├│sito. Son dos
  * fuentes distintas, con dos periodos distintos (`audits.created_at` y
- * `case_comparisons.created_at`) y dos filas distintas, y mezclarlas haría que
+ * `case_comparisons.created_at`) y dos filas distintas, y mezclarlas har├¡a que
  * un filtro del dashboard moviera la coincidencia por un efecto secundario. Por
  * eso `aggregateQuality` la recibe como argumento OBLIGATORIO: un valor por
- * defecto haría que olvidar cablearla en producción se viera como un informe
+ * defecto har├¡a que olvidar cablearla en producci├│n se viera como un informe
  * honesto de "no hay revisiones", que es justo la mentira que este bloque evita.
  */
 export interface HumanReviewInput {
   /**
-   * Revisiones humanas del periodo. Incluye las registradas en el rango MÁS las
-   * que son dueñas de una comparación del rango (una revisión del 31 de agosto
-   * cuya comparación terminó el 2 de septiembre cuenta: es la misma historia
-   * humana, y sin ella el bloque se contradiría a sí mismo, diciendo "no hay
-   * revisión registrada" junto a una tasa ya calculada).
+   * Revisiones humanas del periodo. Incluye las registradas en el rango M├üS las
+   * que son due├▒as de una comparaci├│n del rango (una revisi├│n del 31 de agosto
+   * cuya comparaci├│n termin├│ el 2 de septiembre cuenta: es la misma historia
+   * humana, y sin ella el bloque se contradir├¡a a s├¡ mismo, diciendo "no hay
+   * revisi├│n registrada" junto a una tasa ya calculada).
    */
   reviewedCases: number;
   /** Comparaciones del periodo, ya recortadas por la consulta. */
   comparisons: ComparisonMetricRow[];
-  /** Total exacto del periodo, para poder avisar de una truncación. */
+  /** Total exacto del periodo, para poder avisar de una truncaci├│n. */
   comparisonsAvailable: number;
 }
 
@@ -1086,46 +1101,46 @@ export interface HumanReviewInput {
  * LO QUE ESTA INTERFAZ PROMETE, POR TIPO: `agreementRate` y
  * `avgComparisonConfidence` son `number | null`, y el `null` significa "no se ha
  * medido". Por eso NO son `number` con un 0 de reserva: un `0` es un dato
- * AFIRMADO ("de todas las comparaciones, ninguna coincidió"), y en el caso que
- * importa es FALSO, porque lo que pasa es que todavía no se comparó nada. El 0
+ * AFIRMADO ("de todas las comparaciones, ninguna coincidi├│"), y en el caso que
+ * importa es FALSO, porque lo que pasa es que todav├¡a no se compar├│ nada. El 0
  * se reserva para los contadores, que son hechos y no promedios: `0` revisiones
- * registradas SÍ es verdad cuando nadie ha revisado nada.
+ * registradas S├ì es verdad cuando nadie ha revisado nada.
  *
- * `agreementRate` es una RAZÓN entre 0 y 1, NO un porcentaje: 0.667 son dos
+ * `agreementRate` es una RAZ├ôN entre 0 y 1, NO un porcentaje: 0.667 son dos
  * tercios. Se redondea a 3 decimales, igual que las medias de confianza del
  * informe, para que la coma flotante no deje `0.6666666666666666` en la
  * pantalla.
  */
 export interface HumanReviewReport {
-  /** `true` si existe al menos UNA revisión humana en el periodo. */
+  /** `true` si existe al menos UNA revisi├│n humana en el periodo. */
   available: boolean;
   /**
-   * Explicación del estado actual, en español, lista para pintar tal cual.
+   * Explicaci├│n del estado actual, en espa├▒ol, lista para pintar tal cual.
    *
-   * La redacta el SERVIDOR y no el frontend a propósito: la explicación de por
-   * qué falta un dato tiene que vivir junto al cálculo que la produce, y todos
-   * los números que aparecen en el texto salen de las cifras de este mismo
-   * objeto. Si el mensaje lo compusiera la UI, podría decir "no hay datos" con
+   * La redacta el SERVIDOR y no el frontend a prop├│sito: la explicaci├│n de por
+   * qu├® falta un dato tiene que vivir junto al c├ílculo que la produce, y todos
+   * los n├║meros que aparecen en el texto salen de las cifras de este mismo
+   * objeto. Si el mensaje lo compusiera la UI, podr├¡a decir "no hay datos" con
    * datos delante sin que nadie lo notara.
    */
   message: string;
   /** Revisiones humanas registradas que el periodo contiene. */
   reviewedCases: number;
   /**
-   * Revisiones con resultado humano y de auditoría disponibles: en el flujo de
-   * comparaciones son las `COMPLETED`, las únicas con veredicto y el
+   * Revisiones con resultado humano y de auditor├¡a disponibles: en el flujo de
+   * comparaciones son las `COMPLETED`, las ├║nicas con veredicto y el
    * denominador de `agreementRate`. Exigida por `ExactHumanReviewReport`.
    */
   comparableReviews: number;
-  /** Comparaciones `COMPLETED`: las únicas con veredicto. */
+  /** Comparaciones `COMPLETED`: las ├║nicas con veredicto. */
   completedComparisons: number;
-  /** Comparaciones `RUNNING`: en curso, sin veredicto todavía. */
+  /** Comparaciones `RUNNING`: en curso, sin veredicto todav├¡a. */
   pendingComparisons: number;
   /** Comparaciones `ERROR`: terminadas en fallo, sin veredicto. */
   failedComparisons: number;
-  /** De las completadas, cuántas afirmaron coincidencia (`agrees === true`). */
+  /** De las completadas, cu├íntas afirmaron coincidencia (`agrees === true`). */
   agreements: number;
-  /** De las completadas, cuántas afirmaron discrepancia (`agrees === false`). */
+  /** De las completadas, cu├íntas afirmaron discrepancia (`agrees === false`). */
   disagreements: number;
   /** `agreements / completedComparisons`, o `null` si no hay comparaciones completadas. */
   agreementRate: number | null;
@@ -1137,8 +1152,8 @@ export interface HumanReviewReport {
  * Contadores de las comparaciones del periodo, ya reducez por estado.
  *
  * Se calculan UNA vez y alimentan tanto el informe como el `message`, para que el
- * texto no pueda contradecir a los números que acompaña: si los dos salieran de
- * recorridos distintos, un `message` podría acabar diciendo "2 comparaciones
+ * texto no pueda contradecir a los n├║meros que acompa├▒a: si los dos salieran de
+ * recorridos distintos, un `message` podr├¡a acabar diciendo "2 comparaciones
  * completadas" junto a un `completedComparisons: 3`.
  */
 interface HumanReviewCounts {
@@ -1155,18 +1170,18 @@ interface HumanReviewCounts {
 /**
  * Recorre las comparaciones del periodo y las reparte por estado.
  *
- * POR QUÉ `RUNNING` Y `ERROR` NO SON NI UN ACUERDO NI UN DESACUERDO: una
- * comparación en curso todavía no tiene veredicto, y una fallida no llegó a
- * emitirlo. Contarlas como desacuerdo publicaría una discrepancia que nadie
- * registró, que es justo el defecto que este bloque evita. Se informan aparte,
+ * POR QU├ë `RUNNING` Y `ERROR` NO SON NI UN ACUERDO NI UN DESACUERDO: una
+ * comparaci├│n en curso todav├¡a no tiene veredicto, y una fallida no lleg├│ a
+ * emitirlo. Contarlas como desacuerdo publicar├¡a una discrepancia que nadie
+ * registr├│, que es justo el defecto que este bloque evita. Se informan aparte,
  * en `pendingComparisons` y `failedComparisons`.
  *
  * `agrees === null` en una fila `COMPLETED` es una forma defensiva: la fila
- * AFIRMA que terminó (eso dice su `status`, y es un dato), pero no trae
- * veredicto legible. Suma a `completed` —porque terminó— y ni a `agreements` ni a
+ * AFIRMA que termin├│ (eso dice su `status`, y es un dato), pero no trae
+ * veredicto legible. Suma a `completed` ÔÇöporque termin├│ÔÇö y ni a `agreements` ni a
  * `disagreements`, porque no hay nada que repartir entre esos dos. Nunca ocurre
- * con datos reales: `updateComparisonResult` sólo escribe un `result_json` que ya
- * pasó `ComparisonResultSchema` (src/skills/review/schema.ts).
+ * con datos reales: `updateComparisonResult` s├│lo escribe un `result_json` que ya
+ * pas├│ `ComparisonResultSchema` (src/skills/review/schema.ts).
  */
 function countComparisons(comparisons: ComparisonMetricRow[]): HumanReviewCounts {
   const counts: HumanReviewCounts = {
@@ -1193,8 +1208,8 @@ function countComparisons(comparisons: ComparisonMetricRow[]): HumanReviewCounts
     if (row.agrees === true) counts.agreements += 1;
     else if (row.agrees === false) counts.disagreements += 1;
 
-    // Ausente o no finito: dato ausente. Promediarlo bajaría la confianza media
-    // de la comparación con un valor que nadie declaró.
+    // Ausente o no finito: dato ausente. Promediarlo bajar├¡a la confianza media
+    // de la comparaci├│n con un valor que nadie declar├│.
     const confidence = row.confidence;
     if (confidence !== null && Number.isFinite(confidence)) {
       counts.confidenceSum += confidence;
@@ -1205,12 +1220,12 @@ function countComparisons(comparisons: ComparisonMetricRow[]): HumanReviewCounts
   return counts;
 }
 
-/** `1 revisión humana` / `2 revisiones humanas`. El número SIEMPRE delante. */
+/** `1 revisi├│n humana` / `2 revisiones humanas`. El n├║mero SIEMPRE delante. */
 function pluralizar(cantidad: number, singular: string, plural: string): string {
   return `${cantidad} ${cantidad === 1 ? singular : plural}`;
 }
 
-/** Enumera sin Oxford coma: `a, b y c`. Nunca recibe una lista vacía. */
+/** Enumera sin Oxford coma: `a, b y c`. Nunca recibe una lista vac├¡a. */
 function enumerar(partes: readonly string[]): string {
   if (partes.length === 0) return '';
   if (partes.length === 1) return partes[0] ?? '';
@@ -1218,49 +1233,49 @@ function enumerar(partes: readonly string[]): string {
 }
 
 /**
- * Estado sin una sola revisión humana. El texto va FIJO y un test lo fija
- * entero: es el mensaje que la UI explica bajo las tarjetas vacías, y si cambia
- * tiene que cambiar a propósito.
+ * Estado sin una sola revisi├│n humana. El texto va FIJO y un test lo fija
+ * entero: es el mensaje que la UI explica bajo las tarjetas vac├¡as, y si cambia
+ * tiene que cambiar a prop├│sito.
  */
 const SIN_REVISION_MESSAGE =
-  'Todavía no hay ninguna revisión humana registrada en el periodo, así que no hay nada que comparar: ' +
-  'la coincidencia entre el dictamen de la IA y la decisión de una persona no se puede calcular. ' +
-  'Se muestra únicamente lo que sí existe: la confianza declarada por el modelo en cada dictamen.';
+  'Todav├¡a no hay ninguna revisi├│n humana registrada en el periodo, as├¡ que no hay nada que comparar: ' +
+  'la coincidencia entre el dictamen de la IA y la decisi├│n de una persona no se puede calcular. ' +
+  'Se muestra ├║nicamente lo que s├¡ existe: la confianza declarada por el modelo en cada dictamen.';
 
 /**
- * Frase de apertura, común a todos los estados con revisiones: el número de
+ * Frase de apertura, com├║n a todos los estados con revisiones: el n├║mero de
  * revisiones del periodo sale de `input.reviewedCases`, ya contado por la
- * consulta, así que el texto nunca puede afirmar más de lo que el dato sostiene.
+ * consulta, as├¡ que el texto nunca puede afirmar m├ís de lo que el dato sostiene.
  */
 function cabeceraRevisiones(reviewedCases: number): string {
-  return `Hay ${pluralizar(reviewedCases, 'revisión humana registrada', 'revisiones humanas registradas')} en el periodo`;
+  return `Hay ${pluralizar(reviewedCases, 'revisi├│n humana registrada', 'revisiones humanas registradas')} en el periodo`;
 }
 
 /**
- * POR QUÉ EL SERVIDOR REDACTA EL `message` Y NO LA UI
+ * POR QU├ë EL SERVIDOR REDACTA EL `message` Y NO LA UI
  *
- * La explicación de por qué falta un dato tiene que vivir JUNTO al cálculo que la
+ * La explicaci├│n de por qu├® falta un dato tiene que vivir JUNTO al c├ílculo que la
  * produce, o las dos piezas se desincronizan sin que nada falle. Con el mensaje
- * aquí, todos los números que aparecen en el texto salen de `counts` —el mismo
- * objeto que alimenta las cifras de la tarjeta— y la UI lo pinta tal cual
+ * aqu├¡, todos los n├║meros que aparecen en el texto salen de `counts` ÔÇöel mismo
+ * objeto que alimenta las cifras de la tarjetaÔÇö y la UI lo pinta tal cual
  * (`src/components/dashboard/QualityPage.tsx`).
  *
- * Y hay un criterio más fuerte que el de no contradecirse: el texto no puede
- * AFIRMAR un estado que los datos no sostienen. Por eso "en curso" y "falló" son
- * cláusulas condicionales y no un menú fijo: cuando no hay nada en curso, el
- * mensaje no dice "en curso", porque eso insinuaría una actividad que no existe.
+ * Y hay un criterio m├ís fuerte que el de no contradecirse: el texto no puede
+ * AFIRMAR un estado que los datos no sostienen. Por eso "en curso" y "fall├│" son
+ * cl├íusulas condicionales y no un men├║ fijo: cuando no hay nada en curso, el
+ * mensaje no dice "en curso", porque eso insinuar├¡a una actividad que no existe.
  *
  * LA REGLA DE LOS ESTADOS, en orden:
  *   1. Sin revisiones                  -> el mensaje fijo de arriba.
- *   2. Revisiones y NINGUNA comparación -> "ninguna tiene comparación": no hay
- *      nada en curso porque no se empezó nada. Es un tercer estado, distinto
- *      tanto de "en curso" como de "falló".
- *   3. Sin completadas, sólo en curso   -> la tasa todavía no se puede calcular.
- *   4. Sin completadas, sólo fallidas   -> se dice que FALLARON, nunca "en curso".
+ *   2. Revisiones y NINGUNA comparaci├│n -> "ninguna tiene comparaci├│n": no hay
+ *      nada en curso porque no se empez├│ nada. Es un tercer estado, distinto
+ *      tanto de "en curso" como de "fall├│".
+ *   3. Sin completadas, s├│lo en curso   -> la tasa todav├¡a no se puede calcular.
+ *   4. Sin completadas, s├│lo fallidas   -> se dice que FALLARON, nunca "en curso".
  *   5. Sin completadas, de las dos      -> las dos, con la misma reserva.
  *   6. Con completadas, nada pendiente  -> se mide sobre ellas y ya.
- *   7. Con completadas y resto          -> se mide SÓLO sobre las completadas, y se
- *      dice explícitamente que las demás no cuentan.
+ *   7. Con completadas y resto          -> se mide S├ôLO sobre las completadas, y se
+ *      dice expl├¡citamente que las dem├ís no cuentan.
  */
 function humanReviewMessage(input: HumanReviewInput, counts: HumanReviewCounts, available: boolean): string {
   if (!available) return SIN_REVISION_MESSAGE;
@@ -1268,38 +1283,38 @@ function humanReviewMessage(input: HumanReviewInput, counts: HumanReviewCounts, 
   const cabecera = cabeceraRevisiones(input.reviewedCases);
   const { completed, pending, failed } = counts;
 
-  // Estado 2: hay revisiones pero ni una comparación. No hay nada en curso
-  // porque no se empezó nada, y decirlo con "en curso" sería mentir.
+  // Estado 2: hay revisiones pero ni una comparaci├│n. No hay nada en curso
+  // porque no se empez├│ nada, y decirlo con "en curso" ser├¡a mentir.
   if (input.comparisons.length === 0) {
     return (
-      `${cabecera} y ninguna tiene comparación: la coincidencia entre el dictamen de la IA ` +
-      `y la decisión de una persona todavía no se puede calcular porque no se ha comparado ` +
-      `ningún caso del periodo.`
+      `${cabecera} y ninguna tiene comparaci├│n: la coincidencia entre el dictamen de la IA ` +
+      `y la decisi├│n de una persona todav├¡a no se puede calcular porque no se ha comparado ` +
+      `ning├║n caso del periodo.`
     );
   }
 
   const sinCompletadas =
-    `${cabecera}, con ${pluralizar(pending, 'comparación en curso', 'comparaciones en curso')} ` +
-    `y ${pluralizar(failed, 'comparación fallida', 'comparaciones fallidas')}, ninguna completada todavía: ` +
-    `la coincidencia entre el dictamen de la IA y la decisión de una persona no se puede calcular. ` +
+    `${cabecera}, con ${pluralizar(pending, 'comparaci├│n en curso', 'comparaciones en curso')} ` +
+    `y ${pluralizar(failed, 'comparaci├│n fallida', 'comparaciones fallidas')}, ninguna completada todav├¡a: ` +
+    `la coincidencia entre el dictamen de la IA y la decisi├│n de una persona no se puede calcular. ` +
     `Las comparaciones que no se completaron no cuentan ni como acuerdo ni como desacuerdo, y se informan aparte.`;
 
-  // Estado 3: sólo en curso.
+  // Estado 3: s├│lo en curso.
   if (completed === 0 && pending > 0 && failed === 0) {
     return (
-      `${cabecera}, con ${pluralizar(pending, 'comparación en curso', 'comparaciones en curso')} ` +
-      `y ninguna completada todavía: la coincidencia entre el dictamen de la IA y la decisión de ` +
-      `una persona no se puede calcular hasta que exista una comparación completada.`
+      `${cabecera}, con ${pluralizar(pending, 'comparaci├│n en curso', 'comparaciones en curso')} ` +
+      `y ninguna completada todav├¡a: la coincidencia entre el dictamen de la IA y la decisi├│n de ` +
+      `una persona no se puede calcular hasta que exista una comparaci├│n completada.`
     );
   }
 
-  // Estado 4: sólo fallidas. El verbo va en plural porque el texto tiene que
+  // Estado 4: s├│lo fallidas. El verbo va en plural porque el texto tiene que
   // poder hablar del conjunto aunque haya una sola.
   if (completed === 0 && failed > 0 && pending === 0) {
     return (
-      `${cabecera}, con ${pluralizar(failed, 'comparación fallida', 'comparaciones fallidas')}: ` +
-      `ninguna llegó a emitir veredicto, así que la coincidencia entre el dictamen de la IA y la ` +
-      `decisión de una persona no se puede calcular. Las comparaciones que fallaron no aportan ni ` +
+      `${cabecera}, con ${pluralizar(failed, 'comparaci├│n fallida', 'comparaciones fallidas')}: ` +
+      `ninguna lleg├│ a emitir veredicto, as├¡ que la coincidencia entre el dictamen de la IA y la ` +
+      `decisi├│n de una persona no se puede calcular. Las comparaciones que fallaron no aportan ni ` +
       `acuerdo ni desacuerdo, y se informan aparte.`
     );
   }
@@ -1307,25 +1322,25 @@ function humanReviewMessage(input: HumanReviewInput, counts: HumanReviewCounts, 
   // Estado 5: en curso y fallidas, sin ninguna completada.
   if (completed === 0) return sinCompletadas;
 
-  // Estado 6: hay completadas y nada más. La palabra "fallida" no aparece por
-  // ningún lado: no hay ninguna, y nombrarla insinuaría un fallo inexistente.
+  // Estado 6: hay completadas y nada m├ís. La palabra "fallida" no aparece por
+  // ning├║n lado: no hay ninguna, y nombrarla insinuar├¡a un fallo inexistente.
   if (pending === 0 && failed === 0) {
     return (
-      `${cabecera}, con ${pluralizar(completed, 'comparación completada', 'comparaciones completadas')}: ` +
-      `la coincidencia entre el dictamen de la IA y la decisión de una persona se mide solo sobre ` +
+      `${cabecera}, con ${pluralizar(completed, 'comparaci├│n completada', 'comparaciones completadas')}: ` +
+      `la coincidencia entre el dictamen de la IA y la decisi├│n de una persona se mide solo sobre ` +
       `ellas, porque todas las comparaciones del periodo terminaron.`
     );
   }
 
-  // Estado 7: hay completadas y además alguna en curso o fallida. Se enumeran
-  // SÓLO las que existen: nombrar una categoría vacía ("y 0 fallidas") insinuaría
-  // un fallo que no ocurrió, que es la misma mentira en su forma más pequeña.
-  const partes = [pluralizar(completed, 'comparación completada', 'comparaciones completadas')];
-  if (pending > 0) partes.push(pluralizar(pending, 'comparación en curso', 'comparaciones en curso'));
+  // Estado 7: hay completadas y adem├ís alguna en curso o fallida. Se enumeran
+  // S├ôLO las que existen: nombrar una categor├¡a vac├¡a ("y 0 fallidas") insinuar├¡a
+  // un fallo que no ocurri├│, que es la misma mentira en su forma m├ís peque├▒a.
+  const partes = [pluralizar(completed, 'comparaci├│n completada', 'comparaciones completadas')];
+  if (pending > 0) partes.push(pluralizar(pending, 'comparaci├│n en curso', 'comparaciones en curso'));
   if (failed > 0) partes.push(`${failed} ${failed === 1 ? 'fallida' : 'fallidas'}`);
 
   return (
-    `${cabecera}: ${enumerar(partes)}. La coincidencia entre el dictamen de la IA y la decisión de ` +
+    `${cabecera}: ${enumerar(partes)}. La coincidencia entre el dictamen de la IA y la decisi├│n de ` +
     `una persona se mide solo sobre las comparaciones completadas: las que no llegaron a completarse ` +
     `no cuentan ni como acuerdo ni como desacuerdo, y se informan aparte.`
   );
@@ -1335,31 +1350,31 @@ function humanReviewMessage(input: HumanReviewInput, counts: HumanReviewCounts, 
  * Agrega la entrada humana del periodo en el bloque `humanReview` del informe.
  *
  * PURA: sin red, sin reloj y sin efectos secundarios. Recibe la entrada YA
- * recortada por periodo y filtros (`getHumanReviewInput`) y aquí sólo cuenta y
+ * recortada por periodo y filtros (`getHumanReviewInput`) y aqu├¡ s├│lo cuenta y
  * promedia.
  *
- * LA REGLA NÚMERO UNO, y la razón de que este bloque exista:
+ * LA REGLA N├ÜMERO UNO, y la raz├│n de que este bloque exista:
  *   `agreementRate` es `number | null` y vale `null` CUANDO `completedComparisons`
  *   es 0. Nunca 0.
  *
- * Un 0 ahí afirmaría "de todas las comparaciones, ninguna coincidió", y eso es
- * FALSO cuando lo que ocurre es que todavía no se comparó nada: no es que el
+ * Un 0 ah├¡ afirmar├¡a "de todas las comparaciones, ninguna coincidi├│", y eso es
+ * FALSO cuando lo que ocurre es que todav├¡a no se compar├│ nada: no es que el
  * modelo falle siempre, es que no hay nada que medir. Por eso el 0 se queda
- * reservado para los CONTADORES, que son hechos (`0` revisiones registradas SÍ es
- * verdad cuando nadie ha revisado nada) y para el caso en que sí hubo
- * comparaciones completadas y ninguna coincidió, que es una afirmación
+ * reservado para los CONTADORES, que son hechos (`0` revisiones registradas S├ì es
+ * verdad cuando nadie ha revisado nada) y para el caso en que s├¡ hubo
+ * comparaciones completadas y ninguna coincidi├│, que es una afirmaci├│n
  * verdadera sobre un dato que existe.
  *
- * NADA DE ESTA FUNCIÓN CLASIFICA (NO_RULES_ENGINE). `agrees` y `confidence` los
- * escribió el modelo y ya pasaron por `ComparisonResultSchema`
- * (src/skills/review/schema.ts). Aquí sólo se cuentan y se promedian; la
- * resolución final del caso sigue siendo la de la persona.
+ * NADA DE ESTA FUNCI├ôN CLASIFICA (NO_RULES_ENGINE). `agrees` y `confidence` los
+ * escribi├│ el modelo y ya pasaron por `ComparisonResultSchema`
+ * (src/skills/review/schema.ts). Aqu├¡ s├│lo se cuentan y se promedian; la
+ * resoluci├│n final del caso sigue siendo la de la persona.
  */
 export function aggregateHumanReview(input: HumanReviewInput): HumanReviewReport {
   const counts = countComparisons(input.comparisons);
-  // `available` responde "¿sabe el sistema algo de revisión humana?", así que
-  // basta con que exista una revisión O una comparación: el agregado es puro y
-  // no puede asumir que la consulta ya hizo esta unión.
+  // `available` responde "┬┐sabe el sistema algo de revisi├│n humana?", as├¡ que
+  // basta con que exista una revisi├│n O una comparaci├│n: el agregado es puro y
+  // no puede asumir que la consulta ya hizo esta uni├│n.
   const available = input.reviewedCases > 0 || input.comparisons.length > 0;
 
   const agreementRate =
@@ -1382,25 +1397,25 @@ export function aggregateHumanReview(input: HumanReviewInput): HumanReviewReport
   };
 }
 
-/** Bucket de evidencia faltante. La clave viaja como texto porque `2+` no es un número. */
+/** Bucket de evidencia faltante. La clave viaja como texto porque `2+` no es un n├║mero. */
 export type { MissingEvidenceBucket };
 
-/** Orden fijo de los buckets, de menos a más evidencia faltante. */
+/** Orden fijo de los buckets, de menos a m├ís evidencia faltante. */
 const MISSING_EVIDENCE_BUCKET_ORDER: readonly MissingEvidenceBucket[] = ['0', '1', '2+'];
 
 /**
  * Etiquetas de cada bucket.
  *
- * El `2+` NO se desglosa en `2`, `3`, `4`… a propósito: la pregunta que responde
- * esta vista es "¿la confianza baja cuando el expediente está incompleto?", y para
+ * El `2+` NO se desglosa en `2`, `3`, `4`ÔÇª a prop├│sito: la pregunta que responde
+ * esta vista es "┬┐la confianza baja cuando el expediente est├í incompleto?", y para
  * eso interesa el efecto de una ausencia grande, no la cola de expedientes con
- * seis evidencias ausentes. Además, un bucket por cada valor real haría que la
- * gráfica mostrara un subconjunto arbitrario del periodo en lugar del periodo.
+ * seis evidencias ausentes. Adem├ís, un bucket por cada valor real har├¡a que la
+ * gr├ífica mostrara un subconjunto arbitrario del periodo en lugar del periodo.
  */
 const MISSING_EVIDENCE_BUCKET_LABELS: Record<MissingEvidenceBucket, string> = {
   '0': 'Expediente completo',
   '1': 'Falta 1 evidencia',
-  '2+': 'Faltan 2 o más',
+  '2+': 'Faltan 2 o m├ís',
 };
 
 /**
@@ -1418,7 +1433,7 @@ function missingEvidenceBucket(count: number | null): MissingEvidenceBucket {
   return '0';
 }
 
-/** Redondeo a 3 decimales: quita el ruido de coma flotante sin perder precisión útil. */
+/** Redondeo a 3 decimales: quita el ruido de coma flotante sin perder precisi├│n ├║til. */
 function round3(value: number): number {
   return Math.round(value * 1000) / 1000;
 }
@@ -1438,10 +1453,10 @@ export function aggregateExactHumanReview(input: ExactHumanReviewInput): ExactHu
   const available = input.reviews.length > 0;
   const agreementRate = comparableReviews === 0 ? null : round3(agreements / comparableReviews);
   const message = !available
-    ? 'No hay revisiones humanas registradas para las auditorías de este periodo; la coincidencia no se puede calcular.'
+    ? 'No hay revisiones humanas registradas para las auditor├¡as de este periodo; la coincidencia no se puede calcular.'
     : comparableReviews === 0
-      ? `Hay ${input.reviews.length} revisión(es), pero no hay un resultado disponible en su auditoría exacta para calcular coincidencia.`
-      : `Coincidencia exacta entre el resultado humano y el de la auditoría referenciada: ${agreements} de ${comparableReviews} revisiones comparables.`;
+      ? `Hay ${input.reviews.length} revisi├│n(es), pero no hay un resultado disponible en su auditor├¡a exacta para calcular coincidencia.`
+      : `Coincidencia exacta entre el resultado humano y el de la auditor├¡a referenciada: ${agreements} de ${comparableReviews} revisiones comparables.`;
 
   return {
     available,
@@ -1458,18 +1473,18 @@ export function aggregateExactHumanReview(input: ExactHumanReviewInput): ExactHu
  * Confianza declarada por el modelo, agrupada.
  *
  * `bands` trae SIEMPRE las 3 bandas, aunque valgan 0: una banda en cero es
- * información ("nunca hubo confianza baja"), y sin ella la gráfica cambiaría de
+ * informaci├│n ("nunca hubo confianza baja"), y sin ella la gr├ífica cambiar├¡a de
  * forma al mover el periodo en vez de al dato.
  *
- * `confidenceByMissingEvidence` es al revés a propósito: solo incluye los buckets
- * con al menos una fila. Poner un bucket en cero ahí sería afirmar "con un
+ * `confidenceByMissingEvidence` es al rev├®s a prop├│sito: solo incluye los buckets
+ * con al menos una fila. Poner un bucket en cero ah├¡ ser├¡a afirmar "con un
  * expediente completo la confianza media es 0 %", que es falso: es que no hay
- * ningún expediente completo en el periodo.
+ * ning├║n expediente completo en el periodo.
  */
 export interface ConfidenceReport {
-  /** Dictámenes COMPLETED que declararon confianza (el denominador de `pct`). */
+  /** Dict├ímenes COMPLETED que declararon confianza (el denominador de `pct`). */
   auditedCases: number;
-  /** `null` si ningún dictamen declaró confianza: la media de una lista vacía no es 0. */
+  /** `null` si ning├║n dictamen declar├│ confianza: la media de una lista vac├¡a no es 0. */
   avgConfidence: number | null;
   bands: Array<{ band: ConfidenceBand; label: string; count: number; pct: number }>;
   confidenceByMissingEvidence: Array<{
@@ -1510,11 +1525,11 @@ export interface QualityReport {
  * Pura: sin red, sin reloj (salvo `generatedAt`) y sin efectos secundarios.
  *
  * `totalAvailable` es el total de filas que la base dice que hay (count exacto),
- * no el tamaño de `rows`: es lo único que permite avisar de una truncación.
+ * no el tama├▒o de `rows`: es lo ├║nico que permite avisar de una truncaci├│n.
  *
- * `humanReview` es OBLIGATORIO a propósito (ver `HumanReviewInput`): viene de
- * OTRA fuente y OTRO periodo, y darle un valor por defecto haría que olvidarla
- * al cablearla en producción se viera como un informe honesto de "no hay
+ * `humanReview` es OBLIGATORIO a prop├│sito (ver `HumanReviewInput`): viene de
+ * OTRA fuente y OTRO periodo, y darle un valor por defecto har├¡a que olvidarla
+ * al cablearla en producci├│n se viera como un informe honesto de "no hay
  * revisiones", que es justo la mentira que este bloque evita. El compilador
  * obliga a pasar algo, y ese algo no puede ser inventado.
  */
@@ -1527,13 +1542,13 @@ export function aggregateQuality(
   let confidenceSum = 0;
   let auditedCases = 0;
   const bandCounts: Record<ConfidenceBand, number> = { ALTA: 0, MEDIA: 0, BAJA: 0 };
-  // Suma de confianza y nº de filas por bucket de evidencia faltante.
+  // Suma de confianza y n┬║ de filas por bucket de evidencia faltante.
   const byMissing = new Map<MissingEvidenceBucket, { count: number; sum: number }>();
 
   for (const row of rows) {
-    // SOLO `COMPLETED`. Una auditoría en `ERROR` no emitió dictamen, y una en
-    // `RUNNING` todavía no: en los dos casos `confidence` no describe una
-    // calidad de auditoría sino el estado del run, y meterla en la media bajaría
+    // SOLO `COMPLETED`. Una auditor├¡a en `ERROR` no emiti├│ dictamen, y una en
+    // `RUNNING` todav├¡a no: en los dos casos `confidence` no describe una
+    // calidad de auditor├¡a sino el estado del run, y meterla en la media bajar├¡a
     // la confianza media con datos que no son de confianza.
     if (row.audit_status !== 'COMPLETED') continue;
 
@@ -1547,8 +1562,8 @@ export function aggregateQuality(
 
     const band = confidenceBand(confidence);
     // `confidenceBand` solo devuelve `null` con un valor no finito, que ya se
-    // filtró arriba; la comprobación está para no inventar una banda si algún día
-    // esa función cambiara.
+    // filtr├│ arriba; la comprobaci├│n est├í para no inventar una banda si alg├║n d├¡a
+    // esa funci├│n cambiara.
     if (band !== null) bandCounts[band] += 1;
 
     const bucket = missingEvidenceBucket(row.missing_evidence_count);
@@ -1564,13 +1579,13 @@ export function aggregateQuality(
     band,
     label: CONFIDENCE_BAND_SHORT_LABELS[band],
     count: bandCounts[band],
-    // `percentage` ya devuelve 0 cuando el denominador es 0, así que un
-    // periodo sin dictámenes sale 0/0/0 y no `NaN`.
+    // `percentage` ya devuelve 0 cuando el denominador es 0, as├¡ que un
+    // periodo sin dict├ímenes sale 0/0/0 y no `NaN`.
     pct: percentage(bandCounts[band], auditedCases),
   }));
 
   // Solo los buckets CON filas. Un bucket ausente no es un 0: es que no hubo
-  // ningún caso así en el periodo, y por eso no aparece.
+  // ning├║n caso as├¡ en el periodo, y por eso no aparece.
   const confidenceByMissingEvidence = MISSING_EVIDENCE_BUCKET_ORDER.flatMap((bucket) => {
     const agg = byMissing.get(bucket);
     if (agg === undefined) return [];
@@ -1587,8 +1602,8 @@ export function aggregateQuality(
   return {
     generatedAt: new Date().toISOString(),
     // CADA FUENTE AVISA DE SU PROPIO RECORTE. La parte humana tiene su propio
-    // tope: si se recortó ÉSTA y no las auditorías, la tarjeta tiene que decirlo,
-    // porque su tasa se calculó sobre menos comparaciones de las que existen.
+    // tope: si se recort├│ ├ëSTA y no las auditor├¡as, la tarjeta tiene que decirlo,
+    // porque su tasa se calcul├│ sobre menos comparaciones de las que existen.
     truncated: totalAvailable > DASHBOARD_MAX_ROWS || humanReview.comparisonsAvailable > DASHBOARD_MAX_ROWS,
     filters,
     humanReview: aggregateHumanReview(humanReview),
@@ -1605,24 +1620,24 @@ export function aggregateQuality(
  * Lee la entrada humana del periodo: las comparaciones de la vista de
  * comparaciones y el conteo de revisiones humanas.
  *
- * DOS FUENTES, UNA TARJETA. `case_comparisons` responde de qué se midió la
- * coincidencia y `case_reviews` de cuántas personas registraron su decisión. Se
- * cuentan por separado porque son hechos distintos: una revisión sin comparación
- * cuenta igual, y una comparación sin revisión NO PUEDE existir (el `UNIQUE` de
- * `case_review_id` lo impide), así que la unión de abajo nunca inventa revisiones.
+ * DOS FUENTES, UNA TARJETA. `case_comparisons` responde de qu├® se midi├│ la
+ * coincidencia y `case_reviews` de cu├íntas personas registraron su decisi├│n. Se
+ * cuentan por separado porque son hechos distintos: una revisi├│n sin comparaci├│n
+ * cuenta igual, y una comparaci├│n sin revisi├│n NO PUEDE existir (el `UNIQUE` de
+ * `case_review_id` lo impide), as├¡ que la uni├│n de abajo nunca inventa revisiones.
  *
- * MISMOS límites que `getDashboardSummary` (y a diferencia de `getAiCosts`, SÍ
+ * MISMOS l├¡mites que `getDashboardSummary` (y a diferencia de `getAiCosts`, S├ì
  * filtra por `result`): la coincidencia es una propiedad del dictamen COMPARADO,
- * así que "solo las cancelaciones de venta" tiene que poder responderse. Aquí no
+ * as├¡ que "solo las cancelaciones de venta" tiene que poder responderse. Aqu├¡ no
  * hay gasto que se pueda esconder por no tener `result`: las comparaciones sin
  * dictamen se excluyen solas al no estar `COMPLETED`.
  *
  * DELIBERADAMENTE SIN `catch` QUE DEVUELVA CEROES: una vista ausente es un fallo
- * de despliegue, y tragárselo publicaría "no hay revisión humana registrada" sobre
- * una base que SÍ la tiene. El error sale como `ApiError` con su 5xx y la UI lo
- * muestra como error de carga, que es lo que ocurrió. Convertir un fallo de
- * infraestructura en un "no hay datos" es la peor versión posible de la regla de
- * esta vista, porque el hueco es indistinguible de un periodo vacío.
+ * de despliegue, y trag├írselo publicar├¡a "no hay revisi├│n humana registrada" sobre
+ * una base que S├ì la tiene. El error sale como `ApiError` con su 5xx y la UI lo
+ * muestra como error de carga, que es lo que ocurri├│. Convertir un fallo de
+ * infraestructura en un "no hay datos" es la peor versi├│n posible de la regla de
+ * esta vista, porque el hueco es indistinguible de un periodo vac├¡o.
  */
 export async function getHumanReviewInput(
   client: InsForgeClient,
@@ -1635,7 +1650,7 @@ export async function getHumanReviewInput(
   // Scope multi-tenant: se carga una sola vez por llamada de dashboard.
   const owned = auth?.role === 'user' ? await getOwnedCaseIds(client, auth.sub) : null;
 
-  // Fuente principal: comparaciones (qué se comparó y su estado).
+  // Fuente principal: comparaciones (qu├® se compar├│ y su estado).
   let compQuery = client.database
     .from('case_comparisons_dashboard_metrics')
     .select('*', { count: 'exact' })
@@ -1668,8 +1683,8 @@ export async function getHumanReviewInput(
   }
   const reviewIdsInRange = new Set(reviewsInRange.map((r) => r.id));
 
-  // Las revisiones contadas son las del periodo MÁS las revisiones referenciadas
-  // por comparaciones que cayeron en el periodo aunque la revisión esté fuera.
+  // Las revisiones contadas son las del periodo M├üS las revisiones referenciadas
+  // por comparaciones que cayeron en el periodo aunque la revisi├│n est├® fuera.
   const comparisonReviewIds = new Set(comparisons.map((c) => c.case_review_id).filter(Boolean as any));
   let reviewedCases = reviewIdsInRange.size;
   for (const id of comparisonReviewIds) {
@@ -1703,17 +1718,32 @@ export async function getExactHumanReviewInput(
 /**
  * Lee las DOS fuentes del informe de calidad y devuelve el informe ya agregado.
  *
- * MISMOS límites que `getDashboardSummary` (y a diferencia de `getAiCosts`, este
- * SÍ filtra por `result`): la calidad de un dictamen es una propiedad de ESE
- * dictamen, así que "solo las cancelaciones de venta" tiene que poder
- * responderse. Aquí no hay gasto que se pueda esconder por no tener `result`:
- * las auditorías sin dictamen ya se excluyen por ser `COMPLETED` con confianza.
+ * MISMOS l├¡mites que `getDashboardSummary` (y a diferencia de `getAiCosts`, este
+ * S├ì filtra por `result`): la calidad de un dictamen es una propiedad de ESE
+ * dictamen, as├¡ que "solo las cancelaciones de venta" tiene que poder
+ * responderse. Aqu├¡ no hay gasto que se pueda esconder por no tener `result`:
+ * las auditor├¡as sin dictamen ya se excluyen por ser `COMPLETED` con confianza.
  *
- * Mismos límites de rango: del primer al último milisegundo del día, en UTC y
- * ambos inclusivos (un filtro por día no puede perder la auditoría de las
+ * Mismos l├¡mites de rango: del primer al ├║ltimo milisegundo del d├¡a, en UTC y
+ * ambos inclusivos (un filtro por d├¡a no puede perder la auditor├¡a de las
  * 23:59:59.999), el tope de filas es el mismo y `count: 'exact'` es lo que
- * permite avisar de una truncación.
+ * permite avisar de una truncaci├│n.
  */
+/**
+ * Columnas que la vista de calidad necesita. Sin `student_identifier` ni
+ * `human_result`: esta ruta publica confianza y conteos, y arrastrar el
+ * identificador del alumno o su dictamen humano sería Minimización de datos
+ * incumplida (GDPR Art. 5(1)(c)) — PII viajando sin devolverse.
+ *
+ * Las seis dimensiones sí se piden aunque no se devuelvan en la respuesta: sin
+ * ellas el filtro por dimensión no se puede aplicar en SQL, y filtrar en
+ * memoria después de traer el conjunto daría métricas distintas de las que dice
+ * `truncated`.
+ */
+const AI_QUALITY_COLUMNS =
+  'id, created_at, case_status, audit_status, confidence, missing_evidence_count, ' +
+  'country, campus, modality, project, responsible, guideline';
+
 export async function getAiQuality(
   client: InsForgeClient,
   filters: DashboardFilters,
@@ -1724,7 +1754,7 @@ export async function getAiQuality(
 
   let query = client.database
     .from('audit_dashboard_metrics')
-    .select('*', { count: 'exact' })
+    .select(AI_QUALITY_COLUMNS, { count: 'exact' })
     .gte('created_at', fromIso)
     .lte('created_at', toIso);
   if (filters.result !== null) query = query.eq('result', filters.result);
@@ -1733,7 +1763,7 @@ export async function getAiQuality(
 
   const { data, error, count } = await query.order('created_at', { ascending: true }).limit(DASHBOARD_MAX_ROWS);
 
-  // Ningún stack trace ni detalle del proveedor al cliente: mapProviderError
+  // Ning├║n stack trace ni detalle del proveedor al cliente: mapProviderError
   // traduce el error y sanea el mensaje (nada de tokens o URLs internas).
   if (error) throw mapProviderError(error);
 

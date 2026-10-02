@@ -1,7 +1,7 @@
-// =============================================================================
+﻿// =============================================================================
 // Resumen (dashboard). Vista agregada del producto.
 //
-// La página solo orquesta: pide el agregado con `useDashboard` y lo pinta.
+// La p├ígina solo orquesta: pide el agregado con `useDashboard` y lo pinta.
 // No calcula porcentajes, no agrupa resultados y no reinterpretan el dictamen:
 // esos valores llegan ya resueltos desde el servidor.
 // =============================================================================
@@ -42,20 +42,20 @@ const KPI_CARDS: KpiCard[] = [
     withPct: true,
   },
   { key: 'granted', label: 'Concedidas', tone: 'success', icon: <CircleCheck {...ICON_PROPS} />, withPct: true },
-  { key: 'needsRuling', label: 'Requiere dictaminación', tone: 'warning', icon: <Scale {...ICON_PROPS} />, withPct: true },
+  { key: 'needsRuling', label: 'Requiere dictaminaci├│n', tone: 'warning', icon: <Scale {...ICON_PROPS} />, withPct: true },
   { key: 'insufficient', label: 'Evidencia insuficiente', tone: 'brand', icon: <FileQuestion {...ICON_PROPS} />, withPct: true },
   { key: 'errors', label: 'Errores', tone: 'danger', icon: <TriangleAlert {...ICON_PROPS} />, withPct: true },
 ];
 
 const EMPTY_CHART_TITLE = 'No hay suficientes datos para este periodo.';
-const EMPTY_TABLE_TITLE = 'Todavía no hay casos auditados en este periodo.';
+const EMPTY_TABLE_TITLE = 'Todav├¡a no hay casos auditados en este periodo.';
 
 export function OverviewPage(): ReactNode {
   const [filters, setFilters] = useState<DashboardFiltersValue>(defaultDateRange);
   const { data, isLoading, error, reload } = useDashboard(filters, 'summary');
 
   // Un error global no debe vaciar la pantalla: se muestra arriba y el resto
-  // de la página sigue intentándolo con su propio estado.
+  // de la p├ígina sigue intent├índolo con su propio estado.
   const handleRetry = useCallback((): void => {
     reload();
   }, [reload]);
@@ -68,12 +68,12 @@ export function OverviewPage(): ReactNode {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Fila 0: título + filtros */}
+      {/* Fila 0: t├¡tulo + filtros */}
       <header className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h1 className="text-xl font-semibold text-ink">Resumen</h1>
           <p className="mt-1 text-sm text-muted">
-            Estado de las auditorías del periodo seleccionado.
+            Estado de las auditor├¡as del periodo seleccionado.
           </p>
         </div>
         <DashboardFilters value={filters} onChange={setFilters} />
@@ -114,17 +114,17 @@ export function OverviewPage(): ReactNode {
         })}
       </div>
 
-      {/* Fila 2: evolución + distribución */}
+      {/* Fila 2: evoluci├│n + distribuci├│n */}
       <div className="grid gap-6 lg:grid-cols-2">
         {data?.truncated === true && (
           <div className="lg:col-span-2">
-            <Badge tone="warning">Se muestran los casos más recientes del periodo</Badge>
+            <Badge tone="warning">Se muestran los casos m├ís recientes del periodo</Badge>
           </div>
         )}
 
         <ChartFrame
-          title="Evolución de casos"
-          description="Casos agrupados por grupo de resolución a lo largo del periodo."
+          title="Evoluci├│n de casos"
+          description="Casos agrupados por grupo de resoluci├│n a lo largo del periodo."
           isLoading={isLoading}
           isEmpty={timeline.length === 0}
           emptyTitle={EMPTY_CHART_TITLE}
@@ -134,7 +134,7 @@ export function OverviewPage(): ReactNode {
         </ChartFrame>
 
         <ChartFrame
-          title="Distribución de resoluciones"
+          title="Distribuci├│n de resoluciones"
           description="Reparto de los casos auditados en el periodo."
           height={320}
           isLoading={isLoading}
@@ -150,7 +150,7 @@ export function OverviewPage(): ReactNode {
       <div className="grid gap-6">
         <ChartFrame
           title="Detalle de resultados"
-          description="Cantidad de casos por cada resultado que puede emitir la auditoría."
+          description="Cantidad de casos por cada resultado que puede emitir la auditor├¡a."
           isLoading={isLoading}
           isEmpty={byResult.length === 0}
           emptyTitle={EMPTY_CHART_TITLE}
@@ -164,7 +164,7 @@ export function OverviewPage(): ReactNode {
       <div className="grid gap-6">
         <ChartFrame
           title="Casos recientes"
-          description="Los últimos casos auditados del periodo seleccionado."
+          description="Los ├║ltimos casos auditados del periodo seleccionado."
           isLoading={isLoading}
           isEmpty={recentCases.length === 0}
           emptyTitle={EMPTY_TABLE_TITLE}

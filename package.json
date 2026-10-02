@@ -12,6 +12,7 @@
     "dev": "vite",
     "prebuild": "npm run policy:generate && node scripts/check-no-public-secrets.mjs",
     "lint:secrets": "node scripts/check-no-public-secrets.mjs",
+    "lint:contrast": "node scripts/contrast.mjs",
     "test:contract": "vitest run tests/openrouter.test.ts tests/provider-schema.test.ts tests/model-capabilities.test.ts tests/schema.test.ts tests/execute.test.ts tests/ai-health.test.ts tests/env.test.ts",
     "test:ai-smoke": "node scripts/run-ai-smoke.mjs",
     "test:ai-smoke:preview": "node scripts/run-ai-smoke.mjs --mode preview",
@@ -20,7 +21,7 @@
     "typecheck": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
-    "verify:release": "npm run lint:secrets && npm run typecheck && npm run test:contract && npm test && npm run build",
+    "verify:release": "npm run lint:secrets && npm run lint:contrast && npm run typecheck && npm run test:contract && npm test && npm run build",
     "verify:release:live": "npm run verify:release && npm run test:ai-smoke"
   },
   "overrides": {

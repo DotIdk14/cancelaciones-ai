@@ -1,6 +1,6 @@
-// =============================================================================
-// Detalle de caso: evidencias, botón AUDITAR, polling y panel de resultado.
-// Toda la verdad vive en el servidor; aquí solo se orquestan peticiones.
+﻿// =============================================================================
+// Detalle de caso: evidencias, bot├│n AUDITAR, polling y panel de resultado.
+// Toda la verdad vive en el servidor; aqu├¡ solo se orquestan peticiones.
 // =============================================================================
 
 import type { ReactNode } from 'react';
@@ -27,14 +27,14 @@ import { EvidenceUploader } from './EvidenceUploader';
 import { EvidenceViewer } from './EvidenceViewer';
 import { Badge, Button, ErrorCard, Panel, Spinner } from './ui';
 
-/** Mensaje amigable cuando el servidor devuelve 401 (sesión requerida). */
-const AUTH_ERROR_MESSAGE = 'El servidor requiere autenticación. La interfaz está en modo demo: los datos no se cargarán hasta que configure una sesión válida.';
+/** Mensaje amigable cuando el servidor devuelve 401 (sesi├│n requerida). */
+const AUTH_ERROR_MESSAGE = 'El servidor requiere autenticaci├│n. La interfaz est├í en modo demo: los datos no se cargar├ín hasta que configure una sesi├│n v├ílida.';
 
 const TRANSCRIPTION_POLL_MS = 3000;
 const AUDIT_POLL_MS = 4000;
-/** Reintentos de POST mientras la transcripción no termina (≈3 min). */
+/** Reintentos de POST mientras la transcripci├│n no termina (Ôëê3 min). */
 const MAX_WAIT_RETRIES = 60;
-/** Consultas de estado de una auditoría en curso (≈6 min). */
+/** Consultas de estado de una auditor├¡a en curso (Ôëê6 min). */
 const MAX_RUNNING_POLLS = 90;
 
 type AuditPhase = 'idle' | 'starting' | 'waiting' | 'running';
@@ -69,7 +69,7 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
       const data = await getCase(caseId);
       setDetail(data);
       setLoadError(null);
-      // Si al abrir el caso ya hay una auditoría en curso, se retoma el poll.
+      // Si al abrir el caso ya hay una auditor├¡a en curso, se retoma el poll.
       if (!bootstrappedRef.current) {
         bootstrappedRef.current = true;
         if (data.audit !== null && data.audit.status === 'RUNNING') {
@@ -102,7 +102,7 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
     void load();
   }, [load]);
 
-  // --------------------------------------------------------------- auditoría
+  // --------------------------------------------------------------- auditor├¡a
 
   const applyAudit = useCallback((next: AuditDetail): void => {
     setDetail((prev) => (prev ? { ...prev, audit: next } : prev));
@@ -144,8 +144,8 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
     }
   }, [caseId, applyAudit]);
 
-  // Poll mientras la auditoría espera transcripción: refresca el caso (evidencias
-  // + audit en la misma respuesta) y reintenta el POST cuando todo está READY.
+  // Poll mientras la auditor├¡a espera transcripci├│n: refresca el caso (evidencias
+  // + audit en la misma respuesta) y reintenta el POST cuando todo est├í READY.
   const tickWaiting = useCallback(async (): Promise<void> => {
     waitRetriesRef.current += 1;
     if (waitRetriesRef.current > MAX_WAIT_RETRIES) {
@@ -153,7 +153,7 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
       setAuditError({
         category: 'TRANSCRIPTION_ERROR',
         message:
-          'La transcripción de las evidencias de audio no terminó a tiempo. Intenta auditar de nuevo en unos minutos.',
+          'La transcripci├│n de las evidencias de audio no termin├│ a tiempo. Intenta auditar de nuevo en unos minutos.',
       });
       return;
     }
@@ -168,7 +168,7 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
     if (ready) await runAudit();
   }, [caseId, applyAudit, runAudit]);
 
-  // Poll de una auditoría en curso. El servidor marca ERROR a los 4 minutos.
+  // Poll de una auditor├¡a en curso. El servidor marca ERROR a los 4 minutos.
   const tickRunning = useCallback(async (): Promise<void> => {
     runningPollsRef.current += 1;
     if (runningPollsRef.current > MAX_RUNNING_POLLS) {
@@ -176,7 +176,7 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
       setAuditError({
         category: 'AI_PROVIDER_ERROR',
         message:
-          'La auditoría está tardando demasiado. Actualiza el caso para consultar el estado real antes de reintentar.',
+          'La auditor├¡a est├í tardando demasiado. Actualiza el caso para consultar el estado real antes de reintentar.',
       });
       return;
     }
@@ -206,7 +206,7 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
   const shouldShowReauditLabel = detail?.case.status === 'READY' && allReady && hasCompletedAudit;
 
   // Mientras hay transcripciones en curso se refresca el caso cada 3 s.
-  // En fase `waiting` el poll de auditoría ya trae los mismos datos, así que
+  // En fase `waiting` el poll de auditor├¡a ya trae los mismos datos, as├¡ que
   // se evita duplicar peticiones.
   usePolling(load, hasTranscribing && auditPhase !== 'waiting' ? TRANSCRIPTION_POLL_MS : null);
   usePolling(tickWaiting, auditPhase === 'waiting' ? TRANSCRIPTION_POLL_MS : null);
@@ -244,11 +244,11 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
     return (
       <div className="flex flex-col gap-4">
         <Button onClick={goToCases} variant="ghost">
-          ← Volver a casos
+          ÔåÉ Volver a casos
         </Button>
         <ErrorCard
           title="No se pudo cargar el caso"
-          message={loadError?.message ?? 'El caso no está disponible.'}
+          message={loadError?.message ?? 'El caso no est├í disponible.'}
           onRetry={() => void load()}
         />
       </div>
@@ -259,15 +259,15 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
     audit !== null && audit.status === 'ERROR'
       ? { category: audit.errorCategory ?? 'UNKNOWN', message: errorCategoryMessage(audit.errorCategory) }
       : null;
-  // Mientras hay un flujo de auditoría activo manda el error local (POST fallido);
-  // si no, se muestra el error que dejó registrado el servidor.
+  // Mientras hay un flujo de auditor├¡a activo manda el error local (POST fallido);
+  // si no, se muestra el error que dej├│ registrado el servidor.
   const displayError = auditError ?? (auditBusy ? null : serverError);
 
   let auditHint: string | null = null;
   if (evidences.length === 0) auditHint = 'Sube al menos una evidencia para poder auditar.';
-  else if (hasFailedEvidence) auditHint = 'Hay evidencias con error. Elimínalas o vuelve a subirlas antes de auditar.';
-  else if (hasTranscribing) auditHint = 'Las evidencias de audio se están transcribiendo. Podrás auditar cuando terminen.';
-  else if (!allReady) auditHint = 'Aún hay evidencias sin procesar.';
+  else if (hasFailedEvidence) auditHint = 'Hay evidencias con error. Elim├¡nalas o vuelve a subirlas antes de auditar.';
+  else if (hasTranscribing) auditHint = 'Las evidencias de audio se est├ín transcribiendo. Podr├ís auditar cuando terminen.';
+  else if (!allReady) auditHint = 'A├║n hay evidencias sin procesar.';
 
   return (
     <div className="flex flex-col gap-5">
@@ -279,7 +279,7 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
             onClick={goToCases}
             className="rounded-lg px-2 py-1 text-sm font-medium text-muted transition-colors hover:bg-surface-3 hover:text-ink"
           >
-            ← Volver a casos
+            ÔåÉ Volver a casos
           </button>
           <div className="mt-1 flex flex-wrap items-center gap-3">
             <h1 className="text-lg font-semibold text-ink">
@@ -291,9 +291,9 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
           </div>
           <p className="mt-1 text-xs text-muted">
             {detail.case.studentIdentifier !== null && detail.case.studentIdentifier !== ''
-              ? `Matrícula ${detail.case.studentIdentifier} · `
+              ? `Matr├¡cula ${detail.case.studentIdentifier} ┬À `
               : ''}
-            Creado {formatDateTime(detail.case.createdAt)} · Actualizado {formatDateTime(detail.case.updatedAt)}
+            Creado {formatDateTime(detail.case.createdAt)} ┬À Actualizado {formatDateTime(detail.case.updatedAt)}
           </p>
         </div>
         <Button onClick={() => void load()} loading={loading} loadingLabel="Actualizando">
@@ -306,9 +306,9 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
       )}
       {actionError !== null && <ErrorCard message={actionError.message} category={actionError.category} />}
 
-      {/* ------------------------------------------------------ auditoría */}
+      {/* ------------------------------------------------------ auditor├¡a */}
       <Panel
-        title="Auditoría con IA"
+        title="Auditor├¡a con IA"
         description="El dictamen lo emite el modelo consultando el procedimiento vigente y las evidencias del caso."
       >
         <div className="flex flex-wrap items-center gap-3">
@@ -317,12 +317,12 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
             onClick={() => void runAudit()}
             disabled={!canAudit}
             loading={auditBusy}
-            loadingLabel="Consultando auditoría"
+            loadingLabel="Consultando auditor├¡a"
           >
             {auditPhase === 'waiting'
-              ? 'Esperando transcripción…'
+              ? 'Esperando transcripci├│nÔÇª'
               : auditPhase === 'running'
-                ? 'Auditando con IA…'
+                ? 'Auditando con IAÔÇª'
                 : shouldShowReauditLabel
                   ? 'Volver a auditar con la nueva evidencia'
                   : 'Auditar con IA'}
@@ -330,21 +330,21 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
 
           {auditPhase === 'starting' && (
             <span role="status" className="flex items-center gap-2 text-sm text-muted">
-              <Spinner label="Enviando solicitud de auditoría" className="h-3.5 w-3.5" />
-              Enviando solicitud…
+              <Spinner label="Enviando solicitud de auditor├¡a" className="h-3.5 w-3.5" />
+              Enviando solicitudÔÇª
             </span>
           )}
           {auditPhase === 'waiting' && (
             <span role="status" className="flex items-center gap-2 text-sm text-warning">
-              <Spinner label="Esperando transcripción" className="h-3.5 w-3.5" />
-              Esperando transcripción de {pendingEvidence.length} evidencia
-              {pendingEvidence.length === 1 ? '' : 's'}…
+              <Spinner label="Esperando transcripci├│n" className="h-3.5 w-3.5" />
+              Esperando transcripci├│n de {pendingEvidence.length} evidencia
+              {pendingEvidence.length === 1 ? '' : 's'}ÔÇª
             </span>
           )}
           {auditPhase === 'running' && (
             <span role="status" className="flex items-center gap-2 text-sm text-brand">
               <Spinner label="Auditando con IA" className="h-3.5 w-3.5" />
-              Auditando con IA… {audit !== null ? `${audit.provider}/${audit.model}` : ''}
+              Auditando con IAÔÇª {audit !== null ? `${audit.provider}/${audit.model}` : ''}
             </span>
           )}
         </div>
@@ -352,21 +352,21 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
         {auditHint !== null && <p className="mt-3 text-sm text-muted">{auditHint}</p>}
         {caseIsError && (
           <p className="mt-3 text-sm text-danger">
-            El caso está en estado de error. No se puede auditar hasta que se resuelva.
+            El caso est├í en estado de error. No se puede auditar hasta que se resuelva.
           </p>
         )}
 
         {displayError !== null && (
           <div className="mt-4">
             <ErrorCard
-              title={`Auditoría con error · ${errorCategoryLabel(displayError.category)}`}
+              title={`Auditor├¡a con error ┬À ${errorCategoryLabel(displayError.category)}`}
               category={displayError.category}
               message={displayError.message}
               onRetry={() => void runAudit()}
               retrying={auditBusy}
             />
             <p className="mt-2 text-xs text-muted">
-              No se muestra ningún dictamen mientras la auditoría no termine correctamente.
+              No se muestra ning├║n dictamen mientras la auditor├¡a no termine correctamente.
             </p>
           </div>
         )}
@@ -378,16 +378,16 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
           className="rounded-2xl border border-brand/40 bg-brand/5 p-5"
         >
           <h2 id="resolucion-humana-vigente" className="text-base font-semibold text-ink">
-            Resolución humana vigente
+            Resoluci├│n humana vigente
           </h2>
           <div className="mt-3 flex flex-wrap items-center gap-3">
             <Badge tone={RESULT_TONE[review.result]}>{RESULT_LABELS[review.result]}</Badge>
             <span className="text-sm text-muted">
-              Esta decisión humana tiene prioridad y gobierna el caso.
+              Esta decisi├│n humana tiene prioridad y gobierna el caso.
             </span>
           </div>
           <p className="mt-2 text-sm text-muted">
-            El dictamen original de IA se conserva sin cambios y se muestra debajo para comparación.
+            El dictamen original de IA se conserva sin cambios y se muestra debajo para comparaci├│n.
           </p>
         </section>
       )}
@@ -402,9 +402,9 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
         </section>
       )}
 
-      {/* ------------------------------------------------------ revisión
-          El dictamen de arriba NO se modifica ni se oculta. La revisión humana
-          va debajo, como una capa aparte: o existe (y entonces es la resolución
+      {/* ------------------------------------------------------ revisi├│n
+          El dictamen de arriba NO se modifica ni se oculta. La revisi├│n humana
+          va debajo, como una capa aparte: o existe (y entonces es la resoluci├│n
           final) o se ofrece el formulario para registrarla. Nunca ambas. */}
       {review !== null ? (
         <CaseReviewRecord
@@ -423,7 +423,7 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
 
       <Panel
         title={`Evidencias (${evidences.length})`}
-        description="Las transcripciones de audio se actualizan automáticamente mientras se procesan."
+        description="Las transcripciones de audio se actualizan autom├íticamente mientras se procesan."
         labelledBy="evidencias-caso"
       >
         <EvidenceList

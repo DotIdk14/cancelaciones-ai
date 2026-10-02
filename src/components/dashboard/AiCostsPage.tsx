@@ -15,8 +15,9 @@
 // =============================================================================
 
 import type { ReactNode } from 'react';
-import { useCallback, useState } from 'react';
+import { useCallback, useId, useState } from 'react';
 import { Binary, Coins, Receipt, Timer } from 'lucide-react';
+import { cx } from '../../lib/cx';
 import type {
   AiCostsReport,
   CostGranularity,
@@ -79,9 +80,18 @@ function GranularityPicker({
   value: CostGranularity;
   onChange: (next: CostGranularity) => void;
 }): ReactNode {
+  const labelId = useId();
+
   return (
-    <div role="group" aria-label="Granularidad del periodo" className="flex items-end gap-2">
-      <span className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">
+    // 2.5.3 Label in Name: el `aria-label` debe CONTENER el texto visible. Con
+    // "Granularidad del periodo" no contenía "Agrupar coste por", así que un
+    // usuario de voz o deeguación oía un nombre que no reconocía en pantalla.
+    // Se nombra con el propio texto visible y el grupo queda rotulado con él.
+    <div role="group" aria-labelledby={labelId} className="flex items-end gap-2">
+      <span
+        id={labelId}
+        className="mb-2 text-xs font-medium uppercase tracking-wide text-muted"
+      >
         Agrupar coste por
       </span>
       {GRANULARITIES.map((option) => (
@@ -153,10 +163,13 @@ function ModelCostTable({ rows }: { rows: ModelCostRow[] }): ReactNode {
           return (
             <tr key={row.model}>
               {/* `break-all`: los ids de modelo (`proveedor/nombre-largo`) no
-                  tienen espacios donde cortar y desbordarían la celda. */}
-              <td className={TD_CLASS}>
+                  tienen espacios donde cortar y desbordarían la celda.
+                  `<th scope="row">` (1.3.1): las otras tres celdas son números,
+                  así que al recorrer la fila celda a celda había forma de perder
+                  a qué modelo correspondía cada cifra. */}
+              <th scope="row" className={cx(TD_CLASS, 'font-normal text-left')}>
                 <span className="break-all font-mono text-sm">{row.model}</span>
-              </td>
+              </th>
               <td className={TD_NUM_CLASS}>{INT_FMT.format(row.calls)}</td>
               <td className={TD_NUM_CLASS}>
                 <CostCell row={row} />
@@ -271,8 +284,14 @@ function ReliabilityPanel({ report }: { report: AiCostsReport | null }): ReactNo
       <dl className="flex flex-col gap-2">
         {RELIABILITY_ROWS.map((row) => (
           <div key={row.key} className="flex items-center justify-between gap-3">
-            <dt className="text-xs font-medium uppercase tracking-wide text-muted" title={row.hint}>
+            {/* 1.3.1: la definición estaba solo en `title`, que no es una
+                descripción fiable (la mayoría de lectores no lo expone en texto
+                no interactivo). Va como texto visible bajo la etiqueta. */}
+            <dt className="text-xs font-medium uppercase tracking-wide text-muted">
               {row.label}
+              <span className="ml-1.5 font-normal normal-case tracking-normal">
+                {row.hint}
+              </span>
             </dt>
             <dd>
               <Badge tone={row.tone}>{INT_FMT.format(reliability[row.key])}</Badge>
@@ -335,6 +354,11 @@ export function AiCostsPage(): ReactNode {
     reload();
   }, [reload]);
 
+  // El esqueleto se muestra SOLO en la primera carga. Al cambiar un filtro o la
+  // granularidad se mantiene lo último conocido (contrato de `useAiCosts`): si
+  // no, cada pulsación vaciaba la pantalla y remontaba todo Recharts.
+  const showSkeleton = isLoading && data === null;
+
   const kpi = data?.kpi;
   const costSeries = data?.costSeries ?? [];
   const byModel = data?.byModel ?? [];
@@ -347,7 +371,20 @@ export function AiCostsPage(): ReactNode {
   // interpreta como UTC medianoche, que en un huso negativo se ve como el día
   // ANTERIOR. El texto crudo coincide exactamente con el control de fecha y con
   // lo que devolvió el servidor, así que no puede mentir por una zona horaria.
-  const chartAriaLabel = `Costo de las auditorías de IA en el periodo del ${applied.from} al ${applied.to}, agrupado por ${BUCKET_FORMAT[granularity]}.`;
+  // 1.1.1: una alternativa textual debe PODER SUSTITUIR al gráfico. Con solo
+  // el periodo no se puede saber cuánto costó, así que se incluye el total y el
+  // pico por periodo además de la descripción del eje.
+  const costTotal = costSeries.reduce((sum, point) => sum + point.costUsd, 0);
+  const costPeak = costSeries.reduce(
+    (max, point) => (max === null || point.costUsd > max.costUsd ? point : max),
+    null as (typeof costSeries)[number] | null,
+  );
+  const chartAriaLabel =
+    `Costo de las auditorías de IA en el periodo del ${applied.from} al ${applied.to}, ` +
+    `agrupado por ${BUCKET_FORMAT[granularity]}. Total: ${formatCost(costTotal)}` +
+    (costPeak === null
+      ? '.'
+      : `, con un pico de ${formatCost(costPeak.costUsd)} el ${costPeak.bucket}.`);
 
   return (
     <div className="flex flex-col gap-6">
@@ -360,7 +397,10 @@ export function AiCostsPage(): ReactNode {
           </p>
         </div>
         <div className="flex flex-col gap-3">
-          <DashboardFilters value={filters} onChange={setFilters} />
+          {/* `getAiCosts` no aplica `result` a propósito: filtrar por dictamen
+              escondería el gasto de los intentos fallidos, que es lo que esta
+              pantalla mide. Por eso el control se retira en lugar de engañar. */}
+          <DashboardFilters value={filters} onChange={setFilters} allowResultFilter={false} />
           <GranularityPicker value={granularity} onChange={setGranularity} />
         </div>
       </header>
@@ -380,9 +420,10 @@ export function AiCostsPage(): ReactNode {
           label="Costo total IA"
           tone="brand"
           icon={<Coins {...ICON_PROPS} />}
-          value={isLoading || kpi === undefined ? <Skeleton className="h-8 w-24" /> : kpi.costAvailable ? formatCost(kpi.totalCostUsd) : DASH}
+          isLoading={showSkeleton}
+          value={showSkeleton || kpi === undefined ? <Skeleton className="h-8 w-24" /> : kpi.costAvailable ? formatCost(kpi.totalCostUsd) : DASH}
           hint={
-            isLoading || kpi === undefined ? (
+            showSkeleton || kpi === undefined ? (
               <Skeleton className="mt-2 h-3 w-32" />
             ) : kpi.costAvailable ? (
               `${INT_FMT.format(kpi.auditsCounted)} auditorías en el periodo`
@@ -395,9 +436,10 @@ export function AiCostsPage(): ReactNode {
           label="Costo promedio por caso"
           tone="brand"
           icon={<Receipt {...ICON_PROPS} />}
-          value={isLoading || kpi === undefined ? <Skeleton className="h-8 w-24" /> : kpi.costAvailable ? formatCost(kpi.avgCostPerCaseUsd) : DASH}
+          isLoading={showSkeleton}
+          value={showSkeleton || kpi === undefined ? <Skeleton className="h-8 w-24" /> : kpi.costAvailable ? formatCost(kpi.avgCostPerCaseUsd) : DASH}
           hint={
-            isLoading || kpi === undefined ? (
+            showSkeleton || kpi === undefined ? (
               <Skeleton className="mt-2 h-3 w-28" />
             ) : kpi.costAvailable ? (
               `${INT_FMT.format(kpi.casesCounted)} casos con coste medido`
@@ -410,9 +452,10 @@ export function AiCostsPage(): ReactNode {
           label="Tokens consumidos"
           tone="neutral"
           icon={<Binary {...ICON_PROPS} />}
-          value={isLoading || kpi === undefined ? <Skeleton className="h-8 w-24" /> : kpi.tokensAvailable ? INT_FMT.format(kpi.totalTokens) : DASH}
+          isLoading={showSkeleton}
+          value={showSkeleton || kpi === undefined ? <Skeleton className="h-8 w-24" /> : kpi.tokensAvailable ? INT_FMT.format(kpi.totalTokens) : DASH}
           hint={
-            isLoading || kpi === undefined ? (
+            showSkeleton || kpi === undefined ? (
               <Skeleton className="mt-2 h-3 w-28" />
             ) : (
               `${INT_FMT.format(kpi.auditsCounted)} auditorías`
@@ -423,9 +466,10 @@ export function AiCostsPage(): ReactNode {
           label="Tiempo promedio de respuesta"
           tone="neutral"
           icon={<Timer {...ICON_PROPS} />}
-          value={isLoading || kpi === undefined ? <Skeleton className="h-8 w-24" /> : formatLatency(kpi.latencyAvailable ? kpi.avgLatencyMs : null)}
+          isLoading={showSkeleton}
+          value={showSkeleton || kpi === undefined ? <Skeleton className="h-8 w-24" /> : formatLatency(kpi.latencyAvailable ? kpi.avgLatencyMs : null)}
           hint={
-            isLoading || kpi === undefined ? (
+            showSkeleton || kpi === undefined ? (
               <Skeleton className="mt-2 h-3 w-28" />
             ) : kpi.latencyAvailable ? (
               'P50 y P95 en el panel de latencia'
@@ -447,7 +491,7 @@ export function AiCostsPage(): ReactNode {
         <ChartFrame
           title={SERIES_TITLE[granularity]}
           description={`Coste de las auditorías de IA, agrupado por ${BUCKET_FORMAT[granularity]}.`}
-          isLoading={isLoading}
+          isLoading={showSkeleton}
           isEmpty={costSeries.length === 0}
           emptyTitle={EMPTY_TITLE}
           error={null}
@@ -470,7 +514,7 @@ export function AiCostsPage(): ReactNode {
           title="Costo por modelo"
           description="Llamadas y gasto por cada modelo usado en el periodo."
         >
-          {isLoading && byModel.length === 0 ? (
+          {showSkeleton ? (
             <Skeleton height={260} />
           ) : (
             <ModelCostTable rows={byModel} />
@@ -481,13 +525,13 @@ export function AiCostsPage(): ReactNode {
       {/* Fila 3: tokens, latencia y fiabilidad */}
       <div className="grid gap-6 md:grid-cols-3">
         <Panel title="Tokens" description="Reparto entre entrada y salida del modelo.">
-          {isLoading && data === null ? <Skeleton height={160} /> : <TokensPanel report={data} />}
+          {showSkeleton ? <Skeleton height={160} /> : <TokensPanel report={data} />}
         </Panel>
         <Panel title="Latencia" description="Tiempo de respuesta de la auditoría.">
-          {isLoading && data === null ? <Skeleton height={160} /> : <LatencyPanel report={data} />}
+          {showSkeleton ? <Skeleton height={160} /> : <LatencyPanel report={data} />}
         </Panel>
         <Panel title="Errores y reintentos" description="Cómo termina cada auditoría.">
-          {isLoading && data === null ? <Skeleton height={160} /> : <ReliabilityPanel report={data} />}
+          {showSkeleton ? <Skeleton height={160} /> : <ReliabilityPanel report={data} />}
         </Panel>
       </div>
     </div>

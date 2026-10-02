@@ -23,6 +23,26 @@ const devApiPlugin: Plugin = {
   },
 };
 
+/**
+ * Nombra el chunk pesado de gráficas.
+ *
+ * Sin esto Rollup deriva el nombre del ÚLTIMO módulo de su recorrido, y el
+ * chunk compartido de ~374 kB (Recharts + Redux/Immer, alcanzable desde las
+ * tres páginas del dashboard) salía llamado `chartTheme-*.js` por casualidad:
+ * `chartTheme.ts` era su última dependencia. El nombre era correcto y el
+ * archivo mentía, que es la peor combinación para quien lea el build después.
+ */
+function chartChunk(id: string): string | undefined {
+  if (!id.includes('node_modules')) return undefined;
+  if (id.includes('recharts') || id.includes('react-redux') || id.includes('@reduxjs')) {
+    return 'recharts';
+  }
+  if (id.includes('immer') || id.includes('reselect') || id.includes('decimal.js')) {
+    return 'recharts';
+  }
+  return undefined;
+}
+
 export default defineConfig(({ mode }) => {
   // Vite solo publica en `import.meta.env` las variables con prefijo `VITE_`, y
   // aquí no puede haber ninguna (AGENTS.md: sin secretos en el cliente). Los
@@ -43,7 +63,7 @@ export default defineConfig(({ mode }) => {
       target: 'es2022',
       rollupOptions: {
         output: {
-          manualChunks: undefined,
+          manualChunks: chartChunk,
         },
       },
     },

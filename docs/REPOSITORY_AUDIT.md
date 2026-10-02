@@ -1,16 +1,81 @@
 # Auditoría del repositorio
 
-Fecha: 2026-10-02. Rama: `feature/dashboard-local`.
-Alcance: integridad del repo, correctitud, seguridad, mantenibilidad,
-documentación y preparación para release.
+Auditoría actualizada: 2026-10-02. Ramas y worktrees revisados: `main`,
+`integration/all`, `feature/dashboard-local` y `dashboard/verify`, además de las
+ramas remotas visibles.
 
-**Este documento no es histórico: describe el estado después de las
-correcciones.** Los pendientes que no se pueden cerrar desde el código están en
-la sección 6 y en `SECURITY.md` §9.
+Alcance: arquitectura, API, autenticación/autorización, acceso a datos y
+Storage, procesamiento de evidencias, pipeline de IA, dependencias, CI,
+documentación y estado de las ramas. No se inspeccionaron ni modificaron
+servicios de producción. No se corrigió código: este documento registra los
+cambios recomendados y las verificaciones reproducibles.
 
 ---
 
-## 1. Veredicto
+## Estado vigente y cambios recomendados
+
+### Resumen ejecutivo
+
+La arquitectura de aplicación revisada tiene defensas importantes en el
+servidor: `handleRoute` protege las rutas, la sesión se valida remotamente,
+existe comprobación de membership, las mutaciones validan CSRF, las rutas de
+casos aplican ownership, las cargas validan firma/tamaño antes de escribir y el
+contrato de auditoría usa schemas Zod estrictos y cercado de contenido no
+confiable. Esto es una buena base, pero **no demuestra que las políticas y
+migraciones estén aplicadas en producción**.
+
+La verificación del código varía por worktree. `dashboard/verify` pasa
+`npm run verify:release` (282 pruebas aprobadas, 2 omitidas). En
+`integration/all`, el árbol de trabajo tiene cambios parciales incompatibles y
+`npm run verify:release` se detiene en `typecheck` con errores TS. El árbol
+local asociado a `main` también contiene modificaciones sin guardar de otro
+trabajo; no se incorporaron. Por tanto, **no se considera seguro mezclar ni
+publicar todo el código de esas ramas como una sola unidad**.
+
+### Hallazgos y plan de cambios
+
+| Prioridad | Hallazgo | Evidencia/alcance | Cambio recomendado |
+|---|---|---|---|
+| P0 — seguridad | Una auditoría previa de este repositorio registra una credencial de proveedor en el historial Git (`SECURITY.md` y la sección histórica de este informe). | La validez y rotación actual de esa credencial están **NO VERIFICADAS**. Borrar una clave del árbol actual no la revoca ni la elimina del historial. | Confirmar con el dueño del servicio que fue revocada/rotada; revisar el alcance de uso y tratarla como expuesta hasta confirmarlo. No volver a incluir el valor en logs o documentación. |
+| P1 — dependencias | `npm audit` encontró 11 hallazgos: 2 críticos, 3 altos y 6 moderados. Entre ellos: `tar` transitivo desde `@vercel/node`/`@mapbox/node-pre-gyp`; `vitest@2.1.9` con advisories críticos/altos; y `undici`/`ajv`/`vite` transitivos. | `npm audit --omit=dev` encontró 0 vulnerabilidades. Los paquetes señalados pertenecen a dependencias de desarrollo/build en el lockfile actual; los advisories de Vitest requieren exponer su servidor para explotar sus rutas afectadas. No se encontró evidencia de que esas versiones se incluyan en el runtime de producción. | Planear una actualización compatible de Vitest y `@vercel/node` (npm propone majors); después regenerar lockfile y ejecutar `verify:release` y auditoría otra vez. No ejecutar `npm audit fix --force` sin migración y pruebas. |
+| P1 — release | Las modificaciones locales de `integration/all` no pasan `typecheck`: props incompatibles del dashboard, exports/tipos faltantes y una función `latestCompletedAudit` duplicada. | `npm run verify:release` falla antes de tests y build en ese worktree. No se afirma que esos cambios estén en el commit HEAD ni en `dashboard/verify`. | Conciliar la versión staged y unstaged de cada archivo, eliminar duplicados y validar el conjunto integrado con `npm run verify:release` antes de mergear/publicar. |
+| P1 — operación | La aplicación depende de configuración de InsForge, memberships, RLS y permisos del bucket de evidencias. | La configuración efectiva, migraciones aplicadas, miembros autorizados, privacidad del bucket y políticas Storage de producción están **NO VERIFICADAS** en esta auditoría. El código server-side usa credenciales administrativas, por lo que sus checks de ownership son una frontera crítica. | Verificar, con acceso autorizado y sin exponer datos, el estado de migraciones, memberships, RLS/grants y que la descarga del bucket sea privada y esté limitada al servidor. No ejecutar migraciones ni cambios de configuración de producción durante la revisión. |
+| P2 — datos | El historial de casos previos y el backfill de filas sin propietario requieren comprobación operativa. | No se consultaron datos reales ni se comprobó la integridad del backfill. | Antes de despliegues, preparar un inventario y plan de backfill revisable, con backup y sin tocar producción hasta su aprobación. |
+| P2 — integridad de cambios | Hay ediciones staged y unstaged superpuestas; algunos archivos del árbol de trabajo contienen texto con codificación dañada. | Se observó en `README.md`, `scripts/dev-api.mjs` y módulos del dashboard en el worktree sucio; no se mezcló en `main`. | Resolver primero qué versión es la intencionada; guardar como UTF-8 y revisar `git diff --check`/`git diff` antes de hacer commits. |
+| P2 — ramas | Hay ramas remotas de experimentos anteriores de policy foundation/engine, además de ramas locales de dashboard con historial no integrado. | Esas ramas no son equivalentes a cambios listos para release. Las de policy engine contradicen el invariante vigente `NO_RULES_ENGINE`. | No fusionarlas automáticamente. Revisar cada commit contra la arquitectura AI-native y los tests antes de considerar un merge. |
+| P3 — observabilidad | El handler HTTP registra el mensaje de errores no controlados en logs; la sanitización de errores del proveedor no necesariamente cubre excepciones desconocidas de todos los adaptadores. | No se comprobó una filtración de secreto concreta por esta ruta. | Auditar los mensajes de excepciones externas y adoptar logging estructurado con redacción de credenciales/PII y un identificador de correlación, sin registrar cuerpos de evidencias. |
+| P3 — apertura del proyecto | El reporte anterior ya señala ausencia de `LICENSE` y que la fuente normativa oficial no se distribuye en Git. | La licencia elegida y el permiso para redistribuir el procedimiento están **NO VERIFICADOS**. | Elegir una licencia con asesoría del propietario y documentar que las fuentes normativas son owner-supplied; no publicar documentos normativos sin autorización. |
+
+### Estado de verificación
+
+| Verificación | Resultado |
+|---|---|
+| `npm run verify:release` en `dashboard/verify` | **OK**: lint de secretos y contraste, typecheck, 57 tests de contrato, 282 tests aprobados, 2 omitidos y build Vite. |
+| `npm run verify:release` en `integration/all` | **FALLA** en TypeScript antes de tests/build por incompatibilidades del árbol modificado; detalles arriba. |
+| `npm audit` | **FALLA**: 11 advisories en dependencias transitivas/directas de tooling (2 críticas, 3 altas, 6 moderadas). |
+| `npm audit --omit=dev` | **OK**: 0 vulnerabilidades reportadas en el árbol de dependencias de producción. |
+| Servicios Vercel/InsForge/OpenRouter/AssemblyAI | **NO VERIFICADO**: no se consultaron despliegues, configuración ni datos de producción. |
+| Aplicación de migraciones y políticas Storage/RLS en producción | **NO VERIFICADO**. |
+| Estado de rotación de la credencial registrada en auditoría anterior | **NO VERIFICADO**. |
+
+### Decisión de integración/publicación
+
+Esta auditoría solo incorpora documentación. No se subió el conjunto de código
+parcial del worktree `integration/all`: está sucio y su verificación falla. El
+worktree local de `main` ya contenía ediciones de otro trabajo; se preservaron.
+La publicación de este informe no equivale a aprobar ni desplegar los cambios
+de producto que siguen pendientes de conciliación y verificación.
+
+---
+
+## Auditoría anterior — hallazgos corregidos y trabajo histórico
+
+Las secciones siguientes conservan el inventario de cambios y pruebas de la
+auditoría anterior. Sus descripciones de estado/cobertura son históricas y no
+reemplazan la verificación vigente indicada arriba ni certifican el estado de
+un despliegue real.
+
+## 1. Veredicto anterior
 
 | Dimensión | Estado | Nota |
 |---|---|---|

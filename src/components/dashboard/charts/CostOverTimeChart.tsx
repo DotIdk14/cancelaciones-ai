@@ -37,9 +37,19 @@ export function CostOverTimeChart({ data, ariaLabel }: CostOverTimeChartProps): 
   if (data.length === 0) return null;
 
   return (
-    <div role="img" aria-label={ariaLabel} className="h-full w-full">
+    <div className="h-full w-full">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -12 }}>
+        {/* `title`/`desc` van al propio `<svg>` de Recharts. Envolverlo en un
+            `role="img"` sería PEOR: `img` es un rol de hijos presentacionales,
+            así que sacaría del árbol de accesibilidad el `role="application"` y
+            el `tabIndex=0` que Recharts 3 añade para poder leer los datos con
+            las flechas del teclado. */}
+        <BarChart
+          data={data}
+          margin={{ top: 8, right: 8, bottom: 0, left: -12 }}
+          title="Costo de las auditorías de IA por periodo"
+          desc={ariaLabel}
+        >
           <CartesianGrid stroke={GRID_STROKE} strokeDasharray="3 3" vertical={false} horizontal={true} />
           <XAxis
             dataKey="bucket"
@@ -60,9 +70,44 @@ export function CostOverTimeChart({ data, ariaLabel }: CostOverTimeChartProps): 
             cursor={{ fill: 'rgba(255, 255, 255, 0.04)' }}
             formatter={(value) => formatCostValue(value as number | string)}
           />
-          <Bar dataKey="costUsd" name="Costo" fill="var(--accent)" maxBarSize={40} radius={[4, 4, 0, 0]} />
+          <Bar
+            dataKey="costUsd"
+            name="Costo"
+            fill="var(--accent)"
+            maxBarSize={40}
+            radius={[4, 4, 0, 0]}
+            // Sin esto, cambiar la granularidad remonta la gráfica y reproduce
+            // la animación completa de las barras.
+            isAnimationActive={false}
+          />
         </BarChart>
       </ResponsiveContainer>
+      {/* Alternativa textual de 1.1.1 que SUSTITUYE al gráfico: describe qué
+          mide y cuánto costó, con los valores. Sin esto, un usuario de lector
+          de pantalla solo hearía "Costo de las auditorías de IA por periodo". */}
+      <p className="sr-only">{dataSummary(data)}</p>
     </div>
+  );
+}
+
+/** Resumen legible de la serie: periodo, total y el día más caro. */
+function dataSummary(data: CostSeriesPoint[]): string {
+  const total = data.reduce((sum, point) => sum + point.costUsd, 0);
+  // `data` nunca llega vacío (el componente retorna `null` antes), pero sin
+  // este guardia TypeScript no lo puede probar y el índice quedaría `undefined`.
+  const peor = data.reduce<CostSeriesPoint | undefined>(
+    (max, point) => (max === undefined || point.costUsd > max.costUsd ? point : max),
+    undefined,
+  );
+  const parte = data
+    .map((point) => `${point.bucket}: ${formatCostValue(point.costUsd)}`)
+    .join('; ');
+  const pico =
+    peor === undefined
+      ? ''
+      : ` El día más caro fue ${peor.bucket} con ${formatCostValue(peor.costUsd)}.`;
+  return (
+    `Costo total ${formatCostValue(total)} en ${data.length} periodo(s).${pico} ` +
+    `Detalle por periodo — ${parte}.`
   );
 }

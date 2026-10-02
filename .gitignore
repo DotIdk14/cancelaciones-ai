@@ -7,6 +7,10 @@ references/private-historical/
 node_modules/
 dist/
 
+# Worktrees de git para trabajo paralelo (cada uno tiene su rama y su
+# node_modules propios). El directorio queda fuera del estado del repo.
+.worktrees/
+
 # Secretos y variables de entorno.
 .env
 .env.local

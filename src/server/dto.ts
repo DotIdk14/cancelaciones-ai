@@ -1,5 +1,5 @@
-// =============================================================================
-// DTOs — forma exacta que consume la UI (contrato de API).
+﻿// =============================================================================
+// DTOs ÔÇö forma exacta que consume la UI (contrato de API).
 // =============================================================================
 
 import type { ErrorCategory, EvidenceStatus, TranscriptData } from '../skills/audit/types.js';
@@ -69,13 +69,13 @@ export interface AuditHistoryItemDto {
 }
 
 /**
- * Revisión humana del caso. `result` es la RESOLUCIÓN FINAL: si existe, manda
- * sobre el dictamen de la auditoría.
+ * Revisi├│n humana del caso. `result` es la RESOLUCI├ôN FINAL: si existe, manda
+ * sobre el dictamen de la auditor├¡a.
  */
 export interface CaseReviewDto {
   id: string;
   caseId: string;
-  /** Auditoría cuyo dictamen se compara (inmutable). */
+  /** Auditor├¡a cuyo dictamen se compara (inmutable). */
   auditId: string;
   result: string;
   reviewerName: string | null;
@@ -84,13 +84,13 @@ export interface CaseReviewDto {
 }
 
 /**
- * Juicio de la IA sobre si el dictamen original coincide con la decisión humana.
+ * Juicio de la IA sobre si el dictamen original coincide con la decisi├│n humana.
  *
  * EL VEREDICTO VA PLANO. `agrees`, `explanation`, `confidence`,
  * `discrepancyReason`, `procedureSections` y `evidenceIds` son el contrato que
- * consume la interfaz, y son `null` (o `[]`) mientras la comparación no esté
+ * consume la interfaz, y son `null` (o `[]`) mientras la comparaci├│n no est├®
  * `COMPLETED`: no se publica un veredicto a medio hacer, y `null` quiere decir
- * "todavía no existe", no "el modelo respondeu que no".
+ * "todav├¡a no existe", no "el modelo respondeu que no".
  */
 export interface ComparisonDto {
   id: string;
@@ -109,10 +109,10 @@ export interface ComparisonDto {
   latencyMs: number | null;
   createdAt: string;
   // --- superset ---------------------------------------------------------------
-  // `resultJson` es el MISMO veredicto sin aplanar más la metadata real de
+  // `resultJson` es el MISMO veredicto sin aplanar m├ís la metadata real de
   // OpenRouter (modelo y usage), y `deadlineAt`/`updatedAt` son las marcas de la
   // fila. Se emiten porque el cliente (`src/lib/api.ts`) ya fue escrito contra
-  // ellos, y los campos planos se DERIVAN de `resultJson`, nunca al revés: no
+  // ellos, y los campos planos se DERIVAN de `resultJson`, nunca al rev├®s: no
   // pueden divergir. Si el cliente se pasa a los planos, estos tres sobran.
   resultJson: ComparisonOutcomePayload | null;
   deadlineAt: string | null;
@@ -120,12 +120,12 @@ export interface ComparisonDto {
 }
 
 /**
- * Resolución que gobierna el caso en este momento, y de dónde sale.
+ * Resoluci├│n que gobierna el caso en este momento, y de d├│nde sale.
  *
- * `HUMAN` cuando existe revisión: es la decisión de la persona y sustituye al
- * dictamen. `AI` cuando no la hay: el resultado de la auditoría COMPLETED
+ * `HUMAN` cuando existe revisi├│n: es la decisi├│n de la persona y sustituye al
+ * dictamen. `AI` cuando no la hay: el resultado de la auditor├¡a COMPLETED
  * vigente. `null` cuando no hay ninguna de las dos, porque un caso sin dictamen
- * emitido y sin decisión registrada NO tiene resolución, y afirmar una sería
+ * emitido y sin decisi├│n registrada NO tiene resoluci├│n, y afirmar una ser├¡a
  * inventarla.
  */
 export interface EffectiveResolution {
@@ -238,11 +238,11 @@ export function caseReviewToDto(row: CaseReviewRow): CaseReviewDto {
 }
 
 /**
- * Aplana la comparación para el contrato de la interfaz.
+ * Aplana la comparaci├│n para el contrato de la interfaz.
  *
  * El veredicto se lee UNA vez de `result_json` y los campos planos se derivan de
- * esa misma lectura, así que el contrato plano y `resultJson` no pueden
- * discrepar. Sólo se lee si la fila está `COMPLETED`: una fila RUNNING o ERROR
+ * esa misma lectura, as├¡ que el contrato plano y `resultJson` no pueden
+ * discrepar. S├│lo se lee si la fila est├í `COMPLETED`: una fila RUNNING o ERROR
  * no publica veredicto, ni siquiera parcial.
  */
 export function comparisonToDto(row: ComparisonRow): ComparisonDto {
@@ -270,13 +270,13 @@ export function comparisonToDto(row: ComparisonRow): ComparisonDto {
 }
 
 /**
- * Deriva la resolución efectiva EN LECTURA. No escribe nada y no toca el
- * dictamen: la auditoría original sigue siendo exactamente la que emitió el
- * modelo, y esta función sólo decide qué resultado se muestra como vigente.
+ * Deriva la resoluci├│n efectiva EN LECTURA. No escribe nada y no toca el
+ * dictamen: la auditor├¡a original sigue siendo exactamente la que emiti├│ el
+ * modelo, y esta funci├│n s├│lo decide qu├® resultado se muestra como vigente.
  *
- * La precedencia es la del producto: la decisión de la persona manda sobre el
- * dictamen, en cualquier caso. `audit` debe ser la auditoría COMPLETED vigente
- * (el que la pasa se encarga: `latestCompletedAudit`), y aquí se vuelve a
+ * La precedencia es la del producto: la decisi├│n de la persona manda sobre el
+ * dictamen, en cualquier caso. `audit` debe ser la auditor├¡a COMPLETED vigente
+ * (el que la pasa se encarga: `latestCompletedAudit`), y aqu├¡ se vuelve a
  * comprobar el estado por si alguien pasa otra cosa.
  */
 export function deriveEffectiveResolution(

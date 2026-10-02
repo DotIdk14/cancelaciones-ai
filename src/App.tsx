@@ -4,7 +4,7 @@
 // Ahora con login: la API exige sesión por cookie httpOnly.
 // =============================================================================
 
-import type { ReactNode } from 'react';
+import type { MouseEvent, ReactNode } from 'react';
 import { Suspense, lazy } from 'react';
 import { AppHeader } from './components/AppHeader';
 import { AppNav } from './components/AppNav';
@@ -15,6 +15,7 @@ import { NewCasePanel } from './components/NewCasePanel';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Panel, Spinner } from './components/ui';
 import { cx } from './lib/cx';
+import { shellWidth } from './lib/layout';
 import { useHashRoute } from './lib/useHashRoute';
 import type { AppRoute } from './lib/useHashRoute';
 import { useSession } from './lib/useSession';
@@ -39,9 +40,6 @@ const QualityPage = lazy(async () => ({
 const AiCostsPage = lazy(async () => ({
   default: (await import('./components/dashboard/AiCostsPage')).AiCostsPage,
 }));
-
-/** Rutas del dashboard: caben más contenido, por eso usan `max-w-6xl`. */
-const DASHBOARD_ROUTES = new Set<AppRoute['name']>(['dashboard', 'quality', 'ai-costs']);
 
 /**
  * Estado de carga del chunk del dashboard. Usa las mismas primitivas que el
@@ -90,10 +88,25 @@ function renderRoute(route: AppRoute): ReactNode {
 function Shell({ onSignOut }: { onSignOut: () => void }): ReactNode {
   const route = useHashRoute();
 
+  /**
+   * El skip link NO puede usar `href="#contenido"`: el hash lo interpreta el
+   * enrutador y `parseHash` lo trataría como una ruta desconocida, expulsando
+   * al usuario al Resumen y ensuciando la URL. Se mueve el foco con JS y se
+   * deja el href como respaldo si no hay JS.
+   */
+  const skipToContent = (event: MouseEvent<HTMLAnchorElement>): void => {
+    const main = document.getElementById('contenido');
+    if (!main) return;
+    event.preventDefault();
+    main.focus();
+    main.scrollIntoView();
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <a
         href="#contenido"
+        onClick={skipToContent}
         className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-surface-3 focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-ink"
       >
         Saltar al contenido
@@ -102,10 +115,10 @@ function Shell({ onSignOut }: { onSignOut: () => void }): ReactNode {
       <AppNav />
       <main
         id="contenido"
-        className={cx(
-          'mx-auto w-full px-4 py-6 sm:px-6',
-          DASHBOARD_ROUTES.has(route.name) ? 'max-w-6xl' : 'max-w-5xl',
-        )}
+        // `tabIndex={-1}` hace que el destino del skip link reciba el foco de
+        // forma programática sin entrar en el orden de tabulación.
+        tabIndex={-1}
+        className={cx('mx-auto w-full px-4 py-6 sm:px-6', shellWidth(route.name))}
       >
         <CurrentRoute route={route} />
       </main>

@@ -45,8 +45,15 @@ export function ResultsBreakdownChart({ data }: { data: ResultBreakdownPoint[] }
   }));
 
   return (
-    <ResponsiveContainer width="100%" height="100%">
-      <BarChart data={rows} layout="vertical" margin={{ top: 4, right: 48, bottom: 4, left: 8 }}>
+    <>
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart
+          data={rows}
+          layout="vertical"
+          margin={{ top: 4, right: 48, bottom: 4, left: 8 }}
+          title="Distribución de los dictamenes por tipo de resultado"
+          desc={breakdownSummary(rows)}
+        >
         <CartesianGrid
           stroke={GRID_STROKE}
           strokeDasharray="3 3"
@@ -83,7 +90,24 @@ export function ResultsBreakdownChart({ data }: { data: ResultBreakdownPoint[] }
             style={{ fill: 'var(--text-secondary)', fontSize: 12 }}
           />
         </Bar>
-      </BarChart>
-    </ResponsiveContainer>
+        </BarChart>
+      </ResponsiveContainer>
+      {/* Alternativa textual de 1.1.1 (A). El `LabelList` de la derecha NO
+          cumple: escribe el número en otra coordenada que la etiqueta del eje,
+          así que el emparejamiento resultado↔casos solo existe en la vista. */}
+      <p className="sr-only">{breakdownSummary(rows)}</p>
+    </>
+  );
+}
+
+/** Reparto por tipo de dictamen leído como frase. */
+function breakdownSummary(rows: { label: string; count: number }[]): string {
+  const total = rows.reduce((sum, row) => sum + row.count, 0);
+  const conCaso = rows.filter((row) => row.count > 0);
+  const detalle = conCaso.map((row) => `${row.label}: ${row.count}`).join('; ');
+  const sinCaso = rows.filter((row) => row.count === 0).map((row) => row.label);
+  return (
+    `Distribución de ${total} caso(s) por tipo de dictamen. ${detalle}.` +
+    (sinCaso.length > 0 ? ` Sin casos: ${sinCaso.join(', ')}.` : '')
   );
 }

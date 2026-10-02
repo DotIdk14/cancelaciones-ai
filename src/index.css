@@ -11,7 +11,10 @@
   --border: rgba(255, 255, 255, 0.08);
   --text-primary: #f1f3f5;
   --text-secondary: #a7b0ba;
-  --text-muted: #6f7a86;
+  /* `#6f7a86` daba 4.04:1 sobre `--surface-2`, por debajo del 4.5:1 que exige
+     WCAG 2.2 AA para texto normal. `#7d8894` sube a 5.05:1 sin perder la
+     jerarquía tertiary. Verificable con `node scripts/contrast.mjs`. */
+  --text-muted: #7d8894;
   --accent: #7ab7ff;
   --success: #5ee0a0;
   --warning: #f3c969;
