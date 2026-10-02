@@ -17,14 +17,17 @@ evidencias
 
 Estructura: repositorio de **un solo paquete npm** en la raiz (monorepo pnpm y Next.js eliminados). SPA React + Vite + TypeScript; backend como Vercel Functions en `api/**` con helpers en `src/server/**`.
 
-- `api/`: Vercel Functions, una por endpoint (`cases`, `cases/:caseId/evidence`, `audits`, `evidence/download`). Sin logica de negocio: validan, delegan y traducen errores.
+- `api/`: Vercel Functions, una por endpoint (`auth/session`, `auth/refresh`, `cases`, `cases/:caseId/evidence`, `cases/:caseId/audit`, `cases/:caseId/review`, `cases/:caseId/comparison`, `dashboard/*`, `evidence/download`, `health/ai`). Sin logica de negocio: validan, delegan y traducen errores. Todas pasan por `handleRoute` (`src/server/http.ts`), que aplica sesion fail-closed y CSRF (`Origin` + `X-App-Request`) antes del handler; `{ public: true }` solo en las tres rutas de auth y `health/ai`.
 - `src/skills/audit/`: **unica fuente de inteligencia**. `types.ts` (vocabulario cerrado de resultados, estados y categorias de error), `schema.ts` (`AiAuditAssessmentSchema` y `AuditResultSchema` Zod `strict` + parsers tipados), `instructions.ts` (system prompt y bloque anti prompt-injection), `procedure-v5.ts` y `policy-v5.generated.ts` (procedimiento compilado), `execute.ts` (ensamblado del expediente, llamada al modelo y validacion de referencias). El dictamen ES el assessment validado; el backend no reclasifica, solo agrega metadata tecnica real de OpenRouter.
-- `src/server/`: `env.ts`, `insforge.ts` (cliente server-side), `http.ts` (errores tipados), `cases.ts` (persistencia), `dto.ts`, `audit-service.ts` (orquestacion durable), `openrouter.ts` (unico transporte de IA), `assemblyai.ts` (solo transcripcion), `evidence-prep.ts` y `pdf.ts` (preparacion tecnica, sin decidir negocio).
-- `src/components/`: UI con hash routing manual (`#/`, `#/casos/:id`), sin login ni react-router.
-- `src/lib/`: `api.ts` (cliente fetch, DTOs camelCase), `useHashRoute.ts`, `usePolling.ts`, `labels.ts`, `format.ts`, `cx.ts`.
+- `src/skills/sanitize.ts`: cercado mecanico del contenido no confiable (`sanitizeTagDelimiters`, `sanitizeFenceDelimiters`, `wrapUntrusted`, `wrapUntrustedInline`). `src/skills/review/` (revision humana) lo reexporta. Es la unica capa de anti prompt-injection testeable; el system prompt es la capa que depende del modelo.
+- `src/server/`: `env.ts`, `insforge.ts` (cliente server-side), `errors.ts` (**modulo hoja**: `ApiError` + `mapProviderError`; existe para romper el ciclo `http -> auth -> insforge` que colgaba la suite de tests; `http.ts` lo reexporta), `http.ts` (helpers de respuesta, cookies, CSRF y sesion), `auth.ts` (sesion por cookie `httpOnly`, verificacion remota del token, rol desde `app_memberships`), `quotas.ts` (cuotas fail-closed por RPC `admit_or_reject_quota`, sujeto hasheado con HMAC), `derived.ts` (regla pura de vigencia de derivados; modulo hoja por la misma razon que `errors.ts`), `cases.ts` (persistencia), `dto.ts`, `audit-service.ts` (orquestacion durable), `comparison-service.ts`, `reviews.ts`, `dashboard.ts`, `dashboard.human.ts`, `dashboard-filters.ts`, `openrouter.ts` (unico transporte de IA), `assemblyai.ts` (solo transcripcion), `evidence-prep.ts` (incluye `verifyFileSignature` por magic bytes) y `pdf.ts` (preparacion tecnica, sin decidir negocio). `src/server/ai/` contiene el contrato con el modelo: `model-capabilities.ts` y `provider-schema.ts`.
+- `src/components/`: UI con hash routing manual (`#/`, `#/casos/:id`), sin react-router. `LoginScreen` + `src/lib/useSession.ts` gestionan la sesion.
+- `src/lib/`: `api.ts` (cliente fetch, DTOs camelCase), `useHashRoute.ts`, `usePolling.ts`, `useSession.ts`, `useDashboard.ts`, `dashboard.ts`, `labels.ts`, `format.ts`, `cx.ts`.
 - `policy/`: procedimiento `GDM_GAM_PRD_MLG_003` v5 indexado por seccion. Fuente normativa inmutable; `policy-v5.generated.ts` es su serializacion (regenerar con `npm run policy:generate`).
-- `migrations/00000000000000_baseline.sql`: baseline unico. 3 tablas (`cases`, `evidence`, `audits`), RLS por `created_by = auth.uid()`, trigger `set_updated_at` solo en `cases`.
-- `tests/`: Vitest. `scripts/`: `generate-policy.mjs`, `dev-api.mjs` (monta `/api/*` en el dev server de Vite).
+- `migrations/`: `00000000000000_baseline.sql` (3 tablas `cases`, `evidence`, `audits`; RLS por `created_by = auth.uid()`; trigger `set_updated_at` solo en `cases`) + 8 migraciones incrementales aplicadas en orden por nombre: `app_memberships`, `request_admissions` + `admit_or_reject_quota`, vistas de dashboard, `case_reviews`, `case_comparisons`, y columnas de derivados en `evidence`. Todas forward-only e idempotentes.
+- `tests/`: Vitest (32 archivos). `scripts/`: `generate-policy.mjs`, `dev-api.mjs` (monta `/api/*` en el dev server de Vite), `check-no-public-secrets.mjs`, `run-ai-smoke.mjs`, `verify-rls-grants.sql`.
+
+No hay sign-up: los usuarios se crean en InsForge y el acceso se autoriza por fila en `app_memberships`; sin fila, `403`.
 
 InsForge (DB + Storage) es **solo server-side**: el navegador nunca habla con el. OpenRouter es la unica IA. Toda secret vive en el servidor y **no existe ninguna variable de entorno con prefijo `VITE_` o `NEXT_PUBLIC_`**.
 
@@ -40,9 +43,15 @@ InsForge (DB + Storage) es **solo server-side**: el navegador nunca habla con el
 - TRACE_EVERY_DECISION: toda conclusion importante debe enlazar evidencia y seccion del procedimiento cuando aplique.
 - PRESERVE_EVIDENCE_PROVENANCE: nunca modificar originales; todo derivado conserva hash y origen.
 - NO_PII_IN_GIT: evidencias reales e historicos con PII quedan fuera de Git.
-- NO_PROCESS_LOCAL_DURABILITY: auditorias, jobs, decisions y estados durables no dependen de memoria de proceso.
+- NO_PROCESS_LOCAL_DURABILITY: auditorias, jobs, decisions, cuotas y estados durables no dependen de memoria de proceso.
 - DO_NOT_REPROCESS_AI_UNNECESSARILY: si la evidencia y sus derivados no cambian, reutilizar outputs durables.
 - KEEP_IT_SIMPLE: monolito modular; sin microservicios ni infraestructura distribuida innecesaria.
+- VALIDATE_BEFORE_EFFECT: toda validacion de entrada no confiable (MIME, magic bytes, cuota, tamano) ocurre **antes** de escribir en Storage o en la base. Validar despues deja objetos huerfanos y filas inconsistentes.
+- FAIL_CLOSED: sesion, rol y cuotas fallan cerradas. Un servicio que no responde da `503`, nunca un `200` con permisos relajados ni un `429` que en realidad es una caida de infraestructura.
+- NO_RESOURCE_EXISTENCE_LEAK: un recurso ajeno se responde `404`, no `403`. Un `403` confirma que el identificador existe.
+- QUOTA_SUBJECT_IS_HASHED: correo e IP se hashean con HMAC antes de persistirse. La base nunca ve el sujeto en claro.
+- NO_SIGNUP: el alta de usuarios y la autorizacion de acceso ocurren en InsForge, no en la aplicacion.
+- LEAF_MODULES_HAVE_NO_SERVER_IMPORTS: modulos que los tests sustituyen por completo (`errors.ts`, `derived.ts`) no importan nada del servidor. Un ciclo de imports aqui cuelga la suite sin fallar.
 
 ## Limites duros
 

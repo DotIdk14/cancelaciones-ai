@@ -57,3 +57,13 @@ normative/
 # Volcados residuales de CLI (UTF-16) que no deben versionarse.
 log.txt
 metadata.json
+
+# WIP local del owner y artefactos de agentes/herramientas: fuera de Git.
+# La migracion sigue en disco; solo se des-trackea por orden del owner.
+migrations/20260930010000_human-resolution.sql
+.worktrees/
+.serena/
+.impeccable/
+.superpowers/
+PRODUCT.md
+windows-network-node-forensic-report.md

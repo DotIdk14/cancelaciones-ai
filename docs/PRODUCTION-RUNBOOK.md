@@ -1,100 +1,66 @@
-# Runbook de producción
+﻿# Runbook de producción
 
-## Alcance
+> **Vigente pero consolidado.** Los procedimientos detallados de cutover,
+> variables de entorno, migraciones, provisión de usuarios, checks post-deploy y
+> rollback viven ahora en [`docs/DEPLOYMENT.md`](DEPLOYMENT.md).
+> Este archivo conserva solo la guía de promoción/release.
 
-Los cambios de transporte OpenRouter, contrato Zod, diagnósticos y healthcheck
-no requieren migración de base de datos ni cambios en InsForge. No ejecutes un
-baseline sobre una base existente ni operaciones destructivas de schema para
-desplegar esta capa.
+## Promoción a producción
 
-La promoción requiere pasar `npm run verify:release`, desplegar un preview,
-comprobar su healthcheck y ejecutar una canary sintética contra el entorno
-preview antes de promover. Una respuesta exitosa de Vercel por sí sola no es una
-validación de IA.
-
-## Variables server-side para Vercel
-
-Configurar como variables de entorno del proyecto Vercel, sin prefijos `VITE_` ni
-`NEXT_PUBLIC_`:
-
-- `INSFORGE_BASE_URL`
-- `INSFORGE_ANON_KEY`
-- `INSFORGE_API_KEY`
-- `OPENROUTER_API_KEY`
-- `OPENROUTER_MODEL`
-- `APP_URL` con el dominio HTTPS productivo
-
-Opcionales:
-
-- `OPENROUTER_FALLBACK_MODEL`
-- `AI_MAX_OUTPUT_TOKENS=16384`
-- `ASSEMBLYAI_API_KEY`
-- `INSFORGE_STORAGE_BUCKET=evidencias`
-- `MAX_EVIDENCE_BYTES=4194304`
-- `TRANSCRIPTION_POLL_TIMEOUT_MS=25000`
-- `AI_TIMEOUT_MS=60000`
-- `TOTAL_AUDIT_TIMEOUT_MS=240000`
-- `AUDIT_STALE_AFTER_MS=600000`
-- `MAX_EVIDENCE_COUNT=50`
-- `MAX_AUDIT_TEXT_CHARS=180000`
-- `MAX_AUDIT_TEXT_CHARS_PER_EVIDENCE=40000`
-- `MAX_AUDIT_MULTIMODAL_BYTES=16777216`
-
-## Deploy Vercel
-
-Primero valida localmente:
+1. Validar localmente:
 
 ```powershell
 npm.cmd ci
 npm.cmd run verify:release
 ```
 
-Configura los IDs del modelo solo en variables server-side. `AI_MAX_OUTPUT_TOKENS`
-por defecto es 16384, su máximo operativo es 16384 y se contrasta con el máximo
-publicado por OpenRouter. Zod mantiene la validación estricta; el schema de
-provider es una proyección y `json_object` recibe una estructura derivada del
-mismo schema. La cascada no repite un 400 determinista y limita a dos las
-llamadas por auditoría.
-
-Con Vercel CLI autenticado y el proyecto enlazado:
+2. Crear preview en Vercel:
 
 ```powershell
-npx vercel env ls
 npx vercel deploy
 ```
 
-Después de crear el preview, consulta `https://<preview>/api/health/ai` y
-confirma `status: "ok"`, que el modelo sea el esperado y que el perfil soporte
-la modalidad/JSON requerido. El endpoint no genera texto ni expone secretos.
-Para canary sintética con configuración de preview, descarga las variables
-server-side a un archivo local ignorado por Git y ejecuta el smoke en modo
-preview:
+3. Healthcheck del preview:
+
+```
+GET https://<preview>/api/health/ai
+```
+
+Debe responder `status: "ok"` o `"degraded"`, con el modelo esperado y sin exponer secrets.
+
+4. Canary sintética con variables del preview:
 
 ```powershell
 npx vercel env pull .env.preview.local --environment=preview
 npm.cmd run test:ai-smoke:preview
 ```
 
-El smoke llama OpenRouter directamente con el mismo código y variables de
-preview; no escribe en InsForge. Requiere saldo y puede generar coste.
+El smoke llama OpenRouter directamente con el código de preview; puede generar coste.
 
-Promueve con `npx vercel deploy --prod` solo después de pasar ambos checks. Luego
-repite el healthcheck y smoke para producción. No promociones si el smoke live
-no pasó; no concluyas que producción está sana por el estado del deployment.
+5. Promover solo si ambos checks pasan:
+
+```powershell
+npx vercel deploy --prod
+```
+
+6. Repetir healthcheck y smoke en producción.
 
 ## Smoke test post-deploy
 
-1. `GET /api/health/ai` debe devolver `status: "ok"` sin campos secretos.
-2. Crear caso y subir PDF/TXT/imagen: evidencias no-audio deben
-   quedar `READY`.
-3. Ejecutar auditoría: debe persistir una fila `COMPLETED`, sus referencias
-   deben existir y `provider_metadata.openrouterAttempts` no debe contener
-   contenido de prompt/evidencias.
-4. Revisa `audits.provider_metadata.openrouterAttempts` para distinguir schema
-   rechazado, JSON inválido, truncamiento, timeout o caída del provider.
+1. `GET /api/health/ai` → `status: "ok"`, sin campos secretos.
+2. Login con usuario que tenga `app_memberships` → debe autenticar.
+3. Login con usuario sin `app_memberships` → 403.
+4. `GET /api/cases` anónimo → 401.
+5. Crear caso, subir PDF/TXT/imagen → evidencia `READY`.
+6. Ejecutar auditoría → fila `audits` `COMPLETED`, referencias válidas.
+7. Verificar `audits.provider_metadata.openrouterAttempts` sin contenido de prompt/evidencias.
+8. Registrar revisión humana → `case_reviews` + `case_comparisons`.
+9. Aislamiento: con una segunda cuenta, `GET /api/cases/:caseId` ajeno → 404.
 
 ## Nota de seguridad
 
 No almacenar ni imprimir connection strings, API keys o tokens. Las credenciales
 se consumen únicamente desde entornos server-side o desde la configuración segura
 de las plataformas.
+
+Ver [`docs/TROUBLESHOOTING.md`](TROUBLESHOOTING.md) para diagnóstico de errores comunes.

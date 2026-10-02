@@ -27,7 +27,7 @@ en cada auditoría.
 - Extrae hechos del expediente y los enlaza con las evidencias que los acreditan.
 - Detecta contradicciones entre evidencias.
 - Reconstruye la cronología.
-- Aplica el Procedimiento V5 y emite uno de los seis resultados permitidos.
+- Aplica el Procedimiento V5 y emite uno de los siete resultados permitidos.
 - Cita, en cada conclusión, **la evidencia y la sección del procedimiento** que la sostienen.
 
 ### Qué hace el código (y qué NO)
@@ -96,47 +96,70 @@ rechaza referencias inventadas a evidencias.
 ## Estructura del repositorio
 
 ```text
-api/                       Vercel Functions (una por endpoint)
+api/                       Vercel Functions (una por endpoint, sin lógica de negocio)
+  auth/                    session.ts (POST login / DELETE logout), refresh.ts
   cases/                   index.ts, [caseId]/index.ts,
                            [caseId]/evidence/, [caseId]/evidence/[evidenceId]/,
-                           [caseId]/audit/
+                           [caseId]/audit/, [caseId]/review/, [caseId]/comparison/
+  dashboard/               summary.ts, quality.ts, ai-costs.ts, options.ts
   evidence/                [evidenceId]/download.ts
+  health/                  ai.ts
 
 src/
-  skills/audit/            ÚNICA fuente de inteligencia
-    types.ts               vocabulario cerrado: resultados, estados, errores
-    schema.ts              AiAuditAssessmentSchema + AuditResultSchema (Zod strict)
-    procedure-v5.ts        tipos/metadatos de la política
-    policy-v5.generated.ts ARCHIVO GENERADO desde policy/ (npm run policy:generate)
-    instructions.ts        system prompt + bloque anti prompt-injection
-    execute.ts             ensamblado del expediente y llamada al modelo
-  server/                  env, insforge, http, cases, dto,
-                           audit-service, openrouter, assemblyai,
-                           evidence-prep, pdf
-  components/              AppHeader, CaseListPage, CaseDetailPage,
-                           EvidenceUploader, EvidenceList, EvidenceViewer,
-                           AuditResultPanel, ErrorBoundary, ui
+  skills/                  ÚNICA fuente de inteligencia
+    sanitize.ts            cercado de contenido no confiable (anti prompt-injection)
+    audit/
+      types.ts             vocabulario cerrado: resultados, estados, errores
+      schema.ts            AiAuditAssessmentSchema + AuditResultSchema (Zod strict)
+      procedure-v5.ts      tipos/metadatos de la política
+      policy-v5.generated.ts  ARCHIVO GENERADO desde policy/ (npm run policy:generate)
+      instructions.ts      system prompt + bloque anti prompt-injection
+      execute.ts           ensamblado del expediente y llamada al modelo
+    review/                skill de revisión humana (reusa skills/sanitize.ts)
+  server/                  env, insforge, http, errors, auth, quotas, derived,
+                           cases, dto, audit-service, comparison-service,
+                           reviews, dashboard, dashboard.human, dashboard-filters,
+                           openrouter, assemblyai, evidence-prep, pdf
+    ai/                    model-capabilities, provider-schema (contrato con el modelo)
+  components/              LoginScreen, AppHeader, AppNav, CaseListPage,
+                           CaseDetailPage, CasesPanel, NewCasePanel,
+                           CaseReviewPanel, EvidenceUploader, EvidenceList,
+                           EvidenceViewer, AuditResultPanel, ErrorBoundary, ui,
+                           dashboard/ (OverviewPage, QualityPage, AiCostsPage,
+                           DashboardFilters, RecentCasesTable, charts/)
   lib/                     api.ts (cliente fetch), useHashRoute, usePolling,
-                           labels, format, cx
+                           useSession, useDashboard, dashboard, labels, format, cx
 policy/                    Procedimiento GDM_GAM_PRD_MLG_003 v5 (FUENTE NORMATIVA)
   manifest.json            26 secciones + SHA-256 del PDF fuente
-  sections/*.md            secciones indexadas
-migrations/                00000000000000_baseline.sql (esquema único)
-scripts/                   generate-policy.mjs, dev-api.mjs
-tests/                     Vitest
+  sections/*.md            secciones indexadas (26)
+migrations/                baseline + 8 migraciones incrementales (orden por nombre)
+scripts/                   generate-policy.mjs, dev-api.mjs,
+                           check-no-public-secrets.mjs, run-ai-smoke.mjs,
+                           verify-rls-grants.sql
+tests/                     Vitest (32 archivos, 435 tests)
 docs/                      documentación del proyecto
+.github/                   CI (verify:release), Dependabot, plantillas de issue/PR
 vercel.json                framework vite, output dist, install npm ci
 ```
+
+> **El PDF fuente del procedimiento no está en el repo.** Las secciones `.md` de
+> `policy/` sí están versionadas, pero el `.docx.pdf` del que se extrajeron no
+> (`normative/` está en `.gitignore`). Su SHA-256 queda registrado en
+> `policy/manifest.json` como referencia normativa: eso permite **verificar** que
+> el procedimiento no cambió, no **reconstruirlo**. Para regenerar
+> `policy-v5.generated.ts` desde el documento oficial hay que pedirle el PDF al
+> owner y comprobar el hash contra el manifest.
 
 ---
 
 ## Resultados permitidos
 
-`audit.result` solo puede ser uno de estos seis valores:
+`audit.result` solo puede ser uno de estos siete valores:
 
 | Resultado | Significado |
 |---|---|
 | `CANCELACION_VENTA` | La venta se cancela conforme a la sección aplicable del procedimiento, en fase de venta/validación. |
+| `CANCELACION_VENTA_PETICION_CLIENTE` | La evidencia acredita una solicitud del cliente y la ruta aplicable del Procedimiento V5 determina cancelación de venta. |
 | `BAJA` | El estudiante solicita o incurre en baja (deserción ya iniciada la relación académica). |
 | `CANCELACION_VENTA_OPERATIVA` | Aplica algún supuesto de cancelación operativa (errores de áreas, canalización, seguimiento, validación de paquete, back office). |
 | `CANCELACION_MATRICULA` | Aplica el supuesto de cancelación de matrícula del procedimiento. |
@@ -178,7 +201,7 @@ Shape del resultado (`audits.result_json`):
     reasoning,
   },
   audit: {
-    result,                  // uno de los seis resultados
+    result,                  // uno de los siete resultados
     rule,                    // criterio aplicado; string no vacío
     procedureSection,        // sección del Procedimiento V5 citada
     reasoning,               // justificación con documento, versión, sección y página
@@ -317,10 +340,17 @@ la UI.
 | `storage_path` | `text` | key del objeto en InsForge Storage |
 | `processing_status` | `text` | `UPLOADED \| TRANSCRIBING \| READY \| ERROR` (CHECK) |
 | `transcript_json` | `jsonb` | transcripción AssemblyAI normalizada (audio) |
+| `extracted_text` | `text` | opcional. Texto derivado cacheado del PDF |
+| `extraction_pipeline_version` | `text` | opcional. Versión del extractor que produjo `extracted_text` |
 | `created_at` | `timestamptz` | sin `updated_at`: el contenido es inmutable |
 
 Índices: `evidence_case_id_created_at_idx` y `evidence_hash_idx` (este último
 **no** es `UNIQUE`).
+
+`extracted_text` + `extraction_pipeline_version` son una **caché derivada**, no
+fuente de verdad: si la migración no está aplicada, o si la versión no coincide,
+el derivado se descarta y se vuelve a extraer. El binario original nunca se
+modifica (`PRESERVE_EVIDENCE_PROVENANCE`).
 
 ### `audits` — los intentos de auditoría (fuente de verdad del resultado)
 
@@ -339,6 +369,33 @@ la UI.
 | `error_category` | `text` | sin CHECK: el vocabulario lo fija la aplicación |
 | `latency_ms` | `integer` | admite `NULL` ("no lo sé" ≠ 0) |
 | `created_at` | `timestamptz` | |
+
+### Tablas, vistas y funciones de soporte
+
+Migraciones incrementales posteriores al baseline. Ninguna es destructiva; todas
+son `CREATE … IF NOT EXISTS`, `CREATE OR REPLACE VIEW`, `ALTER TABLE … ADD
+COLUMN` o `CREATE OR REPLACE FUNCTION`, por lo que re-ejecutarlas es un no-op.
+
+| Objeto | Migración | Para qué |
+|---|---|---|
+| `app_memberships` (`user_id` PK, `role` CHECK en `user`/`coordinator`) | `20261002000000_auth_core.sql` | Autorización de acceso a la app. **No hay sign-up**: sin fila aquí, `403`. |
+| `request_admissions` + `admit_or_reject_quota(...)` | `20261003000000_paid_admissions.sql` | Cuotas de admisión. Cubre las operaciones **pagadas** (auditoría, comparación, transcripción de audio) y las de **login** (5/correo y 10/IP por 15 min). El sujeto se persiste **hasheado**; la admisión es una fila, no un contador en memoria. |
+| `audit_dashboard_metrics` (view) + `audits_created_at_idx` | `20260929040000_…` | Métricas agregadas de auditoría para `/api/dashboard/*`. |
+| `case_reviews` (+ columna del responsable) | `20260930010000_…`, `20261001010000_…` | Revisión humana del dictamen. |
+| `case_comparisons` | `20260930010000_human-resolution.sql` | Comparaciones entre casos. |
+| `case_comparisons_dashboard_metrics` (view) + `case_comparisons_created_at_idx` | `20260930020000_…` | Métricas de comparaciones. **Requiere** `20260930010000_…` aplicada. |
+| `evidence.extracted_text`, `evidence.extraction_pipeline_version` | `20261003010000_…` | Caché de derivados (ver arriba). |
+
+Las vistas del dashboard se crean con `CREATE OR REPLACE VIEW` y llevan una
+comprobación de forma que lanza si alguien las editó a mano
+(`AUDIT_DASHBOARD_METRICS_INCOMPLETE`), en vez de fallar en silencio con métricas
+equivocadas.
+
+**RLS y `service_role`:** el servidor escribe con el rol de servicio (bypass de
+RLS) y es el único que debe hacerlo. El scoping por dueño se aplica **en la
+aplicación** (`assertCaseOwner` / `getScopedCaseOr404`) *y* en la base; la
+aplicación es la primera barrera porque devuelve `404` en vez de filtrar en
+silencio.
 
 ### RLS
 
@@ -406,21 +463,38 @@ el mismo `(case_id, evidence_fingerprint)`.
 
 ## API
 
-Todas las rutas son Vercel Functions en `api/**`, comparten los helpers de
-`src/server/http.ts`. La SPA actual no incluye login ni `AuthContext`; InsForge
-se accede exclusivamente desde el servidor.
+Todas las rutas son Vercel Functions en `api/**` y comparten `handleRoute` de
+`src/server/http.ts`, que aplica **antes del handler** dos guards: resolución de
+sesión (fail-closed) y CSRF en métodos mutantes.
 
-| Método | Ruta | Respuesta |
-|---|---|---|
-| `GET` | `/api/cases` | `200 { cases: CaseSummary[] }` (máx. 100) |
-| `POST` | `/api/cases` | `201 { case }` · body `{ studentIdentifier? }` |
-| `GET` | `/api/cases/:caseId` | `200 { case, evidences, audit }` |
-| `POST` | `/api/cases/:caseId/evidence` | `201 { evidence }` · body binario crudo |
-| `DELETE` | `/api/cases/:caseId/evidence/:evidenceId` | `200 { ok: true }` |
-| `POST` | `/api/cases/:caseId/audit` | `200 { audit }` \| `202 { audit: null, pendingEvidence }` |
-| `GET` | `/api/cases/:caseId/audit` | `200 { audit \| null }` |
-| `GET` | `/api/evidence/:evidenceId/download` | `200` binario (`?preview=1` → `inline`) |
-| `GET` | `/api/health/ai` | Capacidades públicas seguras; no invoca generación ni expone secretos |
+`handleRoute` acepta `{ public: true }` solo para las tres rutas marcadas abajo.
+InsForge se accede exclusivamente desde el servidor: el navegador nunca recibe
+claves ni habla directamente con la plataforma.
+
+| Método | Ruta | Auth | Respuesta |
+|---|---|---|---|
+| `POST` | `/api/auth/session` | pública | `200 { user }` — body `{ email, password }`; setea cookies `httpOnly` |
+| `DELETE` | `/api/auth/session` | pública | `204` — cierra sesión y limpia cookies |
+| `POST` | `/api/auth/refresh` | pública | `200` — rota el access token con el refresh |
+| `GET` | `/api/cases` | sesión | `200 { cases: CaseSummary[] }` (máx. 100) |
+| `POST` | `/api/cases` | sesión | `201 { case }` · body `{ studentIdentifier? }` |
+| `GET` | `/api/cases/:caseId` | sesión + dueño | `200 { case, evidences, audit }` |
+| `POST` | `/api/cases/:caseId/evidence` | sesión + dueño | `201 { evidence }` · body binario crudo |
+| `DELETE` | `/api/cases/:caseId/evidence/:evidenceId` | sesión + dueño | `200 { ok: true }` |
+| `GET` `POST` | `/api/cases/:caseId/audit` | sesión + dueño | `200 { audit }` \| `202 { audit: null, pendingEvidence }` |
+| `POST` | `/api/cases/:caseId/comparison` | sesión + dueño | `200` — lanza el comparador entre dos casos |
+| `GET` `POST` | `/api/cases/:caseId/review` | sesión + dueño | `GET 200 { review \| null }` · `POST 200 { review }` (revisión humana) |
+| `GET` | `/api/evidence/:evidenceId/download` | sesión + dueño | `200` binario (`?preview=1` → `inline`) |
+| `GET` | `/api/dashboard/summary` | sesión + rol | `200 { summary }` |
+| `GET` | `/api/dashboard/quality` | sesión + rol | `200 { quality }` |
+| `GET` | `/api/dashboard/ai-costs` | sesión + rol | `200 { costs }` |
+| `GET` | `/api/dashboard/options` | sesión + rol | `200 { options }` — filtros disponibles |
+| `GET` | `/api/health/ai` | pública | Capacidades seguras; no invoca generación ni expone secretos |
+
+> **No hay sign-up.** Los usuarios se crean en InsForge (CLI o panel) y se
+> autoriza el acceso insertando su fila en `app_memberships`. Una cuenta de
+> InsForge sin membership recibe `403` en cualquier ruta de la API: no existe
+> un estado "registrado pero inactivo" dentro de la aplicación.
 
 ### Detalles del contrato
 
@@ -436,7 +510,14 @@ se accede exclusivamente desde el servidor.
   una Function de Vercel cortada a mitad). `GET /api/cases/:caseId` también
   refresca transcripciones (hasta 6 s).
 - **Idempotencia**: `POST /audit` con un `COMPLETED` existente devuelve ese
-  dictamen sin volver a llamar al modelo.
+  dictamen sin volver a llamar al modelo. El fingerprint de la auditoría se
+  calcula sobre el expediente normalizado y la versión del pipeline
+  (`AUDIT_PIPELINE_VERSION`), excluyendo campos de control como
+  `processing_status`; cambiar cualquiera de los dos invalida el fingerprint.
+- **Derivados cacheados**: el texto extraído de un PDF se persiste en
+  `evidence.extracted_text` junto a `extraction_pipeline_version`. Si la versión
+  no coincide, el derivado se descarta y se vuelve a extraer
+  (`DO_NOT_REPROCESS_AI_UNNECESSARILY`).
 
 ### Formato de error
 
@@ -459,20 +540,71 @@ Los mensajes del proveedor se sanean (se ocultan `api_key`, `secret`, `token`,
 
 ## Seguridad
 
+### Frontera de confianza
+
 - **InsForge server-side.** El navegador solo llama a `/api/*`; no recibe claves
-  ni credenciales de InsForge/OpenRouter.
+  ni credenciales de InsForge/OpenRouter. No existe ninguna variable de entorno
+  con prefijo `VITE_` o `NEXT_PUBLIC_` (lo verifica `npm run lint:secrets`).
+- **Sesión en cookies `httpOnly`.** Access y refresh token viajan en
+  `HttpOnly; Secure; SameSite=Lax; Path=/`. El token **nunca** se decodifica en
+  el servidor: la identidad se resuelve_REMOTAMENTE_ contra InsForge
+  (`auth.getCurrentUser`). Si el proveedor falla → `503`, nunca anónimo.
+- **Fail-closed.** Sin cookie, con cookie inválida, o sin fila en
+  `app_memberships`, la respuesta es `401`/`403`. No hay ruta que caiga en modo
+  invitado por error.
+- **CSRF.** Todo método mutante (`POST`/`PUT`/`PATCH`/`DELETE`) exige que el
+  `Origin` coincida con `APP_URL` y que llegue `X-App-Request: 1`. Ambas
+  condiciones; sin `Origin` (p. ej. mismo origen en algunos clientes) se rechaza.
+- **Autorización por dueño.** Cada ruta de caso pasa por
+  `getScopedCaseOr404`/`assertCaseOwner`. Un caso ajeno devuelve **404, no 403**:
+  responder 403 confirmaría que el identificador existe.
+- **Roles.** `user` y `coordinator` salen de `app_memberships`. Un rol
+  desconocido se trata como "sin permiso" (fail-closed), no como `user`.
+
+### Entrada no confiable
+
 - **Validación MIME en servidor.** Solo `image/png`, `image/jpeg`, `image/webp`,
   `image/gif`, `application/pdf`, `text/plain` y cualquier `audio/*`. Cualquier
   otro tipo → `400 UPLOAD_ERROR`.
+- **Firma real del archivo (magic bytes).** El MIME declarado **no** basta:
+  `verifyFileSignature` compara los primeros bytes con la firma del formato
+  declarado antes de cualquier efecto (cuota, Storage, insert). PDF `PK`/`MZ`/
+  ELF/shebang bajo un `text/plain` también se rechazan, porque sería la vía para
+  colar un binario o un script como "texto".
 - **Límite de tamaño**: 4 MB por evidencia (`MAX_EVIDENCE_BYTES`), por debajo del
   límite de body de Vercel. Excedido → `413 UPLOAD_ERROR`.
 - **Nombres de archivo saneados**: sin rutas ni caracteres de control; la key de
   storage incluye `caseId` + UUID, así que un nombre no controla la ruta ni
   colisiona.
-- **Las evidencias son DATOS, nunca instrucciones.** El system prompt incluye un
-  bloque explícito anti prompt-injection (`EVIDENCE_IS_DATA_NOT_INSTRUCTIONS`):
-  cualquier texto dentro de una evidencia que intente reescribir el rol, el
-  schema o las clasificaciones se trata como contenido del expediente.
+- **Las evidencias son DATOS, nunca instrucciones.** Además del bloque explícito
+  anti prompt-injection del system prompt
+  (`EVIDENCE_IS_DATA_NOT_INSTRUCTIONS`), `src/skills/sanitize.ts` **cerca**
+  mecánicamente el contenido no confiable: neutraliza delimitadores de tipo y de
+  cerca de código que el contenido pudiera usar para cerrar el bloque y fingir
+  hablar en nombre del sistema (`sanitizeTagDelimiters`,
+  `sanitizeFenceDelimiters`, `wrapUntrusted`).
+- **Sanitización también en el encabezado del expediente**: el nombre del archivo
+  se sanea antes de aparecer en `## Evidencia: <nombre>`, porque un nombre de
+  archivo es un vector de inyección tan válido como el cuerpo.
+
+### Cuotas
+
+- **Cuotas de admisión** (`src/server/quotas.ts`) resueltas por la función SQL
+  `admit_or_reject_quota`, no en memoria de proceso (`NO_PROCESS_LOCAL_DURABILITY`).
+- **Sujeto hasheado**: correo e IP se hashean con HMAC (`hashQuotaSubject`) antes
+  de persistirse. La base nunca ve la dirección IP ni el correo en claro.
+- **Fail-closed con la semántica correcta**: si la RPC de cuota responde
+  malformada o con un booleano que no es booleano, se devuelve **503**, no 429.
+  Confundir "no pude preguntar" con "te pasaste" produce un 429 falso y oculta
+  una caída de infraestructura.
+- **Auditorías y comparaciones** cobran cuota antes de invocar al modelo.
+- **Audio**: la cuota se cobra **antes** de subir a Storage e insertar la fila,
+  para que un `429` nunca deje bytes huérfanos ni una evidencia sin dueño.
+- **Login**: cuota por correo y por IP. La IP se toma de los headers del proxy y
+  solo se acepta si es IPv4/IPv6 literal; nunca se persiste en crudo.
+
+### Datos y diagnóstico
+
 - **Diagnóstico IA sin contenido.** Se guarda modelo, formato, status, códigos
   saneados, latencia, tokens, coste y categoría; no prompt, archivos ni PII.
 - **Sin PII en Git.** `cases.student_identifier` es un dato personal: se guarda
@@ -481,6 +613,24 @@ Los mensajes del proveedor se sanean (se ocultan `api_key`, `secret`, `token`,
   `policy-v5.generated.ts` con su SHA-256 en el prompt.
 - **Sin dependencias de estado en memoria de proceso**: el run es durable desde
   la fila `audits` en `RUNNING`, creada **antes** de llamar al modelo.
+- **Errores sin fuga**: `sendError` traduce a un `ErrorCategory` cerrado y nunca
+  expone stack traces. Los mensajes del proveedor se sanean (se ocultan
+  `api_key`, `secret`, `token`, `authorization`) y se truncan a 300 caracteres.
+
+### Checklist operativo antes de abrir a usuarios
+
+En `docs/REPOSITORY_AUDIT.md` está el detalle. Lo mínimo que falta resolver en
+la instancia existente antes de habilitar login:
+
+1. Aplicar las migraciones pendientes (`migrations/*.sql` posteriores al baseline).
+2. Crear y poblar `app_memberships` para los usuarios autorizados.
+3. Hacer backfill de los casos con `created_by IS NULL` (quedan invisibles bajo
+   RLS) al custodio que corresponda.
+4. Aplicar en el bucket de Storage una política **owner-scoped**; sin ella,
+   conocer la ruta del objeto basta para descargarlo.
+5. Rotar el secreto `sk-…` que quedó en el historial Git (commit `569d8ca`).
+
+Detalle operativo completo: `SECURITY.md`.
 
 ### Límites duros
 
@@ -575,13 +725,35 @@ APP_URL=https://<tu-dominio>
 
 ### Checklist de primer despliegue
 
-1. Ejecutar `migrations/00000000000000_baseline.sql` en InsForge **antes** del
-   deploy (CLI de InsForge, ver `docs/setup/insforge.md`).
-2. Crear el bucket de Storage `evidencias` (lo crea la CLI, no el SQL).
+1. Ejecutar las migraciones en InsForge **antes** del deploy, **en orden** por
+   nombre de archivo (CLI de InsForge). La secuencia es:
+
+   ```
+   00000000000000_baseline.sql
+   20260928010000_ai-native-production.sql
+   20260929040000_audit-dashboard-metrics.sql
+   20260930010000_human-resolution.sql
+   20260930020000_human-review-dashboard-metrics.sql
+   20261001010000_case-reviewer-name.sql
+   20261002000000_auth_core.sql
+   20261003000000_paid_admissions.sql
+   20261003010000_derived_extractions.sql
+   ```
+
+   `20260930020000_…` **requiere** que `20260930010000_human-resolution.sql` esté
+   aplicada. Ninguna migración destructiva: todas son `CREATE … IF NOT EXISTS` o
+   `ALTER TABLE … ADD COLUMN`.
+
+2. Crear el bucket de Storage `evidencias` (lo crea la CLI, no el SQL) y
+   revisarle la política de acceso (owner-scoped).
 3. Configurar las variables de entorno en Vercel.
-4. Registrar el primer usuario desde la UI (sign-up) y comprobar el escenario
-   completo: crear caso → subir evidencia → auditar → ver dictamen → recargar la
-   página y confirmar que la sesión se mantiene por cookie `httpOnly`.
+4. Crear los usuarios en InsForge e **insertar su fila en `app_memberships`**
+   (no hay sign-up en la aplicación).
+5. Comprobar el escenario completo: crear caso → subir evidencia → auditar →
+   ver dictamen → recargar y confirmar que la sesión sobrevive por cookie
+   `httpOnly`.
+6. Ejecutar `npm run verify:release` localmente y confirmar que
+   `scripts/verify-rls-grants.sql` no reporta desviaciones.
 
 ---
 
@@ -625,12 +797,23 @@ Ver `AGENTS.md` para la versión completa y de referencia.
 
 ## Documentación relacionada
 
-- `AGENTS.md` — invariantes, límites duros y reglas de trabajo.
-- `docs/MIGRATION-PLAN.md` — diagnóstico, decisiones y estado de la migración a
-  la arquitectura actual.
-- `migrations/00000000000000_baseline.sql` — el esquema, comentado sección por
-  sección.
-- `docs/setup/insforge.md` — actualizado para variables, esquema, bucket Storage
-  y CLI InsForge.
-- `docs/architecture.md` y `docs/migration-ai-native.md` — documentos del diseño
-  previo a la consolidación en un solo paquete.
+| Documento | Qué cubre |
+|---|---|
+| `AGENTS.md` | Invariantes, límites duros y reglas de trabajo. Referencia normativa del repo. |
+| `SECURITY.md` | Superficie de ataque, modelo de confianza, política de reporte de vulnerabilidades. |
+| `CONTRIBUTING.md` | Flujo de trabajo, contrato de commits, qué exige un PR para mergear. |
+| `PRODUCT.md` | Qué es el producto y qué no decide el código. |
+| `docs/architecture.md` | Arquitectura por capas y flujo de una auditoría. |
+| `docs/AUDIT_PIPELINE.md` | Expediente, fingerprint, idempotencia, límites y fallback de modelo. |
+| `docs/DATABASE.md` | Esquema, RLS, funciones de cuota y verificación de grants. |
+| `docs/DEPLOYMENT.md` | Deploy, migraciones, variables de entorno y rollback. |
+| `docs/PRODUCTION-RUNBOOK.md` | Qué hacer cuando algo falla en producción. |
+| `docs/TROUBLESHOOTING.md` | Errores frecuentes y su causa real. |
+| `docs/REPOSITORY_AUDIT.md` | Auditoría integral: hallazgos, correcciones y pendientes. |
+| `docs/MIGRATION-PLAN.md` | Estado de la migración a la arquitectura actual. |
+| `migrations/00000000000000_baseline.sql` | El esquema, comentado sección por sección. |
+| `policy/` | Procedimiento oficial `GDM_GAM_PRD_MLG_003` v5, indexado por sección. Inmutable. |
+
+`docs/migration-ai-native.md` es un documento histórico del diseño previo a la
+consolidación en un solo paquete: se conserva por trazabilidad, no es
+especificación vigente.
