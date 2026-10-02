@@ -11,6 +11,7 @@ import type { ApiRequest, ApiResponse } from '../src/server/http';
 import casesHandler from '../api/cases/index';
 import { setTestEnv } from './helpers/env';
 import { validAuditResult } from './fixtures/audit-result';
+import { fakeAuthContext } from './helpers/auth';
 import {
   fakeClient,
   resetStore,
@@ -25,6 +26,10 @@ vi.mock('../src/server/cases', async () => {
   const store = await import('./helpers/fake-store');
   return {
     getCaseOr404: store.getCaseOr404,
+    getScopedCaseOr404: store.getScopedCaseOr404,
+    derivedExtractionOf: store.derivedExtractionOf,
+    persistDerivedExtraction: store.persistDerivedExtraction,
+    assertCaseOwner: store.assertCaseOwner,
     listCaseSummaries: store.listCaseSummaries,
     createCase: store.createCase,
     listEvidenceRows: store.listEvidenceRows,
@@ -91,7 +96,7 @@ function makeApiResponse(): ApiResponse & { statusCode: number; body: string } {
 }
 
 function makeApiRequest(method: string, query: Record<string, string> = {}, body?: unknown): ApiRequest {
-  return { method, url: '/', headers: {}, query, body } as unknown as ApiRequest;
+  return { method, url: '/', headers: {}, query, body, auth: fakeAuthContext() } as unknown as ApiRequest;
 }
 
 beforeEach(() => {

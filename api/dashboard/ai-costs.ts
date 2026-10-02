@@ -35,6 +35,6 @@ export default handleRoute(async (req, res) => {
   const filters = parseDashboardFilters(req.query);
   const granularity = parseGranularity(req.query);
   const client = createServerClient();
-  const costs = await getAiCosts(client, filters, granularity);
+  const costs = await getAiCosts(client, filters, granularity, req.auth);
   ok(res, { costs });
 });

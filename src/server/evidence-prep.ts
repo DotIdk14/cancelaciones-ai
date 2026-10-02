@@ -86,3 +86,114 @@ export function readTranscriptFromJson(json: unknown): TranscriptData | null {
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+// -----------------------------------------------------------------------------
+// Validación por FIRMA REAL del archivo (magic bytes).
+//
+// El header `Content-Type` lo declara el cliente y no prueba nada: subir un
+// HTML/JS con `image/png` o un PDF que en realidad es un ZIP ejecutable son
+// vectores reales. Aquí se compara la firma del buffer con el MIME declarado.
+// Las imágenes y el audio tienen firmas estándar; el TEXTO se acepta salvo que
+// el contenido sea claramente un binario o un documento con otra firma.
+// -----------------------------------------------------------------------------
+
+interface SignatureRule {
+  mime: string;
+  /** Posiciones donde debe aparecer la marca (offsets desde el inicio). */
+  marks: Array<{ offset: number; bytes: number[] }>;
+  /** Tolerancia: si el buffer no tiene suficientes bytes, no se juzga. */
+  minLength: number;
+}
+
+const ascii = (s: string): number[] => [...s].map((c) => c.charCodeAt(0));
+
+const SIGNATURES: SignatureRule[] = [
+  { mime: 'application/pdf', marks: [{ offset: 0, bytes: ascii('%PDF-') }], minLength: 5 },
+  { mime: 'image/jpeg', marks: [{ offset: 0, bytes: [0xff, 0xd8, 0xff] }], minLength: 3 },
+  { mime: 'image/png', marks: [{ offset: 0, bytes: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a] }], minLength: 8 },
+  { mime: 'image/gif', marks: [{ offset: 0, bytes: ascii('GIF8') }], minLength: 4 },
+  // WebP: "RIFF" en 0 y "WEBP" en 8.
+  { mime: 'image/webp', marks: [{ offset: 0, bytes: ascii('RIFF') }, { offset: 8, bytes: ascii('WEBP') }], minLength: 12 },
+  // MP3 tiene DOS firmas válidas: la cabecera ID3 o el frame sync de MPEG audio,
+  // así que se resuelve fuera de la tabla (ver `verifyFileSignature`).
+  // WAV: RIFF....WAVE
+  { mime: 'audio/wav', marks: [{ offset: 0, bytes: ascii('RIFF') }, { offset: 8, bytes: ascii('WAVE') }], minLength: 12 },
+  // M4A/MP4 (container ISO-BMFF): "ftyp" en el offset 4.
+  { mime: 'audio/mp4', marks: [{ offset: 4, bytes: ascii('ftyp') }], minLength: 8 },
+  { mime: 'audio/x-m4a', marks: [{ offset: 4, bytes: ascii('ftyp') }], minLength: 8 },
+  { mime: 'audio/m4a', marks: [{ offset: 4, bytes: ascii('ftyp') }], minLength: 8 },
+  // OGG: "OggS"
+  { mime: 'audio/ogg', marks: [{ offset: 0, bytes: ascii('OggS') }], minLength: 4 },
+  // WebM/Matroska: EBML 0x1A45DFA3
+  { mime: 'audio/webm', marks: [{ offset: 0, bytes: [0x1a, 0x45, 0xdf, 0xa3] }], minLength: 4 },
+];
+
+export interface SignatureVerdict {
+  ok: boolean;
+  /** Motivo del rechazo (mensaje apto para el cliente, sin detalles internos). */
+  reason?: string;
+}
+
+/**
+ * Comprueba que el buffer realmente sea del tipo declarado.
+ *
+ * - `text/plain`: sólo se rechaza si el contenido empieza por una firma clara de
+ *   binario ejecutable o de archivo (`.exe`, ELF, script shebang, PK zip, PDF).
+ * - Tipos con firma estricta: si no coincide, se rechaza con 415 en el endpoint.
+ */
+export function verifyFileSignature(buffer: Buffer, declaredMime: string): SignatureVerdict {
+  if (buffer.length === 0) return { ok: false, reason: 'El archivo está vacío' };
+
+  if (declaredMime === 'text/plain') {
+    if (looksLikeBinary(buffer)) {
+      return { ok: false, reason: 'El contenido no es texto legible' };
+    }
+    return { ok: true };
+  }
+
+  // MP3: cabecera ID3 O frame sync de MPEG audio (11 bits de sync + versión).
+  if (declaredMime === 'audio/mpeg' || declaredMime === 'audio/mp3') {
+    const hasId3 = buffer.subarray(0, 3).equals(Buffer.from(ascii('ID3')));
+    const hasFrameSync = buffer.length >= 2 && buffer[0] === 0xff && (buffer[1]! & 0xe0) === 0xe0;
+    return hasId3 || hasFrameSync
+      ? { ok: true }
+      : { ok: false, reason: 'El contenido del archivo no es audio MPEG válido' };
+  }
+
+  const rule = SIGNATURES.find((candidate) => candidate.mime === declaredMime);
+  if (!rule) {
+    // Tipo permitido sin firma conocida (no debería ocurrir con FULL_MIMES).
+    return { ok: true };
+  }
+  if (buffer.length < rule.minLength) {
+    return { ok: false, reason: 'El archivo está truncado o incompleto' };
+  }
+  for (const mark of rule.marks) {
+    for (let i = 0; i < mark.bytes.length; i += 1) {
+      if (buffer[mark.offset + i] !== mark.bytes[i]) {
+        return {
+          ok: false,
+          reason: `El contenido del archivo no corresponde al tipo declarado (${declaredMime})`,
+        };
+      }
+    }
+  }
+  return { ok: true };
+}
+
+/** ¿El buffer contiene una firma de binario en los primeros bytes? */
+function looksLikeBinary(buffer: Buffer): boolean {
+  const head = buffer.subarray(0, Math.min(buffer.length, 4096));
+  const startsWith = (needle: number[]): boolean =>
+    needle.every((byte, i) => head[i] === byte);
+  if (startsWith(ascii('%PDF-'))) return true;
+  if (startsWith(ascii('PK\x03\x04'))) return true;
+  if (startsWith([0x4d, 0x5a])) return true; // MZ (PE/EXE)
+  if (startsWith([0x7f, 0x45, 0x4c, 0x46])) return true; // ELF
+  if (startsWith(ascii('#!'))) return true; // shebang
+  if (startsWith([0x3c, 0x21, 0x44, 0x4f])) return true; // <!DO (HTML)
+  // Nulos abundantemente: no es texto.
+  let nulls = 0;
+  for (const byte of head) if (byte === 0) nulls += 1;
+  return nulls > head.length / 4;
+}

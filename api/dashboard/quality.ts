@@ -11,6 +11,6 @@ export default handleRoute(async (req, res) => {
   }
   const filters = parseDashboardFilters(req.query);
   const client = createServerClient();
-  const quality = await getAiQuality(client, filters);
+  const quality = await getAiQuality(client, filters, req.auth);
   ok(res, { quality });
 });

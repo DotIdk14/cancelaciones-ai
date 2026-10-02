@@ -13,6 +13,7 @@ import { callOpenRouterAudit, type OpenRouterAttemptDiagnostic, type OpenRouterC
 import { ApiError } from '../../server/http.js';
 import { parseAiAuditAssessment, type AuditResult } from './schema.js';
 import { buildDossierHeader, buildSystemPrompt } from './instructions.js';
+import { sanitizeFenceDelimiters, sanitizeTagDelimiters, wrapUntrusted } from '../sanitize.js';
 import { PROCEDURE_TEXT } from './procedure-v5.js';
 import type { AuditSkillInput } from './types.js';
 
@@ -118,8 +119,11 @@ export function buildAuditMessages(input: AuditSkillInput): {
   });
 
   for (const evidence of input.evidences) {
+    // El NOMBRE del archivo lo envía el cliente en un header: también es dato no
+    // confiable. Se sanea ANTES de escribirlo, pero se conserva en el encabezado
+    // porque es el identificador legible de la evidencia para quien audita.
     const lines = [
-      `## Evidencia: ${evidence.filename}`,
+      `## Evidencia: ${sanitizeFenceDelimiters(sanitizeTagDelimiters(evidence.filename))}`,
       `ID: ${evidence.evidenceId}`,
       `Tipo detectado: ${evidence.kind}`,
       `MIME: ${evidence.mimeType}`,
@@ -129,21 +133,30 @@ export function buildAuditMessages(input: AuditSkillInput): {
     ];
 
     if (evidence.transcript) {
-      lines.push('Transcripción (AssemblyAI):', evidence.transcript.transcript);
+      lines.push(
+        wrapUntrusted(
+          'TRANSCRIPCIÓN DEL AUDIO',
+          evidence.transcript.transcript,
+        ),
+      );
       if (evidence.transcript.durationSeconds !== null) {
         lines.push(`Duración: ${evidence.transcript.durationSeconds} s`);
       }
       if (evidence.transcript.speakers.length > 0) {
         lines.push(
-          'Participantes:',
-          ...evidence.transcript.speakers.map(
-            (speaker) =>
-              `  [${speaker.speaker} ${formatTimestampMs(speaker.start)}–${formatTimestampMs(speaker.end)}] ${speaker.text}`,
+          wrapUntrusted(
+            'PARTICIPANTES DE LA TRANSCRIPCIÓN',
+            evidence.transcript.speakers
+              .map(
+                (speaker) =>
+                  `[${speaker.speaker} ${formatTimestampMs(speaker.start)}–${formatTimestampMs(speaker.end)}] ${speaker.text}`,
+              )
+              .join('\n'),
           ),
         );
       }
     } else if (evidence.text && evidence.text.trim().length > 0) {
-      lines.push('Contenido:', evidence.text);
+      lines.push(wrapUntrusted('CONTENIDO EXTRAÍDO DE LA EVIDENCIA', evidence.text));
     } else {
       const kind = evidence.kind;
       if (kind === 'IMAGE' || kind === 'PDF') {

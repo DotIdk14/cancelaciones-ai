@@ -28,6 +28,11 @@ export interface ServerEnv {
 
   // Audio
   ASSEMBLYAI_API_KEY: string | null;
+  /** Timeout por petición HTTP a AssemblyAI (upload, crear transcript, poll). */
+  ASSEMBLYAI_REQUEST_TIMEOUT_MS: number;
+
+  // Cuotas atómicas (HMAC de sujeto; nunca se guarda email/IP crudo).
+  QUOTA_HMAC_KEY: string | null;
 
   // Aplicación
   APP_URL: string;
@@ -103,8 +108,15 @@ export function getEnv(): ServerEnv {
     AI_MAX_OUTPUT_TOKENS_CONFIGURED: env.AI_MAX_OUTPUT_TOKENS !== undefined && env.AI_MAX_OUTPUT_TOKENS.trim() !== '',
 
     ASSEMBLYAI_API_KEY: optional('ASSEMBLYAI_API_KEY', env.ASSEMBLYAI_API_KEY),
+    ASSEMBLYAI_REQUEST_TIMEOUT_MS: numberEnv(
+      'ASSEMBLYAI_REQUEST_TIMEOUT_MS',
+      env.ASSEMBLYAI_REQUEST_TIMEOUT_MS,
+      60_000,
+      { min: 1_000, max: 280_000 },
+    ),
+    QUOTA_HMAC_KEY: optional('QUOTA_HMAC_KEY', env.QUOTA_HMAC_KEY),
 
-    APP_URL: env.APP_URL?.trim() || 'http://localhost:5173',
+    APP_URL: env.APP_URL?.trim() || (env.VERCEL_URL?.trim() ? `https://${env.VERCEL_URL.trim()}` : 'http://localhost:5173'),
     MAX_EVIDENCE_BYTES: numberEnv('MAX_EVIDENCE_BYTES', env.MAX_EVIDENCE_BYTES, 4 * 1024 * 1024, { min: 1 }),
     TRANSCRIPTION_POLL_TIMEOUT_MS: numberEnv('TRANSCRIPTION_POLL_TIMEOUT_MS', env.TRANSCRIPTION_POLL_TIMEOUT_MS, 25_000, { min: 0, max: 120_000 }),
     MAX_EVIDENCE_COUNT: numberEnv('MAX_EVIDENCE_COUNT', env.MAX_EVIDENCE_COUNT, 50, { min: 1, max: 100 }),

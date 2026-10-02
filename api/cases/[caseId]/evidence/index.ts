@@ -6,14 +6,27 @@ import {
   handleRoute,
   methodNotAllowed,
   readRawBody,
-  requiredString,
+  requiredUuid,
 } from '../../../../src/server/http.js';
 import { createServerClient } from '../../../../src/server/insforge.js';
 import { getEnv } from '../../../../src/server/env.js';
-import { getCaseOr404, insertEvidence, updateCaseStatus, updateEvidenceStatus } from '../../../../src/server/cases.js';
+import {
+  assertCaseOwner,
+  getScopedCaseOr404,
+  insertEvidence,
+  updateCaseStatus,
+  updateEvidenceStatus,
+} from '../../../../src/server/cases.js';
 import { evidenceToDto } from '../../../../src/server/dto.js';
-import { isAudio, normalizeMime, sanitizeFilename, sha256Hex } from '../../../../src/server/evidence-prep.js';
+import {
+  isAudio,
+  normalizeMime,
+  sanitizeFilename,
+  sha256Hex,
+  verifyFileSignature,
+} from '../../../../src/server/evidence-prep.js';
 import { submitTranscription } from '../../../../src/server/assemblyai.js';
+import { checkPaidQuota } from '../../../../src/server/quotas.js';
 
 // POST /api/cases/:caseId/evidence
 // Body binario crudo; headers: content-type = MIME, x-file-name = nombre URL-encoded.
@@ -24,8 +37,9 @@ export default handleRoute(async (req, res) => {
     return;
   }
   const client = createServerClient();
-  const caseId = requiredString(req.query, 'caseId');
-  await getCaseOr404(client, caseId);
+  const caseId = requiredUuid(req.query, 'caseId');
+  const caseRow = await getScopedCaseOr404(client, caseId, req.auth!);
+  assertCaseOwner(caseRow, req.auth!);
 
   const headerValue = (value: string | string[] | undefined): string =>
     typeof value === 'string' ? value : Array.isArray(value) ? (value[0] ?? '') : '';
@@ -51,6 +65,21 @@ export default handleRoute(async (req, res) => {
       'UPLOAD_ERROR',
       `El archivo excede el límite de ${formatBytes(maxBytes)} por evidencia (plataforma de hosting)`,
     );
+  }
+
+  // El `Content-Type` lo declara el cliente: no prueba nada. Se compara la
+  // FIRMA real del buffer con el tipo declarado y se rechaza con 415 si no
+  // coinciden (un .exe renombrado a .png, un HTML con image/png, etc.).
+  const signature = verifyFileSignature(buffer, mimeType);
+  if (!signature.ok) {
+    throw new ApiError(415, 'UPLOAD_ERROR', signature.reason ?? 'El archivo no coincide con su tipo declarado');
+  }
+
+  // Audio: la transcripción es una operación PAGADA, así que la cuota se cobra
+  // ANTES de subir el archivo y de insertar la fila: un 429 no deja ni bytes en
+  // el almacenamiento ni evidencia a medias.
+  if (isAudio(mimeType)) {
+    await checkPaidQuota(req.auth!.sub, `transcription:${caseId}:${sha256Hex(buffer)}`);
   }
 
   const hash = sha256Hex(buffer);
@@ -83,7 +112,9 @@ export default handleRoute(async (req, res) => {
     processing_status: isAudio(mimeType) ? 'UPLOADED' : 'READY',
   });
 
-  // Audio: lanzar transcripción inmediatamente (AssemblyAI).
+  // Audio: lanzar transcripción inmediatamente (AssemblyAI). El fallo se persiste
+  // como estado terminal recuperable: la evidencia nunca queda UPLOADED para
+  // siempre con dinero ya pagado.
   if (isAudio(mimeType)) {
     try {
       const assemblyId = await submitTranscription(buffer);
@@ -101,7 +132,10 @@ export default handleRoute(async (req, res) => {
     }
   }
 
-  await updateCaseStatus(client, caseId, evidence.processing_status === 'READY' ? 'READY' : 'DRAFT').catch(() => undefined);
+  // El estado del caso se actualiza con el estado REAL de la evidencia recién
+  // creada. Si esa escritura falla se propaga el error: tragarlo dejaba el caso
+  // en DRAFT/READY sin reflejar lo que acaba de pasar (y ocultaba el fallo).
+  await updateCaseStatus(client, caseId, evidence.processing_status === 'READY' ? 'READY' : 'DRAFT');
 
   created(res, { evidence: evidenceToDto(evidence) });
 });

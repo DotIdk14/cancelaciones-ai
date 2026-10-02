@@ -71,7 +71,12 @@ const validResult = {
         status: 'ACREDITADO',
         reasoning: 'Se observa una solicitud válida y la evidencia disponible la acredita.',
         evidenceIds: ['ev-1'],
-        observedValues: [{ label: 'solicitud identificada', value: 'Sí' }],
+        observedValues: [
+          { label: 'llamadas requeridas', value: '16' },
+          { label: 'llamadas acreditadas', value: '16' },
+          { label: 'interacciones escritas requeridas', value: '6' },
+          { label: 'interacciones escritas acreditadas', value: '6' },
+        ],
       },
     ],
     observations: ['Sin observaciones.'],
@@ -90,6 +95,15 @@ describe('parseAuditResult (schema único)', () => {
     const parsed = parseAuditResult(validResult);
     expect(parsed.audit.result).toBe('CANCELACION_VENTA');
     expect(parsed.facts[0]?.evidenceIds).toContain('ev-1');
+  });
+
+  it('acepta el dictamen de cancelación de venta por petición del cliente', () => {
+    const result = parseAuditResult({
+      ...validResult,
+      audit: { ...validResult.audit, result: 'CANCELACION_VENTA_PETICION_CLIENTE' },
+    });
+
+    expect(result.audit.result).toBe('CANCELACION_VENTA_PETICION_CLIENTE');
   });
 
   it('rechaza una clasificación desconocida', () => {
@@ -199,6 +213,7 @@ describe('parseAuditResult (schema único)', () => {
       timeline: [],
       audit: {
         ...validResult.audit,
+        auditPath: { ...validResult.audit.auditPath, procedureSections: ['5.8'] },
         result: 'EVIDENCIA_INSUFICIENTE',
         supportingEvidenceIds: [],
         provisionalResolution: {
@@ -243,14 +258,81 @@ describe('parseAuditResult (schema único)', () => {
 
   it('exige soporte observado para ACREDITADO y NO_ACREDITADO, pero permite NO_DETERMINABLE parcial', () => {
     const check = validResult.audit.procedureChecks[0]!;
+    const genericCheck = { ...check, procedureSection: '5.8', criterion: 'Contacto efectivo' };
     for (const status of ['ACREDITADO', 'NO_ACREDITADO'] as const) {
-      const invalid = { ...validResult, audit: { ...validResult.audit, procedureChecks: [{ ...check, status, evidenceIds: [], observedValues: [] }] } };
+      const invalid = {
+        ...validResult,
+        audit: {
+          ...validResult.audit,
+          auditPath: { ...validResult.audit.auditPath, procedureSections: ['3'] },
+          procedureChecks: [{ ...genericCheck, status, evidenceIds: [], observedValues: [] }],
+        },
+      };
       expect(parseInvalid(invalid)).toContain('procedureChecks.0');
     }
 
-    const partial = { ...check, status: 'NO_DETERMINABLE' as const, evidenceIds: ['ev-1'], observedValues: [] };
-    expect(parseAuditResult({ ...validResult, audit: { ...validResult.audit, procedureChecks: [partial] } }).audit.procedureChecks[0]?.status)
+    const partial = { ...genericCheck, status: 'NO_DETERMINABLE' as const, evidenceIds: ['ev-1'], observedValues: [] };
+    expect(parseAuditResult({ ...validResult, audit: { ...validResult.audit, auditPath: { ...validResult.audit.auditPath, procedureSections: ['3'] }, procedureChecks: [partial] } }).audit.procedureChecks[0]?.status)
       .toBe('NO_DETERMINABLE');
+  });
+
+  it('no permite dictaminar cuando la sección 5.2 muestra menos de 16 llamadas', () => {
+    const check = validResult.audit.procedureChecks[0]!;
+    const invalid = {
+      ...validResult,
+      audit: {
+        ...validResult.audit,
+        procedureChecks: [{
+          ...check,
+          status: 'NO_ACREDITADO',
+          observedValues: [
+            { label: 'llamadas requeridas', value: '16' },
+            { label: 'llamadas acreditadas', value: '15' },
+            { label: 'interacciones escritas requeridas', value: '6' },
+            { label: 'interacciones escritas acreditadas', value: '6' },
+          ],
+        }],
+      },
+    };
+
+    expect(parseInvalid(invalid)).toContain('no se puede dictaminar mientras 5.2');
+  });
+
+  it('acepta evidencia insuficiente cuando reporta exactamente los intentos que faltan en 5.2', () => {
+    const check = validResult.audit.procedureChecks[0]!;
+    const insufficient = {
+      ...validResult,
+      audit: {
+        ...validResult.audit,
+        result: 'EVIDENCIA_INSUFICIENTE',
+        provisionalResolution: {
+          result: 'CANCELACION_VENTA',
+          rationale: 'La ruta apunta provisionalmente a cancelación de venta, pero faltan intentos mínimos de contacto.',
+          procedureSection: '5.2',
+          evidenceIds: ['ev-1'],
+        },
+        missingEvidence: [{
+          title: 'Intentos mínimos de contacto pendientes',
+          reason: 'Se acreditan 15 llamadas; falta 1 llamada para cumplir el mínimo de 5.2.',
+          acceptedEvidence: ['Registros de los intentos de llamada adicionales'],
+          relatedProcedureSection: '5.2',
+          relatedEvidenceIds: ['ev-1'],
+          blocking: true,
+        }],
+        procedureChecks: [{
+          ...check,
+          status: 'NO_ACREDITADO',
+          observedValues: [
+            { label: 'llamadas requeridas', value: '16' },
+            { label: 'llamadas acreditadas', value: '15' },
+            { label: 'interacciones escritas requeridas', value: '6' },
+            { label: 'interacciones escritas acreditadas', value: '6' },
+          ],
+        }],
+      },
+    };
+
+    expect(parseAuditResult(insufficient).audit.result).toBe('EVIDENCIA_INSUFICIENTE');
   });
 
   it('requiere provisionalResolution solo cuando el resultado es EVIDENCIA_INSUFICIENTE', () => {
@@ -328,7 +410,12 @@ describe('parseAuditResult (schema único)', () => {
             status: 'ACREDITADO',
             reasoning: 'Los registros muestran múltiples intentos con resultados sin respuesta.',
             evidenceIds: ['ev-1'],
-            observedValues: [{ label: 'llamadas observadas', value: '3' }],
+            observedValues: [
+              { label: 'llamadas requeridas', value: '16' },
+              { label: 'llamadas acreditadas', value: '16' },
+              { label: 'interacciones escritas requeridas', value: '6' },
+              { label: 'interacciones escritas acreditadas', value: '6' },
+            ],
           },
           {
             procedureSection: '5.8',

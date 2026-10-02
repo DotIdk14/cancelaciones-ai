@@ -48,4 +48,18 @@ describe('normalización de variables de entorno', () => {
 
     expect(() => getEnv()).toThrow('AI_MAX_OUTPUT_TOKENS');
   });
+
+  it('prefiere APP_URL explícita y cae a https://VERCEL_URL en producción', () => {
+    setTestEnv();
+    vi.stubEnv('APP_URL', '  https://app.example.com  ');
+    resetEnvCache();
+
+    expect(getEnv().APP_URL).toBe('https://app.example.com');
+
+    vi.stubEnv('APP_URL', '');
+    vi.stubEnv('VERCEL_URL', 'cancelaciones-ai.vercel.app');
+    resetEnvCache();
+
+    expect(getEnv().APP_URL).toBe('https://cancelaciones-ai.vercel.app');
+  });
 });

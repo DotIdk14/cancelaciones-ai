@@ -1,5 +1,6 @@
-import { handleRoute, methodNotAllowed, ok, requiredString } from '../../../../src/server/http.js';
+import { handleRoute, methodNotAllowed, ok, requiredUuid } from '../../../../src/server/http.js';
 import { createServerClient } from '../../../../src/server/insforge.js';
+import { assertCaseOwner, getScopedCaseOr404 } from '../../../../src/server/cases.js';
 import { retryComparison } from '../../../../src/server/comparison-service.js';
 
 // POST /api/cases/:caseId/comparison → 200 { comparison } | 400 | 404 | 409 | 429 | 502
@@ -10,14 +11,15 @@ import { retryComparison } from '../../../../src/server/comparison-service.js';
 export const maxDuration = 300; // Vercel: hasta 300 s en planes compatibles
 
 export default handleRoute(async (req, res) => {
-  if (req.method === 'POST') {
-    const client = createServerClient();
-    const caseId = requiredString(req.query, 'caseId');
-
-    const comparison = await retryComparison(client, caseId);
-    ok(res, { comparison });
+  if (req.method !== 'POST') {
+    methodNotAllowed(req, res, 'POST');
     return;
   }
+  const client = createServerClient();
+  const caseId = requiredUuid(req.query, 'caseId');
+  const caseRow = await getScopedCaseOr404(client, caseId, req.auth!);
+  assertCaseOwner(caseRow, req.auth!);
 
-  methodNotAllowed(req, res, 'POST');
+  const comparison = await retryComparison(client, caseId, { userId: req.auth!.sub });
+  ok(res, { comparison });
 });

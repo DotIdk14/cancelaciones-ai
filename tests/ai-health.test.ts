@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ApiRequest, ApiResponse } from '../src/server/http';
 import { getModelCapabilities } from '../src/server/ai/model-capabilities';
 import healthAiHandler from '../api/health/ai';
+import { fakeAuthContext } from './helpers/auth';
 
 vi.mock('../src/server/ai/model-capabilities', () => ({
   getModelCapabilities: vi.fn(async (modelId: string) => ({
@@ -29,11 +30,24 @@ function responseHarness(): ApiResponse & { statusCode: number; body: string } {
   const harness = {
     statusCode: 200,
     body: '',
-    setHeader: () => undefined,
-    appendHeader: () => undefined,
+    headers: {} as Record<string, string>,
+    setHeader(name: string, value: unknown) {
+      harness.headers[name] = String(value);
+    },
+    appendHeader(name: string, value: unknown) {
+      harness.headers[name] = String(value);
+    },
     end: (value?: unknown) => { harness.body = typeof value === 'string' ? value : ''; },
   };
   return harness as unknown as ApiResponse & { statusCode: number; body: string };
+}
+
+function authRequest(): ApiRequest {
+  return { method: 'GET', url: '/', headers: {}, auth: fakeAuthContext() } as unknown as ApiRequest;
+}
+
+function anonRequest(): ApiRequest {
+  return { method: 'GET', url: '/', headers: {} } as unknown as ApiRequest;
 }
 
 afterEach(() => {
@@ -41,14 +55,29 @@ afterEach(() => {
 });
 
 describe('GET /api/health/ai', () => {
-  it('devuelve capacidades seguras y nunca incluye el secreto', async () => {
+  it('sin sesión solo devuelve status y checkedAt', async () => {
+    vi.stubEnv('OPENROUTER_API_KEY', 'health-secret-must-not-leak');
+    vi.stubEnv('OPENROUTER_MODEL', 'google/gemini-2.5-flash-lite');
+    const response = responseHarness();
+
+    await healthAiHandler(anonRequest(), response);
+
+    expect(response.statusCode).toBe(200);
+    const payload = JSON.parse(response.body);
+    expect(payload).toHaveProperty('status');
+    expect(payload).toHaveProperty('checkedAt');
+    expect(payload).not.toHaveProperty('primaryModel');
+    expect(response.body).not.toContain('health-secret-must-not-leak');
+  });
+
+  it('con sesión devuelve capacidades seguras y nunca incluye el secreto', async () => {
     vi.stubEnv('OPENROUTER_API_KEY', 'health-secret-must-not-leak');
     vi.stubEnv('OPENROUTER_MODEL', 'google/gemini-2.5-flash-lite');
     vi.stubEnv('OPENROUTER_FALLBACK_MODEL', '');
     vi.stubEnv('AI_MAX_OUTPUT_TOKENS', '16384');
     const response = responseHarness();
 
-    await healthAiHandler({ method: 'GET' } as ApiRequest, response);
+    await healthAiHandler(authRequest(), response);
 
     expect(response.statusCode).toBe(200);
     expect(response.body).toContain('google/gemini-2.5-flash-lite');
@@ -65,7 +94,7 @@ describe('GET /api/health/ai', () => {
     vi.stubEnv('AI_MAX_OUTPUT_TOKENS', '99999');
     const response = responseHarness();
 
-    await healthAiHandler({ method: 'GET' } as ApiRequest, response);
+    await healthAiHandler(authRequest(), response);
 
     expect(JSON.parse(response.body)).toMatchObject({ effectiveOutputTokens: null, productionReady: false, status: 'degraded' });
     expect(response.body).not.toContain('health-secret-must-not-leak');
@@ -84,7 +113,7 @@ describe('GET /api/health/ai', () => {
     vi.stubEnv('AI_MAX_OUTPUT_TOKENS', '16384');
     const response = responseHarness();
 
-    await healthAiHandler({ method: 'GET' } as ApiRequest, response);
+    await healthAiHandler(authRequest(), response);
 
     expect(JSON.parse(response.body)).toMatchObject({
       configuredOutputTokens: 16_384,
@@ -102,7 +131,7 @@ describe('GET /api/health/ai', () => {
     vi.stubEnv('AI_MAX_OUTPUT_TOKENS', '16384');
     const response = responseHarness();
 
-    await healthAiHandler({ method: 'GET' } as ApiRequest, response);
+    await healthAiHandler(authRequest(), response);
 
     expect(response.statusCode).toBe(503);
     expect(JSON.parse(response.body)).toMatchObject({

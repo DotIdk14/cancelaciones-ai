@@ -9,6 +9,7 @@
 /** Únicas clasificaciones que puede emitir el Skill. */
 export const AUDIT_RESULTS = [
   'CANCELACION_VENTA',
+  'CANCELACION_VENTA_PETICION_CLIENTE',
   'BAJA',
   'CANCELACION_VENTA_OPERATIVA',
   'CANCELACION_MATRICULA',
@@ -50,6 +51,12 @@ export type TemporalRelation = (typeof TEMPORAL_RELATIONS)[number];
  */
 export const CYCLE_START_FACT_KEY = 'cycle_start_date';
 
+/** Mínimos explícitos de la sección 5.2 del Procedimiento V5. */
+export const SECTION_5_2_MINIMUMS = {
+  calls: 16,
+  writtenInteractions: 6,
+} as const;
+
 export const EVIDENCE_KINDS = ['IMAGE', 'PDF', 'AUDIO', 'TEXT'] as const;
 export type EvidenceKind = (typeof EVIDENCE_KINDS)[number];
 
@@ -70,6 +77,7 @@ export const ERROR_CATEGORIES = [
   'STORAGE_ERROR',
   'DATABASE_ERROR',
   'AUTH_ERROR',
+  'UNAUTHENTICATED',
   'NOT_FOUND',
   'VALIDATION_ERROR',
   'UNKNOWN',

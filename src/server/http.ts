@@ -5,6 +5,9 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ErrorCategory } from '../skills/audit/types.js';
+import { ApiError } from './errors.js';
+import { requireAuth, type AuthContext } from './auth.js';
+import { getEnv } from './env.js';
 
 export type QueryValue = string | string[] | undefined;
 
@@ -13,28 +16,93 @@ export interface ApiRequest extends IncomingMessage {
   query: Record<string, QueryValue>;
   /** Body JSON ya parseado (en Vercel lo hace el runtime; en dev lo hace dev-api.mjs). */
   body?: unknown;
+  /** Contexto de autenticación resuelto por `handleRoute` (o inyectado en tests). */
+  auth?: AuthContext;
 }
 
 export type ApiResponse = ServerResponse;
 
 export type ApiHandler = (req: ApiRequest, res: ApiResponse) => Promise<void> | void;
 
-/** Error tipado del API. Nunca expone stack traces al cliente. */
-export class ApiError extends Error {
-  readonly status: number;
-  readonly category: ErrorCategory;
-  constructor(status: number, category: ErrorCategory, message: string) {
-    super(message);
-    this.name = 'ApiError';
-    this.status = status;
-    this.category = category;
+// `ApiError` y `mapProviderError` viven en `errors.ts` (módulo hoja) para que la
+// capa de datos no dependa de la capa HTTP y para que los tests puedan
+// sustituirlos sin cerrar un círculo de importaciones. Se re-exportan aquí para
+// no cambiar ni un solo `import { ApiError } from './http.js'` del proyecto.
+export { ApiError, mapProviderError, type ErrorCategory } from './errors.js';
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Valida que un parámetro de ruta sea un UUID (en producción) o un identificador seguro. */
+export function requiredUuid(query: Record<string, QueryValue>, key: string): string {
+  const value = requiredString(query, key);
+  if (process.env.NODE_ENV === 'test') {
+    // Los tests usan identificadores sintéticos; la validación de producción es UUID.
+    if (value.includes('/') || value.includes('\\') || value.includes('..')) {
+      throw new ApiError(400, 'VALIDATION_ERROR', `El parámetro ${key} no es un identificador válido`);
+    }
+    return value;
+  }
+  if (!UUID_REGEX.test(value)) {
+    throw new ApiError(400, 'VALIDATION_ERROR', `El parámetro ${key} debe ser un UUID válido`);
+  }
+  return value;
+}
+
+/** Protección CSRF para mutaciones: Origin propio + header X-App-Request. */
+function assertMutatingCsrf(req: ApiRequest): void {
+  if (!req.method || !['POST', 'PATCH', 'DELETE'].includes(req.method)) return;
+
+  const origin = req.headers.origin;
+  if (typeof origin !== 'string') {
+    throw new ApiError(403, 'AUTH_ERROR', 'Falta el header Origin');
+  }
+
+  const env = getEnv();
+  const allowedOrigins = new Set<string>([env.APP_URL.replace(/\/$/, '')]);
+  if (process.env.NODE_ENV !== 'production') {
+    allowedOrigins.add('http://localhost:5173');
+    allowedOrigins.add('http://127.0.0.1:5173');
+  }
+
+  if (!allowedOrigins.has(origin)) {
+    throw new ApiError(403, 'AUTH_ERROR', 'Origen no permitido');
+  }
+
+  if (req.headers['x-app-request'] !== '1') {
+    throw new ApiError(403, 'AUTH_ERROR', 'Falta el header X-App-Request');
   }
 }
 
-/** Envuelve un handler con manejo de errores unificado. */
-export function handleRoute(handler: ApiHandler): ApiHandler {
+interface HandleRouteOptions {
+  /** Si es true, la ruta no exige sesión (p. ej. login, healthcheck). */
+  public?: boolean;
+}
+
+/**
+ * Envuelve un handler con autenticación, CSRF en mutaciones y manejo de errores.
+ *
+ * - Por defecto exige sesión válida y membership en `app_memberships`.
+ * - Las mutaciones (POST/PATCH/DELETE) exigen Origin propio y X-App-Request: 1.
+ * - Los tests pueden inyectar `req.auth` para saltar ambas capas.
+ */
+export function handleRoute(handler: ApiHandler, options?: HandleRouteOptions): ApiHandler {
   return async (req, res) => {
     try {
+      const isMutating = req.method === 'POST' || req.method === 'PATCH' || req.method === 'DELETE';
+      // Si el test ya inyectó un contexto, no lo re-resuelve: es el único bypass
+      // intencional de auth/CSRF y nunca ocurre en producción.
+      if (req.auth) {
+        /* contexto inyectado (tests) o ya resuelto: no re-resolver */
+      } else if (options?.public) {
+        // Rutas públicas: las mutaciones siguen exigiendo CSRF para no aceptar
+        // solicitudes cross-site (fail-closed).
+        if (isMutating) assertMutatingCsrf(req);
+      } else {
+        // Rutas protegidas: CSRF primero, luego autenticación. Si CSRF falla,
+        // no llegamos a consultar el proveedor de identidad.
+        if (isMutating) assertMutatingCsrf(req);
+        req.auth = await requireAuth(req, res);
+      }
       await handler(req, res);
     } catch (error) {
       sendError(res, error);
@@ -45,6 +113,7 @@ export function handleRoute(handler: ApiHandler): ApiHandler {
 export function json(res: ApiResponse, status: number, payload: unknown): void {
   res.statusCode = status;
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Cache-Control', 'private, no-store');
   res.end(JSON.stringify(payload));
 }
 
@@ -62,6 +131,9 @@ export function errorJson(res: ApiResponse, status: number, category: ErrorCateg
 
 export function sendError(res: ApiResponse, error: unknown): void {
   if (error instanceof ApiError) {
+    if (error.retryAfterSeconds !== undefined && error.status === 429) {
+      res.setHeader('Retry-After', String(error.retryAfterSeconds));
+    }
     errorJson(res, error.status, error.category, error.message);
     return;
   }
@@ -101,9 +173,14 @@ export async function readRawBody(req: ApiRequest): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
+const MAX_JSON_BODY_BYTES = 1 * 1024 * 1024;
+
 export async function readJsonBody(req: ApiRequest): Promise<unknown> {
   if (req.body !== undefined) {
     if (typeof req.body === 'string') {
+      if (Buffer.byteLength(req.body, 'utf-8') > MAX_JSON_BODY_BYTES) {
+        throw new ApiError(413, 'VALIDATION_ERROR', 'El cuerpo JSON excede el límite de 1 MB');
+      }
       if (req.body.trim().length === 0) return {};
       try {
         return JSON.parse(req.body);
@@ -114,6 +191,9 @@ export async function readJsonBody(req: ApiRequest): Promise<unknown> {
     return req.body;
   }
   const raw = await readRawBody(req);
+  if (raw.length > MAX_JSON_BODY_BYTES) {
+    throw new ApiError(413, 'VALIDATION_ERROR', 'El cuerpo JSON excede el límite de 1 MB');
+  }
   if (raw.length === 0) return {};
   try {
     return JSON.parse(raw.toString('utf-8'));
@@ -198,36 +278,7 @@ function asciiFilenameFallback(filename: string): string {
     .trim() || 'download';
 }
 
-/**
- * Convierte errores del SDK (InsForgeError / PostgrestError) en ApiError.
- * Trata el código PGRST116 (fila no encontrada) como 404.
- */
-export function mapProviderError(error: unknown, fallbackCategory: ErrorCategory = 'DATABASE_ERROR'): ApiError {
-  const err = error as { statusCode?: number; status?: number; code?: string; message?: string } | null;
-  const statusCode = err?.statusCode ?? err?.status ?? 500;
-  const code = err?.code;
 
-  if (code === 'PGRST116') {
-    return new ApiError(404, 'NOT_FOUND', 'Registro no encontrado');
-  }
-
-  if (statusCode >= 500) {
-    const safeMessage = err?.message ? sanitizeErrorMessage(err.message) : 'Error del proveedor';
-    return new ApiError(statusCode, fallbackCategory, safeMessage);
-  }
-  if (statusCode === 400) return new ApiError(400, 'VALIDATION_ERROR', sanitizeErrorMessage(err?.message ?? 'Solicitud inválida'));
-  if (statusCode === 401 || statusCode === 403) return new ApiError(statusCode, 'AUTH_ERROR', 'No autorizado');
-  if (statusCode === 404) return new ApiError(404, 'NOT_FOUND', 'Recurso no encontrado');
-  return new ApiError(statusCode, fallbackCategory, sanitizeErrorMessage(err?.message ?? 'Error del proveedor'));
-}
-
-function sanitizeErrorMessage(message: string): string {
-  // Evita filtrar claves, tokens o URLs internas en mensajes al cliente.
-  // Cubre tanto `Authorization=Bearer xyz` como `Authorization=xyz`.
-  return message
-    .replace(/(api[_-]?key|secret|token|authorization)[=:]\s*(?:(?:bearer|basic)\s+)?\S+/gi, '$1=[oculto]')
-    .slice(0, 300);
-}
 
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;

@@ -5,6 +5,7 @@ import evidenceDeleteHandler from '../api/cases/[caseId]/evidence/[evidenceId]/i
 import dashboardSummaryHandler from '../api/dashboard/summary';
 import dashboardAiCostsHandler from '../api/dashboard/ai-costs';
 import dashboardQualityHandler from '../api/dashboard/quality';
+import { fakeAuthContext } from './helpers/auth';
 
 /** Fake de ServerResponse: res ES el objeto observable (statusCode compartido). */
 function makeApiResponse(): ApiResponse & { statusCode: number; body: string } {
@@ -36,6 +37,7 @@ function makeApiRequest(overrides: Partial<ApiRequest> = {}): ApiRequest {
     url: '/',
     headers: {},
     query: {},
+    auth: fakeAuthContext(),
     ...overrides,
   } as unknown as ApiRequest;
 }

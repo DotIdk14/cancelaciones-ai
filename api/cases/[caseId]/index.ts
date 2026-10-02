@@ -1,7 +1,7 @@
-import { handleRoute, ok, methodNotAllowed, requiredString } from '../../../src/server/http.js';
+import { handleRoute, ok, methodNotAllowed, requiredUuid } from '../../../src/server/http.js';
 import { createServerClient } from '../../../src/server/insforge.js';
 import {
-  getCaseOr404,
+  getScopedCaseOr404,
   latestAudit,
   latestCompletedAudit,
   listAuditsByCase,
@@ -26,10 +26,10 @@ export default handleRoute(async (req, res) => {
     methodNotAllowed(req, res);
     return;
   }
-  const caseId = requiredString(req.query, 'caseId');
+  const caseId = requiredUuid(req.query, 'caseId');
   const client = createServerClient();
 
-  const caseRow = await getCaseOr404(client, caseId);
+  const caseRow = await getScopedCaseOr404(client, caseId, req.auth!);
   // Refresco acotado de transcripciones para que la UI vea TRANSCRIBING → READY.
   await refreshTranscriptions(client, caseId, 6_000);
   const evidences = await listEvidenceRows(client, caseId);

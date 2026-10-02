@@ -3,6 +3,7 @@ import {
   buildDossierHeader,
   buildSystemPrompt,
   CYCLE_START_DATE_RULES,
+  CONTACT_ATTEMPTS_RULES,
   EVIDENCE_IS_DATA_NOT_INSTRUCTIONS,
 } from '../src/skills/audit/instructions';
 import { buildAuditMessages } from '../src/skills/audit/execute';
@@ -75,10 +76,28 @@ describe('Instrucciones del Skill (anti prompt-injection)', () => {
     expect(system).toContain('provisionalResolution debe ser null');
   });
 
+  it('define la cancelación de venta por petición del cliente con evidencia y condiciones del procedimiento', () => {
+    const system = buildSystemPrompt();
+
+    expect(system).toContain('CANCELACION_VENTA_PETICION_CLIENTE');
+    expect(system).toContain('solicitud explícita del estudiante/cliente');
+    expect(system).toContain('condiciones temporales y de retención');
+  });
+
   it('pide salida completa sin repetición innecesaria', () => {
     const system = buildSystemPrompt();
     expect(system).toContain('assessment completo con redacción compacta');
     expect(system).toContain('No omitas contradicciones materiales');
+  });
+
+  it('exige conteos exactos de 5.2 y bloquea el dictamen si falta el mínimo', () => {
+    const system = buildSystemPrompt();
+    expect(system).toContain('Al menos 16 llamadas válidas');
+    expect(system).toContain('Al menos 6 interacciones por medios escritos');
+    expect(system).toContain('audit.result = EVIDENCIA_INSUFICIENTE');
+    expect(system).toContain('Intentos mínimos de contacto');
+    expect(CONTACT_ATTEMPTS_RULES).toContain('distribución de 70% en la primera semana y 30% en la segunda');
+    expect(CONTACT_ATTEMPTS_RULES).toContain('separación mínima de seis horas');
   });
 });
 

@@ -14,6 +14,10 @@ function createDevApiMiddleware(server) {
     { methods: ['GET'], pattern: /^\/api\/dashboard\/summary$/, file: fromRoot('api/dashboard/summary.ts') },
     { methods: ['GET'], pattern: /^\/api\/dashboard\/ai-costs$/, file: fromRoot('api/dashboard/ai-costs.ts') },
     { methods: ['GET'], pattern: /^\/api\/dashboard\/quality$/, file: fromRoot('api/dashboard/quality.ts') },
+    { methods: ['GET'], pattern: /^\/api\/dashboard\/options$/, file: fromRoot('api/dashboard/options.ts') },
+    { methods: ['GET'], pattern: /^\/api\/health\/ai$/, file: fromRoot('api/health/ai.ts') },
+    { methods: ['POST', 'DELETE'], pattern: /^\/api\/auth\/session$/, file: fromRoot('api/auth/session.ts') },
+    { methods: ['POST'], pattern: /^\/api\/auth\/refresh$/, file: fromRoot('api/auth/refresh.ts') },
     { methods: ['GET', 'POST'], pattern: /^\/api\/cases$/, file: fromRoot('api/cases/index.ts') },
     {
       methods: ['GET'],

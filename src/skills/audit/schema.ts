@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AUDIT_RESULTS, CYCLE_START_FACT_KEY, TEMPORAL_RELATIONS } from './types.js';
+import { AUDIT_RESULTS, CYCLE_START_FACT_KEY, SECTION_5_2_MINIMUMS, TEMPORAL_RELATIONS } from './types.js';
 import { ApiError } from '../../server/http.js';
 
 // =============================================================================
@@ -163,7 +163,108 @@ interface ValidatedAssessment {
     cancellationRequestEvidenceIds: string[];
     relationToCycleStart: string;
   };
-  audit: { result: string; rule: string; procedureSection: string; confidence: number; supportingEvidenceIds: string[]; missingEvidence: Array<{ blocking: boolean }>; procedureChecks: Array<{ status: string; evidenceIds: string[]; observedValues: unknown[] }>; provisionalResolution: { evidenceIds: string[] } | null };
+  audit: {
+    result: string;
+    rule: string;
+    procedureSection: string;
+    auditPath: { procedureSections: string[] };
+    confidence: number;
+    supportingEvidenceIds: string[];
+    missingEvidence: Array<{ title: string; reason: string; relatedProcedureSection: string; blocking: boolean }>;
+    procedureChecks: Array<{ procedureSection: string; status: string; evidenceIds: string[]; observedValues: Array<{ label: string; value: string }> }>;
+    provisionalResolution: { evidenceIds: string[] } | null;
+  };
+}
+
+const SECTION_5_2_VALUES = {
+  callsRequired: 'llamadas requeridas',
+  callsObserved: 'llamadas acreditadas',
+  writtenInteractionsRequired: 'interacciones escritas requeridas',
+  writtenInteractionsObserved: 'interacciones escritas acreditadas',
+} as const;
+
+function refersToProcedureSection(value: string, section: string): boolean {
+  return new RegExp(`(^|[^0-9])${section.replace('.', '\\.')}([^0-9]|$)`).test(value);
+}
+
+function validateContactAttemptsMinimum(assessment: ValidatedAssessment): void {
+  const sections = [
+    assessment.audit.procedureSection,
+    ...assessment.audit.auditPath.procedureSections,
+    ...assessment.audit.procedureChecks.map((check) => check.procedureSection),
+  ];
+  if (!sections.some((section) => refersToProcedureSection(section, '5.2'))) return;
+
+  const check = assessment.audit.procedureChecks.find((item) => refersToProcedureSection(item.procedureSection, '5.2'));
+  if (!check) {
+    throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.procedureChecks: la ruta aplica 5.2 y exige un check de intentos mínimos de contacto');
+  }
+
+  const valueFor = (label: string): string | undefined =>
+    check.observedValues.find((value) => value.label.toLowerCase() === label)?.value;
+  const requiredCalls = valueFor(SECTION_5_2_VALUES.callsRequired);
+  const observedCalls = valueFor(SECTION_5_2_VALUES.callsObserved);
+  const requiredWritten = valueFor(SECTION_5_2_VALUES.writtenInteractionsRequired);
+  const observedWritten = valueFor(SECTION_5_2_VALUES.writtenInteractionsObserved);
+  if (
+    requiredCalls !== String(SECTION_5_2_MINIMUMS.calls)
+    || requiredWritten !== String(SECTION_5_2_MINIMUMS.writtenInteractions)
+    || observedCalls === undefined
+    || observedWritten === undefined
+  ) {
+    throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.procedureChecks: 5.2 exige los conteos observados y los mínimos exactos de llamadas e interacciones escritas');
+  }
+
+  const parseObservedCount = (value: string): number | null => {
+    if (value === 'NO_DETERMINABLE') return null;
+    if (!/^(0|[1-9]\d*)$/.test(value)) {
+      throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.procedureChecks: los conteos de 5.2 deben ser enteros no negativos o NO_DETERMINABLE');
+    }
+    return Number(value);
+  };
+  const calls = parseObservedCount(observedCalls);
+  const writtenInteractions = parseObservedCount(observedWritten);
+  const callsMissing = calls === null ? null : Math.max(0, SECTION_5_2_MINIMUMS.calls - calls);
+  const writtenMissing = writtenInteractions === null
+    ? null
+    : Math.max(0, SECTION_5_2_MINIMUMS.writtenInteractions - writtenInteractions);
+  const countShortfall = (callsMissing !== null && callsMissing > 0) || (writtenMissing !== null && writtenMissing > 0);
+  const countsUndetermined = calls === null || writtenInteractions === null;
+  const requirementNotMet = countShortfall || countsUndetermined || check.status !== 'ACREDITADO';
+
+  if (!requirementNotMet) return;
+  if (countShortfall && check.status !== 'NO_ACREDITADO') {
+    throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.procedureChecks 5.2: un conteo inferior al mínimo debe tener status NO_ACREDITADO');
+  }
+  if (countsUndetermined && !countShortfall && check.status !== 'NO_DETERMINABLE') {
+    throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.procedureChecks 5.2: un conteo no comprobable debe tener status NO_DETERMINABLE');
+  }
+  if (assessment.audit.result !== 'EVIDENCIA_INSUFICIENTE') {
+    throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.result: no se puede dictaminar mientras 5.2 esté incumplido o no sea determinable; usa EVIDENCIA_INSUFICIENTE');
+  }
+  const blockingAttempts = assessment.audit.missingEvidence.find((item) =>
+    item.blocking
+    && refersToProcedureSection(item.relatedProcedureSection, '5.2')
+    && item.title.toLowerCase().includes('intentos mínimos de contacto'),
+  );
+  if (!blockingAttempts) {
+    throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.missingEvidence: 5.2 exige un item bloqueante "Intentos mínimos de contacto" relacionado con la sección 5.2');
+  }
+
+  const reason = blockingAttempts.reason.toLowerCase();
+  const callsMissingPhrase = callsMissing === 1 ? 'falta 1 llamada' : `faltan ${callsMissing} llamadas`;
+  if (callsMissing !== null && callsMissing > 0 && !reason.includes(callsMissingPhrase)) {
+    throw new ApiError(502, 'INVALID_AI_RESPONSE', `INVALID_AI_RESPONSE: audit.missingEvidence: debe explicar que faltan ${callsMissing} llamadas para cumplir 5.2`);
+  }
+  const writtenMissingPhrase = writtenMissing === 1
+    ? 'falta 1 interacción escrita'
+    : `faltan ${writtenMissing} interacciones escritas`;
+  if (writtenMissing !== null && writtenMissing > 0 && !reason.includes(writtenMissingPhrase)) {
+    throw new ApiError(502, 'INVALID_AI_RESPONSE', `INVALID_AI_RESPONSE: audit.missingEvidence: debe explicar que faltan ${writtenMissing} interacciones escritas para cumplir 5.2`);
+  }
+  if (countsUndetermined && !reason.includes('no fue posible acreditar')) {
+    throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.missingEvidence: debe indicar que no fue posible acreditar el conteo de intentos de 5.2');
+  }
 }
 
 function validateBusinessRules(assessment: ValidatedAssessment): void {
@@ -202,6 +303,7 @@ function validateBusinessRules(assessment: ValidatedAssessment): void {
       throw new ApiError(502, 'INVALID_AI_RESPONSE', `INVALID_AI_RESPONSE: audit.procedureChecks.${index}.status: NO_ACREDITADO exige evidencia y valores observados que sustenten la ausencia`);
     }
   });
+  validateContactAttemptsMinimum(assessment);
   validateTemporalCoherence(assessment);
 }
 

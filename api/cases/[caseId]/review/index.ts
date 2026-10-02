@@ -4,10 +4,10 @@ import {
   methodNotAllowed,
   ok,
   readJsonBody,
-  requiredString,
+  requiredUuid,
 } from '../../../../src/server/http.js';
 import { createServerClient } from '../../../../src/server/insforge.js';
-import { getCaseOr404, latestCompletedAudit } from '../../../../src/server/cases.js';
+import { assertCaseOwner, getScopedCaseOr404, latestCompletedAudit } from '../../../../src/server/cases.js';
 import { getCaseReview, listComparisonsForCase } from '../../../../src/server/reviews.js';
 import { parseHumanReviewInput } from '../../../../src/skills/review/schema.js';
 import { caseReviewToDto, comparisonToDto, deriveEffectiveResolution } from '../../../../src/server/dto.js';
@@ -22,11 +22,11 @@ import { healStaleComparison, submitCaseReview } from '../../../../src/server/co
 export const maxDuration = 300; // Vercel: hasta 300 s en planes compatibles
 
 export default handleRoute(async (req, res) => {
-  if (req.method === 'GET') {
-    const client = createServerClient();
-    const caseId = requiredString(req.query, 'caseId');
+  const client = createServerClient();
+  const caseId = requiredUuid(req.query, 'caseId');
 
-    await getCaseOr404(client, caseId);
+  if (req.method === 'GET') {
+    await getScopedCaseOr404(client, caseId, req.auth!);
     // Sana comparaciones RUNNING abandonadas antes de devolver el estado; si la
     // función de Vercel murió a mitad, el cliente verá ERROR en vez de un
     // RUNNING eterno (NO_PROCESS_LOCAL_DURABILITY).
@@ -46,13 +46,13 @@ export default handleRoute(async (req, res) => {
   }
 
   if (req.method === 'POST') {
-    const client = createServerClient();
-    const caseId = requiredString(req.query, 'caseId');
+    const caseRow = await getScopedCaseOr404(client, caseId, req.auth!);
+    assertCaseOwner(caseRow, req.auth!);
     // Validación SIEMPRE en servidor: el comentario es la justificación humana y
     // la resolución tiene que pertenecer al vocabulario cerrado del Skill.
     const input = parseHumanReviewInput(await readJsonBody(req));
 
-    const outcome = await submitCaseReview(client, caseId, { ...input, userId: null });
+    const outcome = await submitCaseReview(client, caseId, { ...input, userId: req.auth!.sub });
     created(res, outcome);
     return;
   }

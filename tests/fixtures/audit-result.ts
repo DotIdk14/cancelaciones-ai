@@ -71,7 +71,12 @@ export const validAuditResult: AuditResult = {
         status: 'ACREDITADO',
         reasoning: 'Se observa que la solicitud quedó acreditada por la evidencia disponible.',
         evidenceIds: ['ev-1'],
-        observedValues: [{ label: 'solicitud identificada', value: 'Sí' }],
+        observedValues: [
+          { label: 'llamadas requeridas', value: '16' },
+          { label: 'llamadas acreditadas', value: '16' },
+          { label: 'interacciones escritas requeridas', value: '6' },
+          { label: 'interacciones escritas acreditadas', value: '6' },
+        ],
       },
     ],
     observations: ['Sin observaciones.'],

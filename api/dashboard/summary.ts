@@ -11,6 +11,6 @@ export default handleRoute(async (req, res) => {
   }
   const filters = parseDashboardFilters(req.query);
   const client = createServerClient();
-  const summary = await getDashboardSummary(client, filters);
+  const summary = await getDashboardSummary(client, filters, req.auth);
   ok(res, { summary });
 });
