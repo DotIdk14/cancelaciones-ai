@@ -57,3 +57,4 @@ normative/
 # Volcados residuales de CLI (UTF-16) que no deben versionarse.
 log.txt
 metadata.json
+.env*
