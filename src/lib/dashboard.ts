@@ -9,6 +9,9 @@
 // =============================================================================
 
 import type { AuditResultType, CaseStatus } from '../skills/audit/types';
+// Nombres que este archivo USA ademas de reexportar (ver el `export ... from` de
+// mas abajo): el `export ... from` no crea binding local.
+import type { DashboardFilters, ExecutionOutcome } from './dashboard-shared.js';
 import { isRecord, readError } from './api.js';
 import type { ConfidenceBand, ResolutionGroup } from './labels';
 import {
@@ -23,19 +26,19 @@ import {
 // Filtros
 // -----------------------------------------------------------------------------
 
-/** Filtros de la barra superior. Fechas en `YYYY-MM-DD`, `null` = sin filtro. */
-export type DashboardFilters = {
-  from: string;
-  to: string;
-  result: string | null;
-  status: string | null;
-  country?: string | null;
-  campus?: string | null;
-  modality?: string | null;
-  project?: string | null;
-  responsible?: string | null;
-  guideline?: string | null;
-};
+/**
+ * El tipo de filtros, `defaultDateRange()`, `ExecutionOutcome` y
+ * `EXECUTION_OUTCOMES` viven en `dashboard-shared.ts`, un modulo sin
+ * dependencias: el servidor los necesita en runtime y no puede depender de este
+ * archivo porque aqui entra `local-dashboard-preview`, que es codigo de
+ * navegador. Se reexportan para que los imports del cliente no cambien.
+ */
+export {
+  defaultDateRange,
+  EXECUTION_OUTCOMES,
+  type DashboardFilters,
+  type ExecutionOutcome,
+} from './dashboard-shared.js';
 
 /**
  * Dimensiones del caso que el dashboard puede filtrar. Espejo de
@@ -185,20 +188,6 @@ export interface RecentCaseRow {
  * `SUCCESS_WITH_FALLBACK` tiene prioridad sobre `SUCCESS_AFTER_RETRY`: si se
  * probaron dos modelos, lo noteworthy es el fallback, no que hubiera reintentado.
  */
-export type ExecutionOutcome =
-  | 'SUCCESS_FIRST_ATTEMPT'
-  | 'SUCCESS_AFTER_RETRY'
-  | 'SUCCESS_WITH_FALLBACK'
-  | 'FAILED';
-
-/** Orden fijo de las categorías: el que se pinta siempre, aunque valgan 0. */
-export const EXECUTION_OUTCOMES: readonly ExecutionOutcome[] = [
-  'SUCCESS_FIRST_ATTEMPT',
-  'SUCCESS_AFTER_RETRY',
-  'SUCCESS_WITH_FALLBACK',
-  'FAILED',
-];
-
 export const EXECUTION_OUTCOME_LABELS: Record<ExecutionOutcome, string> = {
   SUCCESS_FIRST_ATTEMPT: 'Éxito al primer intento',
   SUCCESS_AFTER_RETRY: 'Éxito tras reintento',
@@ -540,37 +529,6 @@ export interface QualityReport {
 /** Envoltorio de la respuesta HTTP. */
 export interface QualityResponse {
   quality: QualityReport;
-}
-
-// -----------------------------------------------------------------------------
-// Utilidades
-// -----------------------------------------------------------------------------
-
-/** `Date` -> `YYYY-MM-DD` en hora local (no UTC: evita el salto de día). */
-function toLocalIsoDate(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-/** Últimos 30 días (hoy y hace 30 días), en hora local y sin dependencias. */
-export function defaultDateRange(): DashboardFilters {
-  const today = new Date();
-  const from = new Date(today.getTime());
-  from.setDate(from.getDate() - 30);
-  return {
-    from: toLocalIsoDate(from),
-    to: toLocalIsoDate(today),
-    result: null,
-    status: null,
-    country: null,
-    campus: null,
-    modality: null,
-    project: null,
-    responsible: null,
-    guideline: null,
-  };
 }
 
 // -----------------------------------------------------------------------------

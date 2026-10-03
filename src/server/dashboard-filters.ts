@@ -13,7 +13,11 @@
 
 import { z } from 'zod';
 import { AUDIT_RESULTS, CASE_STATUSES, type AuditResultType, type CaseStatus } from '../skills/audit/types.js';
-import { defaultDateRange, type DashboardFilters, type DashboardDimension } from '../lib/dashboard.js';
+// `defaultDateRange` viene de `dashboard-shared.ts` (modulo sin dependencias) y no de
+// `lib/dashboard.ts`: este ultimo arrastra codigo de navegador y, si el servidor
+// lo cargara, la Function de Vercel moriria al invocarse con ERR_MODULE_NOT_FOUND.
+import { defaultDateRange } from '../lib/dashboard-shared.js';
+import type { DashboardFilters, DashboardDimension } from '../lib/dashboard.js';
 import { ApiError, type QueryValue } from './http.js';
 
 // Reexportado para que quien use el filtro no tenga que saber de dónde sale.

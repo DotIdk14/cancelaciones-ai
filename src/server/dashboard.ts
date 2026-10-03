@@ -20,23 +20,27 @@ import {
   type ConfidenceBand,
   type ResolutionGroup,
 } from '../lib/labels.js';
-import {
-  EXECUTION_OUTCOMES,
-  type DashboardFilters,
-  type DashboardDimension,
-  type DashboardFilterOptions,
-  type DashboardKpi,
-  type DashboardSummary,
-  type ExecutionOutcome,
-  type ExecutionReport,
-  type HumanAgreementReport,
-  type HumanMismatchRow,
-  type MissingEvidenceBucket,
-  type RecentCaseRow,
-  type ResolutionSplitPoint,
-  type ResultBreakdownPoint,
-  type SummaryCostKpi,
-  type TimelinePoint,
+// `EXECUTION_OUTCOMES` viene de `dashboard-shared.ts` (modulo sin dependencias) y
+// el resto son solo tipos: `import type` se borra al compilar, asi que la Function
+// nunca carga `lib/dashboard.ts` ni su dependencia de navegador
+// `local-dashboard-preview`. Ver `src/lib/dashboard-shared.ts`.
+import { EXECUTION_OUTCOMES } from '../lib/dashboard-shared.js';
+import type {
+  DashboardFilters,
+  DashboardDimension,
+  DashboardFilterOptions,
+  DashboardKpi,
+  DashboardSummary,
+  ExecutionOutcome,
+  ExecutionReport,
+  HumanAgreementReport,
+  HumanMismatchRow,
+  MissingEvidenceBucket,
+  RecentCaseRow,
+  ResolutionSplitPoint,
+  ResultBreakdownPoint,
+  SummaryCostKpi,
+  TimelinePoint,
 } from '../lib/dashboard.js';
 import type { AuthContext } from './auth.js';
 import type { AuditStatus } from './cases.js';
