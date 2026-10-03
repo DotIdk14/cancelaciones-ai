@@ -73,8 +73,8 @@ export function DashboardFilters({
   };
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="grid gap-2 lg:grid-cols-12">
+    <div className="dashboard-filterbar">
+      <div className="dashboard-filter-primary grid gap-2 lg:grid-cols-12">
         <fieldset className="lg:col-span-5">
           <legend className={LABEL_CLASS}>Rango de fechas</legend>
           <div className="grid gap-2 sm:grid-cols-2">
@@ -182,7 +182,7 @@ export function DashboardFilters({
 
       </div>
 
-      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="dashboard-filter-dimensions grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
         {(Object.keys(DIMENSION_LABELS) as DashboardDimension[]).map((dimension) => {
           const values = options[dimension];
           if (values.length === 0) return null;
@@ -205,7 +205,7 @@ export function DashboardFilters({
         })}
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="dashboard-filter-actions flex flex-wrap items-center justify-between gap-2">
         {optionsError ? (
           <p role="status" className="text-xs text-warning">No se pudieron cargar los valores de filtros adicionales.</p>
         ) : <span />}

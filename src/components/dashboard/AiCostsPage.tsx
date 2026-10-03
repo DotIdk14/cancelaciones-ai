@@ -387,23 +387,25 @@ export function AiCostsPage(): ReactNode {
       : `, con un pico de ${formatCost(costPeak.costUsd)} el ${costPeak.bucket}.`);
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="dashboard-page costs-page flex flex-col gap-5">
       {/* Fila 0: título + filtros */}
-      <header className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+      <header className="dashboard-page-heading">
         <div>
-          <h1 className="text-xl font-semibold text-ink">IA &amp; Costos</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-ink">Analítica de costos de IA</h1>
           <p className="mt-1 text-sm text-muted">
             Cuánto cuesta usar el modelo y con qué fiabilidad responde en el periodo seleccionado.
           </p>
         </div>
-        <div className="flex flex-col gap-3">
+      </header>
+      <section className="dashboard-toolbar costs-toolbar" aria-label="Filtros de costos">
+        <div className="costs-toolbar-filters">
           {/* `getAiCosts` no aplica `result` a propósito: filtrar por dictamen
               escondería el gasto de los intentos fallidos, que es lo que esta
               pantalla mide. Por eso el control se retira en lugar de engañar. */}
           <DashboardFilters value={filters} onChange={setFilters} allowResultFilter={false} />
-          <GranularityPicker value={granularity} onChange={setGranularity} />
         </div>
-      </header>
+        <GranularityPicker value={granularity} onChange={setGranularity} />
+      </section>
 
       {error !== null && (
         <ErrorCard

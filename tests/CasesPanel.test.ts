@@ -12,7 +12,7 @@
 // =============================================================================
 
 import { createElement } from 'react';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CaseSummary } from '../src/lib/api';
 import { shortId } from '../src/lib/format';
@@ -42,7 +42,7 @@ async function renderList(cases: CaseSummary[]): Promise<void> {
   const view = render(createElement(CasesPanel));
   // Espera a que la lista llegue del servidor.
   await vi.waitFor(() => {
-    if (cases.length > 0) expect(view.container.querySelector('li')).not.toBeNull();
+    if (cases.length > 0) expect(view.container.querySelector('tbody tr')).not.toBeNull();
   });
 }
 
@@ -58,17 +58,17 @@ describe('CasesPanel — resolución efectiva', () => {
       makeCase({ id: 'case-ai', effectiveResolution: { result: 'CANCELACION_VENTA', source: 'AI' } }),
     ]);
 
-    expect(screen.getByText('Humano')).toBeTruthy();
-    expect(screen.getByText('IA')).toBeTruthy();
+    expect(screen.getAllByText('Humano').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('IA').length).toBeGreaterThan(0);
     // El resultado viaja con su origen: "Dictaminación" sin más sería ambiguo.
-    expect(screen.getByText('Dictaminación')).toBeTruthy();
-    expect(screen.getByText('Cancelación de venta')).toBeTruthy();
+    expect(screen.getAllByText('Dictaminación').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Cancelación de venta').length).toBeGreaterThan(0);
   });
 
-  it('enlaza a la revisión de cada caso', async () => {
+  it('abre el expediente para continuar la revisión', async () => {
     await renderList([makeCase({ id: 'case-human', effectiveResolution: { result: 'BAJA', source: 'HUMAN' } })]);
 
-    const link = screen.getByRole('link', { name: /ver revisión/i });
+    const link = screen.getByRole('link', { name: /abrir expediente/i });
     expect(link.getAttribute('href')).toBe('#/casos/case-human');
   });
 
@@ -77,15 +77,10 @@ describe('CasesPanel — resolución efectiva', () => {
 
     expect(screen.queryByText('Humano')).toBeNull();
     expect(screen.queryByText('IA')).toBeNull();
-    expect(screen.queryByRole('link', { name: /ver revisión/i })).toBeNull();
-    // La fila conserva exactamente su forma actual.
-    // El id se acorta con `shortId`, que es lo que pinta la fila: escribir el id
-    // entero aquí haría que esta aserción pasara por accidente o fallara por el
-    // truncado, según la longitud, en lugar de fijar el comportamiento real.
-    const row = screen.getByRole('link', { name: new RegExp(`Caso ${shortId('case-plain')}`, 'i') });
+    const row = screen.getByRole('row', { name: new RegExp(shortId('case-plain'), 'i') });
     expect(row.textContent).toContain('UTEL-2026-001');
-    expect(row.textContent).toContain('2 evidencias');
-    expect(screen.getByText('Completado')).toBeTruthy();
+    expect(row.textContent).toContain('2');
+    expect(screen.getAllByText('Completado').length).toBeGreaterThan(0);
   });
 
   it('no inventa resolución cuando el servidor no envía ninguna', async () => {
@@ -93,6 +88,30 @@ describe('CasesPanel — resolución efectiva', () => {
 
     expect(screen.queryByText('Humano')).toBeNull();
     expect(screen.queryByText('IA')).toBeNull();
-    expect(screen.queryByRole('link', { name: /ver revisión/i })).toBeNull();
+    expect(screen.getAllByText('Sin dictamen').length).toBeGreaterThan(0);
+  });
+
+  it('filtra por identificador y conserva el conteo visible', async () => {
+    await renderList([
+      makeCase({ id: 'case-one', studentIdentifier: 'UTEL-2026-001' }),
+      makeCase({ id: 'case-two', studentIdentifier: 'UTEL-2025-002', status: 'DRAFT' }),
+    ]);
+
+    fireEvent.change(screen.getByRole('searchbox', { name: /buscar por folio/i }), { target: { value: '2025' } });
+    expect(screen.getByRole('row', { name: /case-two/i })).toBeTruthy();
+    expect(screen.queryByRole('row', { name: /case-one/i })).toBeNull();
+    expect(screen.getByText('Mostrando 1 de 2 expedientes')).toBeTruthy();
+  });
+
+  it('filtra por estado y actualiza el expediente seleccionado', async () => {
+    await renderList([
+      makeCase({ id: 'case-completed' }),
+      makeCase({ id: 'case-draft', status: 'DRAFT' }),
+    ]);
+
+    fireEvent.click(screen.getByRole('button', { name: /borradores/i }));
+    expect(screen.getByRole('row', { name: /case-dra/i })).toBeTruthy();
+    expect(screen.queryByRole('row', { name: /case-compl/i })).toBeNull();
+    expect(screen.getByRole('link', { name: /abrir expediente/i }).getAttribute('href')).toBe('#/casos/case-draft');
   });
 });

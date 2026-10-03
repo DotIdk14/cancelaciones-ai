@@ -67,17 +67,20 @@ export function OverviewPage(): ReactNode {
   const recentCases = data?.recentCases ?? [];
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="dashboard-page overview-page flex flex-col gap-5">
       {/* Fila 0: título + filtros */}
-      <header className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+      <header className="dashboard-page-heading">
         <div>
-          <h1 className="text-xl font-semibold text-ink">Resumen</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-ink">Resumen de auditorías</h1>
           <p className="mt-1 text-sm text-muted">
-            Estado de las auditorías del periodo seleccionado.
+            Actividad, resultados y expedientes recientes del periodo seleccionado.
           </p>
         </div>
-        <DashboardFilters value={filters} onChange={setFilters} />
       </header>
+
+      <section className="dashboard-toolbar" aria-label="Filtros del resumen">
+        <DashboardFilters value={filters} onChange={setFilters} />
+      </section>
 
       {error !== null && (
         <ErrorCard

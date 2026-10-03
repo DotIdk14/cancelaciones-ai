@@ -131,18 +131,18 @@ export function QualityPage(): ReactNode {
     `${byEvidence.map((bucket) => `${bucket.label}: ${bucket.avgConfidence === null ? 'sin datos' : formatPercent(bucket.avgConfidence)}`).join('; ')}.`;
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="dashboard-page quality-page flex flex-col gap-5">
       {/* Fila 0: título + filtros */}
-      <section className="rounded-2xl border border-line bg-surface-1 p-4">
-        <header className="flex flex-col gap-4">
+      <section className="dashboard-toolbar quality-toolbar">
+        <header className="dashboard-page-heading">
           <div>
-            <h1 className="text-xl font-semibold text-ink">Calidad</h1>
+            <h1 className="text-2xl font-semibold tracking-tight text-ink">Calibración y calidad auditora</h1>
             <p className="mt-1 text-sm text-muted">
               Qué tan bien está auditando la IA y con qué evidencia.
             </p>
           </div>
-          <DashboardFilters value={filters} onChange={setFilters} />
         </header>
+        <DashboardFilters value={filters} onChange={setFilters} />
       </section>
 
       {/* Aviso de por qué las tres primeras tarjetas están vacías. Va lo PRIMERO

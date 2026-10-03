@@ -9,13 +9,13 @@ import { Suspense, lazy } from 'react';
 import { AppHeader } from './components/AppHeader';
 import { AppNav } from './components/AppNav';
 import { CaseDetailPage } from './components/CaseDetailPage';
+import { CaseDetailPreview } from './components/CaseDetailPreview';
 import { CaseListPage } from './components/CaseListPage';
 import { LoginScreen } from './components/LoginScreen';
 import { NewCasePanel } from './components/NewCasePanel';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Panel, Spinner } from './components/ui';
 import { cx } from './lib/cx';
-import { isDashboardRoute, shellWidth } from './lib/layout';
 import { isLocalDashboardPreview } from './lib/local-dashboard-preview';
 import { useHashRoute } from './lib/useHashRoute';
 import type { AppRoute } from './lib/useHashRoute';
@@ -61,14 +61,14 @@ function DashboardFallback(): ReactNode {
   );
 }
 
-function CurrentRoute({ route }: { route: AppRoute }): ReactNode {
-  return <Suspense fallback={<DashboardFallback />}>{renderRoute(route)}</Suspense>;
+function CurrentRoute({ route, previewOnly }: { route: AppRoute; previewOnly: boolean }): ReactNode {
+  return <Suspense fallback={<DashboardFallback />}>{renderRoute(route, previewOnly)}</Suspense>;
 }
 
-function renderRoute(route: AppRoute): ReactNode {
+function renderRoute(route: AppRoute, previewOnly: boolean): ReactNode {
   switch (route.name) {
     case 'case':
-      return <CaseDetailPage caseId={route.caseId} />;
+      return previewOnly ? <CaseDetailPreview caseId={route.caseId} /> : <CaseDetailPage caseId={route.caseId} />;
     case 'cases':
       return <CaseListPage />;
     // El nav ofrece "Nuevo caso" y "Casos" como entradas distintas, así que
@@ -94,10 +94,7 @@ function Shell({
   previewOnly?: boolean;
 }): ReactNode {
   const route = useHashRoute();
-  const displayRoute =
-    previewOnly && !isDashboardRoute(route.name)
-      ? ({ name: 'dashboard' } as const)
-      : route;
+  const displayRoute = route;
 
   /**
    * El skip link NO puede usar `href="#contenido"`: el hash lo interpreta el
@@ -113,8 +110,10 @@ function Shell({
     main.scrollIntoView();
   };
 
+  const detailRoute = displayRoute.name === 'case';
+
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background text-ink">
       <a
         href="#contenido"
         onClick={skipToContent}
@@ -122,7 +121,7 @@ function Shell({
       >
         Saltar al contenido
       </a>
-      <AppHeader onSignOut={onSignOut} />
+      <AppHeader onSignOut={onSignOut} previewOnly={previewOnly} />
       {previewOnly && (
         <div
           role="status"
@@ -131,16 +130,18 @@ function Shell({
           Vista previa local: datos ficticios, sin conexión a InsForge.
         </div>
       )}
-      <AppNav previewOnly={previewOnly} />
-      <main
-        id="contenido"
-        // `tabIndex={-1}` hace que el destino del skip link reciba el foco de
-        // forma programática sin entrar en el orden de tabulación.
-        tabIndex={-1}
-        className={cx('mx-auto w-full px-4 py-6 sm:px-6', shellWidth(displayRoute.name))}
-      >
-        <CurrentRoute route={displayRoute} />
-      </main>
+      <div className={cx('app-workspace', detailRoute && 'app-workspace-detail')}>
+        <AppNav previewOnly={previewOnly} horizontal={detailRoute} />
+        <main
+          id="contenido"
+          // `tabIndex={-1}` hace que el destino del skip link reciba el foco de
+          // forma programática sin entrar en el orden de tabulación.
+          tabIndex={-1}
+        className="app-content min-w-0 px-4 py-5 sm:px-6 lg:px-7"
+        >
+          <CurrentRoute route={displayRoute} previewOnly={previewOnly} />
+        </main>
+      </div>
     </div>
   );
 }

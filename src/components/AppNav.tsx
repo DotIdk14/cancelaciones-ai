@@ -8,9 +8,8 @@
 // =============================================================================
 
 import type { ReactNode } from 'react';
-import { Coins, FilePlus2, FolderOpen, LayoutDashboard, ShieldCheck } from 'lucide-react';
+import { Coins, FolderOpen, LayoutDashboard, ShieldCheck } from 'lucide-react';
 import { cx } from '../lib/cx';
-import { shellWidth } from '../lib/layout';
 import { useHashRoute } from '../lib/useHashRoute';
 import type { AppRoute } from '../lib/useHashRoute';
 
@@ -32,7 +31,7 @@ interface NavItem {
  * `.map` para que quede a la vista qué entradas aceptan más de una ruta.
  */
 const ACTIVE_ALIASES: Readonly<Partial<Record<AppRoute['name'], readonly AppRoute['name'][]>>> = {
-  cases: ['case'],
+  cases: ['case', 'new-case'],
 };
 
 /** `true` si la entrada corresponde a la ruta actual, contando sus alias. */
@@ -41,43 +40,26 @@ function isCurrentRoute(item: AppRoute['name'], current: AppRoute['name']): bool
   return (ACTIVE_ALIASES[item] ?? []).includes(current);
 }
 
-/** `false` entre grupos para dibujar el separador vertical. */
-type NavEntry = NavItem | false;
-
-const ENTRIES: readonly NavEntry[] = [
+const ENTRIES: readonly NavItem[] = [
   { name: 'dashboard', hash: '#/', label: 'Resumen', Icon: LayoutDashboard },
   { name: 'quality', hash: '#/calidad', label: 'Calidad', Icon: ShieldCheck },
   { name: 'ai-costs', hash: '#/ia-costos', label: 'IA & Costos', Icon: Coins },
-  false,
-  { name: 'new-case', hash: '#/nuevo', label: 'Nuevo caso', Icon: FilePlus2 },
   { name: 'cases', hash: '#/casos', label: 'Casos', Icon: FolderOpen },
 ];
 
 /** En el preview local solo tienen sentido las vistas de dashboard. */
-const PREVIEW_ROUTES = new Set<AppRoute['name']>(['dashboard', 'quality', 'ai-costs']);
+const PREVIEW_ROUTES = new Set<AppRoute['name']>(['dashboard', 'quality', 'ai-costs', 'cases', 'case']);
 
-export function AppNav({ previewOnly = false }: { previewOnly?: boolean }): ReactNode {
+export function AppNav({ previewOnly = false, horizontal = false }: { previewOnly?: boolean; horizontal?: boolean }): ReactNode {
   const route = useHashRoute();
   const entries = previewOnly
-    ? ENTRIES.filter((entry): entry is NavItem => entry !== false && PREVIEW_ROUTES.has(entry.name))
+    ? ENTRIES.filter((entry) => PREVIEW_ROUTES.has(entry.name))
     : ENTRIES;
 
   return (
-    <nav aria-label="Navegación principal" className="border-b border-line bg-surface-1">
-      <div
-        className={`mx-auto flex w-full items-center gap-1 overflow-x-auto px-4 sm:px-6 ${shellWidth(route.name)}`}
-      >
+    <nav aria-label="Navegación principal" className={cx('app-nav', horizontal && 'app-nav-horizontal')}>
+      <div className="app-nav-items">
         {entries.map((entry) => {
-          if (entry === false) {
-            return (
-              <span
-                key="separador"
-                aria-hidden="true"
-                className="mx-1 h-5 w-px self-center bg-line"
-              />
-            );
-          }
-
           const { name, hash, label, Icon } = entry;
           // `case` es un alias de `cases`: en el detalle de un caso la pestaña
           // sigue siendo "Casos". Ninguna otra entrada tiene alias, así que el
@@ -90,10 +72,10 @@ export function AppNav({ previewOnly = false }: { previewOnly?: boolean }): Reac
               href={hash}
               aria-current={isActive ? 'page' : undefined}
               className={cx(
-                'flex items-center gap-2 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium transition-colors',
+                'app-nav-link flex items-center gap-3 whitespace-nowrap px-3 py-2.5 text-sm font-medium transition-colors',
                 isActive
-                  ? 'border-brand text-ink'
-                  : 'border-transparent text-muted hover:border-line hover:text-ink',
+                  ? 'app-nav-link-active text-ink'
+                  : 'text-muted hover:bg-surface-2 hover:text-ink',
               )}
             >
               <Icon size={16} aria-hidden="true" />

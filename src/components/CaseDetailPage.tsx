@@ -270,7 +270,7 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
   else if (!allReady) auditHint = 'Aún hay evidencias sin procesar.';
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="case-detail-page flex flex-col gap-4">
       {/* ------------------------------------------------------ cabecera */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
@@ -306,8 +306,29 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
       )}
       {actionError !== null && <ErrorCard message={actionError.message} category={actionError.category} />}
 
-      {/* ------------------------------------------------------ auditoría */}
-      <Panel
+      <div className="case-detail-layout">
+        <aside className="case-detail-evidence">
+          <EvidenceUploader caseId={caseId} onUploaded={() => load()} disabled={Boolean(caseIsError)} />
+          <Panel
+            title={`Evidencias (${evidences.length})`}
+            description="Las transcripciones de audio se actualizan automáticamente mientras se procesan."
+            labelledBy="evidencias-caso"
+          >
+            <EvidenceList
+              evidences={evidences}
+              onPreview={setViewing}
+              onDelete={(item) => setConfirmId(item.id)}
+              onConfirmDelete={(item) => void handleDelete(item)}
+              onCancelConfirm={() => setConfirmId(null)}
+              deletingId={deletingId}
+              confirmId={confirmId}
+            />
+          </Panel>
+        </aside>
+
+        <section className="case-detail-assessment">
+          {/* ------------------------------------------------------ auditoría */}
+          <Panel
         title="Auditoría con IA"
         description="El dictamen lo emite el modelo consultando el procedimiento vigente y las evidencias del caso."
       >
@@ -370,72 +391,55 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
             </p>
           </div>
         )}
-      </Panel>
+          </Panel>
 
-      {review !== null && (
-        <section
-          aria-labelledby="resolucion-humana-vigente"
-          className="rounded-2xl border border-brand/40 bg-brand/5 p-5"
-        >
-          <h2 id="resolucion-humana-vigente" className="text-base font-semibold text-ink">
-            Resolución humana vigente
-          </h2>
-          <div className="mt-3 flex flex-wrap items-center gap-3">
-            <Badge tone={RESULT_TONE[review.result]}>{RESULT_LABELS[review.result]}</Badge>
-            <span className="text-sm text-muted">
-              Esta decisión humana tiene prioridad y gobierna el caso.
-            </span>
-          </div>
-          <p className="mt-2 text-sm text-muted">
-            El dictamen original de IA se conserva sin cambios y se muestra debajo para comparación.
-          </p>
-        </section>
-      )}
+          {review !== null && (
+            <section
+              aria-labelledby="resolucion-humana-vigente"
+              className="rounded-xl border border-brand/40 bg-brand/5 p-4"
+            >
+              <h2 id="resolucion-humana-vigente" className="text-base font-semibold text-ink">
+                Resolución humana vigente
+              </h2>
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <Badge tone={RESULT_TONE[review.result]}>{RESULT_LABELS[review.result]}</Badge>
+                <span className="text-sm text-muted">Esta decisión humana gobierna el caso.</span>
+              </div>
+              <p className="mt-2 text-sm text-muted">
+                El dictamen original de IA se conserva para comparación.
+              </p>
+            </section>
+          )}
 
-      {/* ------------------------------------------------------ resultado */}
-      {audit !== null && audit.status === 'COMPLETED' && (
-        <section aria-labelledby="resultado-auditoria" className="flex flex-col gap-3">
-          <h2 id="resultado-auditoria" className="text-base font-semibold text-ink">
-            Dictamen original de IA
-          </h2>
-          <AuditResultPanel audit={audit} evidences={evidences} />
+          {/* ------------------------------------------------------ resultado */}
+          {audit !== null && audit.status === 'COMPLETED' && (
+            <section aria-labelledby="resultado-auditoria" className="flex flex-col gap-3">
+              <h2 id="resultado-auditoria" className="text-base font-semibold text-ink">
+                Dictamen original de IA
+              </h2>
+              <AuditResultPanel audit={audit} evidences={evidences} />
+            </section>
+          )}
         </section>
-      )}
 
       {/* ------------------------------------------------------ revisión
           El dictamen de arriba NO se modifica ni se oculta. La revisión humana
           va debajo, como una capa aparte: o existe (y entonces es la resolución
           final) o se ofrece el formulario para registrarla. Nunca ambas. */}
-      {review !== null ? (
-        <CaseReviewRecord
-          caseId={caseId}
-          review={review}
-          comparison={comparison}
-          effectiveResolution={effectiveResolution}
-          reviewAuditResult={reviewAuditResult}
-        />
-      ) : (
-        <CaseReviewPanel caseId={caseId} audit={audit} review={null} onSubmitted={() => void load()} />
-      )}
-
-      {/* ------------------------------------------------------ evidencias */}
-      <EvidenceUploader caseId={caseId} onUploaded={() => load()} disabled={Boolean(caseIsError)} />
-
-      <Panel
-        title={`Evidencias (${evidences.length})`}
-        description="Las transcripciones de audio se actualizan automáticamente mientras se procesan."
-        labelledBy="evidencias-caso"
-      >
-        <EvidenceList
-          evidences={evidences}
-          onPreview={setViewing}
-          onDelete={(item) => setConfirmId(item.id)}
-          onConfirmDelete={(item) => void handleDelete(item)}
-          onCancelConfirm={() => setConfirmId(null)}
-          deletingId={deletingId}
-          confirmId={confirmId}
-        />
-      </Panel>
+        <aside className="case-detail-review">
+          {review !== null ? (
+            <CaseReviewRecord
+              caseId={caseId}
+              review={review}
+              comparison={comparison}
+              effectiveResolution={effectiveResolution}
+              reviewAuditResult={reviewAuditResult}
+            />
+          ) : (
+            <CaseReviewPanel caseId={caseId} audit={audit} review={null} onSubmitted={() => void load()} />
+          )}
+        </aside>
+      </div>
 
       {viewing !== null && <EvidenceViewer evidence={viewing} onClose={() => setViewing(null)} />}
     </div>

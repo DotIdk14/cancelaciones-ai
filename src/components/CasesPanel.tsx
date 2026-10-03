@@ -1,132 +1,243 @@
 // =============================================================================
-// Listado de casos con acción de recarga. Solo lectura + navegación al detalle.
+// Listado de casos. Los filtros se aplican a datos que ya entrega la API; la
+// página no inventa categorías de auditoría ni altera las resoluciones.
 // =============================================================================
 
-import type { ReactNode } from 'react';
-import { useCallback, useEffect, useState } from 'react';
+import type { KeyboardEvent, ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { AlertTriangle, ArrowRight, CircleCheck, FileText, Files, Search, TriangleAlert } from 'lucide-react';
 import { listCases, toErrorState } from '../lib/api';
 import type { CaseSummary } from '../lib/api';
 import { formatDateTime, shortId } from '../lib/format';
+import { isLocalDashboardPreview } from '../lib/local-dashboard-preview';
+import { getLocalPreviewCases, localPreviewCaseLabel } from '../lib/local-ui-preview';
 import {
   CASE_STATUS_LABELS,
   CASE_STATUS_TONE,
   RESOLUTION_SOURCE_DESCRIPTIONS,
   RESOLUTION_SOURCE_LABELS,
-  RESOLUTION_SOURCE_TONE,
   resolutionLabel,
   resolutionTone,
 } from '../lib/labels';
-import { Badge, Button, EmptyState, ErrorCard, Panel, Spinner } from './ui';
+import type { CaseStatus } from '../skills/audit/types';
+import { Badge, Button, EmptyState, ErrorCard, Spinner } from './ui';
 
-/** Mensaje amigable cuando el servidor devuelve 401 (sesión requerida). */
 const AUTH_ERROR_MESSAGE = 'El servidor requiere autenticación. La interfaz está en modo demo: los datos no se cargarán hasta que configure una sesión válida.';
 
+const STATUS_FILTERS: ReadonlyArray<{ value: CaseStatus | 'ALL'; label: string }> = [
+  { value: 'ALL', label: 'Todos' },
+  { value: 'READY', label: 'Listos para auditar' },
+  { value: 'AUDITING', label: 'En curso' },
+  { value: 'COMPLETED', label: 'Completados' },
+  { value: 'DRAFT', label: 'Borradores' },
+  { value: 'ERROR', label: 'Errores' },
+];
+
+function StatusTab({
+  label,
+  count,
+  active,
+  onClick,
+}: {
+  label: string;
+  count: number;
+  active: boolean;
+  onClick: () => void;
+}): ReactNode {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      className={`case-status-tab ${active ? 'case-status-tab-active' : ''}`}
+    >
+      {label}<span className="case-status-count">{count}</span>
+    </button>
+  );
+}
+
+function selectOnKeyboard(event: KeyboardEvent<HTMLTableRowElement>, select: () => void): void {
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault();
+    select();
+  }
+}
+
 export function CasesPanel(): ReactNode {
-  const [cases, setCases] = useState<CaseSummary[] | null>(null);
-  const [loading, setLoading] = useState(true);
+  const preview = isLocalDashboardPreview();
+  const [cases, setCases] = useState<CaseSummary[] | null>(() => preview ? getLocalPreviewCases() : null);
+  const [loading, setLoading] = useState(!preview);
   const [listError, setListError] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<CaseStatus | 'ALL'>('ALL');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
+    if (preview) {
+      setCases(getLocalPreviewCases());
+      setListError(null);
+      setLoading(false);
+      return;
+    }
     try {
       setCases(await listCases());
       setListError(null);
     } catch (err) {
       const state = toErrorState(err);
-      // Si el servidor devuelve 401, mostrar mensaje amigable en modo demo.
-      const message = state.category === 'AUTH_ERROR' ? AUTH_ERROR_MESSAGE : state.message;
-      setListError(message);
+      setListError(state.category === 'AUTH_ERROR' ? AUTH_ERROR_MESSAGE : state.message);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [preview]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  useEffect(() => { if (!preview) void load(); }, [load, preview]);
+
+  const counts = useMemo(() => {
+    const result: Record<CaseStatus | 'ALL', number> = {
+      ALL: cases?.length ?? 0,
+      READY: 0,
+      AUDITING: 0,
+      COMPLETED: 0,
+      DRAFT: 0,
+      ERROR: 0,
+    };
+    for (const item of cases ?? []) result[item.status] += 1;
+    return result;
+  }, [cases]);
+
+  const filteredCases = useMemo(() => {
+    const normalized = query.trim().toLocaleLowerCase('es');
+    return (cases ?? []).filter((item) => {
+      if (statusFilter !== 'ALL' && item.status !== statusFilter) return false;
+      if (!normalized) return true;
+      const result = item.effectiveResolution === null || item.effectiveResolution === undefined
+        ? ''
+        : resolutionLabel(item.effectiveResolution.result);
+      return [item.id, shortId(item.id), item.studentIdentifier ?? '', result]
+        .some((value) => value.toLocaleLowerCase('es').includes(normalized));
+    });
+  }, [cases, query, statusFilter]);
+
+  const selectedCase = filteredCases.find((item) => item.id === selectedId) ?? filteredCases[0] ?? null;
 
   return (
-    <Panel
-      title="Casos"
-      description="Selecciona un caso para gestionar sus evidencias y auditarlo."
-      actions={
-        <Button onClick={() => void load()} loading={loading} loadingLabel="Actualizando">
-          Actualizar
-        </Button>
-      }
-    >
-      {listError !== null && <ErrorCard message={listError} onRetry={() => void load()} className="mb-4" />}
+    <div className="case-list-page flex flex-col gap-5">
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-ink">Expedientes y auditoría</h1>
+          <p className="mt-1 text-sm text-muted">Revisa, dictamina y da seguimiento a las solicitudes de cancelación.</p>
+        </div>
+        <Button onClick={() => void load()} loading={loading} loadingLabel="Actualizando">Actualizar</Button>
+      </header>
+
+      {listError !== null && <ErrorCard message={listError} onRetry={() => void load()} />}
+
+      <div className="case-overview-strip" aria-label="Resumen de casos">
+        <CaseOverview label="Todos los casos" value={counts.ALL} tone="brand" Icon={Files} />
+        <CaseOverview label="Listos para auditar" value={counts.READY} tone="warning" Icon={AlertTriangle} />
+        <CaseOverview label="Dictaminados" value={counts.COMPLETED} tone="success" Icon={CircleCheck} />
+        <CaseOverview label="Borradores" value={counts.DRAFT} tone="neutral" Icon={FileText} />
+        <CaseOverview label="Anomalías / error" value={counts.ERROR} tone="danger" Icon={TriangleAlert} />
+      </div>
+
+      <div className="case-toolbar rounded-xl border border-line bg-surface-1 p-3">
+        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filtrar por estado del caso">
+          {STATUS_FILTERS.map((item) => (
+            <StatusTab
+              key={item.value}
+              label={item.label}
+              count={counts[item.value]}
+              active={statusFilter === item.value}
+              onClick={() => setStatusFilter(item.value)}
+            />
+          ))}
+        </div>
+        <label className="case-search">
+          <Search size={16} aria-hidden="true" />
+          <span className="sr-only">Buscar por folio, matrícula o resolución</span>
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Buscar folio, matrícula o resolución…"
+          />
+        </label>
+      </div>
 
       {loading && cases === null ? (
-        <div className="flex justify-center py-8">
-          <Spinner label="Cargando casos" className="h-5 w-5" />
-        </div>
+        <div className="flex min-h-56 items-center justify-center rounded-xl border border-line bg-surface-1"><Spinner label="Cargando casos" /></div>
       ) : cases !== null && cases.length === 0 ? (
-        <EmptyState
-          icon="📂"
-          title="Todavía no hay casos"
-          description="Crea el primer caso para empezar a cargar evidencias y auditar con IA."
-        />
+        <EmptyState title="Todavía no hay casos" description="Crea un caso para empezar a cargar evidencias y auditar con IA." />
+      ) : filteredCases.length === 0 ? (
+        <EmptyState title="No hay casos que coincidan" description="Prueba con otro folio, matrícula o estado." />
       ) : (
-        <ul className="flex flex-col gap-2">
-          {(cases ?? []).map((item) => {
-            // `undefined` y `null` significan lo mismo: no hay resolución que
-            // mostrar, y entonces la fila se dibuja exactamente como antes.
-            const resolution = item.effectiveResolution ?? null;
-            return (
-              <li key={item.id} className="flex flex-wrap items-center gap-2">
-                <a
-                  href={`#/casos/${encodeURIComponent(item.id)}`}
-                  className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-surface-2 px-4 py-3 transition-colors hover:border-brand/50 hover:bg-surface-3"
-                >
-                  <div className="min-w-0">
-                    <p className="font-mono text-sm text-ink">
-                      Caso {shortId(item.id)}
-                      {item.studentIdentifier !== null && item.studentIdentifier !== '' && (
-                        <span className="ml-2 font-sans text-muted">· {item.studentIdentifier}</span>
-                      )}
-                    </p>
-                    <p className="mt-0.5 text-xs text-muted">
-                      {item.evidenceCount === 1 ? '1 evidencia' : `${item.evidenceCount} evidencias`} ·
-                      Creado {formatDateTime(item.createdAt)} · Actualizado {formatDateTime(item.updatedAt)}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {/*
-                      La resolución viaja SIEMPRE con su origen: un resultado sin
-                      decir si lo decidió una persona o el modelo no es auditable.
-                      El distintivo no sustituye al badge de estado del caso, que
-                      es un dato técnico distinto.
-                    */}
-                    {resolution !== null && (
-                      <>
-                        <Badge tone={resolutionTone(resolution.result)}>{resolutionLabel(resolution.result)}</Badge>
-                        <Badge
-                          tone={RESOLUTION_SOURCE_TONE[resolution.source]}
-                          title={RESOLUTION_SOURCE_DESCRIPTIONS[resolution.source]}
-                        >
-                          {RESOLUTION_SOURCE_LABELS[resolution.source]}
-                        </Badge>
-                      </>
-                    )}
-                    <Badge tone={CASE_STATUS_TONE[item.status]}>{CASE_STATUS_LABELS[item.status]}</Badge>
-                  </div>
-                </a>
-                {/* Enlace hermano, nunca anidado dentro del enlace del caso:
-                    dos `<a>` uno dentro del otro es HTML inválido y rompe la
-                    navegación por teclado de forma inexplicable. */}
-                {resolution !== null && (
-                  <a
-                    href={`#/casos/${encodeURIComponent(item.id)}`}
-                    className="shrink-0 rounded-xl border border-line bg-surface-2 px-3 py-2 text-sm font-medium text-muted transition-colors hover:border-brand/50 hover:bg-surface-3 hover:text-ink"
-                  >
-                    Ver revisión
-                  </a>
-                )}
-              </li>
-            );
-          })}
-        </ul>
+        <div className="case-list-layout">
+          <div className="case-table-wrap">
+            <table className="case-table">
+              <thead>
+                <tr>
+                  <th scope="col">Expediente / caso</th>
+                  <th scope="col">Estudiante</th>
+                  <th scope="col">Evidencias</th>
+                  <th scope="col">Dictamen vigente</th>
+                  <th scope="col">Estado</th>
+                  <th scope="col">Acción</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredCases.map((item) => {
+                  const resolution = item.effectiveResolution ?? null;
+                  const selected = selectedCase?.id === item.id;
+                  return (
+                    <tr
+                      key={item.id}
+                      tabIndex={0}
+                      aria-selected={selected}
+                      className={selected ? 'case-table-row case-table-row-selected' : 'case-table-row'}
+                      onClick={() => setSelectedId(item.id)}
+                      onKeyDown={(event) => selectOnKeyboard(event, () => setSelectedId(item.id))}
+                    >
+                      <td><span className="font-mono text-sm font-semibold">{preview ? localPreviewCaseLabel(item.id) : shortId(item.id)}</span><span className="case-cell-secondary">Creado {formatDateTime(item.createdAt)}</span></td>
+                      <td>{item.studentIdentifier ? <><span>{item.studentIdentifier}</span><span className="case-cell-secondary">Identificador</span></> : <span className="text-muted">Sin identificar</span>}</td>
+                      <td><span className="inline-flex items-center gap-1.5"><FileText size={15} aria-hidden="true" />{item.evidenceCount}</span></td>
+                      <td>{resolution ? <><Badge tone={resolutionTone(resolution.result)}>{resolutionLabel(resolution.result)}</Badge><span className="case-cell-secondary">{RESOLUTION_SOURCE_LABELS[resolution.source]}</span></> : <span className="text-muted">Sin dictamen</span>}</td>
+                      <td><Badge tone={CASE_STATUS_TONE[item.status]}>{CASE_STATUS_LABELS[item.status]}</Badge></td>
+                      <td><a className="case-row-action" href={`#/casos/${encodeURIComponent(item.id)}`} onClick={(event) => event.stopPropagation()}>Abrir <ArrowRight size={14} aria-hidden="true" /></a></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {selectedCase !== null && (
+            <aside className="case-preview" aria-label="Resumen del expediente seleccionado">
+              <div className="flex items-start justify-between gap-3">
+                <Badge tone={CASE_STATUS_TONE[selectedCase.status]}>{CASE_STATUS_LABELS[selectedCase.status]}</Badge>
+                <span className="text-xs text-muted">{formatDateTime(selectedCase.updatedAt)}</span>
+              </div>
+              <h2 className="mt-3 font-mono text-lg font-semibold">{preview ? localPreviewCaseLabel(selectedCase.id) : shortId(selectedCase.id)}</h2>
+              <div className="mt-4 border-y border-line py-3">
+                <p className="text-sm font-medium">{selectedCase.studentIdentifier || 'Estudiante sin identificar'}</p>
+                {selectedCase.studentIdentifier && <p className="mt-1 text-xs text-muted">Identificador</p>}
+              </div>
+              <dl className="mt-4 flex flex-col gap-3 text-sm">
+                <div className="flex justify-between gap-3"><dt className="text-muted">Evidencias</dt><dd>{selectedCase.evidenceCount}</dd></div>
+                <div className="flex justify-between gap-3"><dt className="text-muted">Dictamen vigente</dt><dd className="max-w-[65%] text-right">{selectedCase.effectiveResolution ? resolutionLabel(selectedCase.effectiveResolution.result) : 'Sin dictamen'}</dd></div>
+                {selectedCase.effectiveResolution && <div className="flex justify-between gap-3"><dt className="text-muted">Origen</dt><dd title={RESOLUTION_SOURCE_DESCRIPTIONS[selectedCase.effectiveResolution.source]}>{RESOLUTION_SOURCE_LABELS[selectedCase.effectiveResolution.source]}</dd></div>}
+              </dl>
+              <a className="case-open-link mt-5" href={`#/casos/${encodeURIComponent(selectedCase.id)}`}>
+                Abrir expediente <ArrowRight size={16} aria-hidden="true" />
+              </a>
+            </aside>
+          )}
+        </div>
       )}
-    </Panel>
+      <p className="text-xs text-muted">Mostrando {filteredCases.length} de {cases?.length ?? 0} expedientes</p>
+    </div>
   );
+}
+
+function CaseOverview({ label, value, tone, Icon }: { label: string; value: number; tone: 'brand' | 'warning' | 'success' | 'neutral' | 'danger'; Icon: typeof Files }): ReactNode {
+  return <div className={`case-overview-card case-overview-${tone}`}><span>{label}</span><strong>{value}</strong><i><Icon size={18} aria-hidden="true" /></i></div>;
 }

@@ -3,33 +3,34 @@
 // =============================================================================
 
 import type { ReactNode } from 'react';
+import { LogOut, Plus, ShieldCheck, UserRound } from 'lucide-react';
 import { Button } from './ui';
-import { shellWidth } from '../lib/layout';
-import { useHashRoute } from '../lib/useHashRoute';
 
 interface AppHeaderProps {
   onSignOut?: () => void;
+  previewOnly?: boolean;
 }
 
-export function AppHeader({ onSignOut }: AppHeaderProps): ReactNode {
-  const route = useHashRoute();
-
+export function AppHeader({ onSignOut, previewOnly = false }: AppHeaderProps): ReactNode {
   return (
-    <header className="border-b border-line bg-surface-1">
+    <header className="app-header sticky top-0 z-30 border-b border-line bg-surface-1">
       <div
-        className={`mx-auto flex w-full flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-6 ${shellWidth(route.name)}`}
+        className="app-header-inner flex w-full items-center justify-between gap-4 px-4 sm:px-5"
       >
-        <div className="min-w-0">
-          <a href="#/" className="text-base font-semibold text-ink hover:text-brand">
-            Auditoría de Cancelaciones
+        <div className="app-brand min-w-0">
+          <a href="#/" className="flex min-w-0 items-center gap-3 text-ink hover:text-brand">
+            <span className="app-brand-mark" aria-hidden="true"><ShieldCheck size={21} /></span>
+            <span className="min-w-0 text-sm font-bold uppercase leading-4 tracking-wide">
+              Auditoría<br className="hidden sm:block" /> Cancelaciones
+            </span>
           </a>
-          <p className="text-xs text-muted">Cancelaciones, bajas y deserción · UTEL</p>
+          <span className="app-organization">UTEL</span>
         </div>
-        {onSignOut && (
-          <Button variant="ghost" onClick={onSignOut}>
-            Cerrar sesión
-          </Button>
-        )}
+        <div className="flex items-center gap-2 sm:gap-3">
+          <a href="#/nuevo" className="app-new-case"><Plus size={17} aria-hidden="true" /> <span>Nuevo caso</span></a>
+          {previewOnly && <span className="app-preview-user"><UserRound size={17} aria-hidden="true" /><span>Vista local</span></span>}
+          {onSignOut && <Button variant="ghost" onClick={onSignOut} className="app-signout"><LogOut size={16} aria-hidden="true" /><span>Cerrar sesión</span></Button>}
+        </div>
       </div>
     </header>
   );

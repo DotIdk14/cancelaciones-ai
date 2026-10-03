@@ -59,7 +59,7 @@ export function Panel({
     <section
       aria-labelledby={headingId}
       className={cx(
-        'rounded-2xl border border-line bg-surface-1',
+        'rounded-xl border border-line bg-surface-1',
         TONE_SURFACE[tone],
         className,
       )}
@@ -172,7 +172,7 @@ export function Button({
       disabled={disabled === true || loading}
       aria-busy={loading || undefined}
       className={cx(
-        'inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-colors',
+        'inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-colors',
         'disabled:cursor-not-allowed disabled:opacity-55',
         BUTTON_VARIANT[variant],
         fullWidth && 'w-full',
@@ -367,7 +367,7 @@ export function StatCard({
   className,
 }: StatCardProps): ReactNode {
   return (
-    <div className={cx('rounded-2xl border border-line bg-surface-1 p-4', className)}>
+    <div className={cx('rounded-xl border border-line bg-surface-1 p-4', className)}>
       {icon !== undefined && (
         <div aria-hidden="true" className={cx('flex justify-end', TONE_ICON[tone])}>
           {icon}
