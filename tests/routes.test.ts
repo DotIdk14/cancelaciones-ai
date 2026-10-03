@@ -19,9 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type ApiRequest, type ApiResponse } from '../src/server/http';
 import auditHandler from '../api/cases/[caseId]/audit/index';
 import evidenceDeleteHandler from '../api/cases/[caseId]/evidence/[evidenceId]/index';
-import dashboardSummaryHandler from '../api/dashboard/summary';
-import dashboardAiCostsHandler from '../api/dashboard/ai-costs';
-import dashboardQualityHandler from '../api/dashboard/quality';
+import dashboardHandler from '../api/dashboard/[view]';
 import { auditToDto } from '../src/server/dto';
 import { runAudit } from '../src/server/audit-service';
 import { callOpenRouterAudit, OpenRouterAuditError } from '../src/server/openrouter';
@@ -145,9 +143,11 @@ describe('rutas críticas (validación de método)', () => {
     const res = makeApiResponse();
     // Query deliberadamente inválida: el 405 debe resolverse ANTES de parsear
     // los filtros, para que un método incorrecto nunca llegue a la base.
+    // Sin `view` a propósito: el 405 tiene que resolverse antes de validar la
+    // vista, igual que antes de parsear los filtros.
     const req = makeApiRequest({ method: 'PATCH', query: { from: 'basura' } });
 
-    await dashboardSummaryHandler(req, res);
+    await dashboardHandler(req, res);
 
     expect(res.statusCode).toBe(405);
     expect(res.headers.Allow).toBe('GET');
@@ -157,7 +157,7 @@ describe('rutas críticas (validación de método)', () => {
     const res = makeApiResponse();
     const req = makeApiRequest({ method: 'PATCH', query: { from: 'basura', granularity: 'trimestre' } });
 
-    await dashboardAiCostsHandler(req, res);
+    await dashboardHandler(req, res);
 
     expect(res.statusCode).toBe(405);
     expect(res.headers.Allow).toBe('GET');
@@ -166,9 +166,9 @@ describe('rutas críticas (validación de método)', () => {
   it('GET /dashboard/ai-costs?granularity=trimestre → 400 en español, sin tocar la base', async () => {
     const res = makeApiResponse();
     // Fechas válidas: el 400 tiene que venir de `granularity`, no del rango.
-    const req = makeApiRequest({ method: 'GET', query: { from: '2026-09-01', to: '2026-09-30', granularity: 'trimestre' } });
+    const req = makeApiRequest({ method: 'GET', query: { view: 'ai-costs', from: '2026-09-01', to: '2026-09-30', granularity: 'trimestre' } });
 
-    await dashboardAiCostsHandler(req, res);
+    await dashboardHandler(req, res);
 
     expect(res.statusCode).toBe(400);
     const payload = JSON.parse(res.body) as { error: { category: string; message: string } };
@@ -179,9 +179,9 @@ describe('rutas críticas (validación de método)', () => {
 
   it('GET /dashboard/ai-costs?granularity=trimestre&granularity=day → 400 (valor repetido)', async () => {
     const res = makeApiResponse();
-    const req = makeApiRequest({ method: 'GET', query: { granularity: ['trimestre', 'day'] } });
+    const req = makeApiRequest({ method: 'GET', query: { view: 'ai-costs', granularity: ['trimestre', 'day'] } });
 
-    await dashboardAiCostsHandler(req, res);
+    await dashboardHandler(req, res);
 
     expect(res.statusCode).toBe(400);
     expect((JSON.parse(res.body) as { error: { category: string } }).error.category).toBe('VALIDATION_ERROR');
@@ -193,7 +193,7 @@ describe('rutas críticas (validación de método)', () => {
     // parsear los filtros, igual que en las otras dos rutas de dashboard.
     const req = makeApiRequest({ method: 'PATCH', query: { from: 'basura' } });
 
-    await dashboardQualityHandler(req, res);
+    await dashboardHandler(req, res);
 
     expect(res.statusCode).toBe(405);
     expect(res.headers.Allow).toBe('GET');
@@ -201,14 +201,26 @@ describe('rutas críticas (validación de método)', () => {
 
   it('GET /dashboard/quality?from=basura → 400 en español, sin tocar la base', async () => {
     const res = makeApiResponse();
-    const req = makeApiRequest({ method: 'GET', query: { from: 'basura' } });
+    const req = makeApiRequest({ method: 'GET', query: { view: 'quality', from: 'basura' } });
 
-    await dashboardQualityHandler(req, res);
+    await dashboardHandler(req, res);
 
     expect(res.statusCode).toBe(400);
     const payload = JSON.parse(res.body) as { error: { category: string; message: string } };
     expect(payload.error.category).toBe('VALIDATION_ERROR');
     expect(payload.error.message).toContain('from');
+  });
+
+  it('GET /dashboard/:vista-desconocida → 404 sin tocar la base', async () => {
+    const res = makeApiResponse();
+    // Vocabulario cerrado: una vista inexistente no se adivina ni se ignora.
+    const req = makeApiRequest({ method: 'GET', query: { view: 'inventada' } });
+
+    await dashboardHandler(req, res);
+
+    expect(res.statusCode).toBe(404);
+    const payload = JSON.parse(res.body) as { error: { category: string } };
+    expect(payload.error.category).toBe('NOT_FOUND');
   });
 });
 

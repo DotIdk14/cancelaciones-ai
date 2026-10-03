@@ -20,10 +20,7 @@ import reviewHandler from '../api/cases/[caseId]/review/index';
 import evidenceUploadHandler from '../api/cases/[caseId]/evidence/index';
 import evidenceDeleteHandler from '../api/cases/[caseId]/evidence/[evidenceId]/index';
 import downloadHandler from '../api/evidence/[evidenceId]/download';
-import dashboardSummaryHandler from '../api/dashboard/summary';
-import dashboardQualityHandler from '../api/dashboard/quality';
-import dashboardAiCostsHandler from '../api/dashboard/ai-costs';
-import dashboardOptionsHandler from '../api/dashboard/options';
+import dashboardHandler from '../api/dashboard/[view]';
 import { getScopedCaseOr404, assertCaseOwner } from '../src/server/cases';
 import type { InsForgeClient } from '../src/server/insforge';
 
@@ -82,10 +79,10 @@ describe('R1 · sin sesion, TODA ruta protegida responde 401 (fail-closed)', () 
     ['POST /api/cases/:id/evidence', evidenceUploadHandler, { caseId: 'c' }],
     ['DELETE /api/cases/:id/evidence/:eid', evidenceDeleteHandler, { caseId: 'c', evidenceId: 'e' }],
     ['GET /api/evidence/:eid/download', downloadHandler, { evidenceId: 'e' }],
-    ['GET /api/dashboard/summary', dashboardSummaryHandler, { from: '2026-09-01', to: '2026-09-30' }],
-    ['GET /api/dashboard/quality', dashboardQualityHandler, { from: '2026-09-01', to: '2026-09-30' }],
-    ['GET /api/dashboard/ai-costs', dashboardAiCostsHandler, { from: '2026-09-01', to: '2026-09-30' }],
-    ['GET /api/dashboard/options', dashboardOptionsHandler, {}],
+    ['GET /api/dashboard/summary', dashboardHandler, { view: 'summary', from: '2026-09-01', to: '2026-09-30' }],
+    ['GET /api/dashboard/quality', dashboardHandler, { view: 'quality', from: '2026-09-01', to: '2026-09-30' }],
+    ['GET /api/dashboard/ai-costs', dashboardHandler, { view: 'ai-costs', from: '2026-09-01', to: '2026-09-30' }],
+    ['GET /api/dashboard/options', dashboardHandler, { view: 'options' }],
   ];
 
   for (const [name, handler, query] of handlers) {

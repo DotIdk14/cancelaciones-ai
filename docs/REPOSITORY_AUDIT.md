@@ -268,8 +268,8 @@ suite y build.
 | `src/server/auth.ts` | Sesión por cookie `httpOnly`, verificación remota, roles |
 | `src/server/dashboard.human.ts` | Métricas de revisión humana |
 | `src/skills/sanitize.ts` | Cercado mecánico de contenido no confiable |
-| `api/auth/session.ts`, `api/auth/refresh.ts` | Login, logout y rotación |
-| `api/dashboard/options.ts` | Filtros del dashboard |
+| `api/auth/[action].ts` | Login, logout y rotación (una Function para `session` + `refresh`) |
+| `api/dashboard/[view].ts` | Las cuatro vistas del dashboard (una Function) |
 | `src/components/LoginScreen.tsx`, `src/lib/useSession.ts` | Login en la SPA |
 | `migrations/2026100*.sql` (4) | Membership, cuotas, derivados, nombre del revisor |
 | `.github/**` | CI, Dependabot, plantillas de issue y PR |

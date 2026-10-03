@@ -20,7 +20,7 @@ La interfaz es una SPA React + Vite con hash routing manual; el backend son Verc
 | Routing | Hash routing manual | `src/lib/useHashRoute.ts` |
 | Backend | Vercel Functions (Node) | `api/**` |
 | Dev server | `scripts/dev-api.mjs` monta `api/**` dentro de Vite | `scripts/dev-api.mjs`, `vite.config.ts` |
-| Auth | InsForge SDK SSR + cookies httpOnly + `app_memberships` | `src/server/auth.ts`, `api/auth/session.ts`, `api/auth/refresh.ts` |
+| Auth | InsForge SDK SSR + cookies httpOnly + `app_memberships` | `src/server/auth.ts`, `api/auth/[action].ts` |
 | Base de datos | InsForge PostgreSQL | `migrations/*.sql` |
 | Storage | InsForge Storage bucket `evidencias` | `src/server/insforge.ts` |
 | IA | OpenRouter (único proveedor) | `src/server/openrouter.ts`, `src/server/ai/*` |
