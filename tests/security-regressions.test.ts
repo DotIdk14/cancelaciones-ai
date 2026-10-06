@@ -17,6 +17,7 @@ import caseHandler from '../api/cases/[caseId]/index';
 import auditHandler from '../api/cases/[caseId]/audit/index';
 import comparisonHandler from '../api/cases/[caseId]/comparison/index';
 import reviewHandler from '../api/cases/[caseId]/review/index';
+import areaCommentsHandler from '../api/cases/[caseId]/area-comments/index';
 import evidenceUploadHandler from '../api/cases/[caseId]/evidence/index';
 import evidenceDeleteHandler from '../api/cases/[caseId]/evidence/[evidenceId]/index';
 import downloadHandler from '../api/evidence/[evidenceId]/download';
@@ -76,6 +77,8 @@ describe('R1 · sin sesion, TODA ruta protegida responde 401 (fail-closed)', () 
     ['GET /api/cases/:id/audit', auditHandler, { caseId: 'c' }],
     ['POST /api/cases/:id/comparison', comparisonHandler, { caseId: 'c' }],
     ['GET /api/cases/:id/review', reviewHandler, { caseId: 'c' }],
+    ['GET /api/cases/:id/area-comments', areaCommentsHandler, { caseId: 'c' }],
+    ['POST /api/cases/:id/area-comments', areaCommentsHandler, { caseId: 'c' }],
     ['POST /api/cases/:id/evidence', evidenceUploadHandler, { caseId: 'c' }],
     ['DELETE /api/cases/:id/evidence/:eid', evidenceDeleteHandler, { caseId: 'c', evidenceId: 'e' }],
     ['GET /api/evidence/:eid/download', downloadHandler, { evidenceId: 'e' }],
@@ -155,6 +158,93 @@ describe('R2/R3/R4 · CSRF en mutaciones (fail-closed antes de tocar auth)', () 
     const res = makeApiResponse();
     await casesHandler(makeApiRequest({ method: 'GET', headers: {} }), res);
     expect(res.headers['Cache-Control']).toBe('private, no-store');
+  });
+
+  it('escribir comentarios de area tambien exige CSRF: sin Origin responde 403', async () => {
+    // El comentario de un area es texto libre de una persona que queda
+    // persistido. Aceptarlo sin CSRF permitiria que otra pagina escribiera en
+    // nombre del operador con su sesion.
+    const res = makeApiResponse();
+    await areaCommentsHandler(
+      makeApiRequest({
+        method: 'POST',
+        query: { caseId: 'c' },
+        body: { area: 'BACK_OFFICE', comment: 'inyectado' },
+        headers: {},
+      }),
+      res,
+    );
+    expect(res.statusCode).toBe(403);
+    expect((JSON.parse(res.body) as { error: { category: string } }).error.category).toBe('AUTH_ERROR');
+  });
+});
+
+describe('Comentarios de area · el alcance lo decide el servidor', () => {
+  /**
+   * Es una defensa que la RLS sola NO da. El servidor escribe con la API key de
+   * administracion, que es superusuario: para ella las politicas no aplican y
+   * `created_by` no restringe nada. Si el endpoint no resolviera el alcance del
+   * caso, un `caseId` ajeno seria escribible por cualquiera con sesion.
+   *
+   * Se deja la logica de ownership REAL (`getScopedCaseOr404` y `assertCaseOwner`
+   * no se sustituyen) y sólo se intercepta la escritura, para poder observar que
+   * no ocurre: un 404 con la escritura happening seria un 404 cosmetico.
+   */
+  async function postToForeignCase(
+    role: 'user' | 'coordinator',
+  ): Promise<{ res: ReturnType<typeof makeApiResponse>; upsert: ReturnType<typeof vi.fn> }> {
+    const upsert = vi.fn();
+    const foreignCase = { id: 'c-ajeno', created_by: 'otro-usuario' };
+    const chain = {
+      select: () => chain,
+      eq: () => chain,
+      single: () => Promise.resolve({ data: foreignCase, error: null }),
+    };
+
+    vi.resetModules();
+    vi.doMock('../src/server/insforge', () => ({
+      createServerClient: () => ({ database: { from: () => chain } }),
+    }));
+    vi.doMock('../src/server/area-comments', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('../src/server/area-comments')>();
+      return { ...actual, upsertAreaComment: upsert };
+    });
+
+    try {
+      const handler = (await import('../api/cases/[caseId]/area-comments/index')).default;
+      const res = makeApiResponse();
+      await handler(
+        makeApiRequest({
+          method: 'POST',
+          query: { caseId: 'c-ajeno' },
+          // El bypass de tests: se salta sesión y CSRF para aislar el alcance.
+          auth: fakeAuthContext(role),
+          body: { area: 'HELPDESK', comment: 'intento sobre caso ajeno' },
+        }),
+        res,
+      );
+      return { res, upsert };
+    } finally {
+      vi.doUnmock('../src/server/insforge');
+      vi.doUnmock('../src/server/area-comments');
+      vi.resetModules();
+    }
+  }
+
+  it('un coordinador no escribe comentarios en un caso ajeno: 404 y nada escrito', async () => {
+    // El coordinador PUEDE leer cualquier caso (visibilidad global de auditoría),
+    // así que el alcance de escritura no se resuelve solo al leer: hace falta el
+    // `assertCaseOwner` explicito del endpoint.
+    const { res, upsert } = await postToForeignCase('coordinator');
+
+    expect(res.statusCode).toBe(404);
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
+  it('un rol user tampoco escribe en un caso ajeno', async () => {
+    const { res, upsert } = await postToForeignCase('user');
+    expect(res.statusCode).toBe(404);
+    expect(upsert).not.toHaveBeenCalled();
   });
 });
 

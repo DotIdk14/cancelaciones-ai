@@ -11,7 +11,7 @@
 import type { InsForgeClient } from '../../src/server/insforge';
 
 type Row = Record<string, unknown>;
-type Op = 'select' | 'insert' | 'update';
+type Op = 'select' | 'insert' | 'update' | 'upsert';
 type QueryResult = { data: Row[] | Row | null; error: null };
 
 class FakeQuery implements PromiseLike<QueryResult> {
@@ -25,6 +25,8 @@ class FakeQuery implements PromiseLike<QueryResult> {
     private readonly op: Op,
     private readonly payload: Row[] | null = null,
     private readonly patch: Row | null = null,
+    /** Columnas del `UNIQUE` que decide qué fila se sustituye. Sólo para `upsert`. */
+    private readonly conflictColumns: string[] = [],
   ) {}
 
   select(): this {
@@ -37,6 +39,26 @@ class FakeQuery implements PromiseLike<QueryResult> {
 
   update(patch: Row): FakeQuery {
     return new FakeQuery(this.db, this.table, 'update', null, patch);
+  }
+
+  /**
+   * UPSERT por columnas de conflicto.
+   *
+   * Reproduce la semántica de Postgres en `ON CONFLICT (cols) DO UPDATE`: la
+   * fila que colisiona se SUSTITUYE por la entrante, y si no colisiona se
+   * inserta. Es lo que la capa de datos necesita para "guardar sustituye" en
+   * lugar de acumular histórico.
+   *
+   * No dispara triggers, así que una columna como `updated_at` que los fije la
+   * base NO se bumpea aquí. Los tests que dependan de eso deben sembrarla en el
+   * payload, no esperar que el fake la mueva.
+   */
+  upsert(rows: Row[], options?: { onConflict?: string }): FakeQuery {
+    const columns = (options?.onConflict ?? '')
+      .split(',')
+      .map((column) => column.trim())
+      .filter((column) => column !== '');
+    return new FakeQuery(this.db, this.table, 'upsert', rows, null, columns);
   }
 
   eq(column: string, value: unknown): this {
@@ -73,6 +95,32 @@ class FakeQuery implements PromiseLike<QueryResult> {
       }));
       this.db.rows(this.table).push(...inserted);
       return { data: single ? inserted[0] ?? null : inserted, error: null };
+    }
+
+    if (this.op === 'upsert') {
+      const affected: Row[] = [];
+      for (const row of this.payload ?? []) {
+        const existing =
+          this.conflictColumns.length === 0
+            ? undefined
+            : this.db
+                .rows(this.table)
+                .find((candidate) => this.conflictColumns.every((column) => candidate[column] === row[column]));
+        if (existing === undefined) {
+          const inserted = {
+            ...row,
+            id: typeof row.id === 'string' ? row.id : `${this.table}-${this.db.nextSequence()}`,
+          };
+          this.db.rows(this.table).push(inserted);
+          affected.push(inserted);
+        } else {
+          // `ON CONFLICT DO UPDATE` reemplaza los campos presentes y conserva el
+          // resto, incluido el `id` ya asignado.
+          Object.assign(existing, row);
+          affected.push(existing);
+        }
+      }
+      return { data: single ? affected[0] ?? null : affected, error: null };
     }
 
     let rows = this.db

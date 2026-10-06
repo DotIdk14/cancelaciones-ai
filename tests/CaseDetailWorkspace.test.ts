@@ -37,6 +37,10 @@ vi.mock('../src/lib/api', async (importOriginal) => {
     deleteEvidence: vi.fn(),
     getAudit: vi.fn(),
     startAudit: vi.fn(),
+    // El dictamen monta el visor de comentarios de las áreas, que pide su
+    // recurso al abrir. Sin esto, abrir la pestaña Dictamen en un test lanzaba
+    // una petición de red de verdad y su error se pintaba en la vista.
+    getAreaComments: vi.fn(async () => []),
   };
 });
 
@@ -81,7 +85,9 @@ function makeDetail(overrides: Partial<CaseDetailResponse> = {}): CaseDetailResp
 /** Dictamen mínimo: sólo los campos que la vista de detalle lee. */
 function makeResult() {
   return {
-    // `AuditResultPanel` lee `usage` sin defensivas; sin esto el panel revienta.
+    // El panel del dictamen se redujo a regla/sección/razonamiento, así que ya
+    // no lee `usage`. Se conserva porque la línea de tiempo y los hechos siguen
+    // usándolo en otras vistas del expediente.
     usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150, estimatedCostUSD: 0.01 },
     model: 'google/gemini-2.5-flash',
     case: { matricula: 'UTEL-2026-001', studentName: 'Alumna Prueba', program: 'Licenciatura', cycle: '2026-1', cycleStartDate: '2026-01-05' },
@@ -126,6 +132,7 @@ function makeDetailWithAudit(): CaseDetailResponse {
     ],
     audit: {
       id: 'aud-1',
+      caseId: 'case-1',
       status: 'COMPLETED',
       resultJson: makeResult(),
       provider: 'google',
@@ -163,7 +170,7 @@ describe('EvidenceList — acciones en su propia fila', () => {
   it('deja los tres controles juntos y separados de los datos del archivo', () => {
     const evidence = makeEvidence({ filename: 'un-archivo-con-nombre-muy-largo.png' });
     const { container } = render(
-      createElement(EvidenceList, { evidences: [evidence], onPreview: vi.fn(), onDelete: vi.fn() }),
+      createElement(EvidenceList, { evidences: [evidence], onOpen: vi.fn(), onDelete: vi.fn() }),
     );
 
     const row = container.querySelector('li');
@@ -186,7 +193,7 @@ describe('EvidenceList — acciones en su propia fila', () => {
 
   it('mantiene los controles accesibles por nombre, no sólo por posición', () => {
     const evidence = makeEvidence({ filename: 'captura.png' });
-    render(createElement(EvidenceList, { evidences: [evidence], onPreview: vi.fn(), onDelete: vi.fn() }));
+    render(createElement(EvidenceList, { evidences: [evidence], onOpen: vi.fn(), onDelete: vi.fn() }));
 
     // El nombre legible del archivo va en `sr-only`: sin él, tres botones
     // "Ver" en la misma vista no dicen a qué evidencia se refieren.

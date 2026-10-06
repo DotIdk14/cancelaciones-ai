@@ -682,7 +682,7 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
             )}
 
             {activeTab === 'verdict' && (
-              audit?.status === 'COMPLETED' ? <section className="case-detail-full-verdict"><h2>Dictamen original de IA</h2><AuditResultPanel audit={audit} evidences={evidences} /></section> : <Panel title="Dictamen original de IA"><div className="case-workspace-empty"><FileText size={22} /><strong>Aún no hay un dictamen completado</strong><p>Cuando la auditoría termine, el análisis íntegro aparecerá aquí.</p></div></Panel>
+              audit?.status === 'COMPLETED' ? <section className="case-detail-full-verdict"><h2>Dictamen original de IA</h2><AuditResultPanel audit={audit} /></section> : <Panel title="Dictamen original de IA"><div className="case-workspace-empty"><FileText size={22} /><strong>Aún no hay un dictamen completado</strong><p>Cuando la auditoría termine, el dictamen aparecerá aquí.</p></div></Panel>
             )}
 
             {activeTab === 'evidence' && (

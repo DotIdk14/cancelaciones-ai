@@ -96,12 +96,14 @@ rechaza referencias inventadas a evidencias.
 ## Estructura del repositorio
 
 ```text
-api/                       Vercel Functions (una por endpoint, sin lógica de negocio)
-  auth/                    session.ts (POST login / DELETE logout), refresh.ts
+api/                       Vercel Functions — **12 archivos, el tope del plan Hobby**.
+                           Families consolidadas en segmentos dinámicos:
+  auth/[action].ts         session | refresh | google | google-callback
+  dashboard/[view].ts      summary | ai-costs | quality | options
   cases/                   index.ts, [caseId]/index.ts,
                            [caseId]/evidence/, [caseId]/evidence/[evidenceId]/,
-                           [caseId]/audit/, [caseId]/review/, [caseId]/comparison/
-  dashboard/               summary.ts, quality.ts, ai-costs.ts, options.ts
+                           [caseId]/audit/, [caseId]/review/, [caseId]/comparison/,
+                           [caseId]/area-comments/
   evidence/                [evidenceId]/download.ts
   health/                  ai.ts
 
@@ -118,14 +120,15 @@ src/
     review/                skill de revisión humana (reusa skills/sanitize.ts)
   server/                  env, insforge, http, errors, auth, quotas, derived,
                            cases, dto, audit-service, comparison-service,
-                           reviews, dashboard, dashboard.human, dashboard-filters,
-                           openrouter, assemblyai, evidence-prep, pdf
+                           reviews, area-comments, dashboard, dashboard.human,
+                           dashboard-filters, openrouter, assemblyai,
+                           evidence-prep, pdf
     ai/                    model-capabilities, provider-schema (contrato con el modelo)
   components/              LoginScreen, AppHeader, AppNav, CaseListPage,
                            CaseDetailPage, CasesPanel, NewCasePanel,
                            CaseReviewPanel, EvidenceUploader, EvidenceList,
-                           EvidencePane, PdfCanvas, AuditResultPanel,
-                            ErrorBoundary, ui,
+                           EvidencePane, PdfCanvas, AuditResultPanel, AreaComments,
+                           ErrorBoundary, ui,
                            dashboard/ (OverviewPage, QualityPage, AiCostsPage,
                            DashboardFilters, RecentCasesTable, charts/)
   lib/                     api.ts (cliente fetch), useHashRoute, usePolling,
@@ -133,7 +136,9 @@ src/
 policy/                    Procedimiento GDM_GAM_PRD_MLG_003 v5 (FUENTE NORMATIVA)
   manifest.json            26 secciones + SHA-256 del PDF fuente
   sections/*.md            secciones indexadas (26)
-migrations/                baseline + 8 migraciones incrementales (orden por nombre)
+migrations/                baseline + 11 migraciones incrementales (orden por nombre).
+                           Cada una trae sus comprobaciones en
+                           scripts/migration-checks/<archivo>.checks.json
 scripts/                   generate-policy.mjs, dev-api.mjs,
                            check-no-public-secrets.mjs, run-ai-smoke.mjs,
                            verify-rls-grants.sql
@@ -385,6 +390,7 @@ COLUMN` o `CREATE OR REPLACE FUNCTION`, por lo que re-ejecutarlas es un no-op.
 | `case_reviews` (+ columna del responsable) | `20260930010000_…`, `20261001010000_…` | Revisión humana del dictamen. |
 | `case_comparisons` | `20260930010000_human-resolution.sql` | Comparaciones entre casos. |
 | `case_comparisons_dashboard_metrics` (view) + `case_comparisons_created_at_idx` | `20260930020000_…` | Métricas de comparaciones. **Requiere** `20260930010000_…` aplicada. |
+| `case_area_comments` | `20261005010000_case-area-comments.sql` | Comentarios manuales por área (Back Office, HelpDesk, Servicios Escolares, Finanzas, Adicional). Un comentario vigente por `(case_id, area)`: guardar **sustituye**. El área es vocabulario cerrado (`CHECK` en la base, `z.enum` en el servidor, lista en el cliente). Se muestran al final del dictamen y **no participan en él**. |
 | `evidence.extracted_text`, `evidence.extraction_pipeline_version` | `20261003010000_…` | Caché de derivados (ver arriba). |
 
 Las vistas del dashboard se crean con `CREATE OR REPLACE VIEW` y llevan una
@@ -528,6 +534,7 @@ claves ni habla directamente con la plataforma.
 | `DELETE` | `/api/cases/:caseId/evidence/:evidenceId` | sesión + dueño | `200 { ok: true }` |
 | `GET` `POST` | `/api/cases/:caseId/audit` | sesión + dueño | `200 { audit }` \| `202 { audit: null, pendingEvidence }` |
 | `POST` | `/api/cases/:caseId/comparison` | sesión + dueño | `200` — lanza el comparador entre dos casos |
+| `GET` `POST` | `/api/cases/:caseId/area-comments` | sesión + **dueño** | `GET 200 { comments }` \| `POST 200 { comment }` — body `{ area, comment }`. **Dueño, no "sesión + dueño"**: un `coordinator` lee cualquier caso pero no escribe en el ajeno. Es un UPSERT, por eso `200` y no `201`. |
 | `GET` `POST` | `/api/cases/:caseId/review` | sesión + dueño | `GET 200 { review \| null }` · `POST 200 { review }` (revisión humana) |
 | `GET` | `/api/evidence/:evidenceId/download` | sesión + dueño | `200` binario (`?preview=1` → `inline`) |
 | `GET` | `/api/dashboard/summary` | sesión + rol | `200 { summary }` |
