@@ -112,6 +112,9 @@ const REJECTION_PARAM: Record<OAuthRejection, string> = {
   dominio: 'dominio',
   no_verificado: 'no_verificado',
   sin_acceso: 'sin_acceso',
+  // El callback llegó con código pero sin el verifier de PKCE. Clave corta y
+  // opaca: el texto que lee el usuario vive en `src/lib/useSession.ts`.
+  sin_verifier: 'expirado',
 };
 
 /** Destino del callback. Compuesto con APP_URL, nunca con el header Host. */

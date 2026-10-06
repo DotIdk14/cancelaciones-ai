@@ -224,11 +224,20 @@ export function isAllowedEmail(email: string): boolean {
 /** Cookie propia que transporta el `codeVerifier` de PKCE entre el inicio y el callback. */
 export const OAUTH_VERIFIER_COOKIE = 'insforge_oauth_verifier';
 
-/** Ventana de vida del verifier. Google no tarda más de unos segundos en volver. */
-const OAUTH_VERIFIER_MAX_AGE_SECONDS = 600;
+/**
+ * Ventana de vida del verifier.
+ *
+ * No son "unos segundos": entre salir hacia Google y volver hay una
+ * autenticación completa (contraseña, segundo factor, selector de cuenta y
+ * pantalla de consentimiento). Un usuario que tiene que autenticarse desde cero
+ * tarda minutos, y con la ventana anterior (10 min) el verifier caducaba a mitad
+ * del flujo: el callback llegaba con código pero sin cookie, y el fallo se
+ * reportaba como si el login nunca hubiera empezado.
+ */
+const OAUTH_VERIFIER_MAX_AGE_SECONDS = 1800;
 
 /** Motivo por el que un login con Google válido no abre sesión. */
-export type OAuthRejection = 'dominio' | 'no_verificado' | 'sin_acceso';
+export type OAuthRejection = 'dominio' | 'no_verificado' | 'sin_acceso' | 'sin_verifier';
 
 /**
  * Resultado del canje. Un rechazo NO es una excepción: es un resultado esperado
@@ -283,7 +292,13 @@ export async function startGoogleOAuth(
       maxAge: OAUTH_VERIFIER_MAX_AGE_SECONDS,
       httpOnly: true,
       secure: true,
-      sameSite: 'lax',
+      // `None` y NO `Lax`. El callback no vuelve directo de Google: vuelve
+      // rebotado desde el callback compartido de InsForge (`api.insforge.dev`),
+      // que es otro sitio. En esa cadena de redirects cross-site una cookie
+      // `Lax` no se entrega de forma fiable, y el síntoma es exactamente el que
+      // se veía: llega `insforge_code` pero no el verifier. `None` exige
+      // `Secure` (ya está) y solo viaja por HTTPS.
+      sameSite: 'none',
       path: '/',
     },
   );
@@ -334,8 +349,13 @@ export async function completeGoogleOAuth(
   const codeVerifier = parseCookies(req as import('./http.js').ApiRequest)[OAUTH_VERIFIER_COOKIE];
   clearVerifierCookie(res);
 
+  // Rechazo, no excepción. El contrato de este callback es responder SIEMPRE
+  // con una redirección, nunca con JSON: lanzar aquí devolvía al navegador un
+  // 400 crudo y dejaba al usuario mirando un error técnica en vez de la pantalla
+  // de login con un motivo. El fail-closed no se pierde: sin verifier se sale
+  // ANTES de tocar al proveedor de identidad, así que el canje nunca ocurre.
   if (!codeVerifier) {
-    throw new ApiError(400, 'VALIDATION_ERROR', 'El inicio de sesión expiró o no se inició en este navegador');
+    return { ok: false, reason: 'sin_verifier' };
   }
 
   const client = createAuthClient();

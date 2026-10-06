@@ -19,16 +19,28 @@ export type AuthErrorReason =
   | 'dominio'
   | 'no_verificado'
   | 'sin_acceso'
+  | 'expirado'
   | 'fallo';
 
 const AUTH_ERROR_MESSAGES: Record<AuthErrorReason, string> = {
   dominio: 'Solo se admiten correos de la UTEL (@utel.edu.mx).',
   no_verificado: 'Google no confirmó que tu correo esté verificado.',
   sin_acceso: 'Tu correo es válido pero no tienes acceso a esta aplicación. Solicítalo al responsable.',
+  expirado: 'El inicio de sesión tardó demasiado o el navegador descartó la cookie del proceso. Vuelve a intentarlo.',
   fallo: 'No se pudo completar el inicio de sesión con Google. Intenta de nuevo.',
 };
 
-const AUTH_ERROR_REASONS: readonly AuthErrorReason[] = ['dominio', 'no_verificado', 'sin_acceso', 'fallo'];
+/**
+ * Lista de motivos aceptados, DERIVADA del mapa de mensajes.
+ *
+ * Antes era una lista escrita a mano: al añadir un motivo al union había que
+ * recordar tocar los dos sitios, y TypeScript no lo garantizaba (el array es
+ * `AuthErrorReason[]`, no un `Record` exhaustivo). Un motivo olvidado se
+ * descartaba en silencio y el usuario volvía al login sin ningún aviso.
+ */
+const AUTH_ERROR_REASONS: readonly AuthErrorReason[] = Object.keys(
+  AUTH_ERROR_MESSAGES,
+) as AuthErrorReason[];
 
 export function isAuthErrorReason(value: string): value is AuthErrorReason {
   return AUTH_ERROR_REASONS.includes(value as AuthErrorReason);

@@ -250,18 +250,29 @@ describe('G2 · PKCE: el verifier viaja en cookie httpOnly y se borra al canjear
     // El verifier sale en `Set-Cookie`, nunca en el destino del redirect.
     expect(setCookieHeader(res)).toContain(`${VERIFIER_COOKIE}=verifier-1`);
     expect(setCookieHeader(res)).toContain('HttpOnly');
-    expect(setCookieHeader(res)).toContain('SameSite=Lax');
-    expect(setCookieHeader(res)).toContain('Max-Age=600');
+    // `None` (no `Lax`) + `Secure`: el callback no vuelve directo de Google,
+    // vuelve rebotado desde `api.insforge.dev`, otro sitio. En esa cadena
+    // cross-site una cookie `Lax` no se entrega de forma fiable, y el callback
+    // llegaba con código pero sin verifier ("el inicio de sesión expiró").
+    expect(setCookieHeader(res)).toContain('SameSite=None');
+    expect(setCookieHeader(res)).toContain('Secure');
+    // 30 min y no 10: el usuario puede tener que autenticarse entero en Google
+    // (contraseña + segundo factor + consentimiento) antes de volver.
+    expect(setCookieHeader(res)).toContain('Max-Age=1800');
     cleanup();
   });
 
-  it('un callback sin verifier NO canjea y responde 400 (fail-closed)', async () => {
+  it('un callback sin verifier NO canjea y vuelve al login con motivo (fail-closed)', async () => {
     const { handler, calls, cleanup } = await mountAuth();
     const res = makeResponse();
 
     await handler(makeRequest({ query: { action: 'google-callback', insforge_code: 'code-1' }, headers: {} }), res);
 
-    expect(res.statusCode).toBe(400);
+    // Redirección, nunca JSON: el callback promete devolver al usuario a la app
+    // con un motivo. Antes respondía un 400 crudo y el usuario terminaba viendo
+    // un error técnico en el navegador en vez de la pantalla de login.
+    expect(res.statusCode).toBe(303);
+    expect(locations(res)).toContain(`${APP_URL}/?authError=expirado`);
     // La frontera: sin verifier no se toca el proveedor de identidad.
     expect(calls.exchange).toEqual([]);
     cleanup();
