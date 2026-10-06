@@ -79,12 +79,6 @@ export async function checkPaidQuota(userId: string, contextHash: string): Promi
   throwIfDenied(result, 'Se alcanzó el límite de auditorías pagadas; espera antes de reintentar.');
 }
 
-/** Cuota de login por correo (5/email/15min). */
-export async function checkLoginEmailQuota(email: string): Promise<void> {
-  const result = await admit('login', hashQuotaSubject(email.toLowerCase().trim()), 'email', null);
-  throwIfDenied(result, 'Demasiados intentos de inicio de sesión con este correo; espera antes de reintentar.');
-}
-
 /** Cuota de login por IP (10/IP/15min). */
 export async function checkLoginIpQuota(ip: string): Promise<void> {
   const result = await admit('login', hashQuotaSubject(ip), 'ip', null);

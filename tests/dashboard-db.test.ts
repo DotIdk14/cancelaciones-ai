@@ -245,7 +245,7 @@ describe('minimización de datos — no pedir columnas que no se usan', () => {
     const { client, queries } = fakeClient({ rows: [] });
     await getAiQuality(client, BASE);
     const columnas = String(queries[0].select).split(',').map((c) => c.trim());
-    // Las 6 dimensiones SÍ se piden aunque no se devuelvan: sin ellas el filtro
+    // Las dimensiones SÍ se piden aunque no se devuelvan: sin ellas el filtro
     // por dimensión no se puede aplicar en SQL, y filtrar en memoria después de
     // traer el conjunto daría métricas distintas de las que dice `truncated`.
     expect(columnas.sort()).toEqual(
@@ -257,6 +257,7 @@ describe('minimización de datos — no pedir columnas que no se usan', () => {
         'id',
         'missing_evidence_count',
         'country',
+        'channel',
         'campus',
         'modality',
         'project',

@@ -6,9 +6,14 @@
 import type {
   AuditResultType,
   CaseStatus,
+  EvidenceChannel,
+  EvidenceCountry,
   EvidenceKind,
   EvidenceStatus,
 } from '../skills/audit/types';
+// El vocabulario de áreas vive en el cliente (`api.ts`) y no en `src/server`,
+// que arrastraría el cliente de InsForge al bundle del navegador.
+import type { AreaCommentArea } from './api';
 // Valores, no sólo tipos: el vocabulario cerrado y los límites de la revisión
 // humana se IMPORTAN del módulo que los define, no se reescriben aquí.
 import {
@@ -94,6 +99,19 @@ export const RESOLUTION_GROUP_CHART_COLOR: Record<ResolutionGroup, string> = {
   CONCEDIDAS: 'var(--success)',
   REQUIERE_DICTAMINACION: 'var(--warning)',
   EVIDENCIA_INSUFICIENTE: 'var(--accent)',
+};
+
+/**
+ * Color de serie de las distribuciones de origen.
+ *
+ * Cada dimensión tiene su color y NO se reutilizan los del grupo de resolución:
+ * el país y el canal son otra cosa, y compartir color sugeriría una equivalencia
+ * que no existe. Los dos tokens están contrastados contra `--surface-1` en
+ * `scripts/contrast.mjs`.
+ */
+export const ORIGIN_CHART_COLOR: Record<'country' | 'channel', string> = {
+  country: 'var(--chart-origin-country)',
+  channel: 'var(--chart-origin-channel)',
 };
 
 // -----------------------------------------------------------------------------
@@ -247,6 +265,62 @@ export const EVIDENCE_KIND_LABELS: Record<EvidenceKind, string> = {
 
 export const EVIDENCE_ACCEPT =
   '.png,.jpg,.jpeg,.webp,.pdf,.mp3,.wav,.m4a,.ogg,audio/*,image/*,application/pdf';
+
+/** Etiqueta para un dato de origen que el modelo no pudo determinar. */
+export const UNDETERMINED_LABEL = 'Sin determinar';
+
+export const COUNTRY_LABELS: Record<EvidenceCountry, string> = {
+  MX: 'México',
+  CO: 'Colombia',
+  AR: 'Argentina',
+  CL: 'Chile',
+  PE: 'Perú',
+  BR: 'Brasil',
+  EC: 'Ecuador',
+  PA: 'Panamá',
+  PR: 'Puerto Rico',
+  DO: 'República Dominicana',
+  GT: 'Guatemala',
+};
+
+export const CHANNEL_LABELS: Record<EvidenceChannel, string> = {
+  WHATSAPP: 'WhatsApp',
+  CRM: 'CRM',
+  I6: 'I6',
+  SIU: 'SIU',
+  FLOKZU: 'Flokzu',
+  EMAIL: 'Correo electrónico',
+  CALL: 'Llamada',
+};
+
+/**
+ * Etiqueta legible del país o del canal de origen de un caso.
+ *
+ * Un valor fuera de catálogo cae al valor crudo en vez de a "Sin determinar":
+ * si la base guardara un código de un catálogo anterior, mostrarlo tal cual es un
+ * hecho, mientras que "Sin determinar" sería un dato falso.
+ */
+export function originLabel(kind: 'country' | 'channel', value: string | null | undefined): string {
+  if (value == null || value === '') return UNDETERMINED_LABEL;
+  const labels: Record<string, string> = kind === 'country' ? COUNTRY_LABELS : CHANNEL_LABELS;
+  return labels[value] ?? value;
+}
+
+/**
+ * Nombre de cada área que puede comentar un caso.
+ *
+ * "Back Office" y "HelpDesk" son los nombres tal como aparecen en el
+ * procedimiento V5 (secciones 5.6, 5.7, 5.9 y el organigrama de la 11): usar las
+ * siglas internas del sistema como etiqueta haría que el operador no reconociera
+ * a quién pertenece lo que está leyendo.
+ */
+export const AREA_COMMENT_LABELS: Record<AreaCommentArea, string> = {
+  BACK_OFFICE: 'Back Office',
+  HELPDESK: 'HelpDesk',
+  SCHOOL_SERVICES: 'Servicios Escolares',
+  FINANCE: 'Finanzas',
+  ADDITIONAL: 'Adicional',
+};
 
 // -----------------------------------------------------------------------------
 // Errores: mensaje legible a partir de la categoría que devuelve el servidor.

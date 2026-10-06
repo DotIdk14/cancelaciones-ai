@@ -47,21 +47,6 @@ describe('cuotas · el sujeto viaja hasheado, nunca en claro', () => {
     expect(hash).not.toContain('@');
   });
 
-  it('la cuota de login por email normaliza mayusculas y espacios', async () => {
-    const { checkLoginEmailQuota, hashQuotaSubject } = await import('../src/server/quotas');
-
-    await checkLoginEmailQuota('  Alumno@UTEL.edu.uy ');
-    await checkLoginEmailQuota('alumno@utel.edu.uy');
-
-    const [first, second] = rpcCalls;
-    expect(first?.args.p_operation).toBe('login');
-    expect(first?.args.p_subject_hash).toBe(hashQuotaSubject('alumno@utel.edu.uy'));
-    expect(second?.args.p_subject_hash).toBe(first?.args.p_subject_hash);
-    // Ni el email ni el contexto aparecen en claro en los argumentos.
-    expect(JSON.stringify(first?.args)).not.toContain('utel.edu.uy');
-    expect(JSON.stringify(first?.args)).not.toContain('UTEL');
-  });
-
   it('la cuota por IP no envía la IP en claro', async () => {
     const { checkLoginIpQuota } = await import('../src/server/quotas');
 

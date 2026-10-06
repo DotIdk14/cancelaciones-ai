@@ -79,6 +79,9 @@ function validateAssessmentReferences(assessment: ReturnType<typeof parseAiAudit
   // apuntando a una evidencia inexistente es una fecha sin respaldo real.
   checkIds(assessment.temporalAnalysis.cycleStartEvidenceIds, 'temporalAnalysis.cycleStartEvidenceIds');
   checkIds(assessment.temporalAnalysis.cancellationRequestEvidenceIds, 'temporalAnalysis.cancellationRequestEvidenceIds');
+  // El país y el canal se proyectan a columnas del caso: igual que la fecha de
+  // inicio, un valor afirmado sobre una evidencia inexistente es un dato sin respaldo.
+  checkIds(assessment.origin.evidenceIds, 'origin.evidenceIds');
   checkIds(assessment.audit.supportingEvidenceIds, 'audit.supportingEvidenceIds');
   assessment.audit.missingEvidence.forEach((item, index) => {
     checkIds(item.relatedEvidenceIds, `audit.missingEvidence.${index}.relatedEvidenceIds`);

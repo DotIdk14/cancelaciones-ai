@@ -17,7 +17,7 @@ import { AUDIT_RESULTS, CASE_STATUSES, type AuditResultType, type CaseStatus } f
 // `lib/dashboard.ts`: este ultimo arrastra codigo de navegador y, si el servidor
 // lo cargara, la Function de Vercel moriria al invocarse con ERR_MODULE_NOT_FOUND.
 import { defaultDateRange } from '../lib/dashboard-shared.js';
-import type { DashboardFilters, DashboardDimension } from '../lib/dashboard.js';
+import type { DashboardFilters, DashboardDimension } from '../lib/dashboard-shared.js';
 import { ApiError, type QueryValue } from './http.js';
 
 // Reexportado para que quien use el filtro no tenga que saber de dónde sale.
@@ -96,38 +96,19 @@ const StatusSchema = z.enum(CASE_STATUSES, {
  * son etiquetas de negocio que vendrán de un catálogo del CRM que todavía no
  * existe en esta base.
  */
-export const CASE_DIMENSIONS = [
-  'country',
-  'campus',
-  'modality',
-  'project',
-  'responsible',
-  'guideline',
-] as const;
+// El vocabulario de dimensiones vive en `lib/dashboard-shared` (el servidor no
+// puede importar `lib/dashboard.ts`: arrastra el preview de navegador). Aquí solo
+// se reexporta lo que este archivo exponía, para no romper a sus consumidores.
+import {
+  CASE_DIMENSION_COLUMN,
+  DASHBOARD_DIMENSIONS,
+  DIMENSION_LABELS,
+} from '../lib/dashboard-shared.js';
 
-export type CaseDimension = (typeof CASE_DIMENSIONS)[number];
-
-/** Etiqueta en pantalla de cada dimensión. */
-export const CASE_DIMENSION_LABELS: Record<CaseDimension, string> = {
-  country: 'País',
-  campus: 'Campus',
-  modality: 'Modalidad',
-  project: 'Proyecto',
-  responsible: 'Responsable',
-  guideline: 'Lineamiento',
-};
-
-/** Columna de `public.audit_dashboard_metrics` que corresponde a cada dimensión. */
-export const CASE_DIMENSION_COLUMN: Record<CaseDimension, string> = {
-  country: 'country',
-  campus: 'campus',
-  modality: 'modality',
-  project: 'project',
-  responsible: 'responsible',
-  guideline: 'guideline',
-};
-
-
+export { CASE_DIMENSION_COLUMN };
+export { DIMENSION_LABELS as CASE_DIMENSION_LABELS };
+export { DASHBOARD_DIMENSIONS as CASE_DIMENSIONS };
+export type { DashboardDimension as CaseDimension };
 
 const DimensionSchema = z
   .string()
@@ -143,6 +124,7 @@ export const DashboardFiltersQuerySchema = z
     result: ResultSchema.optional(),
     status: StatusSchema.optional(),
     country: DimensionSchema.optional(),
+    channel: DimensionSchema.optional(),
     campus: DimensionSchema.optional(),
     modality: DimensionSchema.optional(),
     project: DimensionSchema.optional(),
@@ -180,34 +162,32 @@ function readSingle(query: Record<string, QueryValue>, key: string): string | un
   return value;
 }
 
-/** Dimensiones que el cliente puede enviar pero que aún no existen en la vista. */
-const ALL_DIMENSIONS: readonly DashboardDimension[] = [
-  'country',
-  'campus',
-  'modality',
-  'project',
-  'responsible',
-  'guideline',
-];
+/** Dimensiones que el cliente puede enviar (todas las del vocabulario compartido). */
+const ALL_DIMENSIONS: readonly DashboardDimension[] = DASHBOARD_DIMENSIONS;
 
 /**
  * Allowlist de dimensiones que SÍ se pueden aplicar en PostgREST.
- * Actualmente ninguna está proyectada en la vista, así que cualquier filtro por
- * dimensión se rechaza ANTES de tocar la base.
+ *
+ * Una dimensión entra aquí solo si la vista `audit_dashboard_metrics` la proyecta Y
+ * tiene escritor: hoy son `country` y `channel`, que el assessment de la auditoría
+ * extrae de la evidencia y se proyectan en `cases`. Las otras cinco están en el
+ * vocabulario porque existen como columnas, pero nada las escribe, así que filtrar
+ * por ellas siempre devolvería cero: se rechazan ANTES de tocar la base.
  */
-const SUPPORTED_DIMENSIONS: readonly DashboardDimension[] = [];
+const SUPPORTED_DIMENSIONS: readonly DashboardDimension[] = ['country', 'channel'];
 
 /** Rechaza filtros por dimensiones no disponibles con un 400 claro en español. */
 function rejectUnsupportedDimensions(query: Record<string, QueryValue>): void {
-  const unsupported = ALL_DIMENSIONS.filter((dim) => query[dim] !== undefined);
+  const unsupported = ALL_DIMENSIONS.filter(
+    (dim) => !SUPPORTED_DIMENSIONS.includes(dim) && query[dim] !== undefined,
+  );
   if (unsupported.length === 0) return;
-  const supported =
-    SUPPORTED_DIMENSIONS.length > 0 ? SUPPORTED_DIMENSIONS.join(', ') : 'ninguna por el momento';
   throw new ApiError(
     400,
     'VALIDATION_ERROR',
     `Los filtros por dimensión (${unsupported.join(', ')}) no están disponibles. ` +
-      `Dimensiones soportadas: ${supported}. Puedes filtrar por from, to, result y status.`,
+      `Dimensiones soportadas: ${SUPPORTED_DIMENSIONS.join(', ')}. ` +
+      'Puedes filtrar por from, to, result, status, country y channel.',
   );
 }
 
@@ -238,6 +218,7 @@ export function parseDashboardFilters(query: Record<string, QueryValue>): Dashbo
     result: readSingle(query, 'result') ?? undefined,
     status: readSingle(query, 'status') ?? undefined,
     country: readSingle(query, 'country') ?? undefined,
+    channel: readSingle(query, 'channel') ?? undefined,
     campus: readSingle(query, 'campus') ?? undefined,
     modality: readSingle(query, 'modality') ?? undefined,
     project: readSingle(query, 'project') ?? undefined,
@@ -268,6 +249,7 @@ export function parseDashboardFilters(query: Record<string, QueryValue>): Dashbo
   // claves con `null` cuando el usuario no solicitó el filtro.
   const out: Record<string, unknown> = { from, to, result, status };
   if (parsed.data.country !== undefined) out.country = parsed.data.country ?? null;
+  if (parsed.data.channel !== undefined) out.channel = parsed.data.channel ?? null;
   if (parsed.data.campus !== undefined) out.campus = parsed.data.campus ?? null;
   if (parsed.data.modality !== undefined) out.modality = parsed.data.modality ?? null;
   if (parsed.data.project !== undefined) out.project = parsed.data.project ?? null;

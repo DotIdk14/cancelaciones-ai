@@ -1,0 +1,27 @@
+# =============================================================================
+# Config declarativa de InsForge (proyecto "Cancelaciones").
+#
+# Deliberadamente MÍNIMO: solo se versiona lo que este equipo administra a mano.
+# Un `config export` completo no va aquí porque aplana valores ausentes (`null`)
+# a ceros y en el siguiente `apply` los mandaría de vuelta como si fueran
+# intencionales. Lo demás se administra desde el dashboard.
+#
+# Aplicar:  npx -y @insforge/cli config apply --file insforge.toml --dry-run
+#            npx -y @insforge/cli config apply --file insforge.toml
+# =============================================================================
+
+[auth]
+# Destinos a los que InsForge puede devolver al usuario tras el OAuth.
+# Debe coincidir EXACTO con `oauthCallbackUrl()` de `src/server/auth.ts`, que lo
+# compone como `${APP_URL}/api/auth/google-callback`:
+#   - producción: https://cancelaciones-ai.vercel.app
+#   - desarrollo:  http://localhost:5173
+#
+# Si esta lista no incluye el destino activo, Google no vuelve a la app y el
+# login queda colgado después de la pantalla de consentimiento. Los dominios
+# distintos a estos NO son válidos ni deben agregarse: es la lista que evita que
+# un código de autorización aterrice en un sitio ajeno.
+allowed_redirect_urls = [
+  "https://cancelaciones-ai.vercel.app/api/auth/google-callback",
+  "http://localhost:5173/api/auth/google-callback",
+]

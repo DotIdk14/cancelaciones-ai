@@ -110,9 +110,14 @@ for (const { fg, bg, uso } of DECORATIVOS) {
 // texto en la leyenda y en el tooltip, así que también deben llegar a 4.5:1
 // sobre la superficie del panel. Se resuelven las variables CSS que usan.
 console.log('\nseries de gráficas (leyenda y tooltip, mínimo 4.5):');
-const seriesColors = readFileSync('src/lib/labels.ts', 'utf8').match(
-  /RESOLUTION_GROUP_CHART_COLOR[\s\S]*?\n};/,
-)?.[0] ?? '';
+// Se leen los DOS mapas de series: el del grupo de resolución y el del origen
+// (país / canal). Antes solo se leía el primero, así que un color nuevo de otra
+// gráfica no pasaba por este gate.
+const labelsSource = readFileSync('src/lib/labels.ts', 'utf8');
+const seriesColors = [
+  labelsSource.match(/RESOLUTION_GROUP_CHART_COLOR[\s\S]*?\n};/)?.[0] ?? '',
+  labelsSource.match(/ORIGIN_CHART_COLOR[\s\S]*?\n};/)?.[0] ?? '',
+].join('\n');
 const series = [...seriesColors.matchAll(/(\w+):\s*'var\((--[\w-]+)\)'/g)];
 for (const [, grupo, variable] of series) {
   const fondo = token('surface-1');

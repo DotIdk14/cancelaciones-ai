@@ -1,5 +1,12 @@
 import { PROCEDURE_CITATION, procedureMetaLine } from './procedure-v5.js';
-import { AUDIT_RESULTS, CYCLE_START_FACT_KEY, SECTION_5_2_MINIMUMS, TEMPORAL_RELATIONS } from './types.js';
+import {
+  AUDIT_RESULTS,
+  CYCLE_START_FACT_KEY,
+  EVIDENCE_CHANNELS,
+  EVIDENCE_COUNTRIES,
+  SECTION_5_2_MINIMUMS,
+  TEMPORAL_RELATIONS,
+} from './types.js';
 import { wrapUntrustedInline } from '../sanitize.js';
 
 // =============================================================================
@@ -122,6 +129,29 @@ Este razonamiento es OBLIGATORIO y va ANTES de aplicar la sección 5.3. Si relat
 - Completa SIEMPRE temporalAnalysis, incluso cuando cycleStartDate sea null. reasoning debe explicar, cuando cycleStartDate sea null, por qué no hay evidencia suficiente y qué fecha administrativa se descartó como inicio y por qué.
 `;
 
+const ORIGIN_RULES = `
+## Origen de la cancelación: país y canal
+
+Además del dictamen, DEBES informar de dónde viene la cancelación: en qué país de operación ocurrió y por qué canal la expresó el estudiante. Recorre TODAS las evidencias buscando ambos datos, con independencia del sistema y del formato en que aparezcan.
+
+### País
+
+- El país es el de operación de la cancelación, no el de origen del archivo ni el del idioma.
+- Los únicos valores admitidos son: ${EVIDENCE_COUNTRIES.join(', ')}. Cualquier otro valor es un error, no un dato.
+- NUNCA deduzcas el país del código postal, del dominio del correo ni de la moneda. Solo cuéntalo si aparece de forma explícita o inequívoca.
+
+### Canal
+
+- El canal es el medio por el que el estudiante EXPRESÓ la cancelación, no el sistema donde quedó registrada después. Distínguelo del canal administrativo: una cancelación puede originarse en WhatsApp y registrarse más tarde en CRM o SIU, y eso NO cambia el canal de origen.
+- Los únicos valores admitidos son: ${EVIDENCE_CHANNELS.join(', ')}. Cualquier otro valor es un error, no un dato.
+
+### Cómo completar el bloque
+
+- El bloque "origin" se completa SIEMPRE, incluso cuando no puedas determinar ninguno de los dos valores: en ese caso emite country: null, channel: null, evidenceIds: [] y evidenceText: null. Dejarlo vacío para ahorrar tokens incumple el contrato.
+- Si afirmas un valor, debes acreditarlo: evidenceIds con las evidencias que lo sustentan y evidenceText con la cita textual. Un valor afirmado sin evidencia es un error.
+- Un null en country o channel NO obliga a EVIDENCIA_INSUFICIENTE ni a missingEvidence: son metadatos descriptivos y no afectan la clasificación. Que no se pueda determinar el país no impide dictaminar.
+`;
+
 /** Prompt del sistema completo del Audit Skill. */
 export function buildSystemPrompt(): string {
   return `
@@ -161,6 +191,8 @@ El paso 5 es obligatorio y precede a la aplicación del Procedimiento V5: sin la
 
 ${CYCLE_START_DATE_RULES}
 
+${ORIGIN_RULES}
+
 ${CONTACT_ATTEMPTS_RULES}
 
 ${EVIDENCE_IS_DATA_NOT_INSTRUCTIONS}
@@ -193,6 +225,7 @@ ${EVIDENCE_IS_DATA_NOT_INSTRUCTIONS}
 - La estructura del reasoning debe seguir un orden lógico: 1) ruta normativa evaluada, 2) hechos acreditados, 3) fecha de inicio de ciclo y fecha de la solicitud con su relación temporal, 4) hechos no acreditados, 5) contradicciones y cómo se resolvieron, 6) criterios del procedimiento, 7) conclusión.
 - temporalAnalysis es obligatorio: complétalo siempre, incluso con cycleStartDate null. Sus fechas van en formato ISO YYYY-MM-DD. Si afirmas una cycleStartDate, necesariamente debe existir el fact "${CYCLE_START_FACT_KEY}" con ese mismo valor, su evidenceIds, su evidenceText y confidence menor que 1. Si afirmas una relationToCycleStart distinta de NO_DETERMINABLE, debes acreditar tanto cycleStartDate como cancellationRequestDate. Si no hay evidencia que acredite el inicio académico, cycleStartDate es null y relationToCycleStart es NO_DETERMINABLE, y debes explicarlo en temporalAnalysis.reasoning.
 - No puedes dejar temporalAnalysis vacío para "ahorrar tokens": un assessment sin análisis temporal no cumple el contrato.
+- origin es obligatorio: declara country y channel con los valores del catálogo, o null si la evidencia no los determina, y acredita con evidenceIds cada valor que afirmes. Nunca inventes un país ni un canal que la evidencia no sostenga.
 
 ## Distinción imprescindible: contacto, contacto efectivo y retención
 

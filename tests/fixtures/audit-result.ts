@@ -50,6 +50,12 @@ export const validAuditResult: AuditResult = {
     reasoning:
       'La solicitud del 01/02/2026 es posterior al inicio de ciclo del 12/01/2026, acreditado por la evidencia que consigna el inicio del ciclo.',
   },
+  origin: {
+    country: 'MX',
+    channel: 'WHATSAPP',
+    evidenceIds: ['ev-1'],
+    evidenceText: 'Estudiante en México pide cancelar por WhatsApp',
+  },
   audit: {
     result: 'CANCELACION_VENTA',
     rule: 'GDM_GAM_PRD_MLG_003 v5 — Fase de venta',

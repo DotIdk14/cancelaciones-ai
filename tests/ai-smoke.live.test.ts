@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { resetEnvCache } from '../src/server/env';
 import { runAudit } from '../src/server/audit-service';
 import type { AuditResult } from '../src/skills/audit/schema';
+import { EVIDENCE_CHANNELS, EVIDENCE_COUNTRIES } from '../src/skills/audit/types';
 import { fakeClient, getCase, listAudits, resetStore, seedCase, seedEvidence } from './helpers/fake-store';
 
 vi.mock('../src/server/cases', async () => {
@@ -20,6 +21,7 @@ vi.mock('../src/server/cases', async () => {
     countAuditsByFingerprint: store.countAuditsByFingerprint,
     insertAudit: store.insertAudit,
     updateAuditResult: store.updateAuditResult,
+    updateCaseDimensions: store.updateCaseDimensions,
     updateCaseStatus: store.updateCaseStatus,
   };
 });
@@ -77,7 +79,19 @@ describe.skipIf(process.env.RUN_AI_SMOKE !== '1' || !process.env.OPENROUTER_API_
     expect(result.audit.procedureSection.trim().length).toBeGreaterThan(0);
     expect(result.audit.supportingEvidenceIds.length).toBeGreaterThan(0);
     expect(references.every((id) => evidenceIds.has(id))).toBe(true);
-    process.stdout.write(`AI_SMOKE_COMPLETED model=${result.model.model} promptTokens=${result.usage.promptTokens ?? 'n/a'} completionTokens=${result.usage.completionTokens ?? 'n/a'}\n`);
+    // Review Focus #1: `origin` es requerido, así que el modelo DEBE emitirlo. Si no
+    // lo hiciera, el assessment no validaría y este test no llegaría aquí. Se afirma
+    // además que el valor está en el catálogo (o es `null`) y que, si afirma un valor,
+    // trae la evidencia que lo acredita.
+    expect(EVIDENCE_COUNTRIES.includes(result.origin.country as never) || result.origin.country === null).toBe(true);
+    expect(EVIDENCE_CHANNELS.includes(result.origin.channel as never) || result.origin.channel === null).toBe(true);
+    if (result.origin.country !== null || result.origin.channel !== null) {
+      expect(result.origin.evidenceIds.length).toBeGreaterThan(0);
+      expect(result.origin.evidenceIds.every((id) => evidenceIds.has(id))).toBe(true);
+    }
+    process.stdout.write(
+      `AI_SMOKE_COMPLETED model=${result.model.model} promptTokens=${result.usage.promptTokens ?? 'n/a'} completionTokens=${result.usage.completionTokens ?? 'n/a'} origin.country=${result.origin.country ?? 'null'} origin.channel=${result.origin.channel ?? 'null'}\n`,
+    );
   }, 120_000);
 
   it('completa EVIDENCIA_INSUFICIENTE con requisitos ausentes sin fabricar referencias', async () => {

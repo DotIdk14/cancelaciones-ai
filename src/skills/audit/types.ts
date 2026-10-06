@@ -60,6 +60,39 @@ export const SECTION_5_2_MINIMUMS = {
 export const EVIDENCE_KINDS = ['IMAGE', 'PDF', 'AUDIO', 'TEXT'] as const;
 export type EvidenceKind = (typeof EVIDENCE_KINDS)[number];
 
+/**
+ * Vocabulario **cerrado** de país de operación de la cancelación.
+ *
+ * No es texto libre: el modelo elige de esta lista o emite `null` cuando la evidencia
+ * no lo determina. Cualquier otro valor es un error del modelo, no un dato, y el
+ * schema lo rechaza. La base lo almacena como `text` porque el filtro necesita
+ * cualquier valor presente, no solo los vigentes.
+ */
+export const EVIDENCE_COUNTRIES = [
+  'MX',
+  'CO',
+  'AR',
+  'CL',
+  'PE',
+  'BR',
+  'EC',
+  'PA',
+  'PR',
+  'DO',
+  'GT',
+] as const;
+export type EvidenceCountry = (typeof EVIDENCE_COUNTRIES)[number];
+
+/**
+ * Vocabulario **cerrado** del canal por el que el estudiante expresó la cancelación.
+ *
+ * Es el canal de origen, no el administrativo: una cancelación originada en WhatsApp
+ * puede registrarse después en CRM o SIU y seguir siendo de origen WhatsApp. Como el
+ * país, es lista cerrada: el modelo elige de aquí o emite `null`.
+ */
+export const EVIDENCE_CHANNELS = ['WHATSAPP', 'CRM', 'I6', 'SIU', 'FLOKZU', 'EMAIL', 'CALL'] as const;
+export type EvidenceChannel = (typeof EVIDENCE_CHANNELS)[number];
+
 /** Categorías de error del producto, incluidas causas detalladas del transporte IA. */
 export const ERROR_CATEGORIES = [
   'UPLOAD_ERROR',

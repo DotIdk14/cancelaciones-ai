@@ -36,6 +36,7 @@ import {
   latestAudit,
   listEvidenceRows,
   updateAuditResult,
+  updateCaseDimensions,
   updateCaseStatus,
   updateEvidenceStatus,
   type CaseRow,
@@ -263,8 +264,12 @@ function limitEvidenceText(text: string): { text: string; truncated: boolean; or
  * Si cambia cómo se prepara o cómo se dictamina, el fingerprint cambia y los
  * dictámenes anteriores NO se reutilizan: es deliberado (DO_NOT_REPROCESS_AI_UNNECESSARILY
  * aplica a la MISMA evidencia con el MISMO pipeline, no a un pipeline distinto).
+ *
+ * El bump 2 corresponde a la incorporación del bloque `origin` (país y canal) al
+ * contrato del assessment: un dictamen del contrato anterior no trae esos campos
+ * y reutilizarlo dejaría el caso sin dimensiones de origen indefinidamente.
  */
-const AUDIT_PIPELINE_VERSION = 'audit-v5-pipeline-1';
+export const AUDIT_PIPELINE_VERSION = 'audit-v5-pipeline-2';
 
 /**
  * Versión del pipeline de EXTRACCIÓN (pdf.js / lectura de texto). Si cambia la
@@ -287,6 +292,18 @@ const EXTRACTION_PIPELINE_VERSION = 'extract-v1';
  * pipeline. Si cambia un byte de una evidencia, cambia la huella.
  */
 export function computeEvidenceFingerprint(evidences: EvidenceRow[]): string {
+  return computeEvidenceFingerprintFor(AUDIT_PIPELINE_VERSION, evidences);
+}
+
+/**
+ * Huella con una versión de pipeline explícita.
+ *
+ * Existe para poder fijar con un test que la versión forma parte de la huella: si
+ * alguien la quitara del cálculo, dos pipelines distintos darían la misma huella y
+ * un dictamen viejo se reutilizaría contra el contrato nuevo (el fallo exacto que
+ * el bump existe para evitar). En producción siempre se usa la versión vigente.
+ */
+export function computeEvidenceFingerprintFor(version: string, evidences: EvidenceRow[]): string {
   const canonical = evidences
     .map((evidence) => {
       const derived = evidence.transcript_json ? readTranscriptFromJson(evidence.transcript_json) : null;
@@ -299,7 +316,7 @@ export function computeEvidenceFingerprint(evidences: EvidenceRow[]): string {
     })
     .sort((a, b) => a.id.localeCompare(b.id));
   return createHash('sha256')
-    .update(JSON.stringify({ pipeline: AUDIT_PIPELINE_VERSION, evidence: canonical }))
+    .update(JSON.stringify({ pipeline: version, evidence: canonical }))
     .digest('hex');
 }
 
@@ -414,6 +431,19 @@ export async function runAudit(
       provider_metadata: { usage: execution.usage, openrouterAttempts: execution.attempts },
     });
     await updateCaseStatus(client, caseId, 'COMPLETED');
+    // El dictamen ya está persistido en `result_json` y es la fuente de verdad; estas
+    // dimensiones son solo una proyección para poder filtrar. Si la escritura falla,
+    // se traga el error a propósito: perder el filtro no puede invalidar un dictamen
+    // válido ni dejar el caso en ERROR. `try/catch` y no `.catch()` porque un fallo
+    // síncrono (cliente mal formado) también debe quedar contenido.
+    try {
+      await updateCaseDimensions(client, caseId, {
+        country: result.origin.country,
+        channel: result.origin.channel,
+      });
+    } catch {
+      // Deliberado: la proyección es best-effort.
+    }
 
     return { phase: 'done', audit: auditToDto(final) };
   } catch (error) {

@@ -31,6 +31,12 @@ Vercel Functions (frontera server-side)   ← TODA la validación ocurre aquí
 
 | Propiedad | Implementación |
 |---|---|
+| Proveedor de identidad | Google OAuth con PKCE, **solo**. No hay login por contraseña |
+| Inicio y canje | 100 % server-side. El navegador nunca habla con Google ni con InsForge |
+| `codeVerifier` | Cookie `HttpOnly` propia, 10 min. Se borra al canjear, también en el camino feliz |
+| Callback sin verifier | `400` — no se toca el proveedor de identidad (fail-closed) |
+| Dominio de correo | `isAllowedEmail`: `<cuenta>@utel.edu.mx` **exacto**, sobre el email que devuelve InsForge |
+| Rechazo del login | Cierra la sesión en InsForge, borra el verifier y **no** escribe cookie de sesión |
 | Transporte | Cookies `HttpOnly; Secure; SameSite=Lax; Path=/` |
 | Access token | **Nunca** se decodifica en el servidor. `auth.getCurrentUser()` contra InsForge |
 | Refresh | `POST /api/auth/refresh`, rota el access token; si falla, limpia cookies |
@@ -38,6 +44,26 @@ Vercel Functions (frontera server-side)   ← TODA la validación ocurre aquí
 | Sesión válida sin membership | `403 AUTH_ERROR` |
 | Proveedor de identidad caído | `503 PROVIDER_UNAVAILABLE` — **nunca** anónimo |
 | Rol desconocido en `app_memberships` | `403` (se trata como "sin permiso") |
+
+### El dominio NO es autorización
+
+El filtro `@utel.edu.mx` es una **condición necesaria, no suficiente**. Google no
+garantiza que un correo sea institucional solo porque termina en el dominio, así
+que un dominio válido sin fila en `app_memberships` recibe `403` igual
+(`sin_acceso`). El orden en `completeGoogleOAuth` es deliberado y fail-closed:
+dominio → `emailVerified` → membership.
+
+### El callback no es un redirect abierto
+
+Todo destino de redirect se compone con `APP_URL` en el servidor, **nunca** con
+`Host`, `X-Forwarded-Host` ni con un parámetro de la query. Los retornos válidos
+se declaran en `insforge.toml` (`allowed_redirect_urls`) y deben coincidir con
+`oauthCallbackUrl()`: esa lista es lo que impide que un código de autorización
+aterrice en un sitio ajeno.
+
+El motivo de un rechazo viaja como clave opaca (`?authError=dominio`), nunca como
+texto libre del proveedor: `tests/oauth-google.test.ts` verifica que el mensaje
+de error de InsForge no se filtra al cuerpo de la respuesta.
 
 **No hay sign-up.** Los usuarios se crean en InsForge y el acceso se autoriza
 insertando una fila en `app_memberships` (`user_id` PK, `role` en

@@ -1,0 +1,42 @@
+[
+  [
+    "cases.channel existe como text NULL-able",
+    "SELECT count(*)::int AS total FROM information_schema.columns WHERE table_schema='public' AND table_name='cases' AND column_name='channel' AND is_nullable='YES' AND data_type='text'",
+    ["\"total\": 1"]
+  ],
+  [
+    "cases.country sigue siendo text NULL-able (esta migración no lo endurece)",
+    "SELECT count(*)::int AS total FROM information_schema.columns WHERE table_schema='public' AND table_name='cases' AND column_name='country' AND is_nullable='YES' AND data_type='text'",
+    ["\"total\": 1"]
+  ],
+  [
+    "la vista existe y es una vista",
+    "SELECT count(*)::int AS total FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname='audit_dashboard_metrics' AND c.relkind='v'",
+    ["\"total\": 1"]
+  ],
+  [
+    "la vista expone 32 columnas (31 previas + channel)",
+    "SELECT count(*)::int AS total FROM pg_attribute WHERE attrelid='public.audit_dashboard_metrics'::regclass AND attnum > 0 AND NOT attisdropped",
+    ["\"total\": 32"]
+  ],
+  [
+    "la vista PROYECTA channel (lo que habilita el filtro)",
+    "SELECT count(*)::int AS total FROM pg_attribute WHERE attrelid='public.audit_dashboard_metrics'::regclass AND attnum > 0 AND NOT attisdropped AND attname='channel'",
+    ["\"total\": 1"]
+  ],
+  [
+    "las 7 dimensiones del caso siguen proyectadas",
+    "SELECT count(*)::int AS total FROM pg_attribute WHERE attrelid='public.audit_dashboard_metrics'::regclass AND attnum > 0 AND NOT attisdropped AND attname IN ('country','channel','campus','modality','project','responsible','guideline')",
+    ["\"total\": 7"]
+  ],
+  [
+    "la vista NO es accesible por anon/authenticated",
+    "SELECT count(*)::int AS total FROM pg_class c CROSS JOIN LATERAL aclexplode(c.relacl) g WHERE c.oid='public.audit_dashboard_metrics'::regclass AND g.grantee IN ((SELECT oid FROM pg_roles WHERE rolname='anon'), (SELECT oid FROM pg_roles WHERE rolname='authenticated'))",
+    ["\"total\": 0"]
+  ],
+  [
+    "project_admin tiene SELECT en la vista",
+    "SELECT count(*)::int AS total FROM pg_class c CROSS JOIN LATERAL aclexplode(c.relacl) g WHERE c.oid='public.audit_dashboard_metrics'::regclass AND g.grantee='project_admin'::regrole AND g.privilege_type='SELECT'",
+    ["\"total\": 1"]
+  ]
+]

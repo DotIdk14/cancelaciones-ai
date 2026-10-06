@@ -33,8 +33,7 @@ La interfaz es una SPA React + Vite con hash routing manual; el backend son Verc
 ```text
 cancelaciones-ai/
 ├── api/                        # Vercel Functions (un handler por archivo)
-│   ├── auth/session.ts         # POST login / DELETE logout
-│   ├── auth/refresh.ts         # POST refresh de sesión
+│   ├── auth/[action].ts        # google, google-callback, session (DELETE), refresh
 │   ├── cases/index.ts          # GET listar / POST crear caso
 │   ├── cases/[caseId]/index.ts # GET detalle del caso
 │   ├── cases/[caseId]/evidence/index.ts        # POST subir evidencia
@@ -137,17 +136,23 @@ flowchart TD
 ```mermaid
 sequenceDiagram
   participant B as Navegador
-  participant S as /api/auth/session
+  participant S as /api/auth/[action]
+  participant G as Google
   participant SDK as @insforge/sdk SSR
   participant IF as InsForge Auth
-  participant DB as auth.users / app_memberships
+  participant DB as app_memberships
 
-  B->>S: POST {email, password}
-  S->>SDK: signInWithPassword
-  SDK->>IF: password session
-  IF-->>SDK: accessToken + refreshToken
-  SDK-->>S: setAuthCookies (httpOnly, Secure, SameSite=Lax)
-  S-->>B: 200 {user}
+  B->>S: GET /api/auth/google
+  S->>SDK: signInWithOAuth(skipBrowserRedirect)
+  SDK-->>S: url + codeVerifier
+  S->>B: Set-Cookie codeVerifier (httpOnly) + 302 a Google
+  B->>G: consentimiento
+  G-->>S: GET /api/auth/google-callback?insforge_code=...
+  S->>SDK: exchangeOAuthCode(code, codeVerifier)
+  SDK->>IF: canje PKCE
+  IF-->>SDK: accessToken + refreshToken + user
+  S->>DB: rol en app_memberships
+  S->>B: Set-Cookie sesión (httpOnly, Secure, SameSite=Lax) + 303
   Note over B: La cookie se envía automáticamente en /api/*
 ```
 

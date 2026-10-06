@@ -151,6 +151,21 @@ describe('auditSkill.execute', () => {
     await expect(auditSkill.execute(baseInput)).rejects.toMatchObject({ category: 'INVALID_AI_RESPONSE' });
   });
 
+  it('rechaza un origen que apunta a evidencia inexistente', async () => {
+    // Un país o canal afirmado sobre un id inventado es un dato sin respaldo: el
+    // mismo criterio que se aplica a la fecha de inicio de ciclo.
+    mockedCall.mockResolvedValue({
+      parsed: {
+        ...validAuditResult,
+        origin: { ...validAuditResult.origin, evidenceIds: ['ev-inexistente'] },
+      },
+      model: 'google/gemini-2.5-flash',
+      usage: validAuditResult.usage,
+    });
+
+    await expect(auditSkill.execute(baseInput)).rejects.toThrow(/origin\.evidenceIds/);
+  });
+
   it('propaga temporalAnalysis sin alterarlo (el backend no recalcula la cronología)', async () => {
     mockedCall.mockResolvedValue({ parsed: validAuditResult, model: 'google/gemini-2.5-flash', usage: validAuditResult.usage });
 

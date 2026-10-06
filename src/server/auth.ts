@@ -5,9 +5,15 @@
 // plataforma. Las cookies httpOnly las gestiona el módulo SSR real del SDK,
 // y la identidad se resuelve REMOTAMENTE contra InsForge (nunca decodificamos
 // el JWT nosotros).
+//
+// El login es EXCLUSIVAMENTE Google OAuth con PKCE, iniciado y canjeado aquí:
+// `signInWithOAuth` corre en el servidor y devuelve la URL de Google, el
+// `codeVerifier` viaja en una cookie httpOnly propia, y `exchangeOAuthCode`
+// lo cambia por tokens que solo viven en cookies httpOnly. El navegador nunca
+// ve un token de InsForge ni habla con el proveedor.
 // =============================================================================
 
-import { createClient, type InsForgeClient, type UserSchema, type PasswordSessionRequest } from '@insforge/sdk';
+import { createClient, type InsForgeClient, type UserSchema } from '@insforge/sdk';
 import {
   DEFAULT_ACCESS_TOKEN_COOKIE,
   clearAuthCookies,
@@ -19,7 +25,7 @@ import {
 import { getEnv } from './env.js';
 import { createServerClient } from './insforge.js';
 import { ApiError, parseCookies } from './http.js';
-import { checkLoginEmailQuota, checkLoginIpQuota } from './quotas.js';
+import { checkLoginIpQuota } from './quotas.js';
 
 export type AppRole = 'user' | 'coordinator';
 
@@ -57,9 +63,19 @@ function cookieReader(req: { headers: { cookie?: string | string[] } }): CookieS
   };
 }
 
+/**
+ * `cookieWriter` SIEMPRE implementa `set` y `delete`. El tipo del SDK los
+ * declara opcionales porque un writer de solo lectura es válido en general, así
+ * que sin este cruce cada llamada a `.set(...)` sería "posiblemente indefinida".
+ */
+export type ResponseCookieStore = CookieStore & {
+  set(name: string, value: string, options?: CookieOptions): unknown;
+  delete(name: string): unknown;
+};
+
 export function cookieWriter(res: {
   appendHeader(name: string, value: string): unknown;
-}): CookieStore {
+}): ResponseCookieStore {
   return {
     get() {
       return null;
@@ -169,48 +185,182 @@ export async function requireAuth(
   };
 }
 
-export interface SessionCredentials {
-  email: string;
-  password: string;
-}
-
 export interface SessionResult {
   user: { id: string; email: string };
 }
 
-export interface CreateSessionContext {
-  /** IP del cliente para rate-limit por IP; nunca se almacena cruda. */
+// -----------------------------------------------------------------------------
+// Login por Google OAuth (PKCE, 100% server-side)
+// -----------------------------------------------------------------------------
+
+/**
+ * Único dominio de correo admitido en el login por Google.
+ *
+ * El filtro se evalúa SIEMPRE contra el `user.email` que devuelve InsForge tras
+ * canjear el código — es decir, el correo que Google afirma haber verificado —
+ * nunca contra nada que envíe el navegador. Google no garantiza que un correo
+ * sea institucional solo porque termina en el dominio, así que este filtro NO
+ * reemplaza la autorización: un dominio válido sin fila en `app_memberships`
+ * sigue recibiendo 403 (`NO_SIGNUP`).
+ */
+export const ALLOWED_EMAIL_DOMAIN = 'utel.edu.mx';
+
+/**
+ * `true` solo si el correo es exactamente `<cuenta>@utel.edu.mx`.
+ *
+ * No se usa `endsWith` a secas: aceptaría `utel.edu.mx` a secas (sin cuenta),
+ * `alumno@utel.edu.mx.evil.com` y `notutel.edu.mx@evil.com`. Se exige
+ * exactamente un `@`, una parte local no vacía y el dominio coincidente entero.
+ */
+export function isAllowedEmail(email: string): boolean {
+  const parts = email.trim().toLowerCase().split('@');
+  if (parts.length !== 2) return false;
+  // Defaults explícitos: con `noUncheckedIndexedAccess` el destructuring de un
+  // array devuelve `string | undefined` aunque el length ya esté comprobado.
+  const [local = '', domain = ''] = parts;
+  return local.length > 0 && domain === ALLOWED_EMAIL_DOMAIN;
+}
+
+/** Cookie propia que transporta el `codeVerifier` de PKCE entre el inicio y el callback. */
+export const OAUTH_VERIFIER_COOKIE = 'insforge_oauth_verifier';
+
+/** Ventana de vida del verifier. Google no tarda más de unos segundos en volver. */
+const OAUTH_VERIFIER_MAX_AGE_SECONDS = 600;
+
+/** Motivo por el que un login con Google válido no abre sesión. */
+export type OAuthRejection = 'dominio' | 'no_verificado' | 'sin_acceso';
+
+/**
+ * Resultado del canje. Un rechazo NO es una excepción: es un resultado esperado
+ * del camino de login y la capa HTTP lo traduce a una redirección con motivo.
+ * Los rechazos son discriminados para que el motivo nunca se deduuzca de un
+ * mensaje libre.
+ */
+export type GoogleOAuthResult =
+  | ({ ok: true } & SessionResult)
+  | { ok: false; reason: OAuthRejection };
+
+export interface GoogleOAuthStartContext {
+  /** IP del cliente para el rate-limit; nunca se almacena cruda. */
   ip?: string;
 }
 
-export async function createSession(
-  credentials: SessionCredentials,
-  res: { appendHeader(name: string, value: string): unknown },
-  context?: CreateSessionContext,
-): Promise<SessionResult> {
-  const env = getEnv();
-  const client = createClient({
-    baseUrl: env.INSFORGE_BASE_URL,
-    anonKey: env.INSFORGE_ANON_KEY,
-    isServerMode: true,
-  });
+/** Callback OAuth server-side. Debe coincidir con `allowed_redirect_urls` de InsForge. */
+export function oauthCallbackUrl(): string {
+  return `${getEnv().APP_URL.replace(/\/$/, '')}/api/auth/google-callback`;
+}
 
-  // Rate-limit de login: fail-closed. Si el servicio de cuotas falla, no se
-  // llega al proveedor de identidad.
-  await checkLoginEmailQuota(credentials.email);
+/**
+ * Paso 1: pide a InsForge la URL de Google y guarda el `codeVerifier` en una
+ * cookie httpOnly. El navegador solo recibe la URL: el verifier nunca sale del
+ * servidor, así que un atacante que intercepte el redirect no puede canjear el
+ * código.
+ */
+export async function startGoogleOAuth(
+  res: { appendHeader(name: string, value: string): unknown },
+  context?: GoogleOAuthStartContext,
+): Promise<string> {
+  // Rate-limit fail-closed. Si el servicio de cuotas cae no se llega al
+  // proveedor: generar redirecciones ilimitadas es el único abuso posible aquí.
   if (context?.ip) {
     await checkLoginIpQuota(context.ip);
   }
 
-  const payload: PasswordSessionRequest = {
-    method: 'password',
-    email: credentials.email,
-    password: credentials.password,
-  };
+  const { data, error } = await createAuthClient().auth.signInWithOAuth('google', {
+    redirectTo: oauthCallbackUrl(),
+    skipBrowserRedirect: true,
+  });
+  const url = data?.url;
+  const codeVerifier = data?.codeVerifier;
+  if (error || !url || !codeVerifier) {
+    throw new ApiError(503, 'PROVIDER_UNAVAILABLE', 'No se pudo iniciar el inicio de sesión con Google');
+  }
 
-  const { data, error } = await client.auth.signInWithPassword(payload);
+  cookieWriter(res).set(
+    OAUTH_VERIFIER_COOKIE,
+    codeVerifier,
+    {
+      maxAge: OAUTH_VERIFIER_MAX_AGE_SECONDS,
+      httpOnly: true,
+      secure: true,
+      sameSite: 'lax',
+      path: '/',
+    },
+  );
+
+  return url;
+}
+
+/**
+ * Elimina la cookie del verifier. Se llama SIEMPRE, también en el camino feliz:
+ * dejarlo puesto permitiría reintentar el canje con el mismo verifier.
+ */
+function clearVerifierCookie(res: { appendHeader(name: string, value: string): unknown }): void {
+  cookieWriter(res).delete(OAUTH_VERIFIER_COOKIE);
+}
+
+/**
+ * Cierra la sesión en InsForge cuando el login se rechaza.
+ *
+ * El canje ya abrió una sesión real en el backend: sin esto quedaría una sesión
+ * viva en InsForge sin cookie que la use. El `signOut` va sobre el MISMO cliente
+ * que canjeó el código, porque es el único que tiene el token: `exchangeOAuthCode`
+ * llama a `saveSessionFromResponse`, que hace `setAuthToken` incluso en server
+ * mode, así que el POST de logout sale con el Bearer y la revocación es real.
+ *
+ * `signOut` traga sus propios errores de red y siempre devuelve `{ error: null }`:
+ * el `.catch` es solo una red de seguridad y un fallo de revocación NO es
+ * observable desde aquí. Su impacto está acotado porque un rechazo nunca escribe
+ * cookie de sesión: el token queda solo en la memoria de este cliente, que muere
+ * al terminar la petición.
+ */
+async function revokeAfterRejection(client: InsForgeClient): Promise<void> {
+  await client.auth.signOut().catch(() => undefined);
+}
+
+/**
+ * Paso 2: canjea el código de Google y decide si el login abre sesión.
+ *
+ * El orden es deliberado y fail-closed: primero el dominio (es la política que
+ * se pidió), después el flag de verificación, después la autorización real
+ * (`app_memberships`). Un rechazo cierra la sesión remota, borra el verifier y
+ * NO escribe ninguna cookie de sesión.
+ */
+export async function completeGoogleOAuth(
+  req: { headers: { cookie?: string | string[] } },
+  res: { appendHeader(name: string, value: string): unknown },
+  code: string,
+): Promise<GoogleOAuthResult> {
+  const codeVerifier = parseCookies(req as import('./http.js').ApiRequest)[OAUTH_VERIFIER_COOKIE];
+  clearVerifierCookie(res);
+
+  if (!codeVerifier) {
+    throw new ApiError(400, 'VALIDATION_ERROR', 'El inicio de sesión expiró o no se inició en este navegador');
+  }
+
+  const client = createAuthClient();
+  const { data, error } = await client.auth.exchangeOAuthCode(code, codeVerifier);
   if (error || !data?.accessToken || !data?.user) {
-    throw new ApiError(401, 'UNAUTHENTICATED', 'Correo o contraseña incorrectos');
+    throw new ApiError(401, 'UNAUTHENTICATED', 'No se pudo completar el inicio de sesión con Google');
+  }
+
+  const email = data.user.email.trim();
+  if (!isAllowedEmail(email)) {
+    await revokeAfterRejection(client);
+    return { ok: false, reason: 'dominio' };
+  }
+  if (!data.user.emailVerified) {
+    await revokeAfterRejection(client);
+    return { ok: false, reason: 'no_verificado' };
+  }
+
+  // La fila en `app_memberships` es la autorización real (NO_SIGNUP). Un 5xx
+  // del proveedor sale como 503 por `loadMembershipRole`: nunca como 403, para
+  // que una caída de infraestructura no se disfraze de "sin permiso".
+  const role = await loadMembershipRole(data.user.id);
+  if (!role) {
+    await revokeAfterRejection(client);
+    return { ok: false, reason: 'sin_acceso' };
   }
 
   setAuthCookies(
@@ -219,7 +369,7 @@ export async function createSession(
     COOKIE_SETTINGS,
   );
 
-  return { user: { id: data.user.id, email: data.user.email } };
+  return { ok: true, user: { id: data.user.id, email: data.user.email } };
 }
 
 export async function refreshSession(

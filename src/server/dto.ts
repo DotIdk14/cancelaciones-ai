@@ -8,6 +8,7 @@ import { readTranscriptFromJson } from './evidence-prep.js';
 import { sanitizeProviderMetadata, type AuditProviderMetadata } from './audit-observability.js';
 import type { AuditRow, AuditStatus, CaseRow, CaseSummaryRow, EvidenceRow } from './cases.js';
 import type { CaseReviewRow, ComparisonRow } from './reviews.js';
+import type { AreaCommentArea, AreaCommentRow } from './area-comments.js';
 
 export interface CaseSummaryDto {
   id: string;
@@ -92,6 +93,22 @@ export interface CaseReviewDto {
   reviewerName: string | null;
   comment: string;
   createdAt: string;
+}
+
+/**
+ * Comentario de un área sobre el caso.
+ *
+ * Es texto libre de una persona y NO participa en el dictamen. Viaja tal cual
+ * porque la interfaz lo muestra escapado por React; si algún día se mandara a
+ * un modelo, tendría que pasar por el cercado de `src/skills/sanitize.ts` antes.
+ */
+export interface AreaCommentDto {
+  id: string;
+  caseId: string;
+  area: AreaCommentArea;
+  comment: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 /**
@@ -248,6 +265,17 @@ export function caseReviewToDto(row: CaseReviewRow): CaseReviewDto {
     reviewerName: row.reviewer_name ?? null,
     comment: row.comment,
     createdAt: row.created_at,
+  };
+}
+
+export function areaCommentToDto(row: AreaCommentRow): AreaCommentDto {
+  return {
+    id: row.id,
+    caseId: row.case_id,
+    area: row.area,
+    comment: row.comment,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   };
 }
 

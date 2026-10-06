@@ -269,7 +269,30 @@ if (failed > 0) {
 // devolver el valor esperado, y se registra cuáles no cuadran.
 console.log('\nVerificación');
 
-const checks = [
+/**
+ * Comprobaciones propias de la migración, si trae su archivo hermano.
+ *
+ * El listado heredado describe el estado que afirmaba `20260930120000` (una vista
+ * de 31 columnas). Una migración POSTERIOR que agregue una columna a la vista haría
+ * falsa esa comprobación aunque la migración vieja siguiera siendo correcta, así que
+ * cada migración nueva trae su `scripts/migration-checks/<archivo>.checks.json`
+ * con sus propias comprobaciones. Sin archivo hermano se usa el listado heredado,
+ * para no romper la migración que ya existía.
+ */
+function loadChecks(file) {
+  const base = file.split(/[\\/]/).pop().replace(/\.sql$/, '');
+  const sibling = `scripts/migration-checks/${base}.checks.json`;
+  if (!existsSync(sibling)) return null;
+  const parsed = JSON.parse(readFileSync(sibling, 'utf8'));
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    console.error(`El archivo de comprobaciones ${sibling} no contiene una lista válida.`);
+    process.exit(1);
+  }
+  console.log(`Comprobaciones propias: ${sibling}`);
+  return parsed;
+}
+
+const LEGACY_CHECKS = [
   [
     'las 6 dimensiones del caso existen como text NULL-able',
     `SELECT count(*)::int AS total FROM information_schema.columns
@@ -365,6 +388,8 @@ const checks = [
     ['"total": 0'],
   ],
 ];
+
+const checks = loadChecks(target) ?? LEGACY_CHECKS;
 
 let checksFailed = 0;
 for (const [description, sql, expect] of checks) {

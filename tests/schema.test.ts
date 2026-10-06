@@ -50,6 +50,12 @@ const validResult = {
     relationToCycleStart: 'DESPUES_DEL_INICIO',
     reasoning: 'La solicitud es posterior al inicio de ciclo acreditado.',
   },
+  origin: {
+    country: 'MX',
+    channel: 'WHATSAPP',
+    evidenceIds: ['ev-1'],
+    evidenceText: 'Estudiante en México pide cancelar por WhatsApp',
+  },
   audit: {
     result: 'CANCELACION_VENTA',
     rule: 'GDM_GAM_PRD_MLG_003 v5 — Fase de venta',

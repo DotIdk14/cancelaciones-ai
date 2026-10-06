@@ -1,5 +1,12 @@
 import { z } from 'zod';
-import { AUDIT_RESULTS, CYCLE_START_FACT_KEY, SECTION_5_2_MINIMUMS, TEMPORAL_RELATIONS } from './types.js';
+import {
+  AUDIT_RESULTS,
+  CYCLE_START_FACT_KEY,
+  EVIDENCE_CHANNELS,
+  EVIDENCE_COUNTRIES,
+  SECTION_5_2_MINIMUMS,
+  TEMPORAL_RELATIONS,
+} from './types.js';
 import { ApiError } from '../../server/http.js';
 
 // =============================================================================
@@ -29,6 +36,25 @@ const TemporalAnalysisSchema = z
     cancellationRequestEvidenceIds: z.array(z.string().min(1)),
     relationToCycleStart: z.enum(TEMPORAL_RELATIONS),
     reasoning: z.string().min(1),
+  })
+  .strict();
+
+/**
+ * Origen de la cancelación: país de operación y canal por el que el estudiante
+ * la expresó.
+ *
+ * Es vocabulario CERRADO (ver `EVIDENCE_COUNTRIES` / `EVIDENCE_CHANNELS`): el
+ * modelo elige de la lista o emite `null`. No es texto libre, y por eso puede
+ * proyectarse a columnas de `cases` sin la prohibición que aplica a `audit.rule`.
+ * `evidenceIds` acredita la afirmación cuando hay valor; la coherencia entre
+ * ambos se comprueba en reglas de negocio, no en el shape.
+ */
+const OriginSchema = z
+  .object({
+    country: z.enum(EVIDENCE_COUNTRIES).nullable(),
+    channel: z.enum(EVIDENCE_CHANNELS).nullable(),
+    evidenceIds: z.array(z.string().min(1)),
+    evidenceText: z.string().nullable(),
   })
   .strict();
 
@@ -108,6 +134,8 @@ export const AiAuditAssessmentSchema = z
 
     temporalAnalysis: TemporalAnalysisSchema,
 
+    origin: OriginSchema,
+
     audit: z.object({
       result: z.enum(AUDIT_RESULTS),
       rule: z.string().min(1),
@@ -162,6 +190,11 @@ interface ValidatedAssessment {
     cancellationRequestDate: string | null;
     cancellationRequestEvidenceIds: string[];
     relationToCycleStart: string;
+  };
+  origin: {
+    country: string | null;
+    channel: string | null;
+    evidenceIds: string[];
   };
   audit: {
     result: string;
@@ -305,6 +338,30 @@ function validateBusinessRules(assessment: ValidatedAssessment): void {
   });
   validateContactAttemptsMinimum(assessment);
   validateTemporalCoherence(assessment);
+  validateOrigin(assessment);
+}
+
+/**
+ * Coherencia del origen: un valor afirmado exige la evidencia que lo acredita.
+ *
+ * No reclasifica ni completa el dato: solo rechaza lo internamente imposible. Un
+ * país o un canal sin `evidenceIds` es una afirmación sin respaldo, y como el
+ * dictamen es la fuente de verdad de la columna, ese valor se proyectaría a la
+ * base como un hecho que nadie puede verificar.
+ *
+ * Un `null` en cambio es legítimo: "no determinable" es un resultado válido, no
+ * una carencia, y no obliga a `EVIDENCIA_INSUFICIENTE` ni a `missingEvidence`.
+ */
+function validateOrigin(assessment: ValidatedAssessment): void {
+  const origin = assessment.origin;
+  if (origin == null) return;
+  const path = 'INVALID_AI_RESPONSE: origin.evidenceIds';
+  if (origin.country !== null && origin.evidenceIds.length === 0) {
+    throw new ApiError(502, 'INVALID_AI_RESPONSE', `${path}: origin.country exige al menos una evidencia que lo acredite`);
+  }
+  if (origin.channel !== null && origin.evidenceIds.length === 0) {
+    throw new ApiError(502, 'INVALID_AI_RESPONSE', `${path}: origin.channel exige al menos una evidencia que lo acredite`);
+  }
 }
 
 /**

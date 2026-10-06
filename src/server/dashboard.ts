@@ -15,8 +15,10 @@ import { AUDIT_RESULTS, type AuditResultType, type CaseStatus, type ErrorCategor
 import {
   CONFIDENCE_HIGH_THRESHOLD,
   CONFIDENCE_MEDIUM_THRESHOLD,
+  originLabel,
   RESOLUTION_GROUPS,
   RESULT_TO_GROUP,
+  UNDETERMINED_LABEL,
   type ConfidenceBand,
   type ResolutionGroup,
 } from '../lib/labels.js';
@@ -24,7 +26,7 @@ import {
 // el resto son solo tipos: `import type` se borra al compilar, asi que la Function
 // nunca carga `lib/dashboard.ts` ni su dependencia de navegador
 // `local-dashboard-preview`. Ver `src/lib/dashboard-shared.ts`.
-import { EXECUTION_OUTCOMES } from '../lib/dashboard-shared.js';
+import { DASHBOARD_DIMENSIONS, EXECUTION_OUTCOMES } from '../lib/dashboard-shared.js';
 import type {
   DashboardFilters,
   DashboardDimension,
@@ -36,6 +38,8 @@ import type {
   HumanAgreementReport,
   HumanMismatchRow,
   MissingEvidenceBucket,
+  OriginBreakdownPoint,
+  OriginDistribution,
   RecentCaseRow,
   ResolutionSplitPoint,
   ResultBreakdownPoint,
@@ -84,6 +88,7 @@ export interface DashboardMetricRow {
   /** Nº de intentos reales de la llamada (elementos de `openrouterAttempts`). */
   attempts_count: number;
   country: string | null;
+  channel: string | null;
   campus: string | null;
   modality: string | null;
   project: string | null;
@@ -97,15 +102,6 @@ export interface DashboardMetricRow {
    */
   human_result: string | null;
 }
-
-const DASHBOARD_DIMENSIONS: readonly DashboardDimension[] = [
-  'country',
-  'campus',
-  'modality',
-  'project',
-  'responsible',
-  'guideline',
-];
 
 /**
  * Aplica los filtros por dimensión. Solo se filtra por las dimensiones que la
@@ -138,6 +134,7 @@ export async function getDashboardFilterOptions(client: InsForgeClient): Promise
 
   const options: DashboardFilterOptions = {
     country: [],
+    channel: [],
     campus: [],
     modality: [],
     project: [],
@@ -476,6 +473,38 @@ export function aggregateSummaryCost(rows: DashboardMetricRow[]): SummaryCostKpi
   };
 }
 
+/**
+ * Distribución de una dimensión de origen sobre las auditorías TERMINALES.
+ *
+ * Mismo criterio de terminalidad que el resto del resumen: un caso en curso no
+ * tiene dictamen, así que no tiene origen que contar. Se cuenta por código crudo
+ * (no por etiqueta) para que dos valores que compartieran etiqueta no se fusionen.
+ */
+export function aggregateOrigin(
+  rows: DashboardMetricRow[],
+  dimension: 'country' | 'channel',
+): OriginDistribution {
+  const counts = new Map<string, number>();
+  let totalWithOrigin = 0;
+
+  for (const row of rows.filter(isTerminalAudit)) {
+    const raw = row[dimension];
+    const value = raw == null || raw === '' ? UNDETERMINED_LABEL : raw;
+    if (value !== UNDETERMINED_LABEL) totalWithOrigin += 1;
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+
+  const points: OriginBreakdownPoint[] = [...counts.entries()]
+    .map(([value, count]) => ({ value, label: originLabel(dimension, value), count }))
+    // Frecuencia descendente; empate resuelto por etiqueta para que el orden sea
+    // estable entre ejecuciones y el gráfico no baile. "Sin determinar" siempre al
+    // final: es la ausencia de dato, no una categoría que compita con las demás.
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, 'es'))
+    .sort((a, b) => Number(a.value === UNDETERMINED_LABEL) - Number(b.value === UNDETERMINED_LABEL));
+
+  return { points, totalWithOrigin };
+}
+
 export function aggregateSummary(
   rows: DashboardMetricRow[],
   filters: DashboardFilters,
@@ -559,6 +588,8 @@ export function aggregateSummary(
       missingEvidenceCount: row.missing_evidence_count ?? 0,
       caseStatus: row.case_status,
       date: row.created_at,
+      country: row.country,
+      channel: row.channel,
     }));
 
   // Los KPI siempre llevan los campos del contrato, aunque valgan 0. El 0 en
@@ -586,6 +617,8 @@ export function aggregateSummary(
     timeline: buildTimeline(rows),
     split,
     byResult,
+    byCountry: aggregateOrigin(rows, 'country'),
+    byChannel: aggregateOrigin(rows, 'channel'),
     recentCases,
     execution: aggregateExecution(terminal),
     agreement: aggregateHumanAgreement(current),
@@ -1904,8 +1937,7 @@ export async function getExactHumanReviewInput(
  */
 const AI_QUALITY_COLUMNS =
   'id, created_at, case_status, audit_status, confidence, missing_evidence_count, ' +
-  'country, campus, modality, project, responsible, guideline';
-
+  'country, channel, campus, modality, project, responsible, guideline';
 export async function getAiQuality(
   client: InsForgeClient,
   filters: DashboardFilters,

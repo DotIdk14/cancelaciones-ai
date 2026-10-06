@@ -156,10 +156,10 @@ function AuthLoadingScreen(): ReactNode {
 }
 
 function AuthenticatedApp(): ReactNode {
-  const { status, signIn, signOut, sessionExpired } = useSession();
+  const { status, signOut, sessionExpired, authError } = useSession();
 
   if (status === 'loading') return <AuthLoadingScreen />;
-  if (status === 'anon') return <LoginScreen signIn={signIn} sessionExpired={sessionExpired} />;
+  if (status === 'anon') return <LoginScreen authError={authError} sessionExpired={sessionExpired} />;
   return <Shell onSignOut={signOut} />;
 }
 

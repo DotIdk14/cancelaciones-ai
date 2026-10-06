@@ -106,7 +106,12 @@ describe('R1 · sin sesion, TODA ruta protegida responde 401 (fail-closed)', () 
     // El token llega a InsForge en este caso (sin red en tests el resultado
     // legitimo es 401 o 503): lo inaceptable seria 200 con datos.
     expect([401, 503]).toContain(res.statusCode);
-  });
+    // Timeout propio y no global: este test hace la unica llamada de red real
+    // de la suite (~3.8s de espera al timeout del proveedor). Con el default de
+    // 5s y 51 archivos en paralelo se pasaba del limite y fallaba por contencion
+    // de CPU, no por comportamiento. Mantener el default en el resto preserva la
+    // deteccion de cuelgues (ciclos de imports) que este repo usa a proposito.
+  }, 15_000);
 });
 
 describe('R2/R3/R4 · CSRF en mutaciones (fail-closed antes de tocar auth)', () => {

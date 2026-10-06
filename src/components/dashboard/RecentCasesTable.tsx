@@ -6,7 +6,7 @@
 import type { ReactNode } from 'react';
 import type { RecentCaseRow } from '../../lib/dashboard';
 import { formatDateTime, formatPercent, textOrDash } from '../../lib/format';
-import { RESULT_LABELS, RESULT_TONE } from '../../lib/labels';
+import { originLabel, RESULT_LABELS, RESULT_TONE } from '../../lib/labels';
 import { goToCase } from '../../lib/useHashRoute';
 import { cx } from '../../lib/cx';
 import { Badge, Button, DataTable } from '../ui';
@@ -29,7 +29,7 @@ export function RecentCasesTable({ cases }: { cases: RecentCaseRow[] }): ReactNo
   if (rows.length === 0) return null;
 
   return (
-    <DataTable caption="Casos recientes con su resolución, confianza y evidencia pendiente">
+    <DataTable caption="Casos recientes con su origen, resolución, confianza y evidencia pendiente">
       <thead>
         <tr>
           <th scope="col" className={TH_CLASS}>
@@ -46,6 +46,12 @@ export function RecentCasesTable({ cases }: { cases: RecentCaseRow[] }): ReactNo
           </th>
           <th scope="col" className={TH_CLASS}>
             Evidencia
+          </th>
+          <th scope="col" className={TH_CLASS}>
+            País
+          </th>
+          <th scope="col" className={TH_CLASS}>
+            Canal
           </th>
           <th scope="col" className={TH_CLASS}>
             Fecha
@@ -76,6 +82,8 @@ export function RecentCasesTable({ cases }: { cases: RecentCaseRow[] }): ReactNo
             <td className={TD_CLASS}>
               <EvidenceBadge missing={row.missingEvidenceCount} />
             </td>
+            <td className={TD_CLASS}>{originLabel('country', row.country)}</td>
+            <td className={TD_CLASS}>{originLabel('channel', row.channel)}</td>
             <td className={TD_CLASS}>{formatDateTime(row.date)}</td>
             <td className={cx('text-right', TD_CLASS)}>
               <Button

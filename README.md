@@ -124,7 +124,8 @@ src/
   components/              LoginScreen, AppHeader, AppNav, CaseListPage,
                            CaseDetailPage, CasesPanel, NewCasePanel,
                            CaseReviewPanel, EvidenceUploader, EvidenceList,
-                           EvidenceViewer, AuditResultPanel, ErrorBoundary, ui,
+                           EvidencePane, PdfCanvas, AuditResultPanel,
+                            ErrorBoundary, ui,
                            dashboard/ (OverviewPage, QualityPage, AiCostsPage,
                            DashboardFilters, RecentCasesTable, charts/)
   lib/                     api.ts (cliente fetch), useHashRoute, usePolling,
@@ -461,6 +462,49 @@ el mismo `(case_id, evidence_fingerprint)`.
 
 ---
 
+## Autenticación
+
+El login es **exclusivamente Google OAuth con PKCE** y ocurre 100 % en el
+servidor. No hay login por contraseña: `POST /api/auth/session` responde `405`.
+
+```
+LoginScreen  ──GET /api/auth/google──▶  servidor
+                                        │ signInWithOAuth(skipBrowserRedirect)
+                                        │ codeVerifier → cookie httpOnly (10 min)
+                                        ▼ 302 a Google
+       Google  ──insforge_code──▶  GET /api/auth/google-callback
+                                        │ exchangeOAuthCode(code, verifier)
+                                        ▼ 303 a la app
+```
+
+El `codeVerifier` nunca sale del servidor, así que interceptar el redirect no
+permite canjear el código. Es la misma función que el CSRF cubre en mutaciones:
+un callback sin verifier es `400` y no toca el proveedor de identidad.
+
+Antes de abrir sesión, el callback valida en este orden y falla cerrado:
+
+1. **Dominio** — `isAllowedEmail` exige `<cuenta>@utel.edu.mx` exacto. Se evalúa
+   contra el `user.email` que devuelve InsForge (verificado por Google), nunca
+   contra nada del navegador.
+2. **Verificación** — `emailVerified` debe ser `true`.
+3. **Autorización** — fila en `app_memberships`. El dominio **no** es permiso:
+   un correo institucional sin fila recibe `sin_acceso`.
+
+Un rechazo cierra la sesión que InsForge abrió al canjar, borra el verifier y
+**no escribe ninguna cookie de sesión**. El motivo viaja como clave opaca en
+`?authError=`; el texto vive en `src/lib/useSession.ts`.
+
+Los destinos de retorno se declaran en `insforge.toml` (`allowed_redirect_urls`)
+y deben coincidir con `oauthCallbackUrl()`. Si la lista no incluye el
+`APP_URL` activo, Google no vuelve a la app.
+
+### Cambiar el dominio admitido
+
+`ALLOWED_EMAIL_DOMAIN` en `src/server/auth.ts`. Requiere desplegar y **no**
+cambia quién tiene acceso: el filtro es una condición necesaria, no suficiente.
+
+---
+
 ## API
 
 Todas las rutas son Vercel Functions en `api/**` y comparten `handleRoute` de
@@ -473,7 +517,8 @@ claves ni habla directamente con la plataforma.
 
 | Método | Ruta | Auth | Respuesta |
 |---|---|---|---|
-| `POST` | `/api/auth/session` | pública | `200 { user }` — body `{ email, password }`; setea cookies `httpOnly` |
+| `GET` | `/api/auth/google` | pública | `302` a Google; el `codeVerifier` de PKCE viaja en cookie `httpOnly` |
+| `GET` | `/api/auth/google-callback` | pública | `303` a la app; `?authError=<dominio\|no_verificado\|sin_acceso\|fallo>` si rechaza |
 | `DELETE` | `/api/auth/session` | pública | `204` — cierra sesión y limpia cookies |
 | `POST` | `/api/auth/refresh` | pública | `200` — rota el access token con el refresh |
 | `GET` | `/api/cases` | sesión | `200 { cases: CaseSummary[] }` (máx. 100) |

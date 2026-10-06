@@ -13,10 +13,12 @@ function createDevApiMiddleware(server) {
   const routes = [
     // Una función por familia (Vercel Hobby limita a 12 Functions por
     // deployment): `api/dashboard/[view].ts` sirve las cuatro vistas y
-    // `api/auth/[action].ts` sirve session+refresh. Las URLs son las mismas.
+    // `api/auth/[action].ts` sirve session+refresh+el ciclo de Google OAuth.
+    // Las URLs son las mismas. `GET` entra en el patrón de auth porque el inicio
+    // y el callback de Google son navegaciones de nivel superior, no fetch.
     { methods: ['GET'], pattern: /^\/api\/dashboard\/([^/]+)$/, file: fromRoot('api/dashboard/[view].ts'), params: ['view'] },
     { methods: ['GET'], pattern: /^\/api\/health\/ai$/, file: fromRoot('api/health/ai.ts') },
-    { methods: ['POST', 'DELETE'], pattern: /^\/api\/auth\/([^/]+)$/, file: fromRoot('api/auth/[action].ts'), params: ['action'] },
+    { methods: ['GET', 'POST', 'DELETE'], pattern: /^\/api\/auth\/([^/]+)$/, file: fromRoot('api/auth/[action].ts'), params: ['action'] },
     { methods: ['GET', 'POST'], pattern: /^\/api\/cases$/, file: fromRoot('api/cases/index.ts') },
     {
       methods: ['GET'],

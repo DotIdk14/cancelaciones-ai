@@ -17,11 +17,22 @@ import { Badge, ChartFrame, ErrorCard, Skeleton, StatCard } from '../ui';
 import { DashboardFilters } from './DashboardFilters';
 import { RecentCasesTable } from './RecentCasesTable';
 import { EvolutionChart } from './charts/EvolutionChart';
+import { OriginBreakdownChart } from './charts/OriginBreakdownChart';
 import { ResolutionDonut } from './charts/ResolutionDonut';
 import { ResultsBreakdownChart } from './charts/ResultsBreakdownChart';
+import type { OriginBreakdownPoint } from '../../lib/dashboard';
 import type { Tone } from '../ui';
 
 const ICON_PROPS = { size: 18, 'aria-hidden': true } as const;
+
+/**
+ * `true` cuando no hay nada que graficar: sin puntos, o con "Sin determinar" como
+ * único punto. Un gráfico de una sola barra "Sin determinar" no informa nada; el
+ * estado vacío sí dice que el origen no es determinable.
+ */
+function isOnlyUndetermined(points: OriginBreakdownPoint[]): boolean {
+  return points.length === 0 || (points.length === 1 && points[0]?.value === 'Sin determinar');
+}
 
 interface KpiCard {
   key: KpiKey;
@@ -64,6 +75,8 @@ export function OverviewPage(): ReactNode {
   const timeline = data?.timeline ?? [];
   const split = data?.split ?? [];
   const byResult = data?.byResult ?? [];
+  const byCountry = data?.byCountry?.points ?? [];
+  const byChannel = data?.byChannel?.points ?? [];
   const recentCases = data?.recentCases ?? [];
 
   return (
@@ -160,6 +173,33 @@ export function OverviewPage(): ReactNode {
           error={null}
         >
           <ResultsBreakdownChart data={byResult} />
+        </ChartFrame>
+      </div>
+
+      {/* Fila 3b: origen de la cancelación */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        <ChartFrame
+          title="Distribución por país"
+          description="País de operación de donde proviene cada caso auditado."
+          height={320}
+          isLoading={isLoading}
+          isEmpty={isOnlyUndetermined(byCountry)}
+          emptyTitle={EMPTY_CHART_TITLE}
+          error={null}
+        >
+          <OriginBreakdownChart data={byCountry} dimension="country" />
+        </ChartFrame>
+
+        <ChartFrame
+          title="Distribución por canal"
+          description="Canal por el que el estudiante expresó la cancelación."
+          height={320}
+          isLoading={isLoading}
+          isEmpty={isOnlyUndetermined(byChannel)}
+          emptyTitle={EMPTY_CHART_TITLE}
+          error={null}
+        >
+          <OriginBreakdownChart data={byChannel} dimension="channel" />
         </ChartFrame>
       </div>
 

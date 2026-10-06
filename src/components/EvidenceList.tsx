@@ -27,7 +27,7 @@ const KIND_ICON: Record<EvidenceKind, string> = {
 
 export interface EvidenceListProps {
   evidences: Evidence[];
-  onPreview: (evidence: Evidence) => void;
+  onOpen: (evidence: Evidence) => void;
   onDelete: (evidence: Evidence) => void;
   deletingId?: string | null;
   confirmId?: string | null;
@@ -37,7 +37,7 @@ export interface EvidenceListProps {
 
 export function EvidenceList({
   evidences,
-  onPreview,
+  onOpen,
   onDelete,
   deletingId = null,
   confirmId = null,
@@ -61,27 +61,39 @@ export function EvidenceList({
         const isConfirming = confirmId === evidence.id;
         const isDeleting = deletingId === evidence.id;
         return (
+          // La columna de evidencias es angosta (~250 px). Con los datos y las
+          // acciones en la misma línea, los botones envolvían y descuadraban el
+          // panel; por eso el bloque de datos va arriba y las acciones abajo, en
+          // una fila propia donde los tres botones comparten el ancho.
           <li
             key={evidence.id}
-            className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-line bg-surface-2 px-4 py-3"
+            className="flex flex-col gap-2.5 rounded-xl border border-line bg-surface-2 px-3 py-3"
           >
-            <div className="flex min-w-0 flex-1 items-start gap-3">
-              <span aria-hidden="true" className="text-lg leading-none">
+            <div className="flex min-w-0 items-start gap-2.5">
+              <span aria-hidden="true" className="mt-0.5 text-base leading-none">
                 {KIND_ICON[kind]}
               </span>
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-ink" title={evidence.filename}>
                   {evidence.filename}
                 </p>
-                <p className="mt-0.5 text-xs text-muted">
-                  {EVIDENCE_KIND_LABELS[kind]} · {formatBytes(evidence.sizeBytes)} ·{' '}
-                  <span title={evidence.hash}>hash {shortId(evidence.hash, 10)}</span>
-                </p>
-                {evidence.transcript !== null && (
-                  <p className="mt-0.5 text-xs text-muted">
-                    Transcripción: {formatDuration(evidence.transcript.durationSeconds)}
-                  </p>
-                )}
+                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+                  <span>
+                    {EVIDENCE_KIND_LABELS[kind]} · {formatBytes(evidence.sizeBytes)}
+                  </span>
+                  <span className="font-mono" title={evidence.hash}>
+                    hash {shortId(evidence.hash, 10)}
+                  </span>
+                  {evidence.transcript !== null && (
+                    <span>Transcripción {formatDuration(evidence.transcript.durationSeconds)}</span>
+                  )}
+                  <Badge tone={STATUS_TONE[evidence.processingStatus]}>
+                    {evidence.processingStatus === 'TRANSCRIBING' && (
+                      <Spinner label="Transcribiendo" className="h-3 w-3" />
+                    )}
+                    {EVIDENCE_STATUS_LABELS[evidence.processingStatus]}
+                  </Badge>
+                </div>
                 {evidence.processingStatus === 'ERROR' && (
                   <p className="mt-1 text-xs text-danger">
                     No se pudo procesar {kind === 'AUDIO' ? 'el audio' : 'el archivo'}: {evidence.processingError ?? 'causa no disponible'}. Elimínalo y vuelve a subirlo para habilitar la auditoría.
@@ -90,39 +102,14 @@ export function EvidenceList({
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge tone={STATUS_TONE[evidence.processingStatus]}>
-                {evidence.processingStatus === 'TRANSCRIBING' && (
-                  <Spinner label="Transcribiendo" className="h-3 w-3" />
-                )}
-                {EVIDENCE_STATUS_LABELS[evidence.processingStatus]}
-              </Badge>
-
-              <button
-                type="button"
-                onClick={() => onPreview(evidence)}
-                className="rounded-lg border border-line bg-surface-3 px-3 py-1.5 text-xs font-semibold text-ink transition-colors hover:bg-[#1f262f]"
-              >
-                Ver
-                <span className="sr-only"> {evidence.filename}</span>
-              </button>
-
-              <a
-                href={evidenceDownloadUrl(evidence.id)}
-                download
-                className="rounded-lg border border-line bg-surface-3 px-3 py-1.5 text-xs font-semibold text-ink transition-colors hover:bg-[#1f262f]"
-              >
-                Descargar
-                <span className="sr-only"> {evidence.filename}</span>
-              </a>
-
+            <div className="flex items-stretch gap-1.5">
               {isConfirming ? (
-                <span className="flex items-center gap-1.5">
+                <>
                   <button
                     type="button"
                     onClick={() => onConfirmDelete?.(evidence)}
                     disabled={isDeleting}
-                    className="rounded-lg border border-danger/50 bg-danger/15 px-3 py-1.5 text-xs font-semibold text-danger transition-colors hover:bg-danger/25 disabled:cursor-not-allowed disabled:opacity-55"
+                    className="min-w-0 flex-1 truncate rounded-lg border border-danger/50 bg-danger/15 px-2 py-1.5 text-xs font-semibold text-danger transition-colors hover:bg-danger/25 disabled:cursor-not-allowed disabled:opacity-55"
                   >
                     {isDeleting ? 'Eliminando…' : 'Sí, eliminar'}
                     <span className="sr-only"> {evidence.filename}</span>
@@ -131,20 +118,38 @@ export function EvidenceList({
                     type="button"
                     onClick={() => onCancelConfirm?.()}
                     disabled={isDeleting}
-                    className="rounded-lg px-2 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-surface-3 hover:text-ink disabled:cursor-not-allowed disabled:opacity-55"
+                    className="shrink-0 rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-surface-3 hover:text-ink disabled:cursor-not-allowed disabled:opacity-55"
                   >
                     Cancelar
                   </button>
-                </span>
+                </>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => onDelete(evidence)}
-                  className="rounded-lg border border-line px-3 py-1.5 text-xs font-semibold text-danger transition-colors hover:bg-danger/10"
-                >
-                  Eliminar
-                  <span className="sr-only"> {evidence.filename}</span>
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => onOpen(evidence)}
+                    className="min-w-0 flex-1 truncate rounded-lg border border-line bg-surface-3 px-2 py-1.5 text-xs font-semibold text-ink transition-colors hover:bg-[#1f262f]"
+                  >
+                    Ver
+                    <span className="sr-only"> {evidence.filename}</span>
+                  </button>
+                  <a
+                    href={evidenceDownloadUrl(evidence.id)}
+                    download
+                    className="min-w-0 flex-1 truncate rounded-lg border border-line bg-surface-3 px-2 py-1.5 text-center text-xs font-semibold text-ink transition-colors hover:bg-[#1f262f]"
+                  >
+                    Descargar
+                    <span className="sr-only"> {evidence.filename}</span>
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => onDelete(evidence)}
+                    className="min-w-0 flex-1 truncate rounded-lg border border-line px-2 py-1.5 text-xs font-semibold text-danger transition-colors hover:bg-danger/10"
+                  >
+                    Eliminar
+                    <span className="sr-only"> {evidence.filename}</span>
+                  </button>
+                </>
               )}
             </div>
           </li>

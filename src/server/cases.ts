@@ -443,3 +443,29 @@ export async function updateCaseStatus(client: InsForgeClient, caseId: string, s
   const { error } = await client.database.from('cases').update({ status }).eq('id', caseId);
   if (error) dbError(error);
 }
+
+/**
+ * Proyecta el origen que extrajo la auditoría a las dimensiones del caso.
+ *
+ * Regla que protege contra el borrado: un `null` del modelo significa "no
+ * determinable", NUNCA "borrar lo que ya se sabía". Por eso las claves con valor
+ * `null`/`undefined` no se incluyen en el patch: un update parcial del assessment
+ * no puede vaciar un dato que una auditoría anterior ya había establecido. Si no
+ * queda ninguna clave, no se toca la base.
+ *
+ * El dictamen es la fuente de verdad y vive en `audits.result_json`; estas
+ * columnas son una proyección para poder filtrar, y por eso sus fallos no
+ * invalidan el dictamen (ver la llamada en `audit-service.ts`).
+ */
+export async function updateCaseDimensions(
+  client: InsForgeClient,
+  caseId: string,
+  dimensions: { country?: string | null; channel?: string | null },
+): Promise<void> {
+  const patch: Record<string, string> = {};
+  if (dimensions.country != null) patch.country = dimensions.country;
+  if (dimensions.channel != null) patch.channel = dimensions.channel;
+  if (Object.keys(patch).length === 0) return;
+  const { error } = await client.database.from('cases').update(patch).eq('id', caseId);
+  if (error) dbError(error);
+}

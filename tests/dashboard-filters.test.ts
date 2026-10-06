@@ -132,11 +132,32 @@ describe('parseDashboardFilters (valores válidos)', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it('rechaza filtros por dimensión que aún no existen en la vista', () => {
-    const error = failure({ from: '2026-09-01', to: '2026-09-29', country: 'MX' });
+  it('acepta filtros por país y por canal', () => {
+    const filters = parseDashboardFilters({
+      from: '2026-09-01',
+      to: '2026-09-29',
+      country: 'MX',
+      channel: 'WHATSAPP',
+    });
+
+    expect(filters.country).toBe('MX');
+    expect(filters.channel).toBe('WHATSAPP');
+  });
+
+  it('sigue rechazando las dimensiones sin escritor, nombrando las soportadas', () => {
+    const error = failure({ from: '2026-09-01', to: '2026-09-29', campus: 'CDMX' });
     expect(error.status).toBe(400);
     expect(error.category).toBe('VALIDATION_ERROR');
-    expect(error.message).toContain('country');
-    expect(error.message).toContain('from, to, result y status');
+    expect(error.message).toContain('campus');
+    expect(error.message).toContain('country, channel');
+  });
+
+  it('un valor fuera del catálogo no es un 400: devuelve cero filas', () => {
+    // El vocabulario cerrado se aplica al MODELO, no al filtro. `cases.country` es
+    // text sin CHECK, así que `ZZ` es una consulta válida que no encuentra nada.
+    // Rechazarla inventaría una restricción que la base no tiene.
+    const filters = parseDashboardFilters({ from: '2026-09-01', to: '2026-09-29', country: 'ZZ' });
+
+    expect(filters.country).toBe('ZZ');
   });
 });

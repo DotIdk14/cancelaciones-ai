@@ -142,6 +142,37 @@ export interface CaseReviewDto {
 export type ComparisonStatus = 'RUNNING' | 'COMPLETED' | 'ERROR';
 
 /**
+ * Áreas que pueden dejar comentario sobre un caso.
+ *
+ * Duplica `AREA_COMMENT_AREAS` del servidor a propósito: el cliente no importa
+ * de `src/server` porque ese módulo arrastra el cliente de InsForge al bundle
+ * del navegador. El valor único es el `CHECK` de la base y el `z.enum` del
+ * servidor; esta lista es la que la pantalla pinta.
+ */
+export const AREA_COMMENT_AREAS = [
+  'BACK_OFFICE',
+  'HELPDESK',
+  'SCHOOL_SERVICES',
+  'FINANCE',
+  'ADDITIONAL',
+] as const;
+
+export type AreaCommentArea = (typeof AREA_COMMENT_AREAS)[number];
+
+/**
+ * Comentario de un área. Texto libre de una persona que NO participa en el
+ * dictamen: se muestra, no se norma.
+ */
+export interface AreaComment {
+  id: string;
+  caseId: string;
+  area: AreaCommentArea;
+  comment: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
  * Juicio de la IA sobre si el dictamen original coincide con la decisión humana.
  *
  * El veredicto viaja en `resultJson` (validado por Zod y con la metadata real de
@@ -460,6 +491,42 @@ export async function getAudit(caseId: string): Promise<AuditDetail | null> {
 }
 
 // -----------------------------------------------------------------------------
+// Comentarios por área
+//
+// Un comentario por área y caso, con UPSERT: "guardar" sustituye lo anterior.
+// No participa en el dictamen y no se manda a ningún modelo.
+// -----------------------------------------------------------------------------
+
+/** Lee los comentarios del caso. `GET` puro: nunca crea nada. */
+export async function getAreaComments(caseId: string): Promise<AreaComment[]> {
+  const data = await request<{ comments?: AreaComment[] }>(casePath(caseId, '/area-comments'), {}, [200]);
+  return data.comments ?? [];
+}
+
+/**
+ * Guarda el comentario de un área.
+ *
+ * El texto se RECORTA antes de viajar por la misma razón que en
+ * `submitCaseReview`: el servidor valida con `.trim()`, así que mandarlo sin
+ * recortar convertiría un comentario válido en uno de 4001 caracteres.
+ */
+export async function saveAreaComment(
+  caseId: string,
+  input: { area: AreaCommentArea; comment: string },
+): Promise<AreaComment> {
+  const data = await request<{ comment: AreaComment }>(
+    casePath(caseId, '/area-comments'),
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ area: input.area, comment: input.comment.trim() }),
+    },
+    [200, 201],
+  );
+  return data.comment;
+}
+
+// -----------------------------------------------------------------------------
 // Revisión humana y comparación con la IA
 //
 // Estas tres llamadas son las que sostienen la regla de producto central: la
@@ -529,24 +596,6 @@ export async function retryComparison(caseId: string): Promise<ComparisonDto> {
 export interface SessionUser {
   id: string;
   email: string;
-}
-
-export async function signIn(email: string, password: string): Promise<SessionUser> {
-  const res = await safeFetch('/api/auth/session', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ email: email.trim(), password }),
-    retryAuth: false,
-  });
-  if (res.status === 401) {
-    const error = await readError(res);
-    throw error;
-  }
-  if (![200, 201].includes(res.status)) {
-    throw await readError(res);
-  }
-  const data = (await res.json()) as { user: SessionUser };
-  return data.user;
 }
 
 export async function signOut(): Promise<void> {

@@ -52,6 +52,23 @@ export function getLocalDashboardPreviewSummary(filters: DashboardFilters): Dash
       { result: 'DICTAMINACION', count: 7 },
       { result: 'EVIDENCIA_INSUFICIENTE', count: 6 },
     ],
+    byCountry: {
+      points: [
+        { value: 'MX', label: 'México', count: 14 },
+        { value: 'CO', label: 'Colombia', count: 6 },
+        { value: 'Sin determinar', label: 'Sin determinar', count: 5 },
+      ],
+      totalWithOrigin: 20,
+    },
+    byChannel: {
+      points: [
+        { value: 'WHATSAPP', label: 'WhatsApp', count: 11 },
+        { value: 'CRM', label: 'CRM', count: 6 },
+        { value: 'EMAIL', label: 'Correo electrónico', count: 3 },
+        { value: 'Sin determinar', label: 'Sin determinar', count: 5 },
+      ],
+      totalWithOrigin: 20,
+    },
     recentCases: [
       {
         caseId: 'demo-case-001',
@@ -61,6 +78,8 @@ export function getLocalDashboardPreviewSummary(filters: DashboardFilters): Dash
         missingEvidenceCount: 0,
         caseStatus: 'COMPLETED',
         date: '2026-10-02T14:20:00.000Z',
+        country: 'MX',
+        channel: 'WHATSAPP',
       },
       {
         caseId: 'demo-case-002',
@@ -70,6 +89,8 @@ export function getLocalDashboardPreviewSummary(filters: DashboardFilters): Dash
         missingEvidenceCount: 1,
         caseStatus: 'COMPLETED',
         date: '2026-10-01T17:10:00.000Z',
+        country: 'CO',
+        channel: 'CRM',
       },
       {
         caseId: 'demo-case-003',
@@ -79,6 +100,8 @@ export function getLocalDashboardPreviewSummary(filters: DashboardFilters): Dash
         missingEvidenceCount: 2,
         caseStatus: 'COMPLETED',
         date: '2026-09-30T15:45:00.000Z',
+        country: null,
+        channel: null,
       },
     ],
     execution: {

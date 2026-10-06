@@ -40,36 +40,22 @@ export {
   type ExecutionOutcome,
 } from './dashboard-shared.js';
 
-/**
- * Dimensiones del caso que el dashboard puede filtrar. Espejo de
- * `CASE_DIMENSIONS` en `src/server/dashboard-filters.ts` (el servidor es la
- * fuente; aquí solo el tipo que viaja al cliente).
- */
-export const DASHBOARD_DIMENSIONS = [
-  'country',
-  'campus',
-  'modality',
-  'project',
-  'responsible',
-  'guideline',
-] as const;
-
-export type DashboardDimension = (typeof DASHBOARD_DIMENSIONS)[number];
-
-/** Etiqueta en pantalla de cada dimensión. */
-export const DIMENSION_LABELS: Record<DashboardDimension, string> = {
-  country: 'País',
-  campus: 'Campus',
-  modality: 'Modalidad',
-  project: 'Proyecto',
-  responsible: 'Responsable',
-  guideline: 'Lineamiento',
-};
+// El vocabulario de dimensiones vive en `dashboard-shared` (cliente y servidor).
+// Aquí solo se reexporta para que los imports del cliente sigan igual.
+import type { DashboardDimension } from './dashboard-shared';
+import {
+  CASE_DIMENSION_COLUMN,
+  DASHBOARD_DIMENSIONS,
+  DIMENSION_LABELS,
+} from './dashboard-shared';
+export { CASE_DIMENSION_COLUMN, DASHBOARD_DIMENSIONS, DIMENSION_LABELS };
+export type { DashboardDimension };
 
 export type DashboardFilterOptions = Record<DashboardDimension, string[]>;
 
 export const EMPTY_DASHBOARD_FILTER_OPTIONS: DashboardFilterOptions = {
   country: [],
+  channel: [],
   campus: [],
   modality: [],
   project: [],
@@ -148,6 +134,33 @@ export interface ResultBreakdownPoint {
   count: number;
 }
 
+/**
+ * Un punto de la distribución de origen.
+ *
+ * `value` es el código CRUDO que viaja en la respuesta y con el que se filtra
+ * ('MX', 'WHATSAPP'), o `UNDETERMINED_LABEL` cuando el modelo no pudo
+ * determinarlo. `label` es lo que se muestra en pantalla.
+ */
+export interface OriginBreakdownPoint {
+  value: string;
+  label: string;
+  count: number;
+}
+
+/**
+ * Distribución de una dimensión de origen (país o canal).
+ *
+ * `points` nunca es `[]` cuando hay auditorías terminales: si ninguna tiene valor
+ * determinado, trae un único punto "Sin determinar". Un array vacío haría que el
+ * gráfico se viera igual que "no hay datos" cuando el dato real es que el origen
+ * no es determinable.
+ */
+export interface OriginDistribution {
+  points: OriginBreakdownPoint[];
+  /** Cuántas auditorías SÍ tienen valor determinado (no cuenta "Sin determinar"). */
+  totalWithOrigin: number;
+}
+
 // -----------------------------------------------------------------------------
 // Filas
 // -----------------------------------------------------------------------------
@@ -163,6 +176,10 @@ export interface RecentCaseRow {
   missingEvidenceCount: number;
   caseStatus: CaseStatus;
   date: string;
+  /** País de operación, crudo (`'MX'`) o `null` si no es determinable. */
+  country: string | null;
+  /** Canal de origen, crudo (`'WHATSAPP'`) o `null` si no es determinable. */
+  channel: string | null;
 }
 
 // -----------------------------------------------------------------------------
@@ -273,6 +290,10 @@ export interface DashboardSummary {
   timeline: TimelinePoint[];
   split: ResolutionSplitPoint[];
   byResult: ResultBreakdownPoint[];
+  /** Distribución por país de operación. */
+  byCountry: OriginDistribution;
+  /** Distribución por canal de origen. */
+  byChannel: OriginDistribution;
   recentCases: RecentCaseRow[];
   /** Bloque "Rendimiento de IA". */
   execution: ExecutionReport;

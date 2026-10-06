@@ -380,6 +380,21 @@ export async function updateCaseStatus(_client: unknown, caseId: string, status:
   if (row) row.status = status;
 }
 
+/**
+ * Proyección del origen a las dimensiones del caso, con la misma regla que la
+ * implementación real: un `null` no borra el valor que ya estaba.
+ */
+export async function updateCaseDimensions(
+  _client: unknown,
+  caseId: string,
+  dimensions: { country?: string | null; channel?: string | null },
+): Promise<void> {
+  const row = getCase(caseId);
+  if (!row) return;
+  if (dimensions.country != null) (row as { country?: string | null }).country = dimensions.country;
+  if (dimensions.channel != null) (row as { channel?: string | null }).channel = dimensions.channel;
+}
+
 export async function getAuditById(_client: unknown, auditId: string): Promise<AuditRow | null> {
   const row = auditRows.find((item) => item.id === auditId);
   return row ? { ...row } : null;

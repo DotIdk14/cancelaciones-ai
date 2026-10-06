@@ -40,7 +40,7 @@ function requiredView(query: Record<string, QueryValue>): View {
 }
 
 // Vocabulario cerrado y el único filtro propio de la vista `ai-costs`. El resto
-// de los params (`from`, `to`, `result`, `status`) los valida
+// de los params (`from`, `to`, `result`, `status`, `country`, `channel`) los valida
 // `parseDashboardFilters`, que ya sabe redactar en español el 400.
 const GranularitySchema = z.enum(['day', 'week', 'month'], {
   errorMap: () => ({ message: 'Granularidad no válida. Opciones: day, week, month.' }),
@@ -69,7 +69,7 @@ function parseGranularity(query: Record<string, QueryValue>): 'day' | 'week' | '
   return parsed.data;
 }
 
-// GET /api/dashboard/:view?from&to&result&status[&granularity=day|week|month]
+// GET /api/dashboard/:view?from&to&result&status&country&channel[&granularity=day|week|month]
 export default handleRoute(async (req, res) => {
   // El método se resuelve ANTES que la vista: un 405 no puede depender de que el
   // path además sea una vista existente.

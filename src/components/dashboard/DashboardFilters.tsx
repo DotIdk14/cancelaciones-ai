@@ -9,22 +9,33 @@ import { useEffect, useId, useState } from 'react';
 import { RotateCcw } from 'lucide-react';
 import { AUDIT_RESULTS, CASE_STATUSES } from '../../skills/audit/types';
 import type { DashboardDimension, DashboardFilterOptions, DashboardFilters } from '../../lib/dashboard';
-import { defaultDateRange, EMPTY_DASHBOARD_FILTER_OPTIONS, fetchDashboardFilterOptions } from '../../lib/dashboard';
-import { CASE_STATUS_LABELS, RESULT_LABELS } from '../../lib/labels';
+import {
+  defaultDateRange,
+  DIMENSION_LABELS,
+  EMPTY_DASHBOARD_FILTER_OPTIONS,
+  fetchDashboardFilterOptions,
+} from '../../lib/dashboard';
+import { CASE_STATUS_LABELS, originLabel, RESULT_LABELS } from '../../lib/labels';
 import { Button } from '../ui';
+
+/**
+ * Texto de una opción de dimensión.
+ *
+ * `country` y `channel` viajan como códigos ('MX', 'WHATSAPP') y el operador debe
+ * leer "México" y "WhatsApp"; el `value` sigue siendo el código crudo, que es lo
+ * que el servidor espera. Las otras cinco no tienen catálogo con etiqueta, así que
+ * se muestran tal cual.
+ */
+function dimensionOptionLabel(dimension: DashboardDimension, option: string): string {
+  if (dimension === 'country' || dimension === 'channel') return originLabel(dimension, option);
+  return option;
+}
 
 const CONTROL_CLASS =
   'w-full rounded-xl border border-line bg-surface-2 px-3 py-2 text-sm text-ink';
 const LABEL_CLASS = 'mb-1 block text-xs font-medium uppercase tracking-wide text-muted';
 const HINT_CLASS = 'sr-only';
-const DIMENSION_LABELS: Record<DashboardDimension, string> = {
-  country: 'País',
-  guideline: 'Lineamiento',
-  modality: 'Modalidad',
-  project: 'Proyecto',
-  responsible: 'Responsable',
-  campus: 'Campus',
-};
+
 
 export interface DashboardFiltersBarProps {
   value: DashboardFilters;
@@ -198,7 +209,9 @@ export function DashboardFilters({
                 className={CONTROL_CLASS}
               >
                 <option value="">Todos</option>
-                {values.map((option) => <option key={option} value={option}>{option}</option>)}
+                {values.map((option) => (
+                  <option key={option} value={option}>{dimensionOptionLabel(dimension, option)}</option>
+                ))}
               </select>
             </div>
           );

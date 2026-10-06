@@ -57,6 +57,7 @@ vi.mock('../src/server/cases', async () => {
     countAuditsByFingerprint: store.countAuditsByFingerprint,
     insertAudit: store.insertAudit,
     updateAuditResult: store.updateAuditResult,
+    updateCaseDimensions: store.updateCaseDimensions,
     updateCaseStatus: store.updateCaseStatus,
   };
 });

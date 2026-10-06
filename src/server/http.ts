@@ -121,6 +121,25 @@ export function ok(res: ApiResponse, payload: unknown): void {
   json(res, 200, payload);
 }
 
+/**
+ * Redirección del navegador (callback de Google OAuth).
+ *
+ * El destino SIEMPRE se compone con `env.APP_URL`, nunca con el `Host` ni con
+ * un parámetro de la petición: un redirect cuyo destino venga de la request es
+ * un redirect abierto. La cabecera `Location` no se puede fijar con
+ * `res.setHeader` y esperar a `res.end`, así que se escribe con `writeHead`.
+ */
+export function redirect(res: ApiResponse, location: string, status: 302 | 303 = 302): void {
+  res.statusCode = status;
+  res.setHeader('Cache-Control', 'private, no-store');
+  if (typeof res.writeHead === 'function') {
+    res.writeHead(status, { Location: location });
+  } else {
+    res.setHeader('Location', location);
+  }
+  res.end();
+}
+
 export function created(res: ApiResponse, payload: unknown): void {
   json(res, 201, payload);
 }
