@@ -158,8 +158,11 @@ export function sendError(res: ApiResponse, error: unknown): void {
   }
   // Nunca exponer stack traces ni detalles internos en producción:
   // se loguea en el servidor y se responde genérico.
-  const message = error instanceof Error ? error.message : 'error desconocido';
-  console.error('[api] error no controlado:', message);
+  // Las excepciones de SDK/proveedores pueden incluir cuerpos de respuesta,
+  // URLs con credenciales o datos del expediente. Registra solo el tipo, nunca
+  // el mensaje crudo, que no tiene una garantía general de saneamiento.
+  const errorType = error instanceof Error ? error.name : typeof error;
+  console.error('[api] error no controlado:', errorType);
   errorJson(res, 500, 'UNKNOWN', 'Error interno del servidor');
 }
 

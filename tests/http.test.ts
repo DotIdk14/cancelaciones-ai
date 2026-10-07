@@ -1,9 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   ApiError,
   mapProviderError,
   readJsonBody,
   requiredString,
+  sendError,
   sendBinary,
   type ApiRequest,
 } from '../src/server/http';
@@ -55,6 +56,22 @@ describe('sendBinary', () => {
     expect(res.headers['Content-Security-Policy']).toContain("default-src 'none'");
     expect(res.headers['Content-Disposition']).toContain('attachment; filename="dictamen final _.pdf"');
     expect(res.headers['Content-Disposition']).toContain("filename*=UTF-8''dictamen%20final%20%C3%B1.pdf");
+  });
+});
+
+describe('sendError', () => {
+  it('no registra el mensaje de una excepción no controlada y responde genérico', () => {
+    const res = makeApiResponse();
+    const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      sendError(res as any, new Error('token=secret-value datos privados'));
+      expect(log).toHaveBeenCalledWith('[api] error no controlado:', 'Error');
+      expect(JSON.stringify(log.mock.calls)).not.toContain('secret-value');
+      expect(res.statusCode).toBe(500);
+      expect(res.body.toString()).not.toContain('datos privados');
+    } finally {
+      log.mockRestore();
+    }
   });
 });
 

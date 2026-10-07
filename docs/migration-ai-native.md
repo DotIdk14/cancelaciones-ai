@@ -4,7 +4,7 @@
 **Rama de respaldo:** `backup/pre-ai-native` @ `52c6656`
 **Objetivo original:** sustituir el motor normativo determinista. La ejecución
 final NO usa agente con tools ni reviewer separado: la arquitectura vigente está
-en `README.md`, `AGENTS.md` y `docs/architecture.md`.
+en `README.md`, `AGENTS.md` y `docs/ARCHITECTURE.md`.
 
 > Este documento es el contrato de la migración. Cada sección dice qué se borra,
 > qué se conserva, qué se reescribe y qué queda sin decidir.
@@ -117,7 +117,7 @@ Se conservan: `audits`, `evidences`, `audit_log`, `audit_manual_comments`, `jobs
 
 `docs/legacy/` completo (100+ archivos), `docs/policy-v2/`, `docs/rule-engine-v2/`,
 `docs/reports/`, `docs/phases/`, `docs/phase-prompts/`, `docs/adr/`,
-`docs/architecture/` (reemplazado por `docs/architecture.md`),
+`docs/architecture/` (reemplazado por el documento de arquitectura vigente),
 `docs/ai/`, `docs/security/phase-*.md`, `docs/db/`, `docs/superpowers/`.
 
 ### 2.6 Tests

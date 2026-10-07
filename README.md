@@ -855,7 +855,7 @@ Ver `AGENTS.md` para la versión completa y de referencia.
 | `SECURITY.md` | Superficie de ataque, modelo de confianza, política de reporte de vulnerabilidades. |
 | `CONTRIBUTING.md` | Flujo de trabajo, contrato de commits, qué exige un PR para mergear. |
 | `PRODUCT.md` | Qué es el producto y qué no decide el código. |
-| `docs/architecture.md` | Arquitectura por capas y flujo de una auditoría. |
+| `docs/ARCHITECTURE.md` | Arquitectura por capas y flujo de una auditoría. |
 | `docs/AUDIT_PIPELINE.md` | Expediente, fingerprint, idempotencia, límites y fallback de modelo. |
 | `docs/DATABASE.md` | Esquema, RLS, funciones de cuota y verificación de grants. |
 | `docs/DEPLOYMENT.md` | Deploy, migraciones, variables de entorno y rollback. |

@@ -1,6 +1,5 @@
 ﻿# Arquitectura — Cancelaciones AI
 
-> Este documento reemplaza al anterior `docs/architecture.md`.
 > Para el flujo de auditoría ver [`docs/AUDIT_PIPELINE.md`](AUDIT_PIPELINE.md); para el despliegue real ver [`docs/DEPLOYMENT.md`](DEPLOYMENT.md).
 
 ## Resumen
@@ -89,7 +88,7 @@ flowchart TD
     CLIENT["src/lib/api.ts (fetch /api/*)"]
   end
 
-  subgraph Edge["Vercel Edge / Functions — api/**"]
+  subgraph Edge["Vercel Functions — api/** (Node.js)"]
     H["handleRoute<br/>CSRF + auth + errores"]
     AUTH["api/auth/*"]
     CASES["api/cases/*"]
@@ -120,7 +119,13 @@ flowchart TD
   end
 
   UI --> ROUTER --> CLIENT --> H
-  H --> AUTH & CASES & EVID & AUDIT & REVIEW & COMP & HEALTH
+  H --> AUTH
+  H --> CASES
+  H --> EVID
+  H --> AUDIT
+  H --> REVIEW
+  H --> COMP
+  H --> HEALTH
   AUTH --> AUTHM
   CASES & EVID --> IF
   AUDIT --> AUDITSVC --> PREP & ORT
@@ -185,6 +190,28 @@ sequenceDiagram
     C-->>B: caso / 404
   end
 ```
+
+## Límite de confianza
+
+El navegador envía cookies de sesión a `/api/*`, pero no recibe tokens de InsForge ni claves de proveedores. `handleRoute` (`src/server/http.ts`) valida CSRF en métodos mutantes y resuelve la sesión y el membership antes de ejecutar cada handler protegido. Las rutas usan un cliente administrativo server-side, por lo que aplican además alcance por propietario con `getScopedCaseOr404`; `coordinator` puede consultar cualquier caso y solo el propietario puede modificarlo.
+
+El backend separa transporte y criterio: `api/**` valida y delega; `src/server/**` coordina persistencia e integraciones; `src/skills/audit/**` es la única fuente de criterio asistido por IA. `cases.country` y `cases.channel` son proyecciones de `audits.result_json.origin`, no datos normativos independientes.
+
+## Ciclo de una auditoría
+
+1. La persona crea un caso y carga una evidencia. La Function valida sesión, propietario, método, tamaño, MIME, firma de archivo y cuota antes de escribir. `src/server/evidence-prep.ts` normaliza nombre/MIME y calcula hash; el binario original se conserva en InsForge Storage.
+2. Los PDF se preparan con `src/server/pdf.ts`; el texto se limita por evidencia y en agregado. El audio se transcribe mediante `src/server/assemblyai.ts` y mantiene estado durable en la fila de evidencia. El polling lee al menos una vez aunque venza el presupuesto de espera.
+3. `src/server/audit-service.ts` reúne evidencias listas, reutiliza extracciones versionadas, calcula un fingerprint de contenido y busca resultados o ejecuciones previas para no facturar de nuevo. Antes de llamar al proveedor crea una fila durable `RUNNING`.
+4. `src/skills/audit/execute.ts` arma los mensajes con el Procedimiento V5 owner-supplied, instrucciones del sistema y evidencia cercada como contenido no confiable. `src/server/openrouter.ts` consulta capacidades y hace como máximo los intentos configurados, con timeout/deadline.
+5. La respuesta se parsea y valida en `src/skills/audit/schema.ts`; también se validan referencias a evidencia y coherencia semántica. El servidor no recalcula ni reclasifica el resultado.
+6. En éxito se persiste el assessment más metadata técnica real de OpenRouter, y el estado pasa a `COMPLETED`. Una proyección best-effort actualiza país/canal. En error se persisten estado, categoría saneada, latencia y diagnósticos permitidos; no se persiste el prompt.
+7. La UI consulta el resultado durable por polling. Si existe una decisión humana, la resolución efectiva se deriva en lectura y el dictamen original se conserva.
+
+La especificación detallada con estados y responsabilidades por archivo está en [`AUDIT_PIPELINE.md`](AUDIT_PIPELINE.md).
+
+## Persistencia y despliegue
+
+La base PostgreSQL contiene casos, evidencias, auditorías, memberships, revisiones, comparaciones, comentarios por área y admisiones de cuota. Las migraciones son forward-only y versionadas bajo `migrations/`; el procedimiento normativo se compila desde `policy/` con `npm run policy:generate`. La configuración de producción y el estado aplicado no se pueden inferir de estos archivos: véase [`DEPLOYMENT.md`](DEPLOYMENT.md) y las limitaciones `NO VERIFICADO` del informe de auditoría.
 
 ## Decisiones clave (ADRs)
 

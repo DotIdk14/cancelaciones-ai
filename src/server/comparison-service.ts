@@ -382,9 +382,9 @@ async function executeComparison(
       latencyMs: Date.now() - startedAt,
     }).catch(() => undefined);
     if (error instanceof ApiError) throw error;
-    // Fallo no tipado: se registra SÓLO el mensaje técnico (nunca el expediente,
-    // el dictamen ni el comentario humano, que son PII) y se responde genérico.
-    console.error('[comparison] fallo técnico no controlado:', error instanceof Error ? error.message : 'error desconocido');
+    // Fallo no tipado: el mensaje puede incluir respuestas del proveedor,
+    // contenido del expediente o PII. Solo se registra el tipo de excepción.
+    console.error('[comparison] fallo técnico no controlado:', error instanceof Error ? error.name : typeof error);
     throw new ApiError(502, category, 'La comparación falló; reintenta más tarde.');
   }
 }
