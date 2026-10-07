@@ -26,6 +26,7 @@ import { AUDIT_RESULTS } from '../skills/audit/types';
 import type { AuditResultType } from '../skills/audit/types';
 import { EvidenceList } from './EvidenceList';
 import { EvidenceUploader } from './EvidenceUploader';
+import { AreaQuickComments } from './AreaQuickComments';
 import { EvidencePane } from './EvidencePane';
 import { Badge, Button, ErrorCard, Panel, Spinner } from './ui';
 
@@ -465,6 +466,10 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
           <details className="case-detail-upload">
             <summary><span aria-hidden="true">+</span> Adjuntar evidencias</summary>
             <EvidenceUploader caseId={caseId} onUploaded={() => load()} disabled={Boolean(caseIsError)} />
+            <AreaQuickComments
+              caseId={caseId}
+              hasCompletedAudit={detail?.audit?.status === 'COMPLETED'}
+            />
           </details>
           <Panel
             title={`Evidencias (${evidences.length})`}

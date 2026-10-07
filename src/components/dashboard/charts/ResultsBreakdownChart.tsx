@@ -25,18 +25,19 @@ import { AXIS_TICK_STYLE, GRID_STROKE, TOOLTIP_STYLE } from './chartTheme';
 /** Etiqueta corta para el eje Y: el texto completo no cabe en el ancho útil. */
 const SHORT_LABELS: Record<(typeof AUDIT_RESULTS)[number], string> = {
   CANCELACION_VENTA: 'Cancelación de venta',
-  CANCELACION_VENTA_PETICION_CLIENTE: 'Cancel. por petición cliente',
+  CANCELACION_VENTA_PETICION_CLIENTE: 'Promesa no cumplida',
   BAJA: 'Baja',
   CANCELACION_VENTA_OPERATIVA: 'Cancel. venta oper.',
   CANCELACION_MATRICULA: 'Cancelación de matrícula',
   DICTAMINACION: 'Dictaminación',
+  TICKET_RECHAZADO: 'Ticket rechazado',
   EVIDENCIA_INSUFICIENTE: 'Evidencia insuficiente',
 };
 
 export function ResultsBreakdownChart({ data }: { data: ResultBreakdownPoint[] }): ReactNode {
   if (data.length === 0) return null;
 
-  // Normaliza a las 6 filas del vocabulario para no depender del orden recibido.
+  // Normaliza a las filas del vocabulario para no depender del orden recibido.
   const rows = AUDIT_RESULTS.map((result) => ({
     result,
     label: RESULT_LABELS[result],

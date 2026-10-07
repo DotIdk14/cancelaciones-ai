@@ -68,7 +68,7 @@ export const EMPTY_DASHBOARD_FILTER_OPTIONS: DashboardFilterOptions = {
 // -----------------------------------------------------------------------------
 
 /** Claves de KPI. `auditedCases` es el denominador de los porcentajes. */
-export type KpiKey = 'auditedCases' | 'casesWithMissingEvidence' | 'granted' | 'needsRuling' | 'insufficient' | 'errors';
+export type KpiKey = 'auditedCases' | 'casesWithMissingEvidence' | 'granted' | 'needsRuling' | 'rejected' | 'insufficient' | 'errors';
 
 export interface DashboardKpi {
   auditedCases: number;
@@ -78,6 +78,8 @@ export interface DashboardKpi {
   grantedPct: number;
   needsRuling: number;
   needsRulingPct: number;
+  rejected: number;
+  rejectedPct: number;
   insufficient: number;
   insufficientPct: number;
   errors: number;
@@ -92,6 +94,8 @@ export const EMPTY_KPI: DashboardKpi = {
   grantedPct: 0,
   needsRuling: 0,
   needsRulingPct: 0,
+  rejected: 0,
+  rejectedPct: 0,
   insufficient: 0,
   insufficientPct: 0,
   errors: 0,
@@ -106,6 +110,7 @@ export const KPI_PCT: Record<Exclude<KpiKey, 'auditedCases'>, keyof DashboardKpi
   casesWithMissingEvidence: 'casesWithMissingEvidencePct',
   granted: 'grantedPct',
   needsRuling: 'needsRulingPct',
+  rejected: 'rejectedPct',
   insufficient: 'insufficientPct',
   errors: 'errorsPct',
 };
@@ -119,6 +124,7 @@ export interface TimelinePoint {
   bucket: string;
   granted: number;
   needsRuling: number;
+  rejected: number;
   insufficient: number;
 }
 

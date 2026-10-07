@@ -66,6 +66,7 @@ export const validAuditResult: AuditResult = {
       reasoning: 'Se evalúa la ruta de solicitud del estudiante porque la evidencia converge hacia la misma intención de no continuar.',
     },
     provisionalResolution: null,
+    rejectionReason: null,
     reasoning: 'La evidencia acredita la solicitud dentro del plazo de venta.',
     confidence: 0.91,
     supportingEvidenceIds: ['ev-1'],

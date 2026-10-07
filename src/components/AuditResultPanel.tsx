@@ -71,6 +71,19 @@ export function AuditResultPanel({ audit }: AuditResultPanelProps): ReactNode {
         </div>
       </div>
 
+      {/* ------------------------------------------------- Razón del rechazo
+          Solo cuando el modelo emitió TICKET_RECHAZADO: un rechazo sin razón
+          no sería auditable. Los audits antiguos no traen el campo (undefined
+          en runtime), por eso la comprobación es por verdad y no por null. */}
+      {assessment.rejectionReason ? (
+        <div className="mt-4 rounded-xl border border-danger/40 bg-danger/10 p-3">
+          <SectionTitle>Razón del rechazo</SectionTitle>
+          <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-ink">
+            {assessment.rejectionReason}
+          </p>
+        </div>
+      ) : null}
+
       {/* ------------------------------------------------- Razonamiento */}
       <div className="mt-4">
         <SectionTitle>Razonamiento</SectionTitle>

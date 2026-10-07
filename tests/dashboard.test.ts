@@ -128,6 +128,8 @@ describe('aggregateSummary — auditoría vigente por caso', () => {
       grantedPct: 0,
       needsRuling: 0,
       needsRulingPct: 0,
+      rejected: 0,
+      rejectedPct: 0,
       insufficient: 0,
       insufficientPct: 0,
       errors: 0,
@@ -165,9 +167,9 @@ describe('aggregateSummary — timeline', () => {
     const summary = summarize(rows);
 
     expect(summary.timeline).toEqual([
-      { bucket: '2026-09-10', granted: 1, needsRuling: 0, insufficient: 0 },
-      { bucket: '2026-09-15', granted: 0, needsRuling: 1, insufficient: 0 },
-      { bucket: '2026-09-20', granted: 1, needsRuling: 0, insufficient: 0 },
+      { bucket: '2026-09-10', granted: 1, needsRuling: 0, rejected: 0, insufficient: 0 },
+      { bucket: '2026-09-15', granted: 0, needsRuling: 1, rejected: 0, insufficient: 0 },
+      { bucket: '2026-09-20', granted: 1, needsRuling: 0, rejected: 0, insufficient: 0 },
     ]);
   });
 
@@ -188,7 +190,7 @@ describe('aggregateSummary — timeline', () => {
 
     // La timeline cuenta volumen de dictámenes emitidos, no casos.
     expect(summary.timeline).toEqual([
-      { bucket: '2026-09-10', granted: 1, needsRuling: 1, insufficient: 0 },
+      { bucket: '2026-09-10', granted: 1, needsRuling: 1, rejected: 0, insufficient: 0 },
     ]);
     // Los KPIs, en cambio, cuentan el caso una sola vez, por su estado vigente.
     expect(summary.kpi.granted).toBe(0);
@@ -208,7 +210,7 @@ describe('aggregateSummary — timeline', () => {
     const summary = summarize(rows);
 
     expect(summary.timeline).toEqual([
-      { bucket: '2026-09-28', granted: 1, needsRuling: 0, insufficient: 2 },
+      { bucket: '2026-09-28', granted: 1, needsRuling: 0, rejected: 0, insufficient: 2 },
     ]);
     // El ERROR sí aparece en su propio KPI, que es donde se mide.
     expect(summary.kpi.errors).toBe(1);
@@ -237,7 +239,7 @@ describe('aggregateSummary — timeline', () => {
     // `y1` trae `CANCELACION_VENTA` por defecto, pero su `audit_status` es
     // ERROR: no emitió dictamen, así que no inventa una barra.
     expect(summary.timeline).toEqual([
-      { bucket: '2026-09-11', granted: 0, needsRuling: 0, insufficient: 1 },
+      { bucket: '2026-09-11', granted: 0, needsRuling: 0, rejected: 0, insufficient: 1 },
     ]);
   });
 
@@ -264,8 +266,8 @@ describe('aggregateSummary — timeline', () => {
     const splitTotal = summary.split.reduce((acc, point) => acc + point.count, 0);
 
     expect(summary.timeline).toEqual([
-      { bucket: '2026-09-28', granted: 2, needsRuling: 0, insufficient: 3 },
-      { bucket: '2026-09-29', granted: 3, needsRuling: 0, insufficient: 0 },
+      { bucket: '2026-09-28', granted: 2, needsRuling: 0, rejected: 0, insufficient: 3 },
+      { bucket: '2026-09-29', granted: 3, needsRuling: 0, rejected: 0, insufficient: 0 },
     ]);
     expect(timelineTotal).toBe(8);
     expect(splitTotal).toBe(8);
@@ -333,17 +335,34 @@ describe('aggregateSummary — RUNNING no es un error', () => {
 });
 
 describe('aggregateSummary — series fijas y tabla de recientes', () => {
-  it('split trae siempre las 3 categorías en orden fijo', () => {
+  it('split trae siempre las 4 categorías en orden fijo', () => {
     const summary = summarize([]);
     expect(summary.split).toEqual([
       { group: 'CONCEDIDAS', count: 0 },
       { group: 'REQUIERE_DICTAMINACION', count: 0 },
+      { group: 'RECHAZADOS', count: 0 },
       { group: 'EVIDENCIA_INSUFICIENTE', count: 0 },
     ]);
     expect(summary.split.map((point) => point.group)).toEqual([...RESOLUTION_GROUPS]);
   });
 
-  it('byResult trae siempre los 7 resultados en el orden de AUDIT_RESULTS', () => {
+  it('un TICKET_RECHAZADO cuenta en su propio grupo, no entre los insuficientes', () => {
+    const summary = summarize([
+      row({ id: 'r1', case_id: 'c1', result: 'TICKET_RECHAZADO', created_at: '2026-09-10T08:00:00.000Z' }),
+      row({ id: 'r2', case_id: 'c2', result: 'EVIDENCIA_INSUFICIENTE', created_at: '2026-09-10T09:00:00.000Z' }),
+    ]);
+
+    expect(summary.kpi.insufficient).toBe(1);
+    expect(summary.kpi.rejected).toBe(1);
+    expect(summary.split.find((p) => p.group === 'RECHAZADOS')?.count).toBe(1);
+    expect(summary.split.find((p) => p.group === 'EVIDENCIA_INSUFICIENTE')?.count).toBe(1);
+    expect(summary.byResult.find((p) => p.result === 'TICKET_RECHAZADO')?.count).toBe(1);
+    expect(summary.timeline).toEqual([
+      { bucket: '2026-09-10', granted: 0, needsRuling: 0, rejected: 1, insufficient: 1 },
+    ]);
+  });
+
+  it('byResult trae siempre los 8 resultados en el orden de AUDIT_RESULTS', () => {
     const summary = summarize([row({ result: 'BAJA' })]);
     expect(summary.byResult.map((point) => point.result)).toEqual([...AUDIT_RESULTS]);
     expect(summary.byResult.every((point) => point.count >= 0)).toBe(true);

@@ -14,6 +14,7 @@ export const AUDIT_RESULTS = [
   'CANCELACION_VENTA_OPERATIVA',
   'CANCELACION_MATRICULA',
   'DICTAMINACION',
+  'TICKET_RECHAZADO',
   'EVIDENCIA_INSUFICIENTE',
 ] as const;
 
@@ -166,6 +167,31 @@ export interface AuditSkillInput {
   caseId: string;
   studentIdentifier: string | null;
   evidences: EvidenceInputItem[];
+  /**
+   * Contexto de otras áreas (Back Office / HelpDesk) que SÍ entra al expediente.
+   *
+   * `comment` llega YA cercado con `wrapUntrusted`; el Skill solo lo inserta
+   * como bloque y lo snapshottea en el resultado. `undefined` y `[]` significan
+   * lo mismo para el expediente (no hay contexto), pero el snapshot distingue:
+   * "no se usó" es un dato auditable.
+   */
+  areaComments?: AreaCommentContext[];
+}
+
+/**
+ * Áreas cuyo comentario se inyecta al expediente. Vocabulario CERRADO, más corto
+ * que `case_area_comments`: Servicios Escolares, Finanzas y Adicional siguen
+ * siendo bitácora pura (AREA_COMMENTS_ARE_HUMAN_NOT_POLICY) y nunca cruzan al
+ * modelo. Por eso este contrato vive acá y NO reexporta el área del servidor.
+ */
+export const AREA_COMMENT_SCOPES = ['BACK_OFFICE', 'HELPDESK'] as const;
+export type AreaCommentScope = (typeof AREA_COMMENT_SCOPES)[number];
+
+/** Un comentario de área listo para el expediente (ya cercado con wrapUntrusted). */
+export interface AreaCommentContext {
+  area: AreaCommentScope;
+  /** Texto EXACTO que verá el modelo, entre los marcadores de no confiable. */
+  comment: string;
 }
 
 /** Metadata de uso que OpenRouter reporta de verdad (null cuando no existe). */
@@ -196,7 +222,7 @@ export interface MissingEvidenceItem {
 }
 
 export interface ProvisionalResolution {
-  result: Exclude<AuditResultType, 'EVIDENCIA_INSUFICIENTE'>;
+  result: Exclude<AuditResultType, 'EVIDENCIA_INSUFICIENTE' | 'TICKET_RECHAZADO'>;
   rationale: string;
   procedureSection: string;
   evidenceIds: string[];
@@ -279,6 +305,12 @@ export interface AuditSkillOutput {
       reasoning: string;
     };
     provisionalResolution: ProvisionalResolution | null;
+    /**
+     * Razón del rechazo cuando `result` es `TICKET_RECHAZADO` (5.2 sin
+     * acreditar): obligatoria con los números exactos de los intentos; `null`
+     * en cualquier otro resultado. Un rechazo sin razón no es auditable.
+     */
+    rejectionReason: string | null;
     reasoning: string;
     confidence: number;
     supportingEvidenceIds: string[];

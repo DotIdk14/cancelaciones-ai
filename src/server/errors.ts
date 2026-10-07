@@ -25,6 +25,14 @@ export class ApiError extends Error {
   readonly category: ErrorCategory;
   /** Segundos que el cliente debe esperar antes de reintentar (rate limiting). */
   retryAfterSeconds?: number;
+  /**
+   * Detalle estructurado SANEADO para observabilidad (diagnósticos de intento,
+   * logs y `provider_metadata`). Sólo puede contener texto estático emitido por
+   * el propio emisor o códigos de error (p. ej. `ZodError.issue.code`): NUNCA
+   * contenido de la respuesta del modelo ni PII. Si no puede garantizarse, no
+   * se setea y los consumidores ignoran el `message` crudo (fail-closed).
+   */
+  sanitizedDetail?: string;
 
   constructor(status: number, category: ErrorCategory, message: string) {
     super(message);

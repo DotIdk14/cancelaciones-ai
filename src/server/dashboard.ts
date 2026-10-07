@@ -160,7 +160,7 @@ export async function getDashboardFilterOptions(client: InsForgeClient): Promise
 /** Filas de la tabla "casos recientes". */
 const RECENT_CASES_LIMIT = 5;
 
-/** Orden fijo de las categorías del donut: siempre las 3, aunque valgan 0. */
+/** Orden fijo de las categorías del donut: siempre las 4, aunque valgan 0. */
 const SPLIT_ORDER: readonly ResolutionGroup[] = RESOLUTION_GROUPS;
 
 /**
@@ -240,10 +240,11 @@ function isTerminalAudit(row: DashboardMetricRow): boolean {
   return TERMINAL_AUDIT_STATUSES.has(row.audit_status);
 }
 
-/** Los tres contadores de grupo: se acumulan en los KPIs y se reparten en el donut. */
+/** Los cuatro contadores de grupo: se acumulan en los KPIs y se reparten en el donut. */
 interface GroupCounts {
   granted: number;
   needsRuling: number;
+  rejected: number;
   insufficient: number;
 }
 
@@ -251,6 +252,7 @@ interface GroupCounts {
 function bumpGroup(counts: GroupCounts, group: ResolutionGroup): void {
   if (group === 'CONCEDIDAS') counts.granted += 1;
   else if (group === 'REQUIERE_DICTAMINACION') counts.needsRuling += 1;
+  else if (group === 'RECHAZADOS') counts.rejected += 1;
   else counts.insufficient += 1;
 }
 
@@ -296,7 +298,7 @@ function buildTimeline(rows: DashboardMetricRow[]): TimelinePoint[] {
     const day = utcDayBucket(row.created_at);
     const counts = byDay.get(day);
     if (counts === undefined) {
-      const fresh: GroupCounts = { granted: 0, needsRuling: 0, insufficient: 0 };
+      const fresh: GroupCounts = { granted: 0, needsRuling: 0, rejected: 0, insufficient: 0 };
       bumpGroup(fresh, group);
       byDay.set(day, fresh);
       continue;
@@ -313,6 +315,7 @@ function buildTimeline(rows: DashboardMetricRow[]): TimelinePoint[] {
       bucket: day,
       granted: counts.granted,
       needsRuling: counts.needsRuling,
+      rejected: counts.rejected,
       insufficient: counts.insufficient,
     });
   }
@@ -518,7 +521,7 @@ export function aggregateSummary(
   // aparecer en `errors` haría que una tarjeta titulada "Errores" mintiera. Una
   // auditoría EN CURSO no es un fallo. Por lo tanto `auditedCases` cuenta solo
   // los casos cuya auditoría vigente es TERMINAL (`COMPLETED` o `ERROR`), y los
-  // cuatro grupos suman exactamente ese número.
+  // cinco grupos (cuatro de resolución + errores) suman exactamente ese número.
   //
   // Matiz: si un `COMPLETED` llega con `result` nulo o de otra versión, queda
   // sin grupo y sin ser error (dato ausente, no fallo). Eso rompería el reparto,
@@ -528,7 +531,7 @@ export function aggregateSummary(
   const auditedCases = terminal.length;
   const casesWithMissingEvidence = terminal.filter((row) => (row.missing_evidence_count ?? 0) > 0).length;
 
-  const counts: GroupCounts = { granted: 0, needsRuling: 0, insufficient: 0 };
+  const counts: GroupCounts = { granted: 0, needsRuling: 0, rejected: 0, insufficient: 0 };
   let errors = 0;
 
   // Todos los resultados en cero desde el principio: la leyenda del desglose es
@@ -556,11 +559,12 @@ export function aggregateSummary(
     bumpGroup(counts, group);
   }
 
-  const { granted, needsRuling, insufficient } = counts;
+  const { granted, needsRuling, rejected, insufficient } = counts;
 
   const split: ResolutionSplitPoint[] = SPLIT_ORDER.map((group) => {
     if (group === 'CONCEDIDAS') return { group, count: granted };
     if (group === 'REQUIERE_DICTAMINACION') return { group, count: needsRuling };
+    if (group === 'RECHAZADOS') return { group, count: rejected };
     return { group, count: insufficient };
   });
 
@@ -601,6 +605,8 @@ export function aggregateSummary(
     grantedPct: percentage(granted, auditedCases),
     needsRuling,
     needsRulingPct: percentage(needsRuling, auditedCases),
+    rejected,
+    rejectedPct: percentage(rejected, auditedCases),
     insufficient,
     insufficientPct: percentage(insufficient, auditedCases),
     errors,

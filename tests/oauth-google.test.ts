@@ -383,6 +383,43 @@ describe('G4 · el dominio NO es autorización: sin membership sigue cerrado', (
     expect(calls.signOut).toBe(1);
   });
 
+  it('PGRST116 real (sin statusCode) NO se convierte en 503 falso: es sin_acceso', async () => {
+    // Shape real de `PostgrestError` en producción: solo `code`, nunca
+    // `statusCode`. Antes del fix, `?? 500` lo mandaba al 503 de
+    // "proveedor caído" y el usuario veía un error de infraestructura
+    // en vez del motivo real (sin fila en `app_memberships`).
+    const { res, calls } = await attemptLogin('alumno@utel.edu.mx', {
+      data: null,
+      error: {
+        code: 'PGRST116',
+        details: 'The result contains 0 rows',
+        message: 'JSON object requested, multiple (or no) rows returned',
+        hint: null,
+      },
+    });
+
+    expect(locations(res)).toContain(`${APP_URL}/?authError=sin_acceso`);
+    expect(res.statusCode).toBe(303);
+    expect(setCookieHeader(res)).not.toContain(ACCESS_COOKIE);
+    expect(calls.signOut).toBe(1);
+  });
+
+  it('un error de base SIN statusCode y SIN código de fila sigue siendo 503 (fail-closed)', async () => {
+    const { handler, cleanup } = await mountAuth({
+      membership: {
+        data: null,
+        error: { code: '08006', details: '', message: 'connection failure', hint: null },
+      },
+    });
+    const res = makeResponse();
+
+    await handler(callbackRequest('code-1'), res);
+
+    // Una caída real de la base NO se disfraza de "sin permiso" ni al revés.
+    expect(res.statusCode).toBe(503);
+    cleanup();
+  });
+
   it('si la base de memberships está caída el login NO se concede (503, fail-closed)', async () => {
     const { handler, cleanup } = await mountAuth({
       membership: { data: null, error: { statusCode: 503, message: 'caido' } },

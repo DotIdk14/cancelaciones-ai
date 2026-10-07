@@ -548,4 +548,63 @@ describe('callOpenRouterAudit', () => {
       failureReason: 'schema validation failed at audit.provisionalResolution',
     });
   });
+
+  it('un detalle ATESTIGUADO por el validador sí viaja al failureReason (regla estática)', async () => {
+    const bodies: Array<{ messages: unknown[] }> = [];
+    fetchMock.mockImplementation(async (_url: unknown, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)) as { messages: unknown[] });
+      return bodies.length === 1 ? completionResponse({ parsed: { nope: true } }) : completionResponse();
+    });
+
+    // Simula el atestiguamiento que hace `parseWithInvalidAiError` en producción:
+    // sólo entonces el texto de la regla (estático, escrito por nosotros) se copia
+    // al diagnóstico. Sin el atestiguamiento, el test anterior exige NO copiarlo.
+    const result = await callOpenRouterAudit({
+      system: 's',
+      parts: [{ type: 'text', text: 'x' }],
+      validate: (parsed: unknown) => {
+        if ((parsed as { audit?: unknown }).audit === undefined) {
+          const failure = new ApiError(502, 'INVALID_AI_RESPONSE', PROVISIONAL_INVARIANT_VIOLATION);
+          failure.sanitizedDetail = failure.message;
+          throw failure;
+        }
+      },
+    });
+
+    expect(result.attempts[0]).toMatchObject({
+      failureCategory: 'SCHEMA_VALIDATION_ERROR',
+      failureReason: 'schema validation failed at audit.provisionalResolution: solo aplica a EVIDENCIA_INSUFICIENTE',
+    });
+  });
+
+  it('un detalle de Zod atestiguado aporta SOLO códigos de issue, nunca el valor ecoado', async () => {
+    const bodies: Array<{ messages: unknown[] }> = [];
+    fetchMock.mockImplementation(async (_url: unknown, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)) as { messages: unknown[] });
+      return bodies.length === 1 ? completionResponse({ parsed: { nope: true } }) : completionResponse();
+    });
+
+    const result = await callOpenRouterAudit({
+      system: 's',
+      parts: [{ type: 'text', text: 'x' }],
+      validate: (parsed: unknown) => {
+        if ((parsed as { audit?: unknown }).audit === undefined) {
+          const failure = new ApiError(
+            502,
+            'INVALID_AI_RESPONSE',
+            'INVALID_AI_RESPONSE: audit.provisionalResolution: Expected object, received null',
+          );
+          failure.sanitizedDetail = 'invalid_type';
+          throw failure;
+        }
+      },
+    });
+
+    expect(result.attempts[0]).toMatchObject({
+      failureCategory: 'SCHEMA_VALIDATION_ERROR',
+      failureReason: 'schema validation failed at audit.provisionalResolution: invalid_type',
+    });
+    // El mensaje crudo del validador (eco de valores de la respuesta) NO se filtra.
+    expect(JSON.stringify(result.attempts)).not.toContain('Expected object');
+  });
 });

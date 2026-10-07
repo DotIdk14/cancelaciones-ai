@@ -12,7 +12,9 @@ import { createHash } from 'node:crypto';
 import { getEnv } from './env.js';
 import { auditSkill, PDF_MIN_TEXT_CHARS } from '../skills/audit/execute.js';
 import { OpenRouterAuditError } from './openrouter.js';
-import type { AuditSkillInput, ErrorCategory, EvidenceInputItem } from '../skills/audit/types.js';
+import type { AuditSkillInput, ErrorCategory, EvidenceInputItem, AreaCommentContext, AreaCommentScope } from '../skills/audit/types.js';
+import { AREA_COMMENT_SCOPES } from '../skills/audit/types.js';
+import { wrapUntrusted } from '../skills/sanitize.js';
 import { getTranscription } from './assemblyai.js';
 import { extractPdfText } from './pdf.js';
 import {
@@ -25,6 +27,7 @@ import {
 import { ApiError } from './http.js';
 import { checkPaidQuota } from './quotas.js';
 import { derivedExtractionOf } from './derived.js';
+import { listAreaComments } from './area-comments.js';
 import { buildAuditFailureLog } from './audit-observability.js';
 import {
   getCaseOr404,
@@ -222,10 +225,55 @@ export async function buildAuditInputs(
   }
   enforceAggregateTextLimit(aggregateTextChars);
   enforceMultimodalLimit(aggregateMultimodalBytes);
+
+  // Contexto de áreas: SOLO Back Office y HelpDesk entran al expediente, y ya
+  // cercados con wrapUntrusted (contenido no confiable escrito por personas).
+  // Las otras tres áreas siguen siendo bitácora pura (AREA_COMMENTS_ARE_HUMAN_NOT_POLICY).
+  //
+  // La lectura es BEST-EFFORT a propósito (fail-open): el contexto de áreas es
+  // opcional y aditivo, no es el dictamen ni bloquea su validez. Un fallo de
+  // lectura (tabla, RLS, red) deja el snapshot en [] y la auditoría sigue: es
+  // el mismo criterio que PROJECTION_IS_NOT_THE_DICTAMEN aplica a la proyección
+  // de país/canal. El warn es la única huella del fallo en logs (el texto del
+  // comentario jamás se loguea).
+  const scopes = new Set<string>(AREA_COMMENT_SCOPES);
+  let areaComments: AreaCommentContext[] = [];
+  try {
+    areaComments = (await listAreaComments(client, caseRow.id))
+      .filter((row) => scopes.has(row.area))
+      .map((row) => ({
+        area: row.area as AreaCommentScope,
+        comment: wrapUntrusted(`COMENTARIO DE ÁREA — ${row.area}`, row.comment),
+      }));
+  } catch (cause) {
+    console.warn('[audit] no se pudo leer el contexto de áreas; se audita sin él', {
+      caseId: caseRow.id,
+      error: cause instanceof Error ? cause.message : 'error desconocido',
+    });
+  }
+
+  // Los comentarios cuentan hacia el MISMO presupuesto de texto que las
+  // evidencias (el límite protege la ventana de contexto del modelo). Pero su
+  // exceso no puede tumbar el dictamen (best-effort, igual que la lectura): si
+  // no caben, se omiten con warn y se audita sin contexto. El tope total queda
+  // garantizado: evidencias solas ya pasaron enforceAggregateTextLimit (que
+  // lanza si se excede), y aquí se descartan los comentarios si el total se
+  // pasaría.
+  const areaChars = areaComments.reduce((total, entry) => total + entry.comment.length, 0);
+  if (aggregateTextChars + areaChars > getEnv().MAX_AUDIT_TEXT_CHARS) {
+    console.warn('[audit] el contexto de áreas excede el presupuesto de texto; se audita sin él', {
+      caseId: caseRow.id,
+      areaChars,
+      aggregateTextChars,
+    });
+    areaComments = [];
+  }
+
   return {
     caseId: caseRow.id,
     studentIdentifier: caseRow.student_identifier,
     evidences: items,
+    areaComments,
   };
 }
 

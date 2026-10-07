@@ -47,6 +47,10 @@ export const auditSkill: AuditSkill = {
         ...assessment,
         model: { provider: 'openrouter', model: response.model },
         usage: response.usage,
+        // Snapshot de lo que el modelo efectivamente vio en "Contexto de otras
+        // áreas". Aditivo y armado por el servidor: `undefined` y `[]` significan
+        // lo mismo para el expediente, pero el snapshot los distingue.
+        areaComments: input.areaComments ?? [],
       },
       model: response.model,
       usage: response.usage,
@@ -176,6 +180,17 @@ export function buildAuditMessages(input: AuditSkillInput): {
     }
 
     parts.push({ type: 'text', text: lines.join('\n') });
+  }
+
+  // 1.5) Contexto de otras áreas (Back Office / HelpDesk): NO normativo, NO
+  //      evidencia. El servidor ya lo cercó con wrapUntrusted (buildAuditInputs);
+  //      aquí solo se inserta como bloque al final del expediente textual, y el
+  //      system prompt le dice al modelo cómo tratarlo (AREA_COMMENTS_ARE_NOT_POLICY).
+  if (input.areaComments && input.areaComments.length > 0) {
+    parts.push({
+      type: 'text',
+      text: ['## Contexto de otras áreas (no normativo, no evidencia)', ...input.areaComments.map((entry) => entry.comment)].join('\n'),
+    });
   }
 
   // 2) Luego el contenido visual de cada evidencia con marcador de contexto.

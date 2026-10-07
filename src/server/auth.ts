@@ -145,6 +145,14 @@ async function loadMembershipRole(userId: string): Promise<AppRole | null> {
     .eq('user_id', userId)
     .single();
   if (error) {
+    // `PostgrestError` NUNCA trae `statusCode` (solo `code`, `message`,
+    // `details`, `hint`), así que sin esta rama `?? 500` convertía PGRST116
+    // —"0 filas" = sin membresía, el caso NORMAL de un usuario no dado de
+    // alta— en un 503 falso de "proveedor caído". PGRST116 cubre también el
+    // caso de filas duplicadas (no hay rol único fiable): ambos se niegan con
+    // `null`, que la capa HTTP traduce a 403/sin_acceso. Cualquier otro error
+    // sin `statusCode` sí es fallo del proveedor → 503 (fail-closed).
+    if ((error as { code?: string }).code === 'PGRST116') return null;
     const status = (error as { statusCode?: number }).statusCode ?? 500;
     if (status >= 500) {
       throw new ApiError(503, 'PROVIDER_UNAVAILABLE', 'El proveedor de autorización no está disponible');

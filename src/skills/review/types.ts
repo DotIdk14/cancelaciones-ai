@@ -18,19 +18,27 @@
 //   modifica, no lo interpreta y no busca política en ninguna otra fuente.
 // =============================================================================
 
-import { AUDIT_RESULTS, type ErrorCategory, type EvidenceInputItem, type ModelUsage } from '../audit/types.js';
+import { type ErrorCategory, type EvidenceInputItem, type ModelUsage } from '../audit/types.js';
 
 // -----------------------------------------------------------------------------
 // Vocabulario cerrado de la resolución humana
 //
-// DERIVADO, NO DUPLICADO: es el MISMO vocabulario que puede emitir el Audit
-// Skill (`AUDIT_RESULTS`), y por eso es un alias y no una lista escrita a mano.
-// Una lista propia podría derivar en dos vocabularios que ya no significan lo
-// mismo, y entonces `effectiveResolution.source = 'AI'` y `= 'HUMAN'` serían
-// comparables sólo por el texto. Con el alias, la persona elige en el mismo
-// dominio que el Skill y la comparación entre ambos es siempre significativa.
+// ACOTADO A PROPÓSITO (decisión de producto): la persona elige entre 6
+// opciones; CANCELACION_MATRICULA y DICTAMINACION quedan reservadas al Skill.
+// No es un `AUDIT_RESULTS` derivado: es una lista propia, más corta, escrita a
+// mano, y por eso su comparación con el resultado de IA sigue siendo
+// significativa: todo valor humano es un resultado válido del Skill (subset),
+// así que `effectiveResolution.source = 'AI'` y `= 'HUMAN'` se comparan en el
+// mismo dominio, con el humano limitado a los casos que puede resolver.
 // -----------------------------------------------------------------------------
-export const HUMAN_RESOLUTIONS = AUDIT_RESULTS;
+export const HUMAN_RESOLUTIONS = [
+  'CANCELACION_VENTA',
+  'CANCELACION_VENTA_PETICION_CLIENTE',
+  'BAJA',
+  'CANCELACION_VENTA_OPERATIVA',
+  'TICKET_RECHAZADO',
+  'EVIDENCIA_INSUFICIENTE',
+] as const;
 export type HumanResolution = (typeof HUMAN_RESOLUTIONS)[number];
 
 /**

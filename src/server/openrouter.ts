@@ -387,11 +387,25 @@ async function singleAttempt(
         ? 'INVALID_EVIDENCE_REFERENCE'
         : 'SCHEMA_VALIDATION_ERROR';
       const schemaPath = message.match(/(?:INVALID_AI_RESPONSE:\s*)?([\w.[\]]+):/)?.[1] ?? 'response';
+      // El `message` crudo del validador puede ecoar contenido de la respuesta,
+      // así que SÓLO se copia al diagnóstico un detalle ATESTIGUADO por el emisor
+      // (`sanitizedDetail`: códigos Zod o texto estático de nuestras reglas).
+      // Sin atestiguamiento, el failureReason conserva sólo la ruta (fail-closed).
+      const attested =
+        error instanceof ApiError && typeof error.sanitizedDetail === 'string' && error.sanitizedDetail.length > 0
+          ? error.sanitizedDetail
+          : null;
+      const marker = `INVALID_AI_RESPONSE: ${schemaPath}: `;
+      const detail =
+        attested === null ? null : (attested.startsWith(marker) ? attested.slice(marker.length) : attested).slice(0, 160);
       throw new AttemptFailure(
         diagnostic(attempt, startedAt, okBody?.usage, {
           finishReason,
           failureCategory: category,
-          failureReason: category === 'INVALID_EVIDENCE_REFERENCE' ? 'unknown evidence reference' : `schema validation failed at ${schemaPath}`,
+          failureReason:
+            category === 'INVALID_EVIDENCE_REFERENCE'
+              ? 'unknown evidence reference'
+              : `schema validation failed at ${schemaPath}${detail ? `: ${detail}` : ''}`,
         }),
         `${category}: ${schemaPath}`,
         { detail: message, path: schemaPath },

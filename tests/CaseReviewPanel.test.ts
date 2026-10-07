@@ -93,6 +93,9 @@ function makeReview(overrides: Partial<CaseReviewDto> = {}): CaseReviewDto {
     id: 'review-1',
     caseId: 'case-1',
     auditId: 'audit-1',
+    // Valor LEGACY a propósito: antes de reducir el vocabulario humano a 6
+    // opciones, una persona podía resolver con DICTAMINACION. El frontend debe
+    // seguir mostrando esas revisiones antiguas (isKnownHuman es superset).
     result: 'DICTAMINACION',
     reviewerName: 'Revisora de pruebas',
     comment: COMMENT,
@@ -171,7 +174,7 @@ function reviewerNameBox(): HTMLInputElement {
   return screen.getByLabelText(/nombre de quien revisa/i) as HTMLInputElement;
 }
 
-function chooseReview(resultLabel = 'Dictaminación'): void {
+function chooseReview(resultLabel = 'Baja'): void {
   fireEvent.click(screen.getByRole('radio', { name: resultLabel }));
   fireEvent.change(reviewerNameBox(), { target: { value: 'Revisora de pruebas' } });
 }
@@ -229,7 +232,8 @@ describe('CaseReviewPanel — cuándo existe', () => {
     );
 
     expect(view.container.querySelector('form')).not.toBeNull();
-    expect(within(view.container).getAllByRole('radio')).toHaveLength(7);
+    // El vocabulario humano tiene 6 opciones: ni matrícula ni dictaminación.
+    expect(within(view.container).getAllByRole('radio')).toHaveLength(6);
   });
 });
 
@@ -246,7 +250,7 @@ describe('CaseReviewPanel — decisión y datos de la revisión', () => {
 
   it('requiere identificar a quien revisa, pero permite dejar las notas vacías', () => {
     renderForm();
-    fireEvent.click(screen.getByRole('radio', { name: /^dictaminación$/i }));
+    fireEvent.click(screen.getByRole('radio', { name: /^baja$/i }));
 
     expect(submitButton().disabled).toBe(true);
     fireEvent.change(reviewerNameBox(), { target: { value: 'Revisora de pruebas' } });
@@ -289,8 +293,9 @@ describe('CaseReviewPanel — decisión y datos de la revisión', () => {
     renderForm();
 
     const group = screen.getByRole('group', { name: /resolución final/i });
-    // Una opción por cada resultado del vocabulario cerrado que expone el servidor.
-    expect(within(group).getAllByRole('radio')).toHaveLength(7);
+    // Una opción por cada resultado del vocabulario cerrado que expone el servidor
+    // (6, no los 8 del Skill: la persona no elige matrícula ni dictaminación).
+    expect(within(group).getAllByRole('radio')).toHaveLength(6);
     expect(screen.queryByRole('combobox')).toBeNull();
   });
 });
@@ -316,7 +321,7 @@ describe('CaseReviewPanel — envío válido', () => {
     expect(calls[0]?.method).toBe('POST');
     // Los datos viajan recortados: es exactamente lo que valida el servidor.
     expect(calls[0]?.body).toEqual({
-      result: 'DICTAMINACION',
+      result: 'BAJA',
       reviewerName: 'Revisora de pruebas',
       comment: COMMENT,
     });
@@ -329,7 +334,7 @@ describe('CaseReviewPanel — envío válido', () => {
       fakeResponse(201, {
         review: makeReview(),
         comparison: makeComparison(),
-        effectiveResolution: makeEffective('DICTAMINACION', 'HUMAN'),
+        effectiveResolution: makeEffective('BAJA', 'HUMAN'),
       }),
     );
     const form = renderForm();

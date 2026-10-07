@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import {
+  AREA_COMMENT_SCOPES,
   AUDIT_RESULTS,
   CYCLE_START_FACT_KEY,
   EVIDENCE_CHANNELS,
@@ -80,7 +81,7 @@ const ProcedureCheckSchema = z.object({
 }).strict();
 
 const ProvisionalResolutionSchema = z.object({
-  result: z.enum(AUDIT_RESULTS).exclude(['EVIDENCIA_INSUFICIENTE']),
+  result: z.enum(AUDIT_RESULTS).exclude(['EVIDENCIA_INSUFICIENTE', 'TICKET_RECHAZADO']),
   rationale: z.string().min(1),
   procedureSection: z.string().min(1),
   evidenceIds: z.array(z.string().min(1)),
@@ -146,6 +147,7 @@ export const AiAuditAssessmentSchema = z
         reasoning: z.string().min(1),
       }).strict(),
       provisionalResolution: ProvisionalResolutionSchema.nullable(),
+      rejectionReason: z.string().min(1).nullable(),
       reasoning: z.string().min(1),
       confidence: z.number().min(0).max(1),
       supportingEvidenceIds: z.array(z.string().min(1)),
@@ -155,6 +157,13 @@ export const AiAuditAssessmentSchema = z
     }),
   })
   .strict();
+
+/** Snapshot de un comentario de área inyectado al expediente. */
+export const AreaCommentSnapshotSchema = z.object({
+  area: z.enum(AREA_COMMENT_SCOPES),
+  /** Texto EXACTO que entró al prompt (ya cercado con wrapUntrusted). */
+  comment: z.string(),
+});
 
 export const AuditResultSchema = AiAuditAssessmentSchema.extend({
   model: z.object({
@@ -167,6 +176,13 @@ export const AuditResultSchema = AiAuditAssessmentSchema.extend({
     totalTokens: z.number().nullable(),
     estimatedCostUSD: z.number().nullable(),
   }),
+  /**
+   * Snapshot de los comentarios de área que el servidor inyectó (solo
+   * BACK_OFFICE / HELPDESK, ya cercados). ADITIVO y armado por el servidor: el
+   * modelo nunca lo emite; un resultado histórico no lo trae y sigue siendo
+   * válido (por eso es opcional).
+   */
+  areaComments: z.array(AreaCommentSnapshotSchema).optional(),
 }).strict();
 
 export type AiAuditAssessment = z.infer<typeof AiAuditAssessmentSchema>;
@@ -206,6 +222,7 @@ interface ValidatedAssessment {
     missingEvidence: Array<{ title: string; reason: string; relatedProcedureSection: string; blocking: boolean }>;
     procedureChecks: Array<{ procedureSection: string; status: string; evidenceIds: string[]; observedValues: Array<{ label: string; value: string }> }>;
     provisionalResolution: { evidenceIds: string[] } | null;
+    rejectionReason: string | null;
   };
 }
 
@@ -226,7 +243,13 @@ function validateContactAttemptsMinimum(assessment: ValidatedAssessment): void {
     ...assessment.audit.auditPath.procedureSections,
     ...assessment.audit.procedureChecks.map((check) => check.procedureSection),
   ];
-  if (!sections.some((section) => refersToProcedureSection(section, '5.2'))) return;
+  const routeApplies52 = sections.some((section) => refersToProcedureSection(section, '5.2'));
+  if (!routeApplies52) {
+    if (assessment.audit.result === 'TICKET_RECHAZADO') {
+      throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.result: TICKET_RECHAZADO exige que la ruta evalúe la sección 5.2; sin intentos mínimos en juego no hay rechazo por 5.2');
+    }
+    return;
+  }
 
   const check = assessment.audit.procedureChecks.find((item) => refersToProcedureSection(item.procedureSection, '5.2'));
   if (!check) {
@@ -265,15 +288,20 @@ function validateContactAttemptsMinimum(assessment: ValidatedAssessment): void {
   const countsUndetermined = calls === null || writtenInteractions === null;
   const requirementNotMet = countShortfall || countsUndetermined || check.status !== 'ACREDITADO';
 
-  if (!requirementNotMet) return;
+  if (!requirementNotMet) {
+    if (assessment.audit.result === 'TICKET_RECHAZADO') {
+      throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.result: TICKET_RECHAZADO solo aplica cuando la sección 5.2 está incumplida o no es determinable; con los intentos acreditados emite la clasificación que corresponda');
+    }
+    return;
+  }
   if (countShortfall && check.status !== 'NO_ACREDITADO') {
     throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.procedureChecks 5.2: un conteo inferior al mínimo debe tener status NO_ACREDITADO');
   }
   if (countsUndetermined && !countShortfall && check.status !== 'NO_DETERMINABLE') {
     throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.procedureChecks 5.2: un conteo no comprobable debe tener status NO_DETERMINABLE');
   }
-  if (assessment.audit.result !== 'EVIDENCIA_INSUFICIENTE') {
-    throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.result: no se puede dictaminar mientras 5.2 esté incumplido o no sea determinable; usa EVIDENCIA_INSUFICIENTE');
+  if (assessment.audit.result !== 'TICKET_RECHAZADO') {
+    throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.result: no se puede dictaminar mientras 5.2 esté incumplido o no sea determinable; usa TICKET_RECHAZADO');
   }
   const blockingAttempts = assessment.audit.missingEvidence.find((item) =>
     item.blocking
@@ -307,7 +335,14 @@ function validateBusinessRules(assessment: ValidatedAssessment): void {
   if (assessment.audit.procedureSection.trim().length === 0) {
     throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.procedureSection: debe ser un string no vacío');
   }
-  if (assessment.audit.result !== 'EVIDENCIA_INSUFICIENTE' && assessment.audit.supportingEvidenceIds.length === 0) {
+  if (assessment.audit.result === 'TICKET_RECHAZADO') {
+    if (assessment.audit.rejectionReason === null || assessment.audit.rejectionReason.trim() === '') {
+      throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.rejectionReason: TICKET_RECHAZADO exige la razón del rechazo con los números exactos de los intentos de la sección 5.2');
+    }
+  } else if (assessment.audit.rejectionReason !== null) {
+    throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.rejectionReason: solo aplica a TICKET_RECHAZADO; en los demás resultados debe ser null');
+  }
+  if (assessment.audit.result !== 'EVIDENCIA_INSUFICIENTE' && assessment.audit.result !== 'TICKET_RECHAZADO' && assessment.audit.supportingEvidenceIds.length === 0) {
     throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.supportingEvidenceIds: debe incluir al menos una evidencia');
   }
   if (assessment.audit.result === 'EVIDENCIA_INSUFICIENTE') {
@@ -325,8 +360,8 @@ function validateBusinessRules(assessment: ValidatedAssessment): void {
     throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.provisionalResolution: solo aplica a EVIDENCIA_INSUFICIENTE');
   }
   const hasBlocking = assessment.audit.missingEvidence.some((item) => item.blocking);
-  if (hasBlocking && assessment.audit.result !== 'EVIDENCIA_INSUFICIENTE') {
-    throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.missingEvidence: no puede haber bloqueo cuando el resultado no es EVIDENCIA_INSUFICIENTE');
+  if (hasBlocking && assessment.audit.result !== 'EVIDENCIA_INSUFICIENTE' && assessment.audit.result !== 'TICKET_RECHAZADO') {
+    throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.missingEvidence: no puede haber bloqueo cuando el resultado no admite evidencia faltante (solo EVIDENCIA_INSUFICIENTE o TICKET_RECHAZADO)');
   }
   assessment.audit.procedureChecks.forEach((check, index) => {
     if (check.status === 'ACREDITADO' && (check.evidenceIds.length === 0 || check.observedValues.length === 0)) {
@@ -451,7 +486,21 @@ function parseWithInvalidAiError<T>(schema: z.ZodType<T>, raw: unknown): T {
   } catch (error) {
     if (error instanceof z.ZodError) {
       const details = error.issues.slice(0, 5).map((issue) => `${issue.path.join('.')}: ${issue.message}`);
-      throw new ApiError(502, 'INVALID_AI_RESPONSE', `INVALID_AI_RESPONSE: ${details.join(' | ')}`);
+      const wrapped = new ApiError(502, 'INVALID_AI_RESPONSE', `INVALID_AI_RESPONSE: ${details.join(' | ')}`);
+      // Atestiguamiento: SÓLO códigos de issue. El `issue.message` de Zod puede
+      // ecoar valores de la respuesta ("Unrecognized key(s) in object: '...'",
+      // "received X"), así que nunca se copia a observabilidad.
+      wrapped.sanitizedDetail = error.issues.slice(0, 3).map((issue) => issue.code).join(' | ');
+      throw wrapped;
+    }
+    if (error instanceof ApiError) {
+      // Atestiguamiento: los ApiError de este `try` salen EXCLUSIVAMENTE de
+      // `validateBusinessRules` (sin transformaciones Zod en el medio), y sus
+      // mensajes son texto estático escrito aquí: fijos, rutas e índices/números
+      // derivados de la respuesta, jamás texto libre del modelo. Validadores
+      // ajenos (p. ej. tests o `validateAssessmentReferences`) lanzan fuera de
+      // este `try` y NO se atestiguan: su `message` crudo jamás llega a logs.
+      error.sanitizedDetail = error.message;
     }
     throw error;
   }

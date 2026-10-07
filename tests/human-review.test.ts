@@ -532,7 +532,10 @@ describe('endpoints de revisión y comparación', () => {
     await reviewHandler(makeApiRequest('POST', { caseId: 'case-1' }, { result: 'BAJA', reviewerName: 'Revisora de pruebas', comment: HUMAN_COMMENT }), makeApiResponse());
     const res = makeApiResponse();
 
-    await reviewHandler(makeApiRequest('POST', { caseId: 'case-1' }, { result: 'DICTAMINACION', reviewerName: 'Revisora de pruebas', comment: HUMAN_COMMENT }), res);
+    // El segundo POST usa un resultado VÁLIDO de la lista de 6 a propósito: lo
+    // que se prueba aquí es el DUPLICADO (409), no la validación de contenido.
+    // (Hasta la Fase B, DICTAMINACION era aceptado por el handler; ya no.)
+    await reviewHandler(makeApiRequest('POST', { caseId: 'case-1' }, { result: 'BAJA', reviewerName: 'Revisora de pruebas', comment: HUMAN_COMMENT }), res);
 
     expect(res.statusCode).toBe(409);
     expect(listReviews()).toHaveLength(1);

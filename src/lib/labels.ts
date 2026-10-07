@@ -29,11 +29,12 @@ import type { Tone } from '../components/ui';
 
 export const RESULT_LABELS: Record<AuditResultType, string> = {
   CANCELACION_VENTA: 'Cancelación de venta',
-  CANCELACION_VENTA_PETICION_CLIENTE: 'Cancelación de venta por petición del cliente',
+  CANCELACION_VENTA_PETICION_CLIENTE: 'Cancelación por promesa no cumplida',
   BAJA: 'Baja',
   CANCELACION_VENTA_OPERATIVA: 'Cancelación de venta operativa',
   CANCELACION_MATRICULA: 'Cancelación de matrícula',
   DICTAMINACION: 'Dictaminación',
+  TICKET_RECHAZADO: 'Ticket rechazado',
   EVIDENCIA_INSUFICIENTE: 'Evidencia insuficiente',
 };
 
@@ -46,6 +47,8 @@ export const RESULT_DESCRIPTIONS: Record<AuditResultType, string> = {
     'La evidencia sostiene una cancelación de venta resuelta operativamente.',
   CANCELACION_MATRICULA: 'La evidencia sostiene una cancelación de matrícula.',
   DICTAMINACION: 'La evidencia requiere un dictamen formal.',
+  TICKET_RECHAZADO:
+    'La sección 5.2 no acredita los intentos mínimos de contacto; el trámite se rechaza con su razón.',
   EVIDENCIA_INSUFICIENTE:
     'No fue posible emitir un dictamen confiable con la evidencia disponible.',
 };
@@ -58,6 +61,7 @@ export const RESULT_TONE: Record<AuditResultType, Tone> = {
   CANCELACION_VENTA_OPERATIVA: 'brand',
   CANCELACION_MATRICULA: 'brand',
   DICTAMINACION: 'success',
+  TICKET_RECHAZADO: 'danger',
   EVIDENCIA_INSUFICIENTE: 'warning',
 };
 
@@ -69,6 +73,7 @@ export const RESULT_TONE: Record<AuditResultType, Tone> = {
 export const RESOLUTION_GROUPS = [
   'CONCEDIDAS',
   'REQUIERE_DICTAMINACION',
+  'RECHAZADOS',
   'EVIDENCIA_INSUFICIENTE',
 ] as const;
 
@@ -77,6 +82,7 @@ export type ResolutionGroup = (typeof RESOLUTION_GROUPS)[number];
 export const RESOLUTION_GROUP_LABELS: Record<ResolutionGroup, string> = {
   CONCEDIDAS: 'Concedidas',
   REQUIERE_DICTAMINACION: 'Requiere dictaminación',
+  RECHAZADOS: 'Rechazados',
   EVIDENCIA_INSUFICIENTE: 'Evidencia insuficiente',
 };
 
@@ -87,6 +93,7 @@ export const RESULT_TO_GROUP: Record<AuditResultType, ResolutionGroup> = {
   CANCELACION_MATRICULA: 'CONCEDIDAS',
   BAJA: 'CONCEDIDAS',
   DICTAMINACION: 'REQUIERE_DICTAMINACION',
+  TICKET_RECHAZADO: 'RECHAZADOS',
   EVIDENCIA_INSUFICIENTE: 'EVIDENCIA_INSUFICIENTE',
 };
 
@@ -98,6 +105,7 @@ export const RESULT_TO_GROUP: Record<AuditResultType, ResolutionGroup> = {
 export const RESOLUTION_GROUP_CHART_COLOR: Record<ResolutionGroup, string> = {
   CONCEDIDAS: 'var(--success)',
   REQUIERE_DICTAMINACION: 'var(--warning)',
+  RECHAZADOS: 'var(--danger)',
   EVIDENCIA_INSUFICIENTE: 'var(--accent)',
 };
 
@@ -143,10 +151,11 @@ export const CONFIDENCE_BAND_LABELS: Record<ConfidenceBand, string> = {
  * Opciones del selector de resolución final.
  *
  * NO es una lista escrita aquí: es el vocabulario cerrado que publica el módulo
- * de revisión (`HUMAN_RESOLUTIONS`, alias de `AUDIT_RESULTS`). Duplicarlo
- * permitiría que la UI ofreciera una resolución que el servidor rechaza, que
- * es la forma más silenciosa de romper un contrato cerrado. El frontend ELIGE
- * entre opciones; no decide (NO_RULES_ENGINE).
+ * de revisión (`HUMAN_RESOLUTIONS`, acotado a 6: la persona no resuelve
+ * matrícula ni dictaminación). Duplicarlo permitiría que la UI ofreciera una
+ * resolución que el servidor rechaza, que es la forma más silenciosa de romper
+ * un contrato cerrado. El frontend ELIGE entre opciones; no decide
+ * (NO_RULES_ENGINE).
  */
 export const REVIEW_RESULT_OPTIONS: readonly AuditResultType[] = HUMAN_RESOLUTIONS;
 

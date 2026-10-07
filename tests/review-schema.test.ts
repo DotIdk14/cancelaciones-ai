@@ -35,10 +35,21 @@ const validComparison = {
 };
 
 describe('vocabulario de la resolución humana', () => {
-  it('deriva HUMAN_RESOLUTIONS de AUDIT_RESULTS: la persona elige en el mismo vocabulario cerrado', () => {
-    expect([...HUMAN_RESOLUTIONS]).toEqual([...AUDIT_RESULTS]);
-    // Alias, no copia: no puede existir una lista humana que se desvíe del Skill.
-    expect(HUMAN_RESOLUTIONS).toBe(AUDIT_RESULTS);
+  it('la persona elige entre 6 opciones: sin matrícula ni dictaminación, con el ticket rechazado', () => {
+    expect([...HUMAN_RESOLUTIONS]).toEqual([
+      'CANCELACION_VENTA',
+      'CANCELACION_VENTA_PETICION_CLIENTE',
+      'BAJA',
+      'CANCELACION_VENTA_OPERATIVA',
+      'TICKET_RECHAZADO',
+      'EVIDENCIA_INSUFICIENTE',
+    ]);
+  });
+
+  it('todo valor humano es un resultado válido del Skill: mismo dominio, vocabulario más acotado', () => {
+    for (const value of HUMAN_RESOLUTIONS) {
+      expect(AUDIT_RESULTS).toContain(value);
+    }
   });
 
   it('el comentario humano tiene límites declarados', () => {

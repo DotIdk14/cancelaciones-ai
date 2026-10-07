@@ -56,6 +56,13 @@ export function EvolutionChart({ data }: { data: TimelinePoint[] }): ReactNode {
           isAnimationActive={false}
         />
         <Bar
+          dataKey="rejected"
+          name="Rechazados"
+          stackId="a"
+          fill={CHART_COLORS.RECHAZADOS}
+          isAnimationActive={false}
+        />
+        <Bar
           dataKey="insufficient"
           name="Evidencia insuficiente"
           stackId="a"
@@ -77,21 +84,22 @@ export function EvolutionChart({ data }: { data: TimelinePoint[] }): ReactNode {
 /** Serie temporal leída como frase: totales y desglose por periodo. */
 function timelineSummary(data: TimelinePoint[]): string {
   const total = data.reduce(
-    (sum, point) => sum + point.granted + point.needsRuling + point.insufficient,
+    (sum, point) => sum + point.granted + point.needsRuling + point.rejected + point.insufficient,
     0,
   );
   const conceded = data.reduce((sum, point) => sum + point.granted, 0);
   const ruling = data.reduce((sum, point) => sum + point.needsRuling, 0);
+  const rejected = data.reduce((sum, point) => sum + point.rejected, 0);
   const insufficient = data.reduce((sum, point) => sum + point.insufficient, 0);
   const detalle = data
     .map(
       (point) =>
-        `${point.bucket}: ${point.granted} concedidas, ${point.needsRuling} por dictaminar, ${point.insufficient} con evidencia insuficiente`,
+        `${point.bucket}: ${point.granted} concedidas, ${point.needsRuling} por dictaminar, ${point.rejected} rechazados, ${point.insufficient} con evidencia insuficiente`,
     )
     .join('; ');
   return (
     `Evolución de ${total} caso(s) en ${data.length} periodo(s): ` +
-    `${conceded} concedidas, ${ruling} por dictaminar, ${insufficient} con evidencia insuficiente. ` +
+    `${conceded} concedidas, ${ruling} por dictaminar, ${rejected} rechazados, ${insufficient} con evidencia insuficiente. ` +
     `Detalle — ${detalle}.`
   );
 }

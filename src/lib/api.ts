@@ -123,9 +123,11 @@ export interface AuditHistoryItem {
  * Revisión humana del caso. Es ÚNICA por caso y, si existe, ES la resolución
  * final: el dictamen de la auditoría se conserva intacto y no la sobrescribe.
  *
- * `result` es `AuditResultType` porque el vocabulario humano es, por diseño, el
- * MISMO conjunto cerrado que puede emitir el Audit Skill (`HUMAN_RESOLUTIONS` es
- * un alias de `AUDIT_RESULTS`), no una lista paralela.
+ * `result` es `AuditResultType` (superset, no `HumanResolution`) porque las
+ * revisiones humanas registradas ANTES de acotar el vocabulario a 6 opciones
+ * pueden traer `CANCELACION_MATRICULA` o `DICTAMINACION`, y el frontend debe
+ * seguir mostrándolas. El selector de nuevas revisiones sólo ofrece las 6 de
+ * `HUMAN_RESOLUTIONS`.
  */
 export interface CaseReviewDto {
   id: string;
