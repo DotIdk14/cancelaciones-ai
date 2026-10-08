@@ -46,9 +46,14 @@ export type TemporalRelation = (typeof TEMPORAL_RELATIONS)[number];
 /**
  * `key` reservado del fact que acredita la fecha de inicio de ciclo.
  *
- * El backend NO inventa ni deduce esta fecha: sólo verifica que, cuando el modelo
- * afirma una `cycleStartDate`, exista este fact con su evidencia, su cita textual
- * y una confianza menor que 1 (una fecha crítica siempre tiene calidad variable).
+ * El backend NO inventa ni deduce esta fecha: sólo verifica que, cuando el
+ * modelo afirma una `cycleStartDate`, exista este fact con su cita textual y
+ * una confianza menor que 1 (una fecha crítica siempre tiene calidad variable).
+ *
+ * Sus `evidenceIds` solo son exigibles cuando la fecha quedó acreditada por la
+ * EVIDENCIA. Si la fecha la aportó una persona del equipo, la cita declara ese
+ * origen humano y los `evidenceIds` pueden ir vacíos: el fact sigue siendo
+ * obligatorio, pero nada de lo que escribió esa persona es evidencia.
  */
 export const CYCLE_START_FACT_KEY = 'cycle_start_date';
 
@@ -176,6 +181,37 @@ export interface AuditSkillInput {
    * "no se usó" es un dato auditable.
    */
   areaComments?: AreaCommentContext[];
+  /**
+   * Fecha de inicio de ciclo APORTADA POR EL EQUIPO (`cases.cycle_start_date`).
+   *
+   * Viaja como PARÁMETRO EXPLÍCITO y no como algo que la validación consulte por
+   * su cuenta: `schema.ts` es un módulo hoja (LEAF_MODULES_HAVE_NO_SERVER_IMPORTS)
+   * y no puede leer la base. Quien la lee es `buildAuditInputs`, que la pasa de
+   * aquí al parser.
+   *
+   * `null`/`undefined` = no hay captura. Cuando existe, es un valor ISO ya
+   * validado por el endpoint: no admite texto libre, así que no puede portar
+   * prompt injection (por eso NO va cercado con `wrapUntrusted`, que sí sigue
+   * siendo obligatorio para los comentarios de área).
+   */
+  humanCycleStartDate?: string | null;
+}
+
+/**
+ * Contexto que el SERVIDOR entrega a la validación del assessment.
+ *
+ * Es la única forma admitida de que un dato ajeno al modelo entre en las reglas
+ * de coherencia: el parser no consulta nada (módulo hoja), recibe lo que el
+ * servidor leyó. Sin esa fecha, una `cycleStartDate` afirmada sigue exigiendo
+ * evidencia como siempre.
+ */
+export interface AssessmentValidationContext {
+  /**
+   * Fecha de inicio aportada por el equipo, ya validada a ISO, o `null` si no
+   * existe (columna ausente o sin capturar). Un valor con otro formato se
+   * rechaza: fail-closed, para que nada no tipado llegue a legitimar un dictamen.
+   */
+  humanCycleStartDate?: string | null;
 }
 
 /**
@@ -237,9 +273,16 @@ export interface ProvisionalResolution {
  * fecha del expediente se revisa buscando la que representa el INICIO ACADÉMICO.
  *
  * Reglas estructurales que el backend verifica (sin reclasificar nunca):
- *  - `cycleStartDate` exige `cycleStartEvidenceIds` y `cycleStartEvidenceText`.
+ *  - `cycleStartDate` exige `cycleStartEvidenceIds` y `cycleStartEvidenceText`,
+ *    SALVO que el caso tenga una fecha de inicio aportada por el equipo
+ *    (`AuditSkillInput.humanCycleStartDate`): esa captura sustituye a la
+ *    evidencia como fuente, y entonces los `cycleStartEvidenceIds` pueden ir
+ *    vacíos mientras la cita declara el origen humano.
  *  - Una relación distinta de `NO_DETERMINABLE` exige AMBAS fechas acreditadas.
  *  - Una fecha ausente implica `evidenceIds: []` (nada se referencia sin fecha).
+ *  - La captura humana NO se hereda: que exista no obliga a afirmarla, y si el
+ *    modelo afirma otra fecha se corrige a la capturada (queda registrada), sin
+ *    tumbar el dictamen.
  *  - `case.cycleStartDate` NO lo emite el modelo: lo deriva el servidor desde
  *    `cycleStartDate` de este bloque (`deriveCaseCycleStartDate`). Antes era una
  *    invariante post-hoc que tumbaba el dictamen entero ante cualquier divergencia

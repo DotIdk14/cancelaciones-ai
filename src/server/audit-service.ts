@@ -274,6 +274,12 @@ export async function buildAuditInputs(
     studentIdentifier: caseRow.student_identifier,
     evidences: items,
     areaComments,
+    // Fecha de inicio aportada por el equipo. Se lee como OPCIONAL a propósito
+    // (`?? null`): si la migración `case-cycle-start-date-human` todavía no está
+    // aplicada, el `select('*')` no trae la columna, `cycle_start_date` es
+    // `undefined` y el expediente se arma sin ella en vez de romperse. Cuando sí
+    // existe es un ISO ya validado por el endpoint: por eso viaja sin cercar.
+    humanCycleStartDate: caseRow.cycle_start_date ?? null,
   };
 }
 

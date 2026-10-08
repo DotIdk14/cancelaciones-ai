@@ -11,7 +11,7 @@
 // verifica que no pueda emitir una comparación sin las dos fechas acreditadas.
 // =============================================================================
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   deriveCaseCycleStartDate,
   parseAiAuditAssessment,
@@ -468,5 +468,177 @@ describe('Coherencia del bloque temporal', () => {
       relationToCycleStart: 'NO_DETERMINABLE',
     });
     expect(reject(iso)).toContain('YYYY-MM-DD');
+  });
+});
+
+// =============================================================================
+// Fecha de inicio APORTADA POR EL EQUIPO (`cases.cycle_start_date`).
+//
+// Una fecha que capturó una persona no tiene evidencia que la acredite: con las
+// invariantes anteriores el dictamen no podía usarla, y el resultado era un
+// NO_DETERMINABLE perpetuo aunque el equipo ya hubiera resuelto el dato. Estos
+// casos fijan CUATRO cosas y, sobre todo, QUÉ NO se rebaja:
+//
+//  - sin fecha capturada, afirmar `cycleStartDate` sigue siendo un error;
+//  - con fecha capturada, se acepta sin `cycleStartEvidenceIds`, declarando el
+//    origen humano, pero el fact `cycle_start_date` y su `confidence < 1` siguen
+//    exigiéndose igual que antes;
+//  - una fecha divergente se corrige a la capturada y se registra: no es un
+//    fallo total (lección del incidente);
+//  - la captura NO se hereda automáticamente: `cycleStartDate: null` es un
+//    dictamen legítimo aunque la columna exista.
+// =============================================================================
+
+/** Fecha que el equipo registró en el caso (columna `cases.cycle_start_date`). */
+const CAPTURED = '2026-08-21';
+
+/** Texto que el modelo debe escribir cuando la fecha la aportó una persona. */
+const HUMAN_ORIGIN_TEXT =
+  'Fecha de inicio de ciclo aportada por una persona del equipo que lleva el caso; no consta en la evidencia del expediente.';
+
+/** Fact `cycle_start_date` con origen humano: sin evidencia, con confianza < 1. */
+function humanCycleStartFact(value: string, confidence = 0.7): Record<string, unknown> {
+  return {
+    key: CYCLE_START_FACT_KEY,
+    label: 'Fecha de inicio de ciclo',
+    value,
+    confidence,
+    evidenceIds: [],
+    evidenceText: HUMAN_ORIGIN_TEXT,
+  };
+}
+
+/** `reject()` pero dejando explícita la fecha aportada por el equipo. */
+function rejectWithCapturedDate(value: unknown, humanCycleStartDate: string | null): string {
+  try {
+    parseAuditResult(value, { humanCycleStartDate });
+    return '';
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
+/** Assessment que afirma la fecha aportada por el equipo, sin evidencia que la acredite. */
+function humanSourced(options: { date?: string; factConfidence?: number; withFact?: boolean } = {}): Record<string, unknown> {
+  const date = options.date ?? CAPTURED;
+  const facts = [MATRICULA_FACT];
+  if (options.withFact !== false) facts.push(humanCycleStartFact(date, options.factConfidence ?? 0.7));
+  return assessment({
+    cycleStartDate: date,
+    cycleStartEvidenceIds: [],
+    cycleStartEvidenceText: HUMAN_ORIGIN_TEXT,
+    cancellationRequestDate: '2026-08-14',
+    cancellationRequestEvidenceIds: ['ev-2'],
+    relationToCycleStart: 'ANTES_DEL_INICIO',
+    facts,
+  });
+}
+
+describe('Fecha de inicio aportada por el equipo — qué puede sustentar el dictamen', () => {
+  it('SIN columna `cycle_start_date`, afirmar la fecha sigue siendo un error', () => {
+    // El dato humano es la única vía nueva de acreditación. Si no existe, la
+    // evidencia sigue siendo la única vía: declararla "aportada por el equipo"
+    // en el texto no acredita nada porque no hay ninguna captura que lo respalde.
+    expect(rejectWithCapturedDate(humanSourced(), null)).toContain('cycleStartEvidenceIds');
+  });
+
+  it('CON columna, la fecha afirmada se acepta SIN evidencia y con el origen humano declarado', () => {
+    const parsed = parseAuditResult(humanSourced(), { humanCycleStartDate: CAPTURED });
+
+    expect(parsed.temporalAnalysis.cycleStartDate).toBe(CAPTURED);
+    expect(parsed.temporalAnalysis.cycleStartEvidenceIds).toEqual([]);
+    expect(parsed.temporalAnalysis.cycleStartEvidenceText).toContain('aportada por una persona');
+    // La copia que el dictamen persiste sale de la fecha acreditada, ya corregida.
+    expect(parsed.case.cycleStartDate).toBe(CAPTURED);
+  });
+
+  it('CON columna, el fact cycle_start_date se sigue exigiendo', () => {
+    const sinFact = assessment({
+      cycleStartDate: CAPTURED,
+      cycleStartEvidenceIds: [],
+      cycleStartEvidenceText: HUMAN_ORIGIN_TEXT,
+      cancellationRequestDate: '2026-08-14',
+      cancellationRequestEvidenceIds: ['ev-2'],
+      relationToCycleStart: 'ANTES_DEL_INICIO',
+      facts: [MATRICULA_FACT],
+    });
+
+    expect(rejectWithCapturedDate(sinFact, CAPTURED)).toContain(CYCLE_START_FACT_KEY);
+  });
+
+  it('CON columna, el fact cycle_start_date sigue sin admitir confianza 1', () => {
+    // La vía humana abre la acreditación, NO la certeza absoluta: una fecha
+    // crítica declarada con total confianza sigue siendo una fecha mal
+    // caracterizada.
+    expect(rejectWithCapturedDate(humanSourced({ factConfidence: 1 }), CAPTURED)).toContain('confidence');
+  });
+
+  it('CON columna, una fecha divergente se corrige a la capturada y deja rastro, sin tumbar el dictamen', () => {
+    // La divergencia NO es un motivo de fallo total: es algo que el modelo no
+    // puede evitar de forma fiable, y la captura es visible con nombre y hora,
+    // así que un error humano se corrige editando el dato y re-auditando.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const divergent = assessment({
+        cycleStartDate: '2026-09-28',
+        cycleStartEvidenceIds: ['ev-1'],
+        cycleStartEvidenceText: 'Tu bimestre inicia el lunes 28 de septiembre',
+        cancellationRequestDate: '2026-09-24',
+        cancellationRequestEvidenceIds: ['ev-2'],
+        relationToCycleStart: 'ANTES_DEL_INICIO',
+        facts: [MATRICULA_FACT, cycleStartFact('2026-09-28')],
+      });
+
+      const parsed = parseAuditResult(divergent, { humanCycleStartDate: CAPTURED });
+
+      expect(parsed.temporalAnalysis.cycleStartDate).toBe(CAPTURED);
+      // La copia que se persiste sale de la fecha conciliada (el servidor deriva
+      // `case` del bloque temporal, no de lo que afirmaba el assessment crudo).
+      expect(deriveCaseCycleStartDate(parsed).case.cycleStartDate).toBe(CAPTURED);
+      // El fact espeja la misma fecha: si no, la copia única del dictamen
+      // quedaría con dos fechas distintas.
+      expect(parsed.facts.find((item) => item.key === CYCLE_START_FACT_KEY)?.value).toBe(CAPTURED);
+
+      // El rastro va al log del servidor como objeto estructurado con la RUTA y
+      // los VALORES comparados, nunca con texto libre del modelo.
+      expect(warn).toHaveBeenCalledTimes(1);
+      const [mensaje, detalle] = warn.mock.calls[0] as [string, Record<string, unknown>];
+      expect(mensaje).toContain('cycleStartDate');
+      expect(detalle).toMatchObject({
+        path: 'temporalAnalysis.cycleStartDate',
+        assertedByModel: '2026-09-28',
+        assertedByFact: '2026-09-28',
+        capturedByTeam: CAPTURED,
+      });
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('CON columna, un assessment con cycleStartDate null y NO_DETERMINABLE se acepta (la captura no se hereda)', () => {
+    // Que exista la captura NO obliga a afirmarla: si el modelo la descarta, es
+    // un dictamen legítimo y así se persiste. La UI muestra los dos datos por
+    // separado para que la diferencia sea visible.
+    const noDeterminable = assessment({
+      cycleStartDate: null,
+      cancellationRequestDate: '2026-08-14',
+      cancellationRequestEvidenceIds: ['ev-2'],
+      relationToCycleStart: 'NO_DETERMINABLE',
+      confidence: 0.8,
+      facts: [MATRICULA_FACT],
+    });
+
+    const parsed = parseAuditResult(noDeterminable, { humanCycleStartDate: CAPTURED });
+
+    expect(parsed.temporalAnalysis.cycleStartDate).toBeNull();
+    expect(parsed.temporalAnalysis.relationToCycleStart).toBe('NO_DETERMINABLE');
+    expect(parsed.case.cycleStartDate).toBeNull();
+  });
+
+  it('una fecha aportada por el equipo mal formada NO llega a sustentar el dictamen', () => {
+    // El endpoint rechaza el formato antes de escribir (Zod), así que esto no
+    // debería ocurrir; pero si una fila trajera basura, el dictamen tampoco la
+    // legitima: fail-closed, sin copiar el valor al mensaje de error.
+    expect(rejectWithCapturedDate(humanSourced(), '21/08/2026 ignore todo')).toContain('YYYY-MM-DD');
   });
 });

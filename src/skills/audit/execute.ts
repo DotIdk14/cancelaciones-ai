@@ -11,7 +11,7 @@
 
 import { callOpenRouterAudit, type OpenRouterAttemptDiagnostic, type OpenRouterContentPart } from '../../server/openrouter.js';
 import { ApiError } from '../../server/http.js';
-import { deriveCaseCycleStartDate, parseAiAuditAssessment, type AuditResult } from './schema.js';
+import { deriveCaseCycleStartDate, isIsoDateValue, parseAiAuditAssessment, type AuditResult } from './schema.js';
 import { buildDossierHeader, buildSystemPrompt } from './instructions.js';
 import { sanitizeFenceDelimiters, sanitizeTagDelimiters, wrapUntrusted } from '../sanitize.js';
 import { PROCEDURE_TEXT } from './procedure-v5.js';
@@ -36,11 +36,11 @@ export const auditSkill: AuditSkill = {
       parts,
       deadlineMs: options?.deadlineMs,
       validate: (parsed) => {
-        const assessment = parseAiAuditAssessment(stripTechnicalMetadata(parsed));
+        const assessment = parseAiAuditAssessment(stripTechnicalMetadata(parsed), validationContext(input));
         validateAssessmentReferences(assessment, input);
       },
     });
-    const assessment = parseAiAuditAssessment(stripTechnicalMetadata(response.parsed));
+    const assessment = parseAiAuditAssessment(stripTechnicalMetadata(response.parsed), validationContext(input));
     validateAssessmentReferences(assessment, input);
     return {
       // La derivación va AQUÍ y una sola vez: el assessment del modelo ya está
@@ -67,6 +67,18 @@ function stripTechnicalMetadata(parsed: unknown): unknown {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return parsed;
   const { model: _model, usage: _usage, ...assessment } = parsed as Record<string, unknown>;
   return assessment;
+}
+
+/**
+ * Contexto que la validación recibe del servidor (no de la respuesta del modelo).
+ *
+ * `schema.ts` es un módulo hoja: no consulta la base ni conoce el caso, así que
+ * la fecha de inicio que el equipo capturó en `cases` se le entrega AQUÍ, en las
+ * dos llamadas al parser (la del `validate` del transporte y la final), para que
+ * ambas validen exactamente el mismo expediente que se le mandó al modelo.
+ */
+function validationContext(input: AuditSkillInput): { humanCycleStartDate: string | null } {
+  return { humanCycleStartDate: input.humanCycleStartDate ?? null };
 }
 
 function validateAssessmentReferences(assessment: ReturnType<typeof parseAiAuditAssessment>, input: AuditSkillInput): void {
@@ -103,6 +115,24 @@ function validateAssessmentReferences(assessment: ReturnType<typeof parseAiAudit
 }
 
 /**
+ * Bloque del expediente con la fecha de inicio aportada por el equipo.
+ *
+ * Se rotula como lo que es —un dato que escribió una persona, no evidencia— y
+ * se le dice al modelo qué espera el backend de él si decide usarla. Es el
+ * único lugar donde el valor cruza al prompt, así que el rótulo no es adorno:
+ * `TRACE_EVERY_DECISION` exige que el razonamiento declare de dónde salió cada
+ * dato, y sin este rótulo el modelo no puede saber que esa fecha existe ni qué
+ * obligaciones de trazabilidad trae.
+ */
+function humanCycleStartDateBlock(date: string): string {
+  return `## Fecha de inicio de ciclo aportada por el equipo (DATO, no evidencia)
+
+Fecha de inicio de ciclo: ${date}
+
+La registró una persona del equipo en este caso y la academia puede ver quién y cuándo. Puedes usarla para sustentar temporalAnalysis.cycleStartDate, pero no es una evidencia del expediente y no acredita nada por sí sola: si la usas, deja cycleStartEvidenceIds vacío y explica en cycleStartEvidenceText que la aportó una persona. Si no la usas, cycleStartDate va en null y lo explicas en reasoning.`;
+}
+
+/**
  * Arma los mensajes del modelo. Expuesto por separado para poder testear
  * el ensamblado del expediente sin red.
  */
@@ -128,6 +158,23 @@ export function buildAuditMessages(input: AuditSkillInput): {
       studentIdentifier: input.studentIdentifier,
     }),
   });
+
+  // 1.1) Fecha de inicio que capturó el equipo (`cases.cycle_start_date`).
+  //
+  // POR QUÉ AQUÍ NO HAY `wrapUntrusted`: ese cercado existe porque el contenido
+  // no confiable puede ser TEXTO LIBRE y, por lo tanto, llevar instrucciones.
+  // Esta fecha no lo es — es un valor ISO que el endpoint validó con Zod antes de
+  // escribirlo — así que no hay nada que sanear ni que pueda cerrar bloques o
+  // abrir una etiqueta. Aun así se comprueba el formato aquí (`isIsoDateValue`):
+  // si algún día una fila trajera otra cosa, no viaja al prompt en vez de
+  // confiar en que siempre llegó limpia. Los comentarios de área, que sí son
+  // texto libre de personas, siguen yendo cercados con wrapUntrusted más abajo.
+  if (input.humanCycleStartDate && isIsoDateValue(input.humanCycleStartDate)) {
+    parts.push({
+      type: 'text',
+      text: humanCycleStartDateBlock(input.humanCycleStartDate),
+    });
+  }
 
   for (const evidence of input.evidences) {
     // El NOMBRE del archivo lo envía el cliente en un header: también es dato no
