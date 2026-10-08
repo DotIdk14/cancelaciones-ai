@@ -110,13 +110,14 @@ flowchart TD
   - Devuelve JSON parseado, modelo real y usage/coste.
 
 ### 7. Validación del assessment
-- **Schema**: `src/skills/audit/schema.ts` (`AiAuditAssessmentSchema`, estricto).
+- **Schema**: `src/skills/audit/schema.ts` (`AiAuditAssessmentSchema`, estricto; su `case` también, y sin `cycleStartDate`).
 - **Reglas semánticas** (`validateBusinessRules` / `validateTemporalCoherence`):
   - `EVIDENCIA_INSUFICIENTE` exige `missingEvidence` con al menos un `blocking = true`.
   - `cycleStartDate` afirmada exige fact `cycle_start_date`, evidencia y cita textual; confianza < 1.
   - Coherencia temporal: si `relationToCycleStart` no es `NO_DETERMINABLE`, ambas fechas deben estar acreditadas.
   - Validación de intentos mínimos de contacto (sección 5.2).
 - **Referencias**: `validateAssessmentReferences` en `execute.ts` verifica que todo `evidenceId` citado exista en el expediente.
+- **Derivación**: `deriveCaseCycleStartDate` en `schema.ts`, llamada una sola vez en `execute.ts` tras validar el assessment. Copia `temporalAnalysis.cycleStartDate` a `case.cycleStartDate`; no es una comprobación sino una asignación (la invariante de igualdad que antes tumbaba el dictamen en ERROR ya no existe).
 
 ### 8. Persistencia del resultado
 - **Éxito**: `updateAuditResult` marca `status = 'COMPLETED'`, guarda `result_json` (assessment + metadata real), `latency_ms` y `provider_metadata` con intentos de OpenRouter. El caso pasa a `COMPLETED`.

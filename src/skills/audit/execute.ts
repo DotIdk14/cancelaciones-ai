@@ -11,7 +11,7 @@
 
 import { callOpenRouterAudit, type OpenRouterAttemptDiagnostic, type OpenRouterContentPart } from '../../server/openrouter.js';
 import { ApiError } from '../../server/http.js';
-import { parseAiAuditAssessment, type AuditResult } from './schema.js';
+import { deriveCaseCycleStartDate, parseAiAuditAssessment, type AuditResult } from './schema.js';
 import { buildDossierHeader, buildSystemPrompt } from './instructions.js';
 import { sanitizeFenceDelimiters, sanitizeTagDelimiters, wrapUntrusted } from '../sanitize.js';
 import { PROCEDURE_TEXT } from './procedure-v5.js';
@@ -43,7 +43,11 @@ export const auditSkill: AuditSkill = {
     const assessment = parseAiAuditAssessment(stripTechnicalMetadata(response.parsed));
     validateAssessmentReferences(assessment, input);
     return {
-      result: {
+      // La derivación va AQUÍ y una sola vez: el assessment del modelo ya está
+      // validado, así que `temporalAnalysis.cycleStartDate` ya pasó Zod y las
+      // reglas de coherencia temporal. `case.cycleStartDate` no lo emite el modelo
+      // y de ahí sale un solo lugar posible: la copia acreditada.
+      result: deriveCaseCycleStartDate({
         ...assessment,
         model: { provider: 'openrouter', model: response.model },
         usage: response.usage,
@@ -51,7 +55,7 @@ export const auditSkill: AuditSkill = {
         // áreas". Aditivo y armado por el servidor: `undefined` y `[]` significan
         // lo mismo para el expediente, pero el snapshot los distingue.
         areaComments: input.areaComments ?? [],
-      },
+      }),
       model: response.model,
       usage: response.usage,
       attempts: response.attempts,

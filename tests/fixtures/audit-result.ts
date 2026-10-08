@@ -1,13 +1,23 @@
 import type { AuditResult } from '../../src/skills/audit/schema';
 
-/** AuditResult válido de referencia para tests (cubre todas las claves). */
+/**
+ * AuditResult válido de referencia para tests (cubre todas las claves).
+ *
+ * `case` NO trae `cycleStartDate` a propósito: este mismo objeto se usa como JSON
+ * CRUDO que responde el modelo (tests/execute, tests/openrouter,
+ * tests/evidence-status), y desde la derivación en servidor ese `case` es `.strict()`
+ * y sin esa clave. El campo lo añade `auditSkill.execute` (deriveCaseCycleStartDate).
+ *
+ * La forma PERSISTIDA con el campo ya presente sigue cubierta en
+ * tests/schema.test.ts y en tests/cycle-start-date.test.ts, que lo affirman
+ * explícitamente.
+ */
 export const validAuditResult: AuditResult = {
   case: {
     matricula: 'UTEL-2026-001',
     studentName: 'María Pérez',
     program: 'Licenciatura en Administración',
     cycle: '2026-A',
-    cycleStartDate: '2026-01-12',
   },
   evidenceSummary: [
     {

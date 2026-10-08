@@ -191,7 +191,9 @@ Shape del resultado (`audits.result_json`):
 
 ```ts
 {
-  case: { matricula, studentName, program, cycle, cycleStartDate },  // null si no consta
+  case: { matricula, studentName, program, cycle },
+  // `case.cycleStartDate` existe en el `result_json` pero NO lo emite el modelo:
+  // el servidor lo deriva de `temporalAnalysis.cycleStartDate` (ver abajo).
   evidenceSummary: [{ evidenceId, filename, detectedType, description, relevant }],
   facts: [{ key, label, value, confidence, evidenceIds, evidenceText }],
   timeline: [{ date, event, evidenceIds }],
@@ -246,15 +248,20 @@ propio y trazable en lugar de ser un string suelto dentro de `case`.
   fecha del expediente.
 - `relationToCycleStart` compara **solo** `cancellationRequestDate` contra
   `cycleStartDate`, y es obligatorio resolverla antes de aplicar la sección 5.3.
-- El backend **no reclasifica**: no calcula la relación ni corrige la fecha.
-  Solo rechaza assessments internamente incoherentes, entre ellas:
+- El backend **no reclasifica**: no calcula la relación ni decide la fecha. Solo
+  rechaza assessments internamente incoherentes, entre ellas:
   - una `cycleStartDate` sin `cycleStartEvidenceIds` ni cita textual;
   - una relación distinta de `NO_DETERMINABLE` sin **ambas** fechas acreditadas
     (afirmar `DESPUES_DEL_INICIO` sin inicio acreditado es exactamente el
     razonamiento que convertía una cancelación de venta en baja);
-  - `case.cycleStartDate` distinta de `temporalAnalysis.cycleStartDate`;
   - confianza `1` en una fecha de inicio crítica o con cronología
     `NO_DETERMINABLE`.
+- `case.cycleStartDate` es **derivada, no afirmada**: el modelo no la emite y el
+  servidor la copia de `temporalAnalysis.cycleStartDate` (`deriveCaseCycleStartDate`)
+  antes de persistir. Antes se exigía que las dos copias coincidieran, comprobación
+  que solo podía evaluarse después de la respuesta y cuyo fallo tumbaba el dictamen
+  entero por un campo que nadie leía. El `case` del contrato del modelo es
+  `.strict()`: si el modelo vuelve a emitir la clave, se rechaza de forma visible.
 - Una fecha de inicio afirmada exige además su fact `cycle_start_date` con
   evidencia, cita y confianza menor que 1, para que la trazabilidad sea visible
   en la UI.

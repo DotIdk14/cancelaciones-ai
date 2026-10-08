@@ -240,7 +240,10 @@ export interface ProvisionalResolution {
  *  - `cycleStartDate` exige `cycleStartEvidenceIds` y `cycleStartEvidenceText`.
  *  - Una relación distinta de `NO_DETERMINABLE` exige AMBAS fechas acreditadas.
  *  - Una fecha ausente implica `evidenceIds: []` (nada se referencia sin fecha).
- *  - `case.cycleStartDate` debe coincidir con `cycleStartDate` (la UI lee `case`).
+ *  - `case.cycleStartDate` NO lo emite el modelo: lo deriva el servidor desde
+ *    `cycleStartDate` de este bloque (`deriveCaseCycleStartDate`). Antes era una
+ *    invariante post-hoc que tumbaba el dictamen entero ante cualquier divergencia
+ *    y no la leía nadie.
  *
  * Cuando no hay evidencia que acredite el inicio académico, `cycleStartDate` es
  * `null` y `relationToCycleStart` es `NO_DETERMINABLE`. No se deduce de otras fechas.

@@ -12,7 +12,13 @@
 // =============================================================================
 
 import { describe, expect, it } from 'vitest';
-import { parseAuditResult } from '../src/skills/audit/schema';
+import {
+  deriveCaseCycleStartDate,
+  parseAiAuditAssessment,
+  parseAuditResult,
+  type AiAuditAssessment,
+  type AuditResult,
+} from '../src/skills/audit/schema';
 import { CYCLE_START_FACT_KEY } from '../src/skills/audit/types';
 import { validAuditResult } from './fixtures/audit-result';
 
@@ -87,6 +93,37 @@ function reject(value: unknown): string {
   } catch (error) {
     return error instanceof Error ? error.message : String(error);
   }
+}
+
+/** Idem, pero contra el contrato del MODELO (no contra el del resultado persistido). */
+function rejectAssessment(value: unknown): string {
+  try {
+    parseAiAuditAssessment(value);
+    return '';
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
+/**
+ * Assessment tal como lo emite el MODELO: `validAuditResult` es un resultado ya
+ * persistido (trae `case.cycleStartDate` y metadata), así que se le quita lo que
+ * el modelo nunca emite. Es el shape real que entra a `parseAiAuditAssessment`.
+ */
+function modelAssessment(overrides: Partial<AiAuditAssessment> = {}): AiAuditAssessment {
+  const { case: persistedCase, model: _model, usage: _usage, areaComments: _areaComments, ...assessment } = validAuditResult;
+  const { cycleStartDate: _derived, ...modelCase } = persistedCase;
+  return { ...assessment, case: modelCase, ...overrides };
+}
+
+/** El resultado que el servidor persiste: assessment del modelo + metadata real. */
+function persistedResult(assessment: AiAuditAssessment): AuditResult {
+  return {
+    ...assessment,
+    model: { provider: 'openrouter', model: 'google/gemini-2.5-flash' },
+    usage: validAuditResult.usage,
+    areaComments: [],
+  };
 }
 
 describe('CASO 1 — fecha de matrícula NO es la fecha de inicio de ciclo', () => {
@@ -351,16 +388,59 @@ describe('Coherencia del bloque temporal', () => {
     expect(reject(overconfident)).toContain('confidence');
   });
 
-  it('exige que case.cycleStartDate coincida con temporalAnalysis.cycleStartDate (la UI lee case)', () => {
-    const divergente = assessment({
-      caseStartDate: '2026-08-28',
-      cycleStartDate: '2026-09-28',
-      cycleStartEvidenceIds: ['ev-1'],
-      cycleStartEvidenceText: 'Tu bimestre inicia el lunes 28 de septiembre',
-      relationToCycleStart: 'NO_DETERMINABLE',
-      facts: [MATRICULA_FACT, cycleStartFact('2026-09-28')],
+  // La invariante de igualdad entre case.cycleStartDate y
+  // temporalAnalysis.cycleStartDate es la que tumbó un dictamen en producción: solo
+  // puede comprobarse DESPUÉS de que el modelo respondió, y su fallo tumba el
+  // dictamen entero por un campo que nadie lee. El campo pasa a derivarlo el
+  // servidor, así que la divergencia ya no es representable.
+  it('deriva case.cycleStartDate desde temporalAnalysis cuando el modelo no lo emite', () => {
+    const assessment = parseAiAuditAssessment(
+      modelAssessment({
+        facts: [MATRICULA_FACT, cycleStartFact('2026-09-28')],
+        temporalAnalysis: {
+          cycleStartDate: '2026-09-28',
+          cycleStartEvidenceIds: ['ev-1'],
+          cycleStartEvidenceText: 'Tu bimestre inicia el lunes 28 de septiembre',
+          cancellationRequestDate: '2026-09-24',
+          cancellationRequestEvidenceIds: ['ev-2'],
+          relationToCycleStart: 'ANTES_DEL_INICIO',
+          reasoning: 'La solicitud es anterior al inicio de ciclo acreditado.',
+        },
+      }),
+    );
+
+    const result = deriveCaseCycleStartDate(persistedResult(assessment));
+
+    expect(result.case.cycleStartDate).toBe('2026-09-28');
+    expect(result.case.cycleStartDate).toBe(result.temporalAnalysis.cycleStartDate);
+  });
+
+  it('rechaza un assessment de modelo que aún emite case.cycleStartDate (clave no reconocida)', () => {
+    // La divergencia ya no puede ocurrir: el campo no pertenece al contrato del
+    // modelo, así que emitlo es un error de forma y se rechaza de entrada, sin
+    // esperar a una comprobación posterior que tumbaría el dictamen.
+    const divergente = modelAssessment({
+      case: { ...validAuditResult.case, cycleStartDate: '2026-08-28' },
     });
-    expect(reject(divergente)).toContain('case.cycleStartDate');
+
+    // Se fija la CAUSA del rechazo (clave no reconocida por el contrato), no solo
+    // que mencione el campo: si volviera a existir la invariante de igualdad, este
+    // test pasaría por el motivo equivocado y volvería a existir el defecto.
+    expect(rejectAssessment(divergente)).toMatch(/Unrecognized key/i);
+  });
+
+  it('relee un dictamen heredado sin case.cycleStartDate y lo deriva sin reescribirlo', () => {
+    // Dictamen emitido antes de este cambio y guardado sin el campo: la lectura no
+    // puede romperse (PROJECTION_IS_NOT_THE_DICTAMEN) y la derivación rellena el
+    // hueco con el dato que el propio dictamen ya afirmaba.
+    const { cycleStartDate: _ausente, ...caseHeredado } = validAuditResult.case;
+    const heredado = { ...validAuditResult, case: caseHeredado };
+
+    const parsed = parseAuditResult(heredado);
+
+    expect(parsed.temporalAnalysis.cycleStartDate).toBe('2026-01-12');
+    expect(parsed.case.cycleStartDate).toBeUndefined();
+    expect(deriveCaseCycleStartDate(parsed).case.cycleStartDate).toBe(parsed.temporalAnalysis.cycleStartDate);
   });
 
   it('acepta las cuatro relaciones del vocabulario cerrado y rechaza cualquier otra', () => {

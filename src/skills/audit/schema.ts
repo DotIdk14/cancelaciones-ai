@@ -87,15 +87,44 @@ const ProvisionalResolutionSchema = z.object({
   evidenceIds: z.array(z.string().min(1)),
 }).strict();
 
+/**
+ * Identificación del caso TAL COMO LA VE EL MODELO.
+ *
+ * `.strict()` y sin `cycleStartDate`: esa fecha la deriva el servidor desde
+ * `temporalAnalysis.cycleStartDate` (ver `deriveCaseCycleStartDate`). Pedírsela al
+ * modelo obligaba a comparar dos copias del mismo dato DESPUÉS de que respondiera,
+ * y esa comparación solo puede fallar tumbando el dictamen entero. Nadie leía el
+ * campo: era un peso muerto con una invariante post-hoc como única defensa.
+ *
+ * `.strict()` para que un `cycleStartDate` reintroducido por el modelo sea un
+ * error de forma visible, no una divergencia silenciosa que llegue a `result_json`.
+ */
+const ModelCaseSchema = z
+  .object({
+    matricula: z.string().nullable(),
+    studentName: z.string().nullable(),
+    program: z.string().nullable(),
+    cycle: z.string().nullable(),
+  })
+  .strict();
+
+/**
+ * Identificación del caso TAL COMO SE PERSISTE.
+ *
+ * Lleva `cycleStartDate` porque forma parte del `result_json` ya emitido y debe
+ * seguir releyéndose. NO es `.strict()` por el mismo motivo: un dictamen guardado
+ * con esa clave debe releerse sin romperse (PROJECTION_IS_NOT_THE_DICTAMEN).
+ *
+ * El campo es opcional en la ENTRADA para tolerar filas históricas que no lo
+ * traigan; la derivación del servidor lo rellena.
+ */
+const PersistedCaseSchema = ModelCaseSchema.extend({
+  cycleStartDate: IsoDate.nullable().optional(),
+}).strip();
+
 export const AiAuditAssessmentSchema = z
   .object({
-    case: z.object({
-      matricula: z.string().nullable(),
-      studentName: z.string().nullable(),
-      program: z.string().nullable(),
-      cycle: z.string().nullable(),
-      cycleStartDate: z.string().nullable(),
-    }),
+    case: ModelCaseSchema,
 
     evidenceSummary: z.array(
       z.object({
@@ -166,6 +195,8 @@ export const AreaCommentSnapshotSchema = z.object({
 });
 
 export const AuditResultSchema = AiAuditAssessmentSchema.extend({
+  /** El `case` persistido suma la fecha de inicio; el del modelo no la tiene. */
+  case: PersistedCaseSchema,
   model: z.object({
     provider: z.literal('openrouter'),
     model: z.string(),
@@ -188,6 +219,27 @@ export const AuditResultSchema = AiAuditAssessmentSchema.extend({
 export type AiAuditAssessment = z.infer<typeof AiAuditAssessmentSchema>;
 export type AuditResult = z.infer<typeof AuditResultSchema>;
 
+/**
+ * Rellena `case.cycleStartDate` con la única copia de la fecha que el dictamen
+ * sostiene: `temporalAnalysis.cycleStartDate`, que sí está acreditada con
+ * evidencia, cita y fact propio.
+ *
+ * Es una ASIGNACIÓN, no una comprobación. Antes esta relación era una invariante
+ * post-hoc (`case` debía coincidir con `temporalAnalysis`): el modelo emitía las
+ * dos copias y, si divergían, el dictamen entero moría en ERROR. El campo no lo
+ * leía nadie, así que la divergencia no aportaba nada y solo podía costar una
+ * auditoría.
+ *
+ * Idempotente: aplicarla dos veces sobre el mismo resultado da el mismo valor.
+ * No muta el argumento.
+ */
+export function deriveCaseCycleStartDate(result: AuditResult): AuditResult {
+  return {
+    ...result,
+    case: { ...result.case, cycleStartDate: result.temporalAnalysis.cycleStartDate },
+  };
+}
+
 export function parseAiAuditAssessment(raw: unknown): AiAuditAssessment {
   return parseWithInvalidAiError(AiAuditAssessmentSchema, raw);
 }
@@ -197,7 +249,6 @@ export function parseAuditResult(raw: unknown): AuditResult {
 }
 
 interface ValidatedAssessment {
-  case: { cycleStartDate: string | null };
   facts: Array<{ key: string; value: string | number | boolean | null; confidence: number; evidenceIds: string[]; evidenceText: string | null }>;
   temporalAnalysis: {
     cycleStartDate: string | null;
@@ -414,14 +465,16 @@ function validateOrigin(assessment: ValidatedAssessment): void {
  *     justamente el razonamiento que convertía una baja en BAJA.
  *  3. Una fecha `null` con `evidenceIds` no vacíos referencia evidencia que no
  *     respalda nada.
- *  4. `case.cycleStartDate` es lo que muestra la UI. Si divergiera de
- *     `temporalAnalysis.cycleStartDate`, la pantalla afirmaría una fecha que el
- *     análisis temporal no sostiene.
- *  5. Una fecha de inicio acreditada DEBE tener su fact `cycle_start_date` con
+ *  4. Una fecha de inicio acreditada DEBE tener su fact `cycle_start_date` con
  *     evidencia y cita, y con confianza < 1: una fecha crítica declarada con
  *     certeza absoluta es, por definición, una fecha mal caracterizada.
- *  6. Si la relación es `NO_DETERMINABLE`, el dictamen no puede declararse con
+ *  5. Si la relación es `NO_DETERMINABLE`, el dictamen no puede declararse con
  *     confianza máxima: la cronología crítica quedó sin acreditar.
+ *
+ * `case.cycleStartDate` ya NO se comprueba aquí: no lo emite el modelo y lo deriva
+ * el servidor (`deriveCaseCycleStartDate`) desde esta misma `temporalAnalysis`.
+ * Era una comprobación post-hoc de la que dependía el dictamen entero y no la leía
+ * nadie.
  */
 function validateTemporalCoherence(assessment: ValidatedAssessment): void {
   const temporal = assessment.temporalAnalysis;
@@ -449,10 +502,6 @@ function validateTemporalCoherence(assessment: ValidatedAssessment): void {
     if (temporal.cancellationRequestDate === null) {
       throw new ApiError(502, 'INVALID_AI_RESPONSE', `${path}.relationToCycleStart: ${temporal.relationToCycleStart} exige un cancellationRequestDate acreditado; la comparación es entre la solicitud y el inicio de ciclo`);
     }
-  }
-
-  if (temporal.cycleStartDate !== null && assessment.case.cycleStartDate !== temporal.cycleStartDate) {
-    throw new ApiError(502, 'INVALID_AI_RESPONSE', `INVALID_AI_RESPONSE: case.cycleStartDate debe coincidir con temporalAnalysis.cycleStartDate (${temporal.cycleStartDate}); la UI muestra case.cycleStartDate`);
   }
 
   if (temporal.cycleStartDate !== null) {

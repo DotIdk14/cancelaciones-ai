@@ -34,8 +34,13 @@ describe('provider schema proyectado desde Zod', () => {
       expect(properties).toHaveProperty(field);
       expect(required).toContain(field);
     }
-    const caseSchema = properties.case as { properties: Record<string, { type?: unknown }> };
+    const caseSchema = properties.case as { properties: Record<string, { type?: unknown }>; required: string[] };
     expect(caseSchema.properties.matricula).toEqual({ type: ['string', 'null'] });
+    // El contrato enviado a OpenRouter ya NO exige la fecha de inicio en `case`:
+    // la deriva el servidor. Exigirla aquí era lo que obligaba al modelo a emitir
+    // una segunda copia que solo podía compararse después de su respuesta.
+    expect(caseSchema.properties).not.toHaveProperty('cycleStartDate');
+    expect(caseSchema.required).not.toContain('cycleStartDate');
   });
 
   it('expone el análisis temporal con su vocabulario cerrado de relaciones', () => {

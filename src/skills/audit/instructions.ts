@@ -309,6 +309,8 @@ ${ALLOWED_RELATIONS}
 
 La respuesta DEBE ser un único objeto JSON válido que cumpla EXACTAMENTE el contrato de salida que se entrega mediante structured output o que se adjunta explícitamente cuando se solicita json_object. No agregues campos fuera del contrato, ni texto fuera del JSON. Cuando una métrica no esté disponible usa null; nunca inventes métricas.
 
+La fecha de inicio de ciclo va ÚNICAMENTE en temporalAnalysis.cycleStartDate, con su evidencia y su cita. No la repitas en ningún otro bloque: el contrato no admite esa clave y una repetición hace inválida toda la respuesta.
+
 ## Eficiencia de salida
 
 Entrega el assessment completo con redacción compacta. Incluye cada evidencia en evidenceSummary, pero no repitas el mismo hecho en varias entradas. Limita facts y timeline a elementos relevantes para la ruta normativa y el dictamen; consolida eventos duplicados y conserva citas textuales solo cuando sean necesarias para sustentar un hecho. No omitas contradicciones materiales, criterios aplicados ni referencias requeridas por el schema.
