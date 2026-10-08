@@ -1,0 +1,15 @@
+# Config gitleaks — cancelaciones-ai
+# Reglas globales del entorno: la allowlist es POR RUTA (y commit), nunca global por regla,
+# para no silenciar hallazgos reales en el resto del repo.
+
+title = "gitleaks allowlist — cancelaciones-ai"
+
+# Falso positivo histórico: fixture del test del saneador de logs.
+# El valor 'sk-live-12345' es evidentemente falso (placeholder de 5 dígitos) y es la
+# ENTRADA DEL TEST que demuestra que el logger redacta claves. El archivo ya NO existe
+# en HEAD (monorepo pnpm eliminado); vive solo en el historial público del repo.
+# Fingerprint: 569d8ca3...:packages/shared/src/logger.test.ts:generic-api-key:18
+[[allowlists]]
+description = "Fixture de test del saneador de logs (sk-live-12345), valor falso, archivo eliminado de HEAD"
+commits = ['''^569d8ca3167088b945d7e87a19d732ae8eeb1b66$''']
+paths = ['''packages/shared/src/logger\.test\.ts''']
