@@ -177,6 +177,19 @@ describe('R2/R3/R4 · CSRF en mutaciones (fail-closed antes de tocar auth)', () 
     expect(res.statusCode).toBe(403);
     expect((JSON.parse(res.body) as { error: { category: string } }).error.category).toBe('AUTH_ERROR');
   });
+
+  it('el PATCH del caso tambien exige CSRF: sin Origin responde 403', async () => {
+    // El PATCH de `/api/cases/:id` escribe la fecha de inicio de clases con la
+    // sesion del operador. Es una mutacion mas y tiene que pasar por la misma
+    // puerta: sin ella, otra pagina podria escribir en nombre del operador.
+    const res = makeApiResponse();
+    await caseHandler(
+      makeApiRequest({ method: 'PATCH', query: { caseId: 'c' }, body: {}, headers: {} }),
+      res,
+    );
+    expect(res.statusCode).toBe(403);
+    expect((JSON.parse(res.body) as { error: { category: string } }).error.category).toBe('AUTH_ERROR');
+  });
 });
 
 describe('Comentarios de area · el alcance lo decide el servidor', () => {

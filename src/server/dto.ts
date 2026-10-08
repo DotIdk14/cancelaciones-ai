@@ -26,6 +26,17 @@ export interface CaseDetailDto {
   studentIdentifier: string | null;
   createdAt: string;
   updatedAt: string;
+  /**
+   * Fecha de inicio de clases aportada por una persona, con su procedencia.
+   *
+   * Los tres son `null` mientras nadie la haya capturado, y esa es la razón de
+   * ser de los tres: la fecha sin nombre ni hora no se puede atribuir y no se
+   * puede corregir con criterio. `_by` (el uuid del autor) NO se expone: es dato
+   * interno de auditoría y la interfaz solo necesita mostrar quién la escribió.
+   */
+  cycleStartDate: string | null;
+  cycleStartDateByName: string | null;
+  cycleStartDateAt: string | null;
 }
 
 export interface EvidenceDto {
@@ -181,6 +192,13 @@ export function caseToDetail(row: CaseRow): CaseDetailDto {
     studentIdentifier: row.student_identifier,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    // `?? null` y no el valor directo: las columnas son opcionales en `CaseRow`
+    // para que el `select('*')` siga funcionando si la migración aún no está
+    // aplicada, y una columna ausente no es lo mismo que un `NULL` explícito
+    // para quien lee el DTO.
+    cycleStartDate: row.cycle_start_date ?? null,
+    cycleStartDateByName: row.cycle_start_date_by_name ?? null,
+    cycleStartDateAt: row.cycle_start_date_at ?? null,
   };
 }
 

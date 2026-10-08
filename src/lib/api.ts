@@ -38,6 +38,17 @@ export interface CaseDetail {
   studentIdentifier: string | null;
   createdAt: string;
   updatedAt: string;
+  /**
+   * Fecha de inicio de clases que aportó una persona, con su procedencia.
+   *
+   * OPCIONALES a propósito, como `effectiveResolution` en el listado: un
+   * servidor que todavía no las calcule debe dejar el caso tal como estaba, y
+   * la interfaz no dibuja procedencia si no la recibe. `undefined` y `null`
+   * significan lo mismo aquí: nadie la ha capturado.
+   */
+  cycleStartDate?: string | null;
+  cycleStartDateByName?: string | null;
+  cycleStartDateAt?: string | null;
 }
 
 export interface Evidence {
@@ -426,6 +437,32 @@ export async function getCase(caseId: string): Promise<CaseDetailResponse> {
     comparison: data.comparison ?? null,
     effectiveResolution: data.effectiveResolution ?? null,
   };
+}
+
+/**
+ * Guarda la fecha de inicio de clases que escribió una persona.
+ *
+ * Es un dato humano con procedencia: el servidor guarda la fecha, su autor (el
+ * de la sesión, nunca el que viaje en el cuerpo) y la hora. Guardar dos veces
+ * PISA lo anterior, no acumula (UPSERT).
+ *
+ * NO dispara una re-auditoría (DO_NOT_REPROCESS_AI_UNNECESSARILY): quien la
+ * escribe decide después si hace falta auditar de nuevo. El nombre se RECORTA
+ * antes de viajar por lo mismo que en `saveAreaComment`: el servidor valida con
+ * `.trim()`, así que mandarlo sin recortar convertiría un nombre válido en uno
+ * de 121 caracteres.
+ */
+export async function setCycleStartDate(caseId: string, date: string, byName: string): Promise<CaseDetail> {
+  const data = await request<{ case: CaseDetail }>(
+    casePath(caseId),
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ cycleStartDate: date, cycleStartDateByName: byName.trim() }),
+    },
+    [200],
+  );
+  return data.case;
 }
 
 // -----------------------------------------------------------------------------

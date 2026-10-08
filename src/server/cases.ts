@@ -5,6 +5,7 @@
 // Las funciones server-side usan el cliente privilegiado de InsForge.
 // =============================================================================
 
+import { z } from 'zod';
 import type { InsForgeClient } from './insforge.js';
 import type { CaseStatus, ErrorCategory, EvidenceStatus } from '../skills/audit/types.js';
 import type { CaseReviewRow } from './reviews.js';
@@ -18,6 +19,23 @@ export interface CaseRow {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  /**
+   * Fecha de inicio de ciclo aportada por una persona (migración
+   * `20261008090000_case-cycle-start-date-human.sql`).
+   *
+   * OPCIONALES a propósito, igual que los derivados de `EvidenceRow`: si la
+   * migración aún no está aplicada, el `select('*')` sigue funcionando y el DTO
+   * expone `null` en vez de romperse.
+   *
+   * `_by` es el AUTOR REAL (uuid de `auth.users`) y lo pone el servidor desde la
+   * sesión; `_by_name` es el texto que escribió la persona, solo para mostrar. No
+   * existe nombre de usuario autoritativo en el sistema: es el mismo patrón que
+   * `case_reviews.reviewer_name`.
+   */
+  cycle_start_date?: string | null;
+  cycle_start_date_by?: string | null;
+  cycle_start_date_at?: string | null;
+  cycle_start_date_by_name?: string | null;
 }
 
 export interface CaseSummaryRow extends CaseRow {
@@ -467,5 +485,141 @@ export async function updateCaseDimensions(
   if (dimensions.channel != null) patch.channel = dimensions.channel;
   if (Object.keys(patch).length === 0) return;
   const { error } = await client.database.from('cases').update(patch).eq('id', caseId);
+  if (error) dbError(error);
+}
+
+// =============================================================================
+// Fecha de inicio de ciclo aportada por una persona.
+// =============================================================================
+//
+// QUÉ ES Y QUÉ NO ES
+//   Es la fecha de inicio de clases que una persona escribió porque el dictamen
+//   no pudo acreditarla con la evidencia del expediente. Es un DATO CON
+//   PROCEDENCIA (quién y cuándo), no evidencia del caso: no proviene de un
+//   documento, no se cita en `audits.result_json` y no crea criterio. El
+//   criterio sigue siendo el procedimiento V5 del owner (POLICY_IS_IMMUTABLE).
+//
+// SOBRE EL RANGO: CABO DE COHERENCIA, NO NORMA
+//   La política no dice qué fechas son admisibles y aquí no se inventa ninguna.
+//   Lo único que se rechaza es lo que no es una fecha (formato, calendario), lo
+//   que está fuera del mundo del producto (año 2000-2100) y lo que todavía no
+//   ha pasado. Poner más restricciones sobre QUÉ fecha es válida sería
+//   inventar política.
+
+/** Máximo del nombre escrito por la persona. Igual que `reviewer_name`. */
+export const CYCLE_START_DATE_BY_NAME_MAX = 120;
+const CYCLE_START_DATE_MIN_YEAR = 2000;
+const CYCLE_START_DATE_MAX_YEAR = 2100;
+
+/** ISO estricto: `21/08/2026` y `2026-8-2` no lo pasan. */
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * ¿Es una fecha que existe en el calendario?
+ *
+ * El formato y el rango no bastan: el patrón ISO acepta `2026-02-30` y
+ * `2025-02-29`, y Postgres los rechaza con 22007. Sin esta comprobación ese
+ * error llegaría al cliente como un 500 en vez de un 400 con mensaje útil.
+ */
+function isRealCalendarDate(value: string): boolean {
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime())) return false;
+  // Ida y vuelta: cubre también el desbordamiento (29 de febrero inexistente).
+  return parsed.toISOString().slice(0, 10) === value;
+}
+
+/** Hoy en UTC. El servidor corre en UTC, así que el corte de "no futura" es el día. */
+function todayIso(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * Body de `PATCH /api/cases/:caseId`.
+ *
+ * `.strict()` por el mismo motivo que en el resto del proyecto: el autor y la
+ * hora los pone el servidor desde la sesión, y aceptarlos en el cuerpo sería
+ * permitir que el cliente elija quién capturó la fecha.
+ */
+const CycleStartDateInputSchema = z
+  .object({
+    cycleStartDate: z
+      .string()
+      .regex(ISO_DATE_PATTERN, 'La fecha de inicio debe tener formato AAAA-MM-DD')
+      .refine(isRealCalendarDate, 'La fecha de inicio no existe en el calendario')
+      .refine(
+        (value) => {
+          const year = Number(value.slice(0, 4));
+          return year >= CYCLE_START_DATE_MIN_YEAR && year <= CYCLE_START_DATE_MAX_YEAR;
+        },
+        `El año de la fecha de inicio debe estar entre ${CYCLE_START_DATE_MIN_YEAR} y ${CYCLE_START_DATE_MAX_YEAR}`,
+      )
+      .refine((value) => value <= todayIso(), 'La fecha de inicio de clases no puede ser futura'),
+    // `.trim()` ANTES de `.min(1)`: un nombre de espacios no es un nombre, es una
+    // ausencia, y sin ese orden pasaría la validación y llegaría vacío.
+    cycleStartDateByName: z
+      .string()
+      .trim()
+      .min(1, 'Falta el nombre de quien captura la fecha')
+      .max(
+        CYCLE_START_DATE_BY_NAME_MAX,
+        `El nombre no puede superar ${CYCLE_START_DATE_BY_NAME_MAX} caracteres`,
+      ),
+  })
+  .strict();
+
+export interface CaseCycleStartDateInput {
+  cycleStartDate: string;
+  cycleStartDateByName: string;
+}
+
+/**
+ * Valida el cuerpo ANTES de tocar la base (VALIDATE_BEFORE_EFFECT).
+ *
+ * Traduce los fallos de Zod al `ApiError` que `handleRoute` ya sabe convertir en
+ * un 400 con mensaje en español.
+ */
+export function parseCaseCycleStartDateInput(raw: unknown): CaseCycleStartDateInput {
+  const parsed = CycleStartDateInputSchema.safeParse(raw);
+  if (!parsed.success) {
+    const detail = parsed.error.issues
+      .slice(0, 3)
+      .map((issue) => `${issue.path.join('.') || 'cycleStartDate'}: ${issue.message}`)
+      .join(' | ');
+    throw new ApiError(400, 'VALIDATION_ERROR', `VALIDATION_ERROR: ${detail}`);
+  }
+  return parsed.data;
+}
+
+/**
+ * Guarda la fecha de inicio que aportó una persona, con su autor y su hora.
+ *
+ * Es un UPSERT sobre la fila del caso, no un histórico: guardar dos veces PISA
+ * fecha, autor, nombre y hora. Mismo criterio que los comentarios por área (una
+ * fila vigente, no un registro), y como la fila del caso es una sola no puede
+ * duplicarse nada.
+ *
+ * `updated_at` no se escribe aquí a mano: lo mueve el disparador
+ * `cases_set_updated_at` del baseline, igual que en cualquier otra escritura
+ * sobre `cases`. Poner la columna además del trigger sería una segunda fuente
+ * de verdad para la misma marca.
+ *
+ * El alcance NO lo decide esta función: quien la llama ya resolvió el caso con
+ * `getScopedCaseOr404` + `assertCaseOwner`, porque la RLS no protege esta
+ * escritura (el cliente del servidor escribe como superusuario).
+ */
+export async function setCaseCycleStartDate(
+  client: InsForgeClient,
+  caseId: string,
+  value: { date: string; byUserId: string; byName: string },
+): Promise<void> {
+  const { error } = await client.database
+    .from('cases')
+    .update({
+      cycle_start_date: value.date,
+      cycle_start_date_by: value.byUserId,
+      cycle_start_date_at: new Date().toISOString(),
+      cycle_start_date_by_name: value.byName,
+    })
+    .eq('id', caseId);
   if (error) dbError(error);
 }

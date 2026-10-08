@@ -183,6 +183,16 @@ export interface FakeDatabase {
   client: InsForgeClient;
   /** Copia de las filas de una tabla (para observar qué se escribió). */
   rows(table: string): Row[];
+  /**
+   * Siembra una fila CRUDO, sin pasar por el cliente ni por una función de
+   * producción.
+   *
+   * Hace falta cuando la fila que hay que sembrar no se puede crear con la
+   * API real (un `cases` con `id` y `created_by` concretos, por ejemplo). Ojo:
+   * `rows()` devuelve COPIAS, así que hacer `db.rows('cases').push(...)` no
+   * siembra nada y el fallo se manifiesta como un 404 más adelante.
+   */
+  seed(table: string, row: Row): void;
   reset(): void;
 }
 
@@ -191,6 +201,9 @@ export function createFakeDatabase(): FakeDatabase {
   return {
     client: db.client(),
     rows: (table) => db.rows(table).map((row) => ({ ...row })),
+    seed: (table, row) => {
+      db.rows(table).push({ ...row });
+    },
     reset: () => db.reset(),
   };
 }

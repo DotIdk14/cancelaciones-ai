@@ -1,0 +1,32 @@
+[
+  [
+    "las 4 columnas de cycle_start_date existen con su tipo y son NULL-able",
+    "SELECT count(*)::int AS total FROM information_schema.columns WHERE table_schema='public' AND table_name='cases' AND ((column_name='cycle_start_date' AND data_type='date' AND is_nullable='YES') OR (column_name='cycle_start_date_by' AND data_type='uuid' AND is_nullable='YES') OR (column_name='cycle_start_date_at' AND data_type='timestamp with time zone' AND is_nullable='YES') OR (column_name='cycle_start_date_by_name' AND data_type='text' AND is_nullable='YES'))",
+    ["\"total\": 4"]
+  ],
+  [
+    "cycle_start_date_at trae la hora por defecto (una fila escrita por otra vía no queda sin marca)",
+    "SELECT count(*)::int AS total FROM information_schema.columns WHERE table_schema='public' AND table_name='cases' AND column_name='cycle_start_date_at' AND column_default LIKE '%now()%'",
+    ["\"total\": 1"]
+  ],
+  [
+    "el autor real es una FK a auth.users, no texto",
+    "SELECT count(*)::int AS total FROM pg_constraint WHERE conrelid='public.cases'::regclass AND contype='f' AND confrelid='auth.users'::regclass AND pg_get_constraintdef(oid) LIKE '%cycle_start_date_by%'",
+    ["\"total\": 1"]
+  ],
+  [
+    "cases sigue con RLS habilitada (esta migracion no la toca)",
+    "SELECT count(*)::int AS total FROM pg_class c WHERE c.oid='public.cases'::regclass AND c.relrowsecurity",
+    ["\"total\": 1"]
+  ],
+  [
+    "cases sigue con sus 4 politicas propias, sin cambios",
+    "SELECT count(*)::int AS total FROM pg_policy WHERE polrelid='public.cases'::regclass",
+    ["\"total\": 4"]
+  ],
+  [
+    "el disparador cases_set_updated_at sigue: la escritura mueve updated_at",
+    "SELECT count(*)::int AS total FROM pg_trigger WHERE tgrelid='public.cases'::regclass AND NOT tgisinternal AND tgname='cases_set_updated_at'",
+    ["\"total\": 1"]
+  ]
+]

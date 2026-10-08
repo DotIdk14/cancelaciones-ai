@@ -1,11 +1,15 @@
-import { handleRoute, ok, methodNotAllowed, requiredUuid } from '../../../src/server/http.js';
+import { handleRoute, ok, methodNotAllowed, readJsonBody, requiredUuid } from '../../../src/server/http.js';
 import { createServerClient } from '../../../src/server/insforge.js';
 import {
+  assertCaseOwner,
+  getCaseOr404,
   getScopedCaseOr404,
   latestAudit,
   latestCompletedAudit,
   listAuditsByCase,
   listEvidenceRows,
+  parseCaseCycleStartDateInput,
+  setCaseCycleStartDate,
 } from '../../../src/server/cases.js';
 import { getCaseReview, listComparisonsForCase } from '../../../src/server/reviews.js';
 import {
@@ -20,10 +24,46 @@ import {
 import { refreshTranscriptions } from '../../../src/server/audit-service.js';
 import { healStaleComparison } from '../../../src/server/comparison-service.js';
 
-// GET /api/cases/:caseId → { case, evidences, audit, audits, review, comparison, effectiveResolution }
+// GET   /api/cases/:caseId → { case, evidences, audit, audits, review, comparison, effectiveResolution }
+// PATCH /api/cases/:caseId → 200 { case } | 400 | 404
+//
+// POR QUÉ UN MÉTODO Y NO UN ARCHIVO NUEVO: Vercel Hobby admite 12 Functions y el
+// proyecto está en 12/12. Este PATCH es el que guarda la fecha de inicio de
+// clases que aporta una persona cuando el dictamen no pudo acreditarla; como
+// método de una ruta que ya existe, no gasta una Function (HOBBY_FUNCTION_BUDGET).
+//
+// Sin lógica de negocio: valida el body con Zod, delega y traduce errores. El
+// alcance del caso lo resuelve el SERVIDOR (`getScopedCaseOr404` +
+// `assertCaseOwner`), no la RLS: el cliente de la base es superusuario y para él
+// las políticas no aplican. Un caso ajeno responde 404, nunca 403
+// (NO_RESOURCE_EXISTENCE_LEAK), y el alcance se resuelve ANTES de validar el
+// cuerpo: un 400 en un caso ajeno confirmaría que el caso existe.
 export default handleRoute(async (req, res) => {
+  if (req.method === 'PATCH') {
+    const client = createServerClient();
+    const caseId = requiredUuid(req.query, 'caseId');
+    // Un coordinador puede LEER cualquier caso (visibilidad global de auditoría),
+    // así que el alcance de escritura no se resuelve solo al leer.
+    const caseRow = await getScopedCaseOr404(client, caseId, req.auth!);
+    assertCaseOwner(caseRow, req.auth!);
+
+    const input = parseCaseCycleStartDateInput(await readJsonBody(req));
+    await setCaseCycleStartDate(client, caseId, {
+      date: input.cycleStartDate,
+      byUserId: req.auth!.sub,
+      byName: input.cycleStartDateByName,
+    });
+
+    // Relectura para devolver el caso como quedó: `setCaseCycleStartDate` no
+    // devuelve la fila (misma firma que el resto de escrituras de `cases`) y
+    // responder con lo que el cliente ya tenía sería mentir sobre el guardado.
+    // El alcance ya está resuelto sobre este mismo id, así que no se repite.
+    ok(res, { case: caseToDetail(await getCaseOr404(client, caseId)) });
+    return;
+  }
+
   if (req.method !== 'GET') {
-    methodNotAllowed(req, res);
+    methodNotAllowed(req, res, 'GET, PATCH');
     return;
   }
   const caseId = requiredUuid(req.query, 'caseId');
