@@ -1,11 +1,15 @@
 // =============================================================================
 // Subida de evidencias. El endpoint NO usa multipart: se envía el `File` crudo
 // con `content-type` = mime del archivo y `x-file-name` = nombre URL-encoded.
+//
+// La secuencia (carga secuencial, estado y error por archivo, anuncio de
+// progreso) vive en `useEvidenceUpload`: es la MISMA que usa el alta de caso,
+// para no duplicar la lógica de subida en dos pantallas.
 // =============================================================================
 
 import type { ChangeEvent, ReactNode } from 'react';
-import { useId, useRef, useState } from 'react';
-import { toErrorState, uploadEvidence } from '../lib/api';
+import { useId, useRef } from 'react';
+import { useEvidenceUpload } from '../lib/useEvidenceUpload';
 import { formatBytes } from '../lib/format';
 import { EVIDENCE_ACCEPT } from '../lib/labels';
 import { Panel, Spinner } from './ui';
@@ -16,73 +20,19 @@ export interface EvidenceUploaderProps {
   disabled?: boolean;
 }
 
-type UploadStatus = 'uploading' | 'done' | 'error';
-
-interface UploadItem {
-  id: string;
-  name: string;
-  sizeBytes: number;
-  status: UploadStatus;
-  message?: string;
-  category?: string;
-}
-
 export function EvidenceUploader({ caseId, onUploaded, disabled = false }: EvidenceUploaderProps): ReactNode {
   const inputId = useId();
   const hintId = `${inputId}-hint`;
-  const [items, setItems] = useState<UploadItem[]>([]);
-  const [busy, setBusy] = useState(false);
-  const [announcement, setAnnouncement] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
-
-  function patch(id: string, changes: Partial<UploadItem>): void {
-    setItems((prev) => prev.map((item) => (item.id === id ? { ...item, ...changes } : item)));
-  }
-
-  function clearFinished(): void {
-    setItems((prev) => prev.filter((item) => item.status === 'uploading'));
-  }
+  const { items, busy, announcement, runUploads, clearFinished } = useEvidenceUpload();
 
   async function handleChange(event: ChangeEvent<HTMLInputElement>): Promise<void> {
     const files = Array.from(event.target.files ?? []);
     if (files.length === 0) return;
 
-    const queued: UploadItem[] = files.map((file, index) => ({
-      id: `${Date.now()}-${index}-${file.name}`,
-      name: file.name,
-      sizeBytes: file.size,
-      status: 'uploading',
-    }));
-    setItems((prev) => [...queued, ...prev]);
-    setBusy(true);
-    setAnnouncement(`Subiendo ${files.length} archivo${files.length === 1 ? '' : 's'}…`);
-
-    const failures: string[] = [];
-    let ok = 0;
-
-    // Secuencial: evita ráfagas de subidas grandes y da progreso legible.
-    for (let i = 0; i < files.length; i += 1) {
-      const file = files[i];
-      const item = queued[i];
-      if (!file || !item) continue;
-      try {
-        await uploadEvidence(caseId, file);
-        patch(item.id, { status: 'done' });
-        ok += 1;
-      } catch (err) {
-        const state = toErrorState(err);
-        patch(item.id, { status: 'error', message: state.message, category: state.category });
-        failures.push(file.name);
-      }
-    }
-
-    setBusy(false);
+    await runUploads(caseId, files);
     // Permite volver a seleccionar el mismo archivo.
     if (inputRef.current) inputRef.current.value = '';
-
-    const parts = [`${ok} de ${files.length} archivo(s) subidos.`];
-    if (failures.length > 0) parts.push(`Fallaron: ${failures.join(', ')}.`);
-    setAnnouncement(parts.join(' '));
 
     if (onUploaded) await onUploaded();
   }
