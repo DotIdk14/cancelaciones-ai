@@ -280,6 +280,79 @@ describe('PATCH /api/cases/:id · la fecha se valida antes de escribir', () => {
 
     expect(res.statusCode).toBe(400);
   });
+
+  it('un formato mal tecleado reporta SOLO el formato, no los fallos derivados', async () => {
+    // `21/08/2026` es el error más probable de todos porque es el de teclear. Con
+    // una cadena de `.refine()` el mensaje traía tres avisos a la vez: el de
+    // formato, "no existe en el calendario" y "no puede ser futura". Los dos
+    // últimos son FALSOS (derivan de no ser ISO) y hacen que la persona dude de
+    // qué corregir. Aquí se exige que el mensaje sea el del primer fallo.
+    seedCase();
+
+    const { res, payload } = await patchCase({ cycleStartDate: '21/08/2026', cycleStartDateByName: 'Ana' });
+
+    expect(res.statusCode).toBe(400);
+    const message = payload.error?.message ?? '';
+    expect(message).toContain('formato');
+    expect(message).not.toContain('calendario');
+    expect(message).not.toContain('futura');
+  });
+
+  it('una fecha que no existe en el calendario reporta solo el calendario', async () => {
+    // El orden de los requisitos no cambia: cada uno se sigue evaluando, pero
+    // solo se reporta el primero que falla.
+    seedCase();
+
+    const { payload } = await patchCase({ cycleStartDate: '2026-02-30', cycleStartDateByName: 'Ana' });
+
+    const message = payload.error?.message ?? '';
+    expect(message).toContain('calendario');
+    expect(message).not.toContain('formato');
+  });
+
+  it('una fecha futura reporta solo que es futura', async () => {
+    seedCase();
+    // Futura PERO dentro del rango: hay que mover el reloj, porque `2999` es
+    // también "año fuera de rango" y el mensaje que se lee es el del primer
+    // fallo, que en ese orden es el del año. Sin esto la prueba no distinguiría
+    // "reporta el primer fallo" de "reporta el futuro".
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-01T12:00:00.000Z'));
+    try {
+      const { payload } = await patchCase({ cycleStartDate: '2026-10-02', cycleStartDateByName: 'Ana' });
+
+      const message = payload.error?.message ?? '';
+      expect(message).toContain('futura');
+      expect(message).not.toContain('calendario');
+      expect(message).not.toContain('formato');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('una fecha futura fuera de rango reporta el año, no el futuro (primer fallo)', async () => {
+    // El orden de los requisitos es explícito: formato, calendario, año,
+    // futuro. `2999-12-31` falla en dos, y el que se reporta es el primero.
+    seedCase();
+
+    const { payload } = await patchCase({ cycleStartDate: '2999-12-31', cycleStartDateByName: 'Ana' });
+
+    const message = payload.error?.message ?? '';
+    expect(message).toContain('2000');
+    expect(message).not.toContain('futura');
+    expect(message).not.toContain('calendario');
+  });
+
+  it('el año fuera de rango reporta el rango, no el calendario', async () => {
+    seedCase();
+
+    const { payload } = await patchCase({ cycleStartDate: '1999-12-31', cycleStartDateByName: 'Ana' });
+
+    const message = payload.error?.message ?? '';
+    expect(message).toContain('2000');
+    expect(message).toContain('2100');
+    expect(message).not.toContain('calendario');
+  });
 });
 
 // --------------------------------------------------------------------- alcance
@@ -381,6 +454,30 @@ describe('PATCH /api/cases/:id · guardar la fecha con autor y hora', () => {
     expect(row?.created_by).toBe(FAKE_USER_SUB);
   });
 
+  it('escribe SOLO en el caso pedido: otro caso tuyo no se toca', async () => {
+    // El alcance del UPDATE (`.eq('id', caseId)`) es lo que impide que la fecha
+    // capturada en un caso se proyecte a todos los casos del mismo dueño. Sin
+    // este filtro, la fila del otro caso también habría quedado con fecha,
+    // autor y hora, y no habría forma de notarlo.
+    seedCase({ id: 'c-1' });
+    seedCase({ id: 'c-2' });
+
+    const { res } = await patchCase(
+      { cycleStartDate: FECHA, cycleStartDateByName: 'Ana' },
+      { query: { caseId: 'c-1' } },
+    );
+
+    expect(res.statusCode).toBe(200);
+    const escrito = casesRows().find((row) => row.id === 'c-1');
+    const intacto = casesRows().find((row) => row.id === 'c-2');
+    expect(escrito?.cycle_start_date).toBe(FECHA);
+    expect(escrito?.cycle_start_date_by).toBe(FAKE_USER_SUB);
+    expect(intacto?.cycle_start_date).toBeNull();
+    expect(intacto?.cycle_start_date_by).toBeNull();
+    expect(intacto?.cycle_start_date_at).toBeNull();
+    expect(intacto?.cycle_start_date_by_name).toBeNull();
+  });
+
   it('escribir dos veces pisa fecha, autor y nombre, y NO duplica nada', async () => {
     // Guardar es un UPSERT sobre la fila del caso: no hay tabla de histórico y
     // la fila del caso es una sola. Es el caso de uso real de "corregí la
@@ -432,5 +529,72 @@ describe('PATCH /api/cases/:id · no gasta una Function', () => {
     await caseHandler(makeApiRequest({ method: 'GET' }), res);
 
     expect(res.statusCode).toBe(200);
+  });
+});
+
+// ------------------------------------------------------------------- privacidad
+
+/**
+ * Lo que la interfaz puede ver de la captura, y lo que no.
+ *
+ * `cycle_start_date_by` es el AUTOR REAL y es dato interno con sello de
+ * auditoría: sirve para auditar quién escribió, no para mostrarse. Publicarlo
+ * convertiría un identificador de identidad en un dato de pantalla, y la
+ * vista de procedencia ya la da `cycleStartDateByName` (el texto que la persona
+ * escribió, igual que `reviewerName` en la revisión humana).
+ *
+ * Por eso `CaseDetailDto` expone fecha, nombre y hora, y NADA más: el uuid se
+ * queda en la base.
+ */
+describe('procedencia de la fecha · lo interno no sale al cliente', () => {
+  it('el PATCH responde con la fecha, el nombre y la hora, y no con el autor', async () => {
+    seedCase();
+
+    const { res } = await patchCase({ cycleStartDate: FECHA, cycleStartDateByName: 'Ana' });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.body;
+    // El sub del usuario es lo que se guardó en la base: no debe viajar.
+    expect(body).not.toContain(FAKE_USER_SUB);
+    // Tampoco debe existir una propiedad que lo exponga con otro nombre.
+    const payload = JSON.parse(body) as { case: Record<string, unknown> };
+    expect(payload.case).not.toHaveProperty('cycleStartDateBy');
+    expect(Object.keys(payload.case).sort()).toEqual(
+      expect.arrayContaining(['cycleStartDate', 'cycleStartDateByName', 'cycleStartDateAt']),
+    );
+    // Y el DTO del caso no arrastra metadata técnica del proveedor: la captura
+    // es un dato del caso, no una auditoría.
+    expect(body).not.toContain('provider_metadata');
+    expect(body).not.toContain('providerMetadata');
+  });
+
+  it('el GET tampoco expone el autor, ni la marca de captura se cuela como auditoría', async () => {
+    seedCase({ cycle_start_date: FECHA, cycle_start_date_by: FAKE_USER_SUB, cycle_start_date_by_name: 'Ana', cycle_start_date_at: '2026-08-21T12:00:00.000Z' });
+
+    const res = makeApiResponse();
+    await caseHandler(makeApiRequest({ method: 'GET' }), res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).not.toContain(FAKE_USER_SUB);
+    const payload = JSON.parse(res.body) as { case: Record<string, unknown> };
+    expect(payload.case).not.toHaveProperty('cycleStartDateBy');
+    expect(payload.case.cycleStartDate).toBe(FECHA);
+    expect(payload.case.cycleStartDateByName).toBe('Ana');
+    expect(payload.case.cycleStartDateAt).toBe('2026-08-21T12:00:00.000Z');
+  });
+
+  it('un caso sin fecha capturada expone null en los tres, no undefined', async () => {
+    // `undefined` y `null` no son lo mismo para la interfaz: con `undefined` un
+    // `?? null` en el consumidor escondería "nadie la capturó" detrás de un
+    // campo ausente. El DTO los publica siempre.
+    seedCase();
+
+    const res = makeApiResponse();
+    await caseHandler(makeApiRequest({ method: 'GET' }), res);
+
+    const payload = JSON.parse(res.body) as { case: Record<string, unknown> };
+    expect(payload.case.cycleStartDate).toBeNull();
+    expect(payload.case.cycleStartDateByName).toBeNull();
+    expect(payload.case.cycleStartDateAt).toBeNull();
   });
 });

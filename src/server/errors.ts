@@ -52,6 +52,16 @@ function sanitizeErrorMessage(message: string): string {
 }
 
 /**
+ * Códigos con los que PostgREST/Postgres reportan "esta columna no existe".
+ *
+ * `42703` es el SQLSTATE de `undefined_column` y `PGRST204` el código propio de
+ * PostgREST. Los dos significan lo mismo desde el punto de vista de quien llama:
+ * el servidor está speaking de un esquema que la base no tiene, y eso NO es un
+ * error del cliente.
+ */
+const MISSING_COLUMN_CODES = new Set(['42703', 'PGRST204']);
+
+/**
  * Convierte errores del SDK (InsForgeError / PostgrestError) en ApiError.
  * Trata el código PGRST116 (fila no encontrada) como 404.
  */
@@ -65,6 +75,20 @@ export function mapProviderError(
 
   if (code === 'PGRST116') {
     return new ApiError(404, 'NOT_FOUND', 'Registro no encontrado');
+  }
+
+  // UNA MIGRACIÓN SIN APLICAR, no una petición del usuario. Sin esta rama el
+  // 400 caía en el mapeo genérico de abajo y quedaba etiquetado
+  // VALIDATION_ERROR: el operador leía "revisa el formato de la fecha" cuando
+  // lo que pasaba es que el despliegue está incompleto, y el 400 invitaba a
+  // corregir algo que no estaba mal (FAIL_CLOSED: sigue fallando cerrado, solo
+  // que con la categoría honesta y un 503 que sí dice "reintenta más tarde").
+  if (code !== undefined && MISSING_COLUMN_CODES.has(code)) {
+    return new ApiError(
+      503,
+      'DATABASE_ERROR',
+      'Falta aplicar una migración en la base de datos. Reintentar no lo resuelve: es un despliegue incompleto.',
+    );
   }
 
   if (statusCode >= 500) {

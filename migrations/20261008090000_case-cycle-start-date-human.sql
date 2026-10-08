@@ -82,7 +82,7 @@ ALTER TABLE public.cases
 -- -----------------------------------------------------------------------------
 
 COMMENT ON COLUMN public.cases.cycle_start_date IS
-  'Fecha de inicio de clases aportada por una persona (AAAA-MM-DD). DATO HUMANO, NO EVIDENCIA: no proviene de un documento del expediente ni se cita en audits.result_json. NULL = nadie la ha capturado. Validada con Zod en el servidor antes de escribir.';
+  'Fecha de inicio de clases aportada por una persona (formato ISO, 4 digitos, guion, 2, guion, 2). DATO HUMANO, NO EVIDENCIA: no proviene de un documento del expediente ni se cita en audits.result_json. NULL = nadie la ha capturado. Validada con Zod en el servidor antes de escribir.';
 
 COMMENT ON COLUMN public.cases.cycle_start_date_by IS
   'UUID de auth.users de quien capturo la fecha. Es el autor real y el unico con sello de auditoria; lo escribe el servidor desde la sesion, nunca el cuerpo del PATCH. Mismo criterio que created_by.';

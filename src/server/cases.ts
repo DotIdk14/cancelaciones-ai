@@ -540,20 +540,49 @@ function todayIso(): string {
  * hora los pone el servidor desde la sesión, y aceptarlos en el cuerpo sería
  * permitir que el cliente elija quién capturó la fecha.
  */
+/**
+ * Valida la fecha de inicio en ORDEN y se detiene en el primer fallo.
+ *
+ * Por qué `superRefine` y no una cadena de `.refine()`: cada `.refine()` de Zod
+ * corre siempre, así que una cadena no para. Con `21/08/2026` (el error más
+ * probable, porque es el de teclear) el operador leía TRES avisos a la vez:
+ * "formato AAAA-MM-DD", "no existe en el calendario" y "no puede ser futura" —
+ * dos de ellos derivados de la primera y falsos. Tres mensajes contradictorios
+ * hacen que una persona dude de qué corregir.
+ *
+ * El orden es el que ayuda a corregir: primero el formato, porque sin él no hay
+ * fecha que pueda ser real, estar en rango ni no ser futura. El orden de los
+ * REQUISITOS no cambia: son los mismos cuatro, todos siguen evalúándose cuando
+ * los anteriores pasan.
+ */
+function checkCycleStartDate(
+  value: string,
+  ctx: z.RefinementCtx,
+): void {
+  if (!ISO_DATE_PATTERN.test(value)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'La fecha de inicio debe tener formato AAAA-MM-DD' });
+    return;
+  }
+  if (!isRealCalendarDate(value)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'La fecha de inicio no existe en el calendario' });
+    return;
+  }
+  const year = Number(value.slice(0, 4));
+  if (year < CYCLE_START_DATE_MIN_YEAR || year > CYCLE_START_DATE_MAX_YEAR) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `El año de la fecha de inicio debe estar entre ${CYCLE_START_DATE_MIN_YEAR} y ${CYCLE_START_DATE_MAX_YEAR}`,
+    });
+    return;
+  }
+  if (value > todayIso()) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'La fecha de inicio de clases no puede ser futura' });
+  }
+}
+
 const CycleStartDateInputSchema = z
   .object({
-    cycleStartDate: z
-      .string()
-      .regex(ISO_DATE_PATTERN, 'La fecha de inicio debe tener formato AAAA-MM-DD')
-      .refine(isRealCalendarDate, 'La fecha de inicio no existe en el calendario')
-      .refine(
-        (value) => {
-          const year = Number(value.slice(0, 4));
-          return year >= CYCLE_START_DATE_MIN_YEAR && year <= CYCLE_START_DATE_MAX_YEAR;
-        },
-        `El año de la fecha de inicio debe estar entre ${CYCLE_START_DATE_MIN_YEAR} y ${CYCLE_START_DATE_MAX_YEAR}`,
-      )
-      .refine((value) => value <= todayIso(), 'La fecha de inicio de clases no puede ser futura'),
+    cycleStartDate: z.string().superRefine(checkCycleStartDate),
     // `.trim()` ANTES de `.min(1)`: un nombre de espacios no es un nombre, es una
     // ausencia, y sin ese orden pasaría la validación y llegaría vacío.
     cycleStartDateByName: z

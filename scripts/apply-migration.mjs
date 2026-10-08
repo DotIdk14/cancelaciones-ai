@@ -114,7 +114,19 @@ function splitOutsideLiterals(sql) {
 }
 
 /**
- * Quita los comentarios de línea.
+ * Quita los comentarios de línea, SIN tocar los que están dentro de un literal.
+ *
+ * Por qué recorre carácter a carácter en vez de usar una regex: un literal de
+ * texto puede contener `--` legítimamente. El caso real que motivó esto es un
+ * `COMMENT ON COLUMN ... IS '... (AAAA-MM-DD) ...'`: un `--` NAIVE borra desde
+ * ahí hasta el fin de línea, se come el cierre de la comilla y con él el `;`, y
+ * el troceado siguiente mete el resto del archivo dentro del literal. Las cuatro
+ * columnas se agregan y la migración muere a medias: el peor resultado posible,
+ * porque parece aplicada.
+ *
+ * Reutiliza la misma lógica de comillas que `splitOutsideLiterals`: la comilla
+ * simple abre y cierra literal, y `''` dentro de un literal es un escapado, no
+ * un cierre (por eso los índices impares importan).
  *
  * Se eliminan ANTES de trocear, y el orden importa mucho: un `;` puede quedar
  * DENTRO de un comentario (los textos de estas migraciones los traen), y si se
@@ -122,7 +134,36 @@ function splitOutsideLiterals(sql) {
  * resultante empezaría por texto de comentario en lugar de por DDL.
  */
 function stripComments(sql) {
-  return sql.replace(/--[^\n]*/g, '');
+  let result = '';
+  let inLiteral = false;
+
+  for (let index = 0; index < sql.length; index += 1) {
+    const char = sql[index];
+
+    if (char === "'") {
+      // `''` es un literal escapado, no el cierre del que estamos dentro.
+      const isEscaped = index > 0 && sql[index - 1] === "'" && inLiteral;
+      if (inLiteral && isEscaped) {
+        result += char;
+        continue;
+      }
+      inLiteral = !inLiteral;
+      result += char;
+      continue;
+    }
+
+    // Fuera de un literal, `--` abre un comentario que llega hasta el fin de línea.
+    if (!inLiteral && char === '-' && sql[index + 1] === '-') {
+      const endOfLine = sql.indexOf('\n', index);
+      if (endOfLine === -1) break; // Comentario hasta el final del archivo.
+      index = endOfLine - 1; // El propio `\n` se conserva en la salida.
+      continue;
+    }
+
+    result += char;
+  }
+
+  return result;
 }
 
 /** Nombre legible de una sentencia: su primera línea de código real. */
