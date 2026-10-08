@@ -128,6 +128,16 @@ describe('carga · validaciones que impiden tocar Storage', () => {
     expect(submitTranscription).not.toHaveBeenCalled();
   });
 
+  it('415 incluye mensaje accionable sobre contenido/extensión inconsistente', async () => {
+    const res = await upload(EXE, 'image/png', 'captura.png');
+
+    expect(res.statusCode).toBe(415);
+    const body = JSON.parse(res.body);
+    expect(body.error.category).toBe('UPLOAD_ERROR');
+    expect(body.error.message).toMatch(/contenido|extensión|tipo declarado/i);
+    expect(body.error.message).toMatch(/coincida|dañado|corrupto/i);
+  });
+
   it('400 y nada subido con un tipo no permitido', async () => {
     const res = await upload(Buffer.from('#!/bin/sh\nrm -rf /'), 'application/x-sh', 'guion.sh');
 

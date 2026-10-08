@@ -72,7 +72,12 @@ export default handleRoute(async (req, res) => {
   // coinciden (un .exe renombrado a .png, un HTML con image/png, etc.).
   const signature = verifyFileSignature(buffer, mimeType);
   if (!signature.ok) {
-    throw new ApiError(415, 'UPLOAD_ERROR', signature.reason ?? 'El archivo no coincide con su tipo declarado');
+    const detail = signature.reason ?? 'El archivo no coincide con su tipo declarado';
+    throw new ApiError(
+      415,
+      'UPLOAD_ERROR',
+      `${detail}. Verifica que la extensión del archivo coincida con su contenido real y que el archivo no esté dañado.`,
+    );
   }
 
   // Audio: la transcripción es una operación PAGADA, así que la cuota se cobra
