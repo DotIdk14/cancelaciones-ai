@@ -27,6 +27,7 @@ import type { AuditResultType } from '../skills/audit/types';
 import { EvidenceList } from './EvidenceList';
 import { EvidenceUploader } from './EvidenceUploader';
 import { AreaQuickComments } from './AreaQuickComments';
+import { AUDIT_TRIGGER_ID, CycleStartDateCapture } from './CycleStartDateCapture';
 import { EvidencePane } from './EvidencePane';
 import { Badge, Button, ErrorCard, Panel, Spinner } from './ui';
 
@@ -511,6 +512,17 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
             initialComments={quickComments ?? undefined}
             onSaved={() => void loadQuickComments()}
           />
+          {/* La fecha de inicio es un dato humano con procedencia, no evidencia:
+              vive junto a las notas de las áreas, antes del dictamen, y nunca
+              se audita sola. */}
+          <CycleStartDateCapture
+            caseId={caseId}
+            assessment={result?.temporalAnalysis ?? null}
+            cycleStartDate={detail.case.cycleStartDate ?? null}
+            cycleStartDateByName={detail.case.cycleStartDateByName ?? null}
+            cycleStartDateAt={detail.case.cycleStartDateAt ?? null}
+            onSaved={() => void load()}
+          />
           <Panel
             title={`Evidencias (${evidences.length})`}
             description="Archivos originales y su estado de procesamiento."
@@ -761,7 +773,7 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
               <div className="case-verdict-section"><span>Sección</span><strong>{result.audit.procedureSection}</strong></div>
               <button type="button" onClick={() => setActiveTab('verdict')}>Abrir dictamen completo <span aria-hidden="true">→</span></button>
             </div>}
-            <Button variant="primary" className="w-full" onClick={() => void maybeRunAudit()} disabled={!canAudit} loading={auditBusy} loadingLabel="Consultando auditoría">
+            <Button id={AUDIT_TRIGGER_ID} variant="primary" className="w-full" onClick={() => void maybeRunAudit()} disabled={!canAudit} loading={auditBusy} loadingLabel="Consultando auditoría">
               {auditPhase === 'waiting' ? 'Esperando transcripción…' : auditPhase === 'running' || auditPhase === 'starting' ? 'Auditando con IA…' : shouldShowReauditLabel ? 'Volver a auditar' : 'Auditar con IA'}
             </Button>
 
