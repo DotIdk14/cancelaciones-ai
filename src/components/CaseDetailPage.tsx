@@ -6,8 +6,8 @@
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AudioLines, BookOpenCheck, Clock3, FileCheck2, FileText, Paperclip, Search } from 'lucide-react';
-import { deleteEvidence, getAudit, getCase, startAudit, toErrorState } from '../lib/api';
-import type { AuditDetail, CaseDetailResponse, ErrorState, Evidence } from '../lib/api';
+import { deleteEvidence, getAreaComments, getAudit, getCase, startAudit, toErrorState } from '../lib/api';
+import type { AreaComment, AuditDetail, CaseDetailResponse, ErrorState, Evidence } from '../lib/api';
 import { formatDateTime, formatDuration, formatPercent, formatFactValue, shortId, textOrDash } from '../lib/format';
 import {
   CASE_STATUS_LABELS,
@@ -101,6 +101,11 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
   const [activeTab, setActiveTab] = useState<CaseDetailTab>('transcript');
   const [search, setSearch] = useState('');
 
+  const [quickComments, setQuickComments] = useState<AreaComment[] | null>(null);
+  const [showNotesPrompt, setShowNotesPrompt] = useState(false);
+  const [skipNotesPrompt, setSkipNotesPrompt] = useState(false);
+  const [focusNotesRequest, setFocusNotesRequest] = useState(0);
+
   const waitRetriesRef = useRef(0);
   const runningPollsRef = useRef(0);
   /** Evita retomar el poll en refrescos posteriores del caso. */
@@ -131,6 +136,16 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
     }
   }, [caseId]);
 
+  const loadQuickComments = useCallback(async (): Promise<void> => {
+    try {
+      const comments = await getAreaComments(caseId);
+      setQuickComments(comments);
+    } catch {
+      // Si no se puede consultar, se trata como "no se puede determinar":
+      // el prompt se muestra igual y el usuario decide.
+    }
+  }, [caseId]);
+
   useEffect(() => {
     setLoading(true);
     setDetail(null);
@@ -142,11 +157,16 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
     setViewingEvidenceId(null);
     setActiveTab('transcript');
     setSearch('');
+    setQuickComments(null);
+    setShowNotesPrompt(false);
+    setSkipNotesPrompt(false);
+    setFocusNotesRequest(0);
     waitRetriesRef.current = 0;
     runningPollsRef.current = 0;
     bootstrappedRef.current = false;
     void load();
-  }, [load]);
+    void loadQuickComments();
+  }, [load, loadQuickComments]);
 
   // --------------------------------------------------------------- auditoría
 
@@ -171,6 +191,7 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
 
   const runAudit = useCallback(async (): Promise<void> => {
     setAuditPhase('starting');
+    setShowNotesPrompt(false);
     setAuditError(null);
     setPendingEvidence([]);
     waitRetriesRef.current = 0;
@@ -189,6 +210,22 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
       setAuditError({ category: state.category, message });
     }
   }, [caseId, applyAudit]);
+
+  const maybeRunAudit = useCallback((): void => {
+    if (showNotesPrompt) return;
+    const hasQuickComments =
+      quickComments !== null &&
+      quickComments.some(
+        (comment) =>
+          (comment.area === 'BACK_OFFICE' || comment.area === 'HELPDESK') &&
+          comment.comment.trim() !== '',
+      );
+    if (!hasQuickComments && !skipNotesPrompt) {
+      setShowNotesPrompt(true);
+      return;
+    }
+    void runAudit();
+  }, [quickComments, showNotesPrompt, skipNotesPrompt, runAudit]);
 
   // Poll mientras la auditoría espera transcripción: refresca el caso (evidencias
   // + audit en la misma respuesta) y reintenta el POST cuando todo está READY.
@@ -466,11 +503,14 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
           <details className="case-detail-upload">
             <summary><span aria-hidden="true">+</span> Adjuntar evidencias</summary>
             <EvidenceUploader caseId={caseId} onUploaded={() => load()} disabled={Boolean(caseIsError)} />
-            <AreaQuickComments
-              caseId={caseId}
-              hasCompletedAudit={detail?.audit?.status === 'COMPLETED'}
-            />
           </details>
+          <AreaQuickComments
+            caseId={caseId}
+            hasCompletedAudit={detail?.audit?.status === 'COMPLETED'}
+            autoFocus={focusNotesRequest}
+            initialComments={quickComments ?? undefined}
+            onSaved={() => void loadQuickComments()}
+          />
           <Panel
             title={`Evidencias (${evidences.length})`}
             description="Archivos originales y su estado de procesamiento."
@@ -721,9 +761,43 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
               <div className="case-verdict-section"><span>Sección</span><strong>{result.audit.procedureSection}</strong></div>
               <button type="button" onClick={() => setActiveTab('verdict')}>Abrir dictamen completo <span aria-hidden="true">→</span></button>
             </div>}
-            <Button variant="primary" className="w-full" onClick={() => void runAudit()} disabled={!canAudit} loading={auditBusy} loadingLabel="Consultando auditoría">
+            <Button variant="primary" className="w-full" onClick={() => void maybeRunAudit()} disabled={!canAudit} loading={auditBusy} loadingLabel="Consultando auditoría">
               {auditPhase === 'waiting' ? 'Esperando transcripción…' : auditPhase === 'running' || auditPhase === 'starting' ? 'Auditando con IA…' : shouldShowReauditLabel ? 'Volver a auditar' : 'Auditar con IA'}
             </Button>
+
+            {showNotesPrompt && (
+              <section
+                aria-label="Confirmación antes de auditar"
+                aria-live="polite"
+                className="mt-3 rounded-xl border border-warning/40 bg-warning/10 p-3 text-sm"
+              >
+                <p className="text-ink">
+                  No hay notas de Back Office ni HelpDesk para este caso. La IA audita mejor con contexto de las áreas.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      setShowNotesPrompt(false);
+                      setFocusNotesRequest((n) => n + 1);
+                    }}
+                  >
+                    Agregar notas ahora
+                  </Button>
+                  <Button
+                    variant="primary"
+                    onClick={() => {
+                      setSkipNotesPrompt(true);
+                      setShowNotesPrompt(false);
+                      void runAudit();
+                    }}
+                  >
+                    Auditar sin notas
+                  </Button>
+                </div>
+              </section>
+            )}
+
             {auditBusy && <p role="status" className="case-audit-progress"><Spinner label="Auditoría en curso" className="h-3.5 w-3.5" />{auditPhase === 'waiting' ? `Esperando transcripción de ${pendingEvidence.length} evidencia(s)…` : `Auditando… ${audit ? `${audit.provider}/${audit.model}` : ''}`}</p>}
           </Panel>
           {review !== null ? (

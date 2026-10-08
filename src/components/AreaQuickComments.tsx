@@ -15,7 +15,7 @@
 //   sección avisa que hay que auditar de nuevo. Nunca llama a startAudit.
 // =============================================================================
 
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Save } from 'lucide-react';
 import { getAreaComments, saveAreaComment, toErrorState, type AreaComment, type AreaCommentArea } from '../lib/api';
 import { AREA_COMMENT_LABELS } from '../lib/labels';
@@ -32,15 +32,49 @@ export interface AreaQuickCommentsProps {
   caseId: string;
   /** Ya existe un dictamen emitido para este caso (la nota no se incorpora sola). */
   hasCompletedAudit: boolean;
+  /** Enfoca la sección al montar o cuando incrementa. */
+  autoFocus?: number;
+  /** Se llama cada vez que se guarda una nota con éxito. */
+  onSaved?: () => void;
+  /** Comentarios precargados por el padre; si se reciben no se vuelve a hacer GET. */
+  initialComments?: AreaComment[];
 }
 
-export function AreaQuickComments({ caseId, hasCompletedAudit }: AreaQuickCommentsProps): ReactNode {
-  const [saved, setSaved] = useState<Record<string, AreaComment>>({});
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
+function commentsToState(comments: AreaComment[] | undefined): {
+  saved: Record<string, AreaComment>;
+  drafts: Record<string, string>;
+} {
+  const saved: Record<string, AreaComment> = {};
+  const drafts: Record<string, string> = {};
+  if (comments === undefined) return { saved, drafts };
+  for (const comment of comments) {
+    saved[comment.area] = comment;
+    drafts[comment.area] = comment.comment;
+  }
+  return { saved, drafts };
+}
+
+export function AreaQuickComments({
+  caseId,
+  hasCompletedAudit,
+  autoFocus = 0,
+  onSaved,
+  initialComments,
+}: AreaQuickCommentsProps): ReactNode {
+  const [saved, setSaved] = useState<Record<string, AreaComment>>(() => commentsToState(initialComments).saved);
+  const [drafts, setDrafts] = useState<Record<string, string>>(() => commentsToState(initialComments).drafts);
   const [busyArea, setBusyArea] = useState<AreaCommentArea | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [noticeTone, setNoticeTone] = useState<'ok' | 'error'>('ok');
   const [loadError, setLoadError] = useState<string | null>(null);
+  const sectionRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (autoFocus > 0 && sectionRef.current !== null) {
+      sectionRef.current.focus();
+      sectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [autoFocus]);
 
   const load = useCallback(async (): Promise<void> => {
     setLoadError(null);
@@ -61,8 +95,10 @@ export function AreaQuickComments({ caseId, hasCompletedAudit }: AreaQuickCommen
   }, [caseId]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (initialComments === undefined) {
+      void load();
+    }
+  }, [load, initialComments]);
 
   const save = async (area: AreaCommentArea): Promise<void> => {
     const text = drafts[area] ?? '';
@@ -71,6 +107,7 @@ export function AreaQuickComments({ caseId, hasCompletedAudit }: AreaQuickCommen
     try {
       const comment = await saveAreaComment(caseId, { area, comment: text });
       setSaved((previous) => ({ ...previous, [area]: comment }));
+      onSaved?.();
       setNoticeTone('ok');
       const label = AREA_COMMENT_LABELS[area];
       setNotice(
@@ -87,8 +124,13 @@ export function AreaQuickComments({ caseId, hasCompletedAudit }: AreaQuickCommen
   };
 
   return (
-    <section aria-label="Contexto de Back Office y HelpDesk para la auditoría" className="mt-4 rounded-xl border border-line bg-surface-2 p-3">
-      <SectionTitle>Notas para la auditoría</SectionTitle>
+    <section
+      ref={sectionRef}
+      tabIndex={-1}
+      aria-label="Notas para la auditoría (Back Office y HelpDesk)"
+      className="mt-4 rounded-xl border border-line bg-surface-2 p-3"
+    >
+      <SectionTitle>Notas para la auditoría (Back Office y HelpDesk)</SectionTitle>
       <p className="mt-1 text-xs text-muted">
         Back Office y HelpDesk pueden dejar notas que se incluyen al auditar como contexto no normativo:
         no son política ni evidencia y por sí solas no deciden el resultado.
