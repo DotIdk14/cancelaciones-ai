@@ -88,6 +88,7 @@ function makeApiResponse(): ApiResponse & { statusCode: number; headers: Record<
 const PDF = Buffer.from('%PDF-1.7\ncontenido\n%%EOF');
 const EXE = Buffer.concat([Buffer.from([0x4d, 0x5a, 0x90, 0x00]), Buffer.from('MZ payload')]);
 const MP3 = Buffer.concat([Buffer.from('ID3'), Buffer.from('\u0003\u0000'), Buffer.from('audio')]);
+const ISO_BMFF = Buffer.concat([Buffer.from([0x00, 0x00, 0x00, 0x00]), Buffer.from('ftypM4A '), Buffer.from('resto')]);
 
 async function upload(buffer: Buffer, contentType: string, fileName = 'evidencia.pdf') {
   const res = makeApiResponse();
@@ -123,6 +124,16 @@ describe('carga · validaciones que impiden tocar Storage', () => {
     const res = await upload(EXE, 'image/png', 'captura.png');
 
     expect(res.statusCode).toBe(415);
+    expect(uploadSpy).not.toHaveBeenCalled();
+    expect(insertEvidence).not.toHaveBeenCalled();
+    expect(submitTranscription).not.toHaveBeenCalled();
+  });
+
+  it('ISO-BMFF declarado image/png se rechaza con 415 y no se cobra cuota de transcripcion', async () => {
+    const res = await upload(ISO_BMFF, 'image/png', 'video-renombrado.png');
+
+    expect(res.statusCode).toBe(415);
+    expect(checkPaidQuota).not.toHaveBeenCalled();
     expect(uploadSpy).not.toHaveBeenCalled();
     expect(insertEvidence).not.toHaveBeenCalled();
     expect(submitTranscription).not.toHaveBeenCalled();

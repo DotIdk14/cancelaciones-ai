@@ -6,6 +6,7 @@
 import type { AuditResult } from '../skills/audit/schema';
 import type { AuditResultType, CaseStatus, ErrorCategory, EvidenceStatus, TranscriptData } from '../skills/audit/types';
 import type { ComparisonOutcomePayload } from '../skills/review/schema';
+import { readEvidenceHead, resolveEvidenceMime } from '../shared/evidence-formats';
 
 // -----------------------------------------------------------------------------
 // Formas de la API (contrato compartido con el servidor)
@@ -486,10 +487,13 @@ export async function setCycleStartDate(caseId: string, date: string, byName: st
  * caracteres no ASCII.
  */
 export async function uploadEvidence(caseId: string, file: File): Promise<Evidence> {
+  const head = await readEvidenceHead(file);
+  const contentType = resolveEvidenceMime(head, file.type) ?? 'application/octet-stream';
+
   const res = await safeFetch(casePath(caseId, '/evidence'), {
     method: 'POST',
     headers: {
-      'content-type': file.type !== '' ? file.type : 'application/octet-stream',
+      'content-type': contentType,
       'x-file-name': encodeURIComponent(file.name),
     },
     body: file,

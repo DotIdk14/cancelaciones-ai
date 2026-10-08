@@ -7,20 +7,14 @@
 // =============================================================================
 
 import { createHash } from 'node:crypto';
+import { EVIDENCE_MIME_ALLOWLIST, EVIDENCE_SIGNATURES } from '../shared/evidence-formats.js';
 import type { EvidenceKind, TranscriptData } from '../skills/audit/types.js';
-
-const IMAGE_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
-const AUDIO_MIMES = new Set(['audio/mpeg', 'audio/mp4', 'audio/wav', 'audio/webm', 'audio/ogg', 'audio/x-m4a', 'audio/m4a', 'audio/mp3']);
-
-const TEXT_MIMES = new Set(['text/plain']);
-
-const FULL_MIMES = new Set([...IMAGE_MIMES, ...AUDIO_MIMES, ...TEXT_MIMES, 'application/pdf']);
 
 /** MIME normalizado y permitido, o null si el tipo no está soportado. */
 export function normalizeMime(rawInput: string): string | null {
   const raw = rawInput.toLowerCase().split(';')[0]?.trim() ?? '';
   if (!raw) return null;
-  if (FULL_MIMES.has(raw)) return raw;
+  if (EVIDENCE_MIME_ALLOWLIST.has(raw)) return raw;
   return null;
 }
 
@@ -97,36 +91,7 @@ export function sleep(ms: number): Promise<void> {
 // el contenido sea claramente un binario o un documento con otra firma.
 // -----------------------------------------------------------------------------
 
-interface SignatureRule {
-  mime: string;
-  /** Posiciones donde debe aparecer la marca (offsets desde el inicio). */
-  marks: Array<{ offset: number; bytes: number[] }>;
-  /** Tolerancia: si el buffer no tiene suficientes bytes, no se juzga. */
-  minLength: number;
-}
-
 const ascii = (s: string): number[] => [...s].map((c) => c.charCodeAt(0));
-
-const SIGNATURES: SignatureRule[] = [
-  { mime: 'application/pdf', marks: [{ offset: 0, bytes: ascii('%PDF-') }], minLength: 5 },
-  { mime: 'image/jpeg', marks: [{ offset: 0, bytes: [0xff, 0xd8, 0xff] }], minLength: 3 },
-  { mime: 'image/png', marks: [{ offset: 0, bytes: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a] }], minLength: 8 },
-  { mime: 'image/gif', marks: [{ offset: 0, bytes: ascii('GIF8') }], minLength: 4 },
-  // WebP: "RIFF" en 0 y "WEBP" en 8.
-  { mime: 'image/webp', marks: [{ offset: 0, bytes: ascii('RIFF') }, { offset: 8, bytes: ascii('WEBP') }], minLength: 12 },
-  // MP3 tiene DOS firmas válidas: la cabecera ID3 o el frame sync de MPEG audio,
-  // así que se resuelve fuera de la tabla (ver `verifyFileSignature`).
-  // WAV: RIFF....WAVE
-  { mime: 'audio/wav', marks: [{ offset: 0, bytes: ascii('RIFF') }, { offset: 8, bytes: ascii('WAVE') }], minLength: 12 },
-  // M4A/MP4 (container ISO-BMFF): "ftyp" en el offset 4.
-  { mime: 'audio/mp4', marks: [{ offset: 4, bytes: ascii('ftyp') }], minLength: 8 },
-  { mime: 'audio/x-m4a', marks: [{ offset: 4, bytes: ascii('ftyp') }], minLength: 8 },
-  { mime: 'audio/m4a', marks: [{ offset: 4, bytes: ascii('ftyp') }], minLength: 8 },
-  // OGG: "OggS"
-  { mime: 'audio/ogg', marks: [{ offset: 0, bytes: ascii('OggS') }], minLength: 4 },
-  // WebM/Matroska: EBML 0x1A45DFA3
-  { mime: 'audio/webm', marks: [{ offset: 0, bytes: [0x1a, 0x45, 0xdf, 0xa3] }], minLength: 4 },
-];
 
 export interface SignatureVerdict {
   ok: boolean;
@@ -160,9 +125,9 @@ export function verifyFileSignature(buffer: Buffer, declaredMime: string): Signa
       : { ok: false, reason: 'El contenido del archivo no es audio MPEG válido' };
   }
 
-  const rule = SIGNATURES.find((candidate) => candidate.mime === declaredMime);
+  const rule = EVIDENCE_SIGNATURES.find((candidate) => candidate.mime === declaredMime);
   if (!rule) {
-    // Tipo permitido sin firma conocida (no debería ocurrir con FULL_MIMES).
+    // Tipo permitido sin firma conocida (no debería ocurrir con EVIDENCE_MIME_ALLOWLIST).
     return { ok: true };
   }
   if (buffer.length < rule.minLength) {

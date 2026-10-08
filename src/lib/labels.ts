@@ -21,6 +21,7 @@ import {
   REVIEW_COMMENT_MAX,
   REVIEW_COMMENT_MIN,
 } from '../skills/review/types.js';
+import { EVIDENCE_MIME_ALLOWLIST } from '../shared/evidence-formats';
 import type { Tone } from '../components/ui';
 
 // -----------------------------------------------------------------------------
@@ -275,8 +276,8 @@ export const EVIDENCE_KIND_LABELS: Record<EvidenceKind, string> = {
 /**
  * Lista de formatos que el picker de archivos ofrece al SO/browser.
  *
- * Debe mantenerse sincronizada con `FULL_MIMES` en
- * `src/server/evidence-prep.ts`. No incluir wildcards como `image/*` ni
+ * Debe mantenerse sincronizada con `EVIDENCE_MIME_ALLOWLIST` en
+ * `src/shared/evidence-formats.ts`. No incluir wildcards como `image/*` ni
  * `audio/*`: permitirían seleccionar formatos que el servidor rechaza con 415
  * (p. ej. BMP, TIFF, FLAC, SVG), generando un mismatch entre UX y validación.
  */
@@ -293,23 +294,11 @@ export const EVIDENCE_ACCEPT =
  * Es la contraparte normalizada de `EVIDENCE_ACCEPT`; la usa el cliente para
  * rechazar localmente archivos que de todos modos fallarían en el endpoint,
  * dando feedback inmediato sin gastar request.
+ *
+ * La fuente de verdad vive en `src/shared/evidence-formats.ts` para evitar
+ * drift entre cliente y servidor.
  */
-const EVIDENCE_ACCEPT_MIMES = new Set([
-  'image/png',
-  'image/jpeg',
-  'image/webp',
-  'image/gif',
-  'application/pdf',
-  'audio/mpeg',
-  'audio/mp3',
-  'audio/wav',
-  'audio/mp4',
-  'audio/x-m4a',
-  'audio/m4a',
-  'audio/webm',
-  'audio/ogg',
-  'text/plain',
-]);
+const EVIDENCE_ACCEPT_MIMES = EVIDENCE_MIME_ALLOWLIST;
 
 /** Mensaje mostrado cuando el usuario selecciona un formato no soportado. */
 export const EVIDENCE_TYPE_REJECTED_MESSAGE =

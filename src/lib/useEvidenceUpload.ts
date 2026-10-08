@@ -14,6 +14,7 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { toErrorState, uploadEvidence } from './api';
+import { readEvidenceHead, resolveEvidenceMime } from '../shared/evidence-formats';
 import { EVIDENCE_TYPE_REJECTED_MESSAGE, isAcceptedEvidenceMime } from './labels';
 
 export type UploadStatus = 'uploading' | 'done' | 'error';
@@ -141,11 +142,13 @@ export function useEvidenceUpload(): EvidenceUploadController {
         const item = queued[index];
         if (file === undefined || item === undefined) continue;
 
-        // Validación previa: si el MIME no está en la allowlist del servidor,
-        // rechazamos localmente para no gastar una petición que terminaría en
-        // 415. Esto reduce el mismatch cuando el browser o el SO dejan pasar un
-        // archivo que el picker intentó filtrar.
-        if (!isAcceptedEvidenceMime(file.type)) {
+        // Validación previa: detectamos el MIME REAL por firma y caemos
+        // atrás al declarado por el browser. Si NI EL REAL NI EL DECLARADO
+        // están en la allowlist, rechazamos localmente para no gastar una
+        // petición que terminaría en 415.
+        const head = await readEvidenceHead(file);
+        const acceptedMime = resolveEvidenceMime(head, file.type);
+        if (!isAcceptedEvidenceMime(acceptedMime)) {
           const state = { category: 'UPLOAD_ERROR', message: EVIDENCE_TYPE_REJECTED_MESSAGE };
           patch(item.id, { status: 'error', message: state.message, category: state.category });
           failed.push({ file, message: state.message, category: state.category });
