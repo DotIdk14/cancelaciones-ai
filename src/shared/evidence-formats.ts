@@ -107,35 +107,62 @@ export async function readEvidenceHead(file: File, byteCount = 16): Promise<Uint
 }
 
 /**
+ * Firmas que por sí solas no distinguen el subtipo real del contenedor:
+ * - ISO-BMFF (`ftyp`) es compartido por audio y video.
+ * - EBML (`1A 45 DF A3`) es compartido por webm audio, webm video y mkv.
+ * - MPEG frame-sync (`FF` + byte con los 3 bits altos a `111`) aparece en
+ *   binario/texto (p. ej. el BOM UTF-16LE `FF FE`).
+ */
+const AMBIGUOUS_SIGNATURE_MIMES = new Set(['audio/mp4', 'audio/webm']);
+
+function isAmbiguousMimeDetection(head: Uint8Array, detected: string): boolean {
+  if (AMBIGUOUS_SIGNATURE_MIMES.has(detected)) return true;
+  if (detected === 'audio/mpeg') {
+    // ID3 es inequívocamente MPEG audio; el frame sync de 2 bytes no lo es.
+    const hasId3 =
+      head.length >= 3 &&
+      head[0] === ascii('I')[0] &&
+      head[1] === ascii('D')[0] &&
+      head[2] === ascii('3')[0];
+    return !hasId3;
+  }
+  return false;
+}
+
+/**
  * Resuelve el MIME que el cliente debe declarar combinando la firma real del
  * archivo con el MIME declarado por el browser/SO.
  *
- * - Si la firma es inequívoca (JPEG, PNG, etc.) manda la firma.
- * - ISO-BMFF es ambiguo (audio y video comparten `ftyp`), así que la
- *   declaración explícita manda: si el usuario declaró un subtipo de audio
- *   soportado se conserva exacto; si declaró `video/*` u otro MIME explícito
- *   se conserva tal cual y el servidor aplica su allowlist/firma; si no hay
- *   declaración útil se cae a `audio/mp4`.
- * - Si no hay firma, se confía en la declaración (p. ej. `text/plain`).
+ * - Firma inequívoca (JPEG, PNG, GIF, PDF, RIFF WEBP/WAVE, Ogg, ID3) → manda la
+ *   firma. Aquí vive el arreglo del caso real: un JPEG con extensión `.png` se
+ *   declara `image/jpeg` en vez de `image/png`.
+ * - Firma ambigua (ISO-BMFF, EBML, frame-sync MPEG) → manda la DECLARACIÓN
+ *   explícita: elegir la firma por defecto promovería en silencio un video a
+ *   audio y dispararía una transcripción pagada, además de falsear el
+ *   `mime_type` persistido. Si no hay declaración útil (`''` u
+ *   `application/octet-stream`) decide la firma.
+ * - Sin firma (texto plano) → manda la declaración.
  *
- * Limitación residual: un contenedor ISO-BMFF que se declare como audio/m4a no
- * puede distinguirse de un video renombrado sin leer la caja `moov`/handler.
- * El servidor mantiene la cuota de transcripción como cota de ese caso; no se
- * resuelve aquí con más heurísticas.
+ * Limitación residual: un contenedor declarado explícitamente como audio
+ * (p. ej. un video renombrado `.m4a`) no puede distinguirse sin leer la caja
+ * `moov`/handler. El servidor mantiene la cuota de transcripción como cota de
+ * ese caso; no se resuelve aquí con más heurísticas.
  */
-const ISO_BMFF_AUDIO_SUBTYPES = new Set(['audio/mp4', 'audio/x-m4a', 'audio/m4a']);
-
 export function resolveEvidenceMime(head: Uint8Array, declaredMime: string): string | null {
   const detected = detectEvidenceMime(head);
-  if (detected === 'audio/mp4') {
-    const normalized = declaredMime.toLowerCase().split(';')[0]?.trim() ?? '';
-    if (ISO_BMFF_AUDIO_SUBTYPES.has(normalized)) return normalized;
-    if (normalized === '' || normalized === 'application/octet-stream') return 'audio/mp4';
+  if (detected === null) {
+    return declaredMime !== '' ? declaredMime : null;
+  }
+
+  if (!isAmbiguousMimeDetection(head, detected)) {
+    return detected;
+  }
+
+  const normalized = declaredMime.toLowerCase().split(';')[0]?.trim() ?? '';
+  if (normalized !== '' && normalized !== 'application/octet-stream') {
     return normalized;
   }
-  if (detected !== null) return detected;
-  if (declaredMime !== '') return declaredMime;
-  return null;
+  return detected;
 }
 
 /**

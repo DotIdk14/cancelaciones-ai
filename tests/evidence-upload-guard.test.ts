@@ -139,6 +139,23 @@ describe('carga · validaciones que impiden tocar Storage', () => {
     expect(submitTranscription).not.toHaveBeenCalled();
   });
 
+  it('UTF-16LE BOM declarado text/plain se rechaza con 415 y no se cobra cuota de transcripcion', async () => {
+    // Texto real en UTF-16LE: ~50% de nulos, lo que `looksLikeBinary` detecta
+    // como binario y rechaza antes de que pueda subirse o transcribirse.
+    const utf16le = Buffer.concat([
+      Buffer.from([0xff, 0xfe]),
+      Buffer.from('texto con PII', 'utf16le'),
+    ]);
+
+    const res = await upload(utf16le, 'text/plain', 'notas.txt');
+
+    expect(res.statusCode).toBe(415);
+    expect(checkPaidQuota).not.toHaveBeenCalled();
+    expect(uploadSpy).not.toHaveBeenCalled();
+    expect(insertEvidence).not.toHaveBeenCalled();
+    expect(submitTranscription).not.toHaveBeenCalled();
+  });
+
   it('415 incluye mensaje accionable sobre contenido/extensión inconsistente', async () => {
     const res = await upload(EXE, 'image/png', 'captura.png');
 

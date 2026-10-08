@@ -1,10 +1,10 @@
 // =============================================================================
 // Contrato de formatos de evidencia entre el selector del cliente y el backend.
 //
-// El picker (`<input accept>`) debe coincidir con la allowlist del servidor
-// (`FULL_MIMES` en `src/server/evidence-prep.ts`). Si el picker es más amplio,
-// el usuario selecciona formatos que de todos modos fallan con 415; si es más
-// restrictivo, bloqueamos formatos válidos. Esta suite fija la frontera.
+// El picker (`<input accept>`) debe coincidir con `EVIDENCE_MIME_ALLOWLIST` en
+// `src/shared/evidence-formats.ts`. Si el picker es más amplio, el usuario
+// selecciona formatos que de todos modos fallan con 415; si es más restrictivo,
+// bloqueamos formatos válidos. Esta suite fija la frontera.
 // =============================================================================
 
 import { describe, expect, it } from 'vitest';

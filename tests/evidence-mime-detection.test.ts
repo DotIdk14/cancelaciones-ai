@@ -43,6 +43,7 @@ const MP3_FRAME_BYTES = new Uint8Array([0xff, 0xfb, 0x90, 0x00]);
 const GIF_BYTES = new Uint8Array([...new TextEncoder().encode('GIF89a')]);
 const WEBM_BYTES = new Uint8Array([0x1a, 0x45, 0xdf, 0xa3]);
 const OGG_BYTES = new Uint8Array([...new TextEncoder().encode('OggS')]);
+const UTF16LE_BOM_BYTES = new Uint8Array([0xff, 0xfe, 0x61, 0x00, 0x62, 0x00]);
 
 /** Muestra de cada formato que tiene firma reconocible. */
 const SAMPLES: Array<[mime: string, bytes: Uint8Array]> = [
@@ -155,6 +156,38 @@ describe('resolveEvidenceMime', () => {
   it('contenido desconocido cae al declarado', () => {
     expect(resolveEvidenceMime(EXE_BYTES, 'text/plain')).toBe('text/plain');
     expect(resolveEvidenceMime(EXE_BYTES, '')).toBeNull();
+  });
+
+  it('frame-sync MPEG ambiguo: texto UTF-16LE con BOM se respeta como text/plain', () => {
+    // El BOM FF FE coincide con el frame sync de MPEG; sin desambiguación se
+    // subiría como audio/mpeg, se cobraría cuota y se enviaría PII a AssemblyAI.
+    expect(resolveEvidenceMime(UTF16LE_BOM_BYTES, 'text/plain')).toBe('text/plain');
+  });
+
+  it('frame-sync MPEG con declaración audio/mpeg se acepta como audio real', () => {
+    expect(resolveEvidenceMime(MP3_FRAME_BYTES, 'audio/mpeg')).toBe('audio/mpeg');
+  });
+
+  it('frame-sync MPEG sin declaración útil cae a audio/mpeg', () => {
+    expect(resolveEvidenceMime(MP3_FRAME_BYTES, '')).toBe('audio/mpeg');
+    expect(resolveEvidenceMime(MP3_FRAME_BYTES, 'application/octet-stream')).toBe('audio/mpeg');
+  });
+
+  it('EBML ambiguo: video/webm se respeta y se rechaza fuera de allowlist', () => {
+    expect(resolveEvidenceMime(WEBM_BYTES, 'video/webm')).toBe('video/webm');
+  });
+
+  it('EBML ambiguo: video/x-matroska se respeta y se rechaza fuera de allowlist', () => {
+    expect(resolveEvidenceMime(WEBM_BYTES, 'video/x-matroska')).toBe('video/x-matroska');
+  });
+
+  it('EBML ambiguo: audio/webm legítimo se conserva', () => {
+    expect(resolveEvidenceMime(WEBM_BYTES, 'audio/webm')).toBe('audio/webm');
+  });
+
+  it('JPEG real nunca se detecta como audio/mpeg por el & 0xE0', () => {
+    expect(detectEvidenceMime(JPEG_BYTES)).toBe('image/jpeg');
+    expect(detectEvidenceMime(JPEG_BYTES)).not.toBe('audio/mpeg');
   });
 });
 
