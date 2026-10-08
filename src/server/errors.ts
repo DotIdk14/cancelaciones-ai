@@ -91,6 +91,37 @@ function sanitizeErrorMessage(message: string): string {
 const MISSING_COLUMN_CODES = new Set(['42703', 'PGRST204']);
 
 /**
+ * Respaldo por PATRÓN de mensaje, para cuando el SDK no trae `code`.
+ *
+ * Por qué hace falta: el código es la vía fiable, pero nadie lo ha verificado
+ * contra la base real para ESTE error (el precedente `PGRST116` sugiere que el
+ * SDK puebla `code`, no que lo haga siempre). Si `code` no viniera, el `PATCH`
+ * caería en el 400 genérico de abajo y el operador leería el mensaje crudo de
+ * PostgREST ("Could not find the 'cycle_start_date' column…") como si el
+ * problema fuera su fecha, cuando lo que falta es una migración.
+ *
+ * Específico a propósito: exige las DOS partes del mensaje que emite PostgREST al
+ * faltar una columna (que no encuentra una columna Y el nombre entrecomillado).
+ * Un 400 de verdad del cliente ("invalid input syntax for type date") no matchea
+ * y sigue siendo VALIDATION_ERROR. Un patrón laxo como /column/ convertiría en
+ * 503 media docenia de errores que sí son culpa de quien llama.
+ */
+const MISSING_COLUMN_MESSAGE = /could not find the ['"`]?[\w.]+['"`]? column/i;
+
+/**
+ * ¿Es "esta columna no existe"? Por código, o por patrón si el código no vino.
+ *
+ * Los DOS caminos existen a propósito: el código es el fiable, el patrón es el
+ * que no depende de que el SDK lo pueble. Quitar cualquiera de los dos deja una
+ * ruta sin cubrir (sin `code`, todo 400 es culpa del cliente; sin patrón, un SDK
+ * que no envíe `code` devuelve un mensaje crudo que se atribuye a la fecha).
+ */
+function isMissingColumnError(code: string | undefined, message: string | undefined): boolean {
+  if (code !== undefined && MISSING_COLUMN_CODES.has(code)) return true;
+  return typeof message === 'string' && MISSING_COLUMN_MESSAGE.test(message);
+}
+
+/**
  * Convierte errores del SDK (InsForgeError / PostgrestError) en ApiError.
  * Trata el código PGRST116 (fila no encontrada) como 404.
  */
@@ -112,7 +143,7 @@ export function mapProviderError(
   // lo que pasaba es que el despliegue está incompleto, y el 400 invitaba a
   // corregir algo que no estaba mal (FAIL_CLOSED: sigue fallando cerrado, solo
   // que con la categoría honesta y un 503 que sí dice "reintenta más tarde").
-  if (code !== undefined && MISSING_COLUMN_CODES.has(code)) {
+  if (isMissingColumnError(code, err?.message)) {
     return new ApiError(
       503,
       'DATABASE_ERROR',

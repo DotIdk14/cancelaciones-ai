@@ -5,8 +5,8 @@
     ["\"total\": 4"]
   ],
   [
-    "cycle_start_date_at trae la hora por defecto (una fila escrita por otra vía no queda sin marca)",
-    "SELECT count(*)::int AS total FROM information_schema.columns WHERE table_schema='public' AND table_name='cases' AND column_name='cycle_start_date_at' AND column_default LIKE '%now()%'",
+    "cycle_start_date_at es timestamptz NULL-able y SIN default: un DEFAULT now() haria que los casos preexistentes leyeran la fecha de la migracion como captura",
+    "SELECT count(*)::int AS total FROM information_schema.columns WHERE table_schema='public' AND table_name='cases' AND column_name='cycle_start_date_at' AND data_type='timestamp with time zone' AND is_nullable='YES' AND column_default IS NULL",
     ["\"total\": 1"]
   ],
   [
