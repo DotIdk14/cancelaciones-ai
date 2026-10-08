@@ -174,11 +174,22 @@ function oneLineText(value: unknown, maxChars: number): string | null {
 /**
  * Alfabeto que un detalle ATESTIGUADO puede tener.
  *
+ * ESTO NO ES UNA DEFENSA CONTRA PII. Un nombre, una matrícula o un fragmento de
+ * texto del modelo son ASCII tan legítimamente como una ruta, así que este
+ * alfabeto NO los filtra: quien lo pase Clean sobrevive. Es una RED DE REDUCCIÓN
+ * DE RUIDO — una heurística barata que descarta el texto que «no parece nada que
+ * nuestros emisores produzcan» y reduce el ruido de `provider_metadata`, que es
+ * JSONB libre (una escritura vieja, un despliegue anterior, un humano).
+ *
  * `path` y `detail` los escribe el emisor del error, no el modelo: son rutas
  * (`facts.3.evidenceIds`) y frases cortas con identificadores. Se exige además
- * que no haya acentos ni eñes, porque hasta ahora ningún emisor los produce, y
- * su presencia en `provider_metadata` (que es JSONB libre: una escritura vieja,
- * un despliegue anterior, un humano) delata texto libre. Ante la duda, `null`.
+ * que no haya acentos ni eñes porque hasta ahora ningún emisor los produce, y
+ * su presencia delata texto libre. Ante la duda, `null`.
+ *
+ * CONSECUENCIA PARA QUIEN EMITA: nunca derives `detail` o `path` de texto crudo
+ * del modelo creyendo que el alfabeto lo protege. Lo único que evita que algo se
+ * publique es que el valor lo ATESTIGÜE el emisor: códigos, rutas e ids que ya
+ * probaron la referencia.
  */
 const ATTESTED_TEXT = /^[A-Za-z0-9 .:_|()[\]-]+$/;
 

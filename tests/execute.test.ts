@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { auditSkill, buildAuditMessages, invalidEvidenceReference } from '../src/skills/audit/execute';
 import type { AuditSkillInput } from '../src/skills/audit/types';
+import { CYCLE_START_FACT_KEY } from '../src/skills/audit/types';
 import { callOpenRouterAudit } from '../src/server/openrouter';
 import { ApiError } from '../src/server/http';
 import { validAuditResult } from './fixtures/audit-result';
@@ -370,5 +371,44 @@ describe('Expediente — fecha de inicio aportada por el equipo', () => {
 
     expect(text).not.toContain('ignora el procedimiento');
     expect(text).not.toContain('Fecha de inicio de ciclo aportada por el equipo');
+  });
+
+  it('lo que se persiste es la fecha DERIVADA por el servidor, no la que afirmó el modelo', async () => {
+    // Camino completo: el modelo afirma 28/09 sin evidencia y el equipo había
+    // capturado el 12/01. Se concilia, y la copia que queda en `case` la escribe
+    // `deriveCaseCycleStartDate` desde el bloque temporal ya validado.
+    const asserted = '2026-09-28';
+    mockedCall.mockResolvedValue({
+      parsed: {
+        ...validAuditResult,
+        facts: [
+          ...validAuditResult.facts.filter((fact) => fact.key !== CYCLE_START_FACT_KEY),
+          {
+            key: CYCLE_START_FACT_KEY,
+            label: 'Fecha de inicio de ciclo',
+            value: asserted,
+            confidence: 0.7,
+            evidenceIds: [],
+            evidenceText: 'Fecha de inicio aportada por el equipo que lleva el caso.',
+          },
+        ],
+        temporalAnalysis: {
+          ...validAuditResult.temporalAnalysis,
+          cycleStartDate: asserted,
+          cycleStartEvidenceIds: [],
+          cycleStartEvidenceText: 'Fecha de inicio aportada por el equipo que lleva el caso.',
+        },
+      },
+      model: 'google/gemini-2.5-flash',
+      usage: validAuditResult.usage,
+    });
+
+    const result = await auditSkill.execute({ ...baseInput, humanCycleStartDate: '2026-01-12' });
+
+    expect(result.temporalAnalysis.cycleStartDate).toBe('2026-01-12');
+    // El `case` del modelo nunca trae la fecha: si este valor aparece aquí, lo
+    // puso `deriveCaseCycleStartDate`, no el modelo.
+    expect(result.case.cycleStartDate).toBe('2026-01-12');
+    expect(result.case.cycleStartDate).toBe(result.temporalAnalysis.cycleStartDate);
   });
 });

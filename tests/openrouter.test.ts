@@ -555,6 +555,46 @@ describe('callOpenRouterAudit', () => {
     expect(text).toContain('solo aplica a EVIDENCIA_INSUFICIENTE');
   });
 
+  it('el feedback del segundo intento lleva la fecha de inicio aportada por el equipo', async () => {
+    process.env.OPENROUTER_FALLBACK_MODEL = 'openai/gpt-4o-mini';
+    const bodies: Array<Record<string, unknown>> = [];
+    fetchMock.mockImplementation(async (_url: unknown, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return bodies.length === 1 ? completionResponse({ parsed: { nope: true } }) : completionResponse();
+    });
+
+    await callOpenRouterAudit({
+      system: 's',
+      parts: [{ type: 'text', text: 'x' }],
+      // El productor real: `parseAiAuditAssessment` rechaza la fecha acreditada
+      // que contradice la del caso. Lo que el modelo NO puede deducir solo es
+      // CUÁL es esa fecha, así que tiene que llegarle en el feedback. Solo el
+      // primer intento falla: el segundo responde bien y cierra el ciclo.
+      validate: (parsed) => {
+        if ((parsed as { audit?: unknown }).audit === undefined) {
+          throw new ApiError(
+            502,
+            'INVALID_AI_RESPONSE',
+            'INVALID_AI_RESPONSE: temporalAnalysis.cycleStartDate: el caso tiene fecha de inicio aportada por el equipo (2026-08-21). La respuesta acredita con evidencia una fecha distinta. Afirma 2026-08-21 con cycleStartEvidenceIds vacio.',
+          );
+        }
+      },
+    });
+
+    const secondTurns = bodies[1]?.messages as Array<{ role: string; content: Array<{ type: string; text: string }> }>;
+    const corrective = secondTurns.at(-1) as { role: string; content: Array<{ type: string; text: string }> };
+
+    expect(corrective.role).toBe('user');
+    const text = corrective.content[0]?.text ?? '';
+    expect(text).toContain('SCHEMA_VALIDATION_ERROR');
+    expect(text).toContain('temporalAnalysis.cycleStartDate');
+    // La fecha del caso viaja al segundo intento: sin esto el modelo repetiría
+    // exactamente la misma respuesta y el dictamen moriría después.
+    expect(text).toContain('2026-08-21');
+    // Y sobrevive al saneado: solo ASCII imprimible, sin truncarse.
+    expect(text).toContain('cycleStartEvidenceIds vacio');
+  });
+
   it('NO añade feedback correctivo cuando el fallo es del proveedor al rechazar el esquema', async () => {
     process.env.OPENROUTER_FALLBACK_MODEL = 'openai/gpt-4o-mini';
     const bodies: Array<{ model: string; response_format: { type: string }; messages: unknown[] }> = [];

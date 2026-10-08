@@ -87,7 +87,7 @@ describe('saneo de provider_metadata: ruta y detalle del fallo', () => {
 
   it.each([
     ['texto libre del modelo', '{"studentName":"María Pérez"}'],
-    ['acentos y eñes', 'evidencia inexistente: la alumna noStemó'],
+    ['acentos y eñes', 'evidencia inexistente: la alumna no se registró'],
     ['marcas de plantilla', '<script>alert(1)</script>'],
     ['comillas y saltos', 'evidencia "inexistente"\nUTEL-2026-001'],
   ])('neutraliza un detail con %s', (_label, detail) => {
