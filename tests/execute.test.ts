@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { auditSkill, buildAuditMessages } from '../src/skills/audit/execute';
+import { auditSkill, buildAuditMessages, invalidEvidenceReference } from '../src/skills/audit/execute';
 import type { AuditSkillInput } from '../src/skills/audit/types';
 import { callOpenRouterAudit } from '../src/server/openrouter';
+import { ApiError } from '../src/server/http';
 import { validAuditResult } from './fixtures/audit-result';
 
 // El transporte se mockea: el Skill no debe tocar la red en los tests.
@@ -262,6 +263,74 @@ describe('auditSkill.execute', () => {
     // El snapshot es lo que el modelo efectivamente vio: ni más, ni menos, ni
     // re-parseado. Si mañana nadie inyecta comentarios, el snapshot es [].
     expect(result.areaComments).toEqual(areaComments);
+  });
+});
+
+// Un dictamen tumbled en producción por `INVALID_EVIDENCE_REFERENCE` sin dejar
+// rastro: el id infractor se perdía y no había forma de saber qué pasó. Estos
+// tests fijan que el fallo siga siendo FAIL-CLOSED (no hay dictamen) pero que
+// deje ATESTIGUADO lo único que hace falta diagnosticarlo: el código estable,
+// la ruta y el id.
+describe('Fallo por referencia de evidencia: fail-closed y diagnosticable', () => {
+  // Se sustituye SÓLO el id del primer fact: la lista completa se conserva porque
+  // `cycle_start_date` es un fact obligatorio y quitarlo dispara otra invariante
+  // (que también es un fallo legítimo, pero no el que se está probando aquí).
+  function factsCiting(ids: string[]): unknown {
+    return {
+      ...validAuditResult,
+      facts: validAuditResult.facts.map((fact, index) =>
+        index === 0 ? { ...fact, evidenceIds: ids } : fact,
+      ),
+    };
+  }
+
+  async function referenceFailure(ids: string[]): Promise<ApiError> {
+    mockedCall.mockResolvedValue({
+      parsed: factsCiting(ids),
+      model: 'google/gemini-2.5-flash',
+      usage: validAuditResult.usage,
+    });
+    const caught = await auditSkill.execute(baseInput).catch((error: unknown) => error);
+    expect(caught).toBeInstanceOf(ApiError);
+    return caught as ApiError;
+  }
+
+  it('sigue tumbando el dictamen (fail-closed) pero atestigua ruta e id', async () => {
+    const failure = await referenceFailure(['ev-inexistente']);
+
+    // La política NO cambió: una referencia inexistente sigue tumbando el dictamen.
+    expect(failure.category).toBe('INVALID_AI_RESPONSE');
+    // Lo que antes se perdía: un código ESTABLE (no el texto del mensaje), la
+    // ruta exacta y el id infractor, ya saneados por el propio emisor.
+    expect(failure.validatorFailureCode).toBe('INVALID_EVIDENCE_REFERENCE');
+    expect(failure.failurePath).toBe('facts.0.evidenceIds');
+    expect(failure.sanitizedDetail).toBe('evidencia inexistente ev-inexistente');
+  });
+
+  it('no copia al detalle texto crudo del modelo (id que no es un token sobrio)', async () => {
+    // Un id de evidencia es un UUID. Si el modelo emite otra cosa ahí, lo que
+    // llega es texto libre (y podría traer el nombre del estudiante), así que
+    // NO se atestigua: se dice que hubo un id y no cuál.
+    const failure = await referenceFailure(['María Pérez no contestó la llamada <b>x</b>']);
+
+    expect(failure.failurePath).toBe('facts.0.evidenceIds');
+    expect(failure.sanitizedDetail).toBe('evidencia inexistente (id no atestiguable)');
+    expect(failure.sanitizedDetail).not.toContain('María Pérez');
+    // Y nada del expediente se cuela por el otro lado del error.
+    expect(failure.sanitizedDetail).not.toContain('UTEL-2026-001');
+    expect(failure.sanitizedDetail).not.toContain('llamada.mp3');
+  });
+
+  it('el constructor del fallo es único y no depende del texto que se le pase', () => {
+    const failure = invalidEvidenceReference('facts.7.evidenceIds', 'ev-x');
+
+    expect(failure).toBeInstanceOf(ApiError);
+    expect(failure.validatorFailureCode).toBe('INVALID_EVIDENCE_REFERENCE');
+    expect(failure.failurePath).toBe('facts.7.evidenceIds');
+    expect(failure.sanitizedDetail).toBe('evidencia inexistente ev-x');
+    // El `message` crudo es para el feedback correctivo al modelo; lo que llega a
+    // logs/DTO/DB es `sanitizedDetail`, que es texto estático más el id.
+    expect(failure.message).toContain('facts.7.evidenceIds');
   });
 });
 

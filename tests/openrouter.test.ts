@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { callOpenRouterAudit } from '../src/server/openrouter';
+import { callOpenRouterAudit, OpenRouterAuditError } from '../src/server/openrouter';
 import { getModelCapabilities } from '../src/server/ai/model-capabilities';
+import { invalidEvidenceReference } from '../src/skills/audit/execute';
 import { ApiError } from '../src/server/http';
 import { setTestEnv } from './helpers/env';
 import { validAuditResult } from './fixtures/audit-result';
@@ -412,7 +413,9 @@ describe('callOpenRouterAudit', () => {
       parts: [{ type: 'text', text: 'x' }],
       validate: (parsed) => {
         if ((parsed as { audit?: unknown }).audit === undefined) {
-          throw new ApiError(502, 'INVALID_AI_RESPONSE', 'facts.3.evidenceIds referencia evidencia inexistente: ev-falso');
+          // El productor real del código: `validateAssessmentReferences`. El
+          // transporte lo clasifica por el CÓDIGO, nunca por el texto.
+          throw invalidEvidenceReference('facts.3.evidenceIds', 'ev-falso');
         }
       },
     });
@@ -422,6 +425,101 @@ describe('callOpenRouterAudit', () => {
       'google/gemini-2.5-flash-lite',
     ]);
     expect(requested.map((item) => item.format)).toEqual(['json_schema', 'json_schema']);
+  });
+
+  it('el fallo por referencia guarda categoría, ruta y detalle en el diagnóstico', async () => {
+    fetchMock.mockResolvedValue(completionResponse({ parsed: { nope: true } }));
+
+    const error = await callOpenRouterAudit({
+      system: 's',
+      parts: [{ type: 'text', text: 'x' }],
+      validate: () => {
+        throw invalidEvidenceReference('facts.3.evidenceIds', '9f1c2d3e-4a5b-6c7d-8e9f-0a1b2c3d4e5f');
+      },
+    }).catch((caught: unknown) => caught);
+
+    // Esto es lo que se persiste en `provider_metadata.openrouterAttempts[]` y
+    // lo que la UI muestra: sin esto, el incidente fue indescifrable.
+    expect((error as OpenRouterAuditError).diagnostics[0]).toMatchObject({
+      failureCategory: 'INVALID_EVIDENCE_REFERENCE',
+      path: 'facts.3.evidenceIds',
+      detail: 'evidencia inexistente 9f1c2d3e-4a5b-6c7d-8e9f-0a1b2c3d4e5f',
+      failureReason:
+        'unknown evidence reference at facts.3.evidenceIds: evidencia inexistente 9f1c2d3e-4a5b-6c7d-8e9f-0a1b2c3d4e5f',
+    });
+  });
+
+  it('la categoría NO depende del texto del error (regresión del acoplamiento frágil)', async () => {
+    fetchMock.mockResolvedValue(completionResponse({ parsed: { nope: true } }));
+
+    // Mismo código estable, mensaje COMPLETAMENTE distinto: la categoría no se
+    // mueve. Antes se decidía con un regex sobre el mensaje, así que renombrar el
+    // texto reclasificaba el fallo (y con él el feedback correctivo y el
+    // enrutado del segundo intento).
+    const renamed = await callOpenRouterAudit({
+      system: 's',
+      parts: [{ type: 'text', text: 'x' }],
+      validate: () => {
+        const failure = invalidEvidenceReference('facts.3.evidenceIds', 'ev-falso');
+        failure.message = 'texto totalmente distinto que ya no menciona ninguna referencia';
+        throw failure;
+      },
+    }).catch((caught: unknown) => caught);
+
+    expect((renamed as OpenRouterAuditError).diagnostics[0]).toMatchObject({
+      failureCategory: 'INVALID_EVIDENCE_REFERENCE',
+      path: 'facts.3.evidenceIds',
+      detail: 'evidencia inexistente ev-falso',
+    });
+  });
+
+  it('un mensaje que MENCIONA la referencia sin el código NO reclasifica el fallo', async () => {
+    // La otra mitad de la regresión: sin código estable, un texto que "suene" a
+    // referencia no puede robarle la categoría a un fallo de schema.
+    fetchMock.mockResolvedValue(completionResponse({ parsed: { nope: true } }));
+
+    const error = await callOpenRouterAudit({
+      system: 's',
+      parts: [{ type: 'text', text: 'x' }],
+      validate: () => {
+        throw new ApiError(502, 'INVALID_AI_RESPONSE', 'facts.3.evidenceIds referencia evidencia inexistente: ev-falso');
+      },
+    }).catch((caught: unknown) => caught);
+
+    expect((error as OpenRouterAuditError).diagnostics[0]).toMatchObject({
+      failureCategory: 'SCHEMA_VALIDATION_ERROR',
+    });
+  });
+
+  it('el diagnóstico de un fallo por referencia no filtra texto crudo del modelo', async () => {
+    fetchMock.mockResolvedValue(completionResponse({ parsed: { nope: true } }));
+
+    const error = await callOpenRouterAudit({
+      system: 's',
+      parts: [{ type: 'text', text: 'x' }],
+      validate: () => {
+        // El `message` crudo puede ecoar la respuesta del modelo. Sólo lo que el
+        // emisor atestiguó (`sanitizedDetail`) puede viajar al diagnóstico.
+        const failure = new ApiError(
+          502,
+          'INVALID_AI_RESPONSE',
+          'facts.3.evidenceIds referencia evidencia inexistente: {"studentName":"María Pérez"} matricula UTEL-2026-001',
+        );
+        failure.validatorFailureCode = 'INVALID_EVIDENCE_REFERENCE';
+        failure.failurePath = 'facts.3.evidenceIds';
+        failure.sanitizedDetail = 'evidencia inexistente (id no atestiguable)';
+        throw failure;
+      },
+    }).catch((caught: unknown) => caught);
+
+    const serialized = JSON.stringify((error as OpenRouterAuditError).diagnostics);
+    expect(serialized).not.toContain('María Pérez');
+    expect(serialized).not.toContain('UTEL-2026-001');
+    expect((error as OpenRouterAuditError).diagnostics[0]).toMatchObject({
+      failureCategory: 'INVALID_EVIDENCE_REFERENCE',
+      path: 'facts.3.evidenceIds',
+      detail: 'evidencia inexistente (id no atestiguable)',
+    });
   });
 
   it('incluye el motivo de validación como feedback correctivo en el segundo intento', async () => {

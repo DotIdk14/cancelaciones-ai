@@ -19,6 +19,20 @@ import type { ErrorCategory } from '../skills/audit/types.js';
 
 export type { ErrorCategory };
 
+/**
+ * Códigos ESTABLES de fallo del validador local (vocabulario cerrado).
+ *
+ * El transporte clasifica el fallo por AQUÍ, nunca por el texto del mensaje.
+ * Decidirlo con un regex sobre el mensaje acoplaba el enrutado del segundo
+ * intento, el feedback correctivo y lo que se persiste a una cadena que
+ * cualquiera podía renombrar sin darse cuenta: renombrar el mensaje
+ * reclasificaba el fallo en silencio.
+ *
+ * Cuando se añada un código, se declara aquí Y en `AttemptFailureCategory` de
+ * `openrouter.ts`; el typecheck falla si se olvida una de las dos.
+ */
+export type ValidatorFailureCode = 'INVALID_EVIDENCE_REFERENCE';
+
 /** Error tipado del API. Nunca expone stack traces al cliente. */
 export class ApiError extends Error {
   readonly status: number;
@@ -33,6 +47,21 @@ export class ApiError extends Error {
    * se setea y los consumidores ignoran el `message` crudo (fail-closed).
    */
   sanitizedDetail?: string;
+  /**
+   * Código estable del fallo del validador local, si se conoce de antemano.
+   *
+   * `undefined` significa "no hay un código que lo clasifique": el consumidor
+   * lo trata como el fallo genérico de su categoría. Es lo que permite separar
+   * `INVALID_EVIDENCE_REFERENCE` de `SCHEMA_VALIDATION_ERROR` sin leer el texto.
+   */
+  validatorFailureCode?: ValidatorFailureCode;
+  /**
+   * Ruta del campo que falló (`facts.3.evidenceIds`), texto ESTÁTICO escrito
+   * por el emisor. Es la parte del diagnóstico que antes sólo se sacsaba del
+   * mensaje con un regex, y por eso un id mal citado se reportaba como
+   * `inexistente` (la última palabra antes de los dos puntos).
+   */
+  failurePath?: string;
 
   constructor(status: number, category: ErrorCategory, message: string) {
     super(message);

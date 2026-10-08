@@ -54,6 +54,10 @@ const ATTEMPT_FAILURE_CATEGORIES = [
 
 /** Techos de longitud: acotan el ruido en logs y el tamaño de la respuesta. */
 const MAX_FAILURE_REASON_CHARS = 200;
+/** Una ruta de campo no necesita más que esto (`facts.3.evidenceIds` = 21). */
+const MAX_FAILURE_PATH_CHARS = 80;
+/** El detalle atestiguado es una frase corta; el tope coincide con el del motivo. */
+const MAX_FAILURE_DETAIL_CHARS = 200;
 const MAX_FINISH_REASON_CHARS = 40;
 const MAX_ISO_DATE_CHARS = 40;
 const MAX_FINGERPRINT_CHARS = 128;
@@ -87,6 +91,18 @@ export interface AuditAttemptDiagnosticView {
   capabilitiesVerified: boolean;
   /** Motivo YA saneado por el proveedor; nunca el mensaje crudo ni el body. */
   failureReason: string | null;
+  /**
+   * Ruta del campo que el validador local rechazó (`null` si el fallo no tiene
+   * ruta). Texto ESTÁTICO del emisor del error, nunca del mensaje.
+   */
+  path: string | null;
+  /**
+   * Detalle SANEADO del fallo (`null` si no está atestiguado). Es el único
+   * fragmento de diagnóstico que puede contener algo que venga de la respuesta
+   * del modelo —un id de evidencia, que es un identificador opaco— y por eso
+   * pasa por el alfabeto de lo atestiguado.
+   */
+  detail: string | null;
 }
 
 /**
@@ -155,6 +171,29 @@ function oneLineText(value: unknown, maxChars: number): string | null {
   return cleaned.length > 0 ? cleaned.slice(0, maxChars) : null;
 }
 
+/**
+ * Alfabeto que un detalle ATESTIGUADO puede tener.
+ *
+ * `path` y `detail` los escribe el emisor del error, no el modelo: son rutas
+ * (`facts.3.evidenceIds`) y frases cortas con identificadores. Se exige además
+ * que no haya acentos ni eñes, porque hasta ahora ningún emisor los produce, y
+ * su presencia en `provider_metadata` (que es JSONB libre: una escritura vieja,
+ * un despliegue anterior, un humano) delata texto libre. Ante la duda, `null`.
+ */
+const ATTESTED_TEXT = /^[A-Za-z0-9 .:_|()[\]-]+$/;
+
+/**
+ * `oneLineText` + el alfabeto de lo atestiguado.
+ *
+ * Un detalle que no se parece a nada que nuestros emisores produzcan no se
+ * publica: es el caso en el que la columna contiene texto crudo del modelo y
+ * este módulo es la última puerta antes de la API y de la pantalla.
+ */
+function attestedTextOrNull(value: unknown, maxChars: number): string | null {
+  const text = oneLineText(value, maxChars);
+  return text !== null && ATTESTED_TEXT.test(text) ? text : null;
+}
+
 function failureCategoryOrNull(value: unknown): AttemptFailureCategory | null {
   return typeof value === 'string' && (ATTEMPT_FAILURE_CATEGORIES as readonly string[]).includes(value)
     ? (value as AttemptFailureCategory)
@@ -184,6 +223,11 @@ export function sanitizeAttemptDiagnostic(value: unknown): AuditAttemptDiagnosti
     retryable: boolOrFalse(value.retryable),
     capabilitiesVerified: boolOrFalse(value.capabilitiesVerified),
     failureReason: oneLineText(value.failureReason, MAX_FAILURE_REASON_CHARS),
+    // La ruta y el detalle son lo que convierte "el modelo falló" en "este campo
+    // falló por esto". Pasan por el alfabeto de lo atestiguado: si la fila trae
+    // texto crudo del modelo en cualquiera de los dos, se neutralizan.
+    path: attestedTextOrNull(value.path, MAX_FAILURE_PATH_CHARS),
+    detail: attestedTextOrNull(value.detail, MAX_FAILURE_DETAIL_CHARS),
   };
 }
 

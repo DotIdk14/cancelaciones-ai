@@ -84,6 +84,17 @@ export interface AuditAttemptDiagnostic {
   retryable: boolean;
   capabilitiesVerified: boolean;
   failureReason: string | null;
+  /**
+   * Ruta del campo que el validador local rechazó (`null` si el fallo no tiene
+   * ruta). Es lo que convierte "el modelo falló" en "este campo falló".
+   */
+  path: string | null;
+  /**
+   * Detalle SANEADO por el emisor del error (`null` si no está atestiguado).
+   * Nunca texto crudo del modelo: `provider_metadata` es JSONB y el saneo es la
+   * última puerta antes de que eso llegue a la pantalla.
+   */
+  detail: string | null;
 }
 
 /** Metadatos técnicos del proveedor, sin prompts, expediente, PII ni secretos. */

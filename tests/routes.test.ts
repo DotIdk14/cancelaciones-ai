@@ -250,6 +250,8 @@ const FALLBACK_DIAGNOSTICS: OpenRouterAttemptDiagnostic[] = [
     retryable: false,
     failureCategory: 'SCHEMA_VALIDATION_ERROR',
     failureReason: 'schema validation failed at audit.supportingEvidenceIds',
+    path: 'audit.supportingEvidenceIds',
+    detail: null,
   },
   {
     model: 'openai/gpt-4o-mini',
@@ -267,6 +269,8 @@ const FALLBACK_DIAGNOSTICS: OpenRouterAttemptDiagnostic[] = [
     retryable: false,
     failureCategory: 'SCHEMA_VALIDATION_ERROR',
     failureReason: 'schema validation failed at facts.0.evidenceIds',
+    path: 'facts.0.evidenceIds',
+    detail: null,
   },
 ];
 
@@ -364,6 +368,8 @@ describe('observabilidad: un fallo de auditoría se puede diagnosticar', () => {
       retryable: false,
       capabilitiesVerified: true,
       failureReason: 'schema validation failed at audit.supportingEvidenceIds',
+      path: 'audit.supportingEvidenceIds',
+      detail: null,
     });
     expect(second).toEqual({
       format: 'json_object',
@@ -376,6 +382,8 @@ describe('observabilidad: un fallo de auditoría se puede diagnosticar', () => {
       retryable: false,
       capabilitiesVerified: false,
       failureReason: 'schema validation failed at facts.0.evidenceIds',
+      path: 'facts.0.evidenceIds',
+      detail: null,
     });
   });
 
@@ -398,11 +406,13 @@ describe('observabilidad: un fallo de auditoría se puede diagnosticar', () => {
         [
           'capabilitiesVerified',
           'completionTokens',
+          'detail',
           'failureCategory',
           'failureReason',
           'finishReason',
           'format',
           'latencyMs',
+          'path',
           'promptTokens',
           'retryable',
           'status',
@@ -499,6 +509,8 @@ describe('observabilidad: un fallo de auditoría se puede diagnosticar', () => {
           retryable: false,
           capabilitiesVerified: true,
           failureReason: 'schema validation failed at audit.supportingEvidenceIds',
+          path: 'audit.supportingEvidenceIds',
+          detail: null,
         },
         {
           format: 'json_object',
@@ -511,6 +523,8 @@ describe('observabilidad: un fallo de auditoría se puede diagnosticar', () => {
           retryable: false,
           capabilitiesVerified: false,
           failureReason: 'schema validation failed at facts.0.evidenceIds',
+          path: 'facts.0.evidenceIds',
+          detail: null,
         },
       ],
     });
@@ -578,6 +592,8 @@ describe('observabilidad: provider_metadata con forma inesperada no rompe ni fil
           retryable: true,
           capabilitiesVerified: true,
           failureReason: 'rate limit',
+          path: null,
+          detail: null,
         },
       ],
     });

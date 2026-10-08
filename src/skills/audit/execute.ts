@@ -35,6 +35,12 @@ export const auditSkill: AuditSkill = {
       system,
       parts,
       deadlineMs: options?.deadlineMs,
+      // `validateAssessmentReferences` va AQUÍ, dentro del validador que el
+      // transporte envuelve, y no suelto después: fuera de él, su error carecía
+      // de `sanitizedDetail` y el diagnóstico acababa en
+      // `unknown evidence reference` —ni ruta ni id—, que fue exactamente lo que
+      // dejó el incidente de producción indescifrable. Dentro, el mismo fallo se
+      // clasifica por su código y deja el detalle atestiguado.
       validate: (parsed) => {
         const assessment = parseAiAuditAssessment(stripTechnicalMetadata(parsed), validationContext(input));
         validateAssessmentReferences(assessment, input);
@@ -81,12 +87,50 @@ function validationContext(input: AuditSkillInput): { humanCycleStartDate: strin
   return { humanCycleStartDate: input.humanCycleStartDate ?? null };
 }
 
+/**
+ * Un id de evidencia es un identificador opaco (UUID en producción, `ev-1` en
+ * los tests), no texto. Lo que el modelo pone ahí puede ser cualquier cosa, y
+ * si el `sanitizedDetail` acabara en un log o en el DTO acabaría también.
+ *
+ * Se atestigua SÓLO si tiene la forma de un identificador; si no, se dice que
+ * hubo un id y no cuál. La política no se ablanda: el fallo sigue tumbando el
+ * dictamen (fail-closed). Esto sólo decide si el detalle es o no publicable.
+ */
+const ATTESTABLE_EVIDENCE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+
+/**
+ * Constructor ÚNICO del fallo por referencia de evidencia.
+ *
+ * Existe como función (y no como `new ApiError(...)` en la línea que falla) por
+ * dos razones concretas:
+ *
+ *  1. **Clasificación por código, no por texto.** Quien clasifica
+ *     (`openrouter.ts`) lee `validatorFailureCode`. Con el `new ApiError` en la
+ *     línea del fallo, el mensaje era lo único que distinguía esta familia de
+ *     `SCHEMA_VALIDATION_ERROR`, y renombrarlo reclasificaba el fallo.
+ *  2. **Detalle atestiguado.** `sanitizedDetail` lo escribe QUIEN CONOCE el
+ *     fallo, así que puede afirmar la ruta y el id sin miedo de estar copiando la
+ *     respuesta del modelo. Antes este error salía sin `sanitizedDetail` y el
+ *     diagnóstico acababa en `failureReason: 'unknown evidence reference'`: el
+ *     incidente fue indescifrable justo por eso.
+ *
+ * El `message` crudo se conserva para el feedback correctivo al modelo (que sí
+ * necesita saber qué corregir); nunca sale de la petición saliente.
+ */
+export function invalidEvidenceReference(path: string, evidenceId: string): ApiError {
+  const failure = new ApiError(502, 'INVALID_AI_RESPONSE', `${path} referencia evidencia inexistente: ${evidenceId}`);
+  failure.validatorFailureCode = 'INVALID_EVIDENCE_REFERENCE';
+  failure.failurePath = path;
+  failure.sanitizedDetail = `evidencia inexistente ${ATTESTABLE_EVIDENCE_ID.test(evidenceId) ? evidenceId : '(id no atestiguable)'}`;
+  return failure;
+}
+
 function validateAssessmentReferences(assessment: ReturnType<typeof parseAiAuditAssessment>, input: AuditSkillInput): void {
   const validIds = new Set(input.evidences.map((evidence) => evidence.evidenceId));
   const checkIds = (ids: string[], path: string) => {
     for (const id of ids) {
       if (!validIds.has(id)) {
-        throw new ApiError(502, 'INVALID_AI_RESPONSE', `${path} referencia evidencia inexistente: ${id}`);
+        throw invalidEvidenceReference(path, id);
       }
     }
   };

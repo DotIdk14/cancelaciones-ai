@@ -498,7 +498,8 @@ function humanCycleStartDateOrNull(value: string | null | undefined): string | n
  *    `cycle_start_date`, que son la misma copia). No se tocan las citas ni los
  *    `evidenceIds` que el modelo emitió: borrarlos taparía el error del modelo en
  *    lugar de registrarlo, y esos ids siguen cotejándose contra las evidencias
- *    reales en `validateAssessmentReferences`.
+ *    reales en `validateAssessmentReferences`, cuyo fallo ahora deja su ruta y su
+ *    id infractor atestiguados (ver `invalidEvidenceReference`).
  *
  * El rastro va al log del servidor como objeto estructurado con la ruta y los
  * valores comparados: nunca texto libre del modelo.
@@ -643,7 +644,10 @@ function parseWithInvalidAiError<T>(schema: z.ZodType<T>, raw: unknown, context:
       // mensajes son texto estático escrito aquí: fijos, rutas e índices/números
       // derivados de la respuesta, jamás texto libre del modelo. Validadores
       // ajenos (p. ej. tests o `validateAssessmentReferences`) lanzan fuera de
-      // este `try` y NO se atestiguan: su `message` crudo jamás llega a logs.
+      // este `try` y NO se atestiguan aquí: su `message` crudo jamás llega a
+      // logs. Si necesitan dejar detalle, lo atestiguan ellos mismos en su
+      // propio constructor — es lo que hace `invalidEvidenceReference` en
+      // `execute.ts`, que es el ÚNICO sitio que sabe qué ruta y qué id fallaron.
       error.sanitizedDetail = error.message;
     }
     throw error;

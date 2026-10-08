@@ -83,6 +83,21 @@ export interface OpenRouterAttemptDiagnostic {
   retryable: boolean;
   failureCategory: AttemptFailureCategory | null;
   failureReason: string | null;
+  /**
+   * Ruta del campo que el validador local rechazó (`null` si el fallo no tiene
+   * ruta). Viene de `ApiError.failurePath`, es decir de texto ESTÁTICO escrito
+   * por el emisor del fallo: nunca se saca del mensaje.
+   */
+  path: string | null;
+  /**
+   * Detalle SANEADO del fallo (`null` si el emisor no lo atestiguó).
+   *
+   * Solo se copia cuando el emisor del error lo atestiguó explícitamente
+   * (`ApiError.sanitizedDetail`): el `message` crudo puede ecoar la respuesta
+   * del modelo, así que se queda en el feedback correctivo y no sale de aquí.
+   * Acotado a una línea y a 200 caracteres.
+   */
+  detail: string | null;
 }
 
 export class OpenRouterAuditError extends ApiError {
@@ -232,6 +247,8 @@ function diagnostic(
     retryable: false,
     failureCategory: null,
     failureReason: null,
+    path: null,
+    detail: null,
     ...fields,
   };
 }
@@ -382,11 +399,25 @@ async function singleAttempt(
     try {
       input.validate?.(parsed);
     } catch (error) {
+      // El mensaje crudo SÓLO se usa aquí para el fallback de la ruta, cuando el
+      // emisor no la declara (p. ej. `parseWithInvalidAiError`, que la escribe en
+      // el texto). No se persiste ni se registra.
       const message = error instanceof Error ? error.message : '';
-      const category: AttemptFailureCategory = /referencia evidencia inexistente/i.test(message)
-        ? 'INVALID_EVIDENCE_REFERENCE'
-        : 'SCHEMA_VALIDATION_ERROR';
-      const schemaPath = message.match(/(?:INVALID_AI_RESPONSE:\s*)?([\w.[\]]+):/)?.[1] ?? 'response';
+      // Clasificación POR CÓDIGO, no por texto. Con el regex anterior, renombrar
+      // el mensaje reclasificaba el fallo en silencio: cambiaba el enrutado del
+      // segundo intento, el feedback correctivo y lo que se persistía.
+      const category: AttemptFailureCategory =
+        error instanceof ApiError && error.validatorFailureCode === 'INVALID_EVIDENCE_REFERENCE'
+          ? 'INVALID_EVIDENCE_REFERENCE'
+          : 'SCHEMA_VALIDATION_ERROR';
+      // La ruta se toma del campo que declara el EMISOR del fallo. El regex
+      // sobre el mensaje era frágil y además mentía: para
+      // `facts.3.evidenceIds referencia evidencia inexistente: ev-falso` devolvía
+      // `inexistente` (la última palabra antes de los dos puntos).
+      const schemaPath =
+        error instanceof ApiError && typeof error.failurePath === 'string' && error.failurePath.length > 0
+          ? error.failurePath
+          : message.match(/(?:INVALID_AI_RESPONSE:\s*)?([\w.[\]]+):/)?.[1] ?? 'response';
       // El `message` crudo del validador puede ecoar contenido de la respuesta,
       // así que SÓLO se copia al diagnóstico un detalle ATESTIGUADO por el emisor
       // (`sanitizedDetail`: códigos Zod o texto estático de nuestras reglas).
@@ -398,17 +429,20 @@ async function singleAttempt(
       const marker = `INVALID_AI_RESPONSE: ${schemaPath}: `;
       const detail =
         attested === null ? null : (attested.startsWith(marker) ? attested.slice(marker.length) : attested).slice(0, 160);
+      const failureReason =
+        category === 'INVALID_EVIDENCE_REFERENCE'
+          ? `unknown evidence reference at ${schemaPath}${detail ? `: ${detail}` : ''}`
+          : `schema validation failed at ${schemaPath}${detail ? `: ${detail}` : ''}`;
       throw new AttemptFailure(
         diagnostic(attempt, startedAt, okBody?.usage, {
           finishReason,
           failureCategory: category,
-          failureReason:
-            category === 'INVALID_EVIDENCE_REFERENCE'
-              ? 'unknown evidence reference'
-              : `schema validation failed at ${schemaPath}${detail ? `: ${detail}` : ''}`,
+          failureReason,
+          path: schemaPath,
+          detail,
         }),
         `${category}: ${schemaPath}`,
-        { detail: message, path: schemaPath },
+        { detail: error instanceof Error ? error.message : '', path: schemaPath },
       );
     }
 
@@ -476,6 +510,8 @@ export async function callOpenRouterAudit(
         retryable: false,
         failureCategory: finalFailure,
         failureReason: modelUnsupported ? 'model not listed or unsupported capability profile' : catalogUnavailable ? 'OpenRouter capability catalog unavailable' : 'capabilities could not be determined',
+        path: null,
+        detail: null,
       });
       if (modelUnsupported) continue;
       break;
@@ -500,6 +536,8 @@ export async function callOpenRouterAudit(
         retryable: false,
         failureCategory: finalFailure,
         failureReason: 'model does not support requested image/file modality',
+        path: null,
+        detail: null,
       });
       continue;
     }
@@ -522,6 +560,8 @@ export async function callOpenRouterAudit(
         retryable: false,
         failureCategory: finalFailure,
         failureReason: 'model supports neither structured output nor JSON object mode',
+        path: null,
+        detail: null,
       });
       continue;
     }
@@ -549,6 +589,8 @@ export async function callOpenRouterAudit(
         // El motivo solo contiene el valor configurado y el tope; nunca el modelo,
         // el prompt, la evidencia ni credenciales.
         failureReason: error instanceof Error ? error.message : 'invalid output budget',
+        path: null,
+        detail: null,
       });
       continue;
     }

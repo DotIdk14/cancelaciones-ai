@@ -76,6 +76,71 @@ interface TimelineEntry {
 
 type AuditPhase = 'idle' | 'starting' | 'waiting' | 'running';
 
+/**
+ * Detalle técnico del fallo, tal como lo sanitiza `audit-observability.ts`.
+ *
+ * No es el cuerpo crudo del modelo ni el expediente: es el `detail` que el
+ * emisor del error atestiguó (un id de evidencia, un código de Zod) más la ruta
+ * del campo y la categoría. Es lo que faltaba para actionar un
+ * `INVALID_EVIDENCE_REFERENCE`: sin el id infractor, sólo quedaba el nombre del
+ * error.
+ */
+interface FailureAttemptDetail {
+  failureCategory: string | null;
+  path: string | null;
+  detail: string | null;
+  latencyMs: number;
+}
+
+/** Un fallo por evidencia puede citar varias rutas; el mismo error se repite. */
+const MAX_LISTED_ATTEMPTS = 4;
+
+/**
+ * Detalle técnico de la auditoría fallida.
+ *
+ * Sólo se pinta cuando el caso está en error Y hay diagnósticos: si `path` o
+ * `detail` no vienen (respuesta vieja, fila sin metadatos), se omiten en lugar de
+ * inventar un guion bajo. Los campos ausentes se toleran porque `providerMetadata`
+ * es un agregado del contrato, no la fuente de verdad del dictamen.
+ */
+function AuditFailureDetail({ attempts }: { attempts: FailureAttemptDetail[] }): ReactNode {
+  const failed = attempts
+    .filter((attempt) => attempt.failureCategory !== null)
+    .slice(0, MAX_LISTED_ATTEMPTS);
+  if (failed.length === 0) return null;
+
+  return (
+    <section aria-label="Detalle técnico del fallo" className="mt-3 rounded-xl border border-danger/30 bg-danger/5 p-3 text-sm">
+      <p className="font-semibold text-ink">Detalle técnico del fallo</p>
+      <ul className="mt-2 space-y-2">
+        {failed.map((attempt, index) => (
+          <li key={`${attempt.failureCategory}-${index}`}>
+            <p className="text-xs text-ink/70">
+              Intento {index + 1} · {formatDuration(attempt.latencyMs)} · {errorCategoryLabel(attempt.failureCategory)}
+            </p>
+            <dl className="mt-1 grid grid-cols-[auto,1fr] gap-x-3 gap-y-1">
+              <dt className="font-mono text-xs text-danger/80">Categoría</dt>
+              <dd className="font-mono text-xs text-ink">{attempt.failureCategory}</dd>
+              {attempt.path !== null && (
+                <>
+                  <dt className="font-mono text-xs text-danger/80">Ruta</dt>
+                  <dd className="font-mono text-xs text-ink">{attempt.path}</dd>
+                </>
+              )}
+              {attempt.detail !== null && (
+                <>
+                  <dt className="font-mono text-xs text-danger/80">Detalle</dt>
+                  <dd className="font-mono text-xs text-ink">{attempt.detail}</dd>
+                </>
+              )}
+            </dl>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 export interface CaseDetailPageProps {
   caseId: string;
 }
@@ -757,6 +822,12 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
             {activeTab === 'transcript' && auditHint !== null && <p className="case-audit-hint">{auditHint}</p>}
             {caseIsError && <p className="mt-3 text-sm text-danger">El caso está en estado de error. No se puede auditar hasta que se resuelva.</p>}
             {displayError !== null && <ErrorCard title={`Auditoría con error · ${errorCategoryLabel(displayError.category)}`} category={displayError.category} message={displayError.message} onRetry={() => void runAudit()} retrying={auditBusy} />}
+            {/* El `ErrorCard` explica el error en lenguaje llano; este panel da
+                el "dónde" y el "qué": sin él, un `INVALID_EVIDENCE_REFERENCE` sólo
+                decía que el modelo falló, no qué campo ni qué evidencia. */}
+            {displayError !== null && (
+              <AuditFailureDetail attempts={audit?.providerMetadata?.openrouterAttempts ?? []} />
+            )}
           </div>
         </section>
 
