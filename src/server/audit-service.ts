@@ -342,11 +342,22 @@ const EXTRACTION_PIPELINE_VERSION = 'extract-v1';
  *   lo que entra al expediente. Re-transcribir el mismo audio con el mismo
  *   resultado no es un expediente distinto.
  *
- * Incluidos: id y hash de cada original, hash del texto derivado y la versión del
- * pipeline. Si cambia un byte de una evidencia, cambia la huella.
+ * Incluidos: id y hash de cada original, hash del texto derivado, la versión del
+ * pipeline y —SOLO si existe— la fecha de inicio que capturó el equipo.
+ *
+ * POR QUÉ LA FECHA DEL EQUIPO ENTRA SOLO CUANDO EXISTE (`humanCycleStartDate`):
+ * la fecha cambia lo que el modelo ve, así que un dictamen emitido sin ella no
+ * sirve para un caso que ya la tiene: incluirla en la huella es lo que hace que
+ * "Volver a auditar" vuelva a ejecutar el análisis en vez de devolver el
+ * dictamen cacheado. Pero el campo NO se agrega cuando no hay captura, porque el
+ * payload canónico debe quedar BYTE A BYTE igual al de siempre: los casos que
+ * nunca capturan la fecha conservan su huella, no se re-auditan y no se vuelve a
+ * pagar nada (DO_NOT_REPROCESS_AI_UNNECESSARILY). Si alguien "simplifica" esto
+ * metiendo siempre `humanCycleStartDate: null`, todos los dictámenes existentes
+ * se invalidan de golpe. Está fijado con test en `tests/audit-fingerprint.test.ts`.
  */
-export function computeEvidenceFingerprint(evidences: EvidenceRow[]): string {
-  return computeEvidenceFingerprintFor(AUDIT_PIPELINE_VERSION, evidences);
+export function computeEvidenceFingerprint(evidences: EvidenceRow[], humanCycleStartDate?: string | null): string {
+  return computeEvidenceFingerprintFor(AUDIT_PIPELINE_VERSION, evidences, humanCycleStartDate);
 }
 
 /**
@@ -356,8 +367,15 @@ export function computeEvidenceFingerprint(evidences: EvidenceRow[]): string {
  * alguien la quitara del cálculo, dos pipelines distintos darían la misma huella y
  * un dictamen viejo se reutilizaría contra el contrato nuevo (el fallo exacto que
  * el bump existe para evitar). En producción siempre se usa la versión vigente.
+ *
+ * `humanCycleStartDate` es el tercer parámetro y es OPCIONAL a propósito: las
+ * llamadas que no conocen el caso siguen funcionando sin tocar argumentos.
  */
-export function computeEvidenceFingerprintFor(version: string, evidences: EvidenceRow[]): string {
+export function computeEvidenceFingerprintFor(
+  version: string,
+  evidences: EvidenceRow[],
+  humanCycleStartDate?: string | null,
+): string {
   const canonical = evidences
     .map((evidence) => {
       const derived = evidence.transcript_json ? readTranscriptFromJson(evidence.transcript_json) : null;
@@ -369,8 +387,15 @@ export function computeEvidenceFingerprintFor(version: string, evidences: Eviden
       };
     })
     .sort((a, b) => a.id.localeCompare(b.id));
+  // El campo se agrega SOLO si hay fecha: con `null`, `undefined` o cadena vacía
+  // (que no puede existir — el endpoint valida ISO no vacío) el objeto
+  // serializado es idéntico al de siempre. La clave va AL FINAL para que el
+  // orden de `JSON.stringify` sea estable y el payload legado no se mueva.
+  const payload = humanCycleStartDate
+    ? { pipeline: version, evidence: canonical, humanCycleStartDate }
+    : { pipeline: version, evidence: canonical };
   return createHash('sha256')
-    .update(JSON.stringify({ pipeline: version, evidence: canonical }))
+    .update(JSON.stringify(payload))
     .digest('hex');
 }
 
@@ -419,7 +444,11 @@ export async function runAudit(
   }
 
   const caseRow = await getCaseOr404(client, caseId);
-  const fingerprint = computeEvidenceFingerprint(evidences);
+  // La fecha que capturó el equipo forma parte del QUÉ se audita: sin ella, un
+  // dictamen cacheado volvería a devolverse y la fecha nunca llegaría al
+  // análisis. Se pasa tal cual (`?? null`): columna ausente —migración sin
+  // aplicar— o sin capturar deja la huella exactamente como estaba.
+  const fingerprint = computeEvidenceFingerprint(evidences, caseRow.cycle_start_date ?? null);
   const completed = await latestCompletedAuditByFingerprint(client, caseId, fingerprint);
   if (completed) return { phase: 'done', audit: auditToDto(completed) };
   const running = await latestRunningAuditByFingerprint(client, caseId, fingerprint);
