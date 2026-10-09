@@ -59,14 +59,14 @@ export function Panel({
     <section
       aria-labelledby={headingId}
       className={cx(
-        'rounded-xl border border-line bg-surface-1',
+        'surface-panel',
         TONE_SURFACE[tone],
         className,
       )}
       {...rest}
     >
       {(title !== undefined || actions !== undefined) && (
-        <header className="flex flex-wrap items-start justify-between gap-3 border-b border-line px-5 py-4">
+        <header className="surface-panel-heading flex flex-wrap items-start justify-between gap-3 border-b border-line px-5 py-4">
           <div className="min-w-0">
             {title !== undefined && (
               <h2 id={headingId} className="text-base font-semibold text-ink">
@@ -78,8 +78,8 @@ export function Panel({
           {actions !== undefined && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
         </header>
       )}
-      <div className="p-5">{children}</div>
-      {footer !== undefined && <div className="border-t border-line px-5 py-3">{footer}</div>}
+      <div className="surface-panel-body p-5">{children}</div>
+      {footer !== undefined && <div className="surface-panel-footer border-t border-line px-5 py-3">{footer}</div>}
     </section>
   );
 }
@@ -100,7 +100,7 @@ export function Badge({ tone = 'neutral', children, className, title }: BadgePro
     <span
       title={title}
       className={cx(
-        'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium',
+        'status-badge inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium',
         TONE_BADGE[tone],
         className,
       )}
@@ -141,8 +141,8 @@ export function Spinner({ label = 'Cargando', className }: SpinnerProps): ReactN
 type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
 
 const BUTTON_VARIANT: Record<ButtonVariant, string> = {
-  primary: 'bg-brand text-[#0b1220] hover:bg-brand/85 disabled:hover:bg-brand',
-  secondary: 'border border-line bg-surface-3 text-ink hover:bg-[#1f262f]',
+  primary: 'bg-brand text-[var(--accent-ink)] hover:bg-[var(--accent-strong)] disabled:hover:bg-brand',
+  secondary: 'border border-line bg-surface-3 text-ink hover:bg-surface-2',
   ghost: 'text-muted hover:bg-surface-3 hover:text-ink',
   danger: 'border border-danger/50 bg-danger/10 text-danger hover:bg-danger/20',
 };
@@ -172,8 +172,8 @@ export function Button({
       disabled={disabled === true || loading}
       aria-busy={loading || undefined}
       className={cx(
-        'inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-colors',
-        'disabled:cursor-not-allowed disabled:opacity-55',
+        'app-button inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-colors',
+        'disabled:cursor-not-allowed disabled:opacity-55 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand',
         BUTTON_VARIANT[variant],
         fullWidth && 'w-full',
         className,
@@ -183,6 +183,26 @@ export function Button({
       {loading && <Spinner label={loadingLabel} className="h-3.5 w-3.5" />}
       {children}
     </button>
+  );
+}
+
+export interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'aria-label'> {
+  label: string;
+  variant?: ButtonVariant;
+}
+
+/** Botón compacto con nombre accesible obligatorio y estado de foco consistente. */
+export function IconButton({ label, variant = 'ghost', className, children, ...rest }: IconButtonProps): ReactNode {
+  return (
+    <Button
+      {...rest}
+      variant={variant}
+      aria-label={label}
+      title={label}
+      className={cx('app-icon-button h-10 w-10 p-0', className)}
+    >
+      {children}
+    </Button>
   );
 }
 
@@ -367,7 +387,7 @@ export function StatCard({
   className,
 }: StatCardProps): ReactNode {
   return (
-    <div className={cx('rounded-xl border border-line bg-surface-1 p-4', className)}>
+    <div className={cx('metric-card', className)}>
       {icon !== undefined && (
         <div aria-hidden="true" className={cx('flex justify-end', TONE_ICON[tone])}>
           {icon}

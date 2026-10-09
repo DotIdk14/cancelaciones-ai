@@ -1,8 +1,34 @@
 # Auditoría y conciliación de migraciones
 
-Estado observado el 9 de octubre de 2026. Consultas a InsForge en modo lectura;
+Snapshot inicial observado el 9 de octubre de 2026. Consultas a InsForge en modo lectura;
 no se ejecutó SQL de producción, no se aplicaron migraciones y no se modificó el
 historial remoto.
+
+## Relectura de producción · 9 de octubre de 2026
+
+Esta relectura sustituye los estados anteriores de `20261009100000` y
+`20261009110000`. Se usó `npx -y @insforge/cli db migrations list --json` y
+consultas `SELECT` de catálogos; no se escribieron datos ni esquema.
+
+- El ledger remoto devuelve **54 migraciones**; el checkout contiene **20 archivos
+  SQL**. `20261009100000_case-list-pagination-indexes` y
+  `20261009110000_case-area-comments-authenticated-policy` ya están registrados.
+- `pg_indexes` confirma ambos índices de paginación en `public.cases`.
+  `pg_policies` confirma que las tres políticas de comentarios usan solo el rol
+  `authenticated`.
+- `20261009120000_case-student-name` existe localmente, no está registrada en el
+  ledger remoto y `public.cases.student_name` **no existe** en producción. El
+  `POST /api/cases` local inserta esa columna (`src/server/cases.ts`); desplegar
+  este código antes de conciliar/aplicar esa migración rompería la creación de
+  expedientes nuevos. Es un bloqueo de release.
+- `20260930120000` tampoco figura en el ledger; sus efectos se observaron en
+  inspecciones anteriores. El ledger contiene 37 versiones remotas sin archivo
+  en el checkout, pertenecientes a la arquitectura anterior. No descargar,
+  reordenar ni adoptar automáticamente ese historial.
+- La lectura actual confirma 29 casos, ninguno sin `created_by`, y 2 memberships
+  `coordinator` + 1 `manager`. Son conteos sin identidades.
+- La exposición actual de funciones `SECURITY DEFINER` y sus grants se trata en
+  la revisión preproducción; no se revocaron permisos como parte de esta lectura.
 
 ## Hallazgo
 
@@ -49,15 +75,16 @@ remoto, pero el archivo no consta en el historial oficial.
 | `20261002000000_auth-core.sql` | B | Aplicada y registrada | `app_memberships` y `cases_created_by_id_idx` presentes. Base del acceso por membresía. |
 | `20261003000000_paid-admissions.sql` | B | Aplicada y registrada | `request_admissions` y `admit_or_reject_quota` presentes. Base durable de cuotas. |
 | `20261003010000_derived-extractions.sql` | B | Aplicada y registrada | Columnas de extracción derivada presentes en `evidence`. Último archivo compartido por el ledger y el árbol local. |
-| `20261005010000_case-area-comments.sql` | C | Aplicada sin registrar | Tabla, checks, FK, índice único y RLS observados. |
-| `20261005120000_origin-country-channel.sql` | C | Aplicada sin registrar | `cases.channel` y vista final evolucionada observadas; `country` ya tiene la proyección cerrada actual. |
-| `20261008090000_case-cycle-start-date-human.sql` | C | Aplicada sin registrar | Columnas y FK de procedencia humana observadas. |
-| `20261008100000_membership-role-manager.sql` | C | Aplicada sin registrar | Check de `app_memberships.role` admite `user`, `coordinator` y `manager`. |
-| `20261008110000_case-test-flag.sql` | C | Aplicada sin registrar | `cases.is_test boolean NOT NULL DEFAULT false` observado. |
-| `20261008120000_case-review-coordinator-decision.sql` | C | Aplicada sin registrar | Cinco columnas y dos checks de decisión del Coordinador observados. |
-| `20261008130000_dashboard-view-test-owner-scope.sql` | C | Aplicada sin registrar | Vistas finales con `created_by` e `is_test`, restricciones de acceso y 34/11 columnas observadas. |
-| `20261009100000_case-list-pagination-indexes.sql` | E | Pendiente; no consta en InsForge | Índices nuevos para paginación global/filtrada de casos. No se ha comprobado su presencia en producción; tratarlos como pendientes hasta verificarlo. |
-| `20261009110000_case-area-comments-authenticated-policy.sql` | E | Pendiente; no consta en InsForge | Corrige un desvío real: las tres políticas actuales de comentarios están dirigidas a `PUBLIC`, no a `authenticated`. Hoy ambos roles cliente carecen de privilegio de tabla; es una corrección de defensa en profundidad, no una ampliación de acceso. |
+| `20261005010000_case-area-comments.sql` | B | Registrada en la relectura | Tabla, checks, FK, índice único y RLS. |
+| `20261005120000_origin-country-channel.sql` | B | Registrada en la relectura | `cases.channel` y vista final evolucionada; `country` tiene la proyección cerrada actual. |
+| `20261008090000_case-cycle-start-date-human.sql` | B | Registrada en la relectura | Columnas y FK de procedencia humana. |
+| `20261008100000_membership-role-manager.sql` | B | Registrada en la relectura | Check de `app_memberships.role` admite `user`, `coordinator` y `manager`. |
+| `20261008110000_case-test-flag.sql` | B | Registrada en la relectura | `cases.is_test boolean NOT NULL DEFAULT false`. |
+| `20261008120000_case-review-coordinator-decision.sql` | B | Registrada en la relectura | Cinco columnas y dos checks de decisión del Coordinador. |
+| `20261008130000_dashboard-view-test-owner-scope.sql` | B | Registrada en la relectura | Vistas con `created_by` e `is_test`, restricciones de acceso y 34/11 columnas. |
+| `20261009100000_case-list-pagination-indexes.sql` | B | Registrada en la relectura | Los dos índices de paginación constan tanto en el ledger como en `pg_indexes`. |
+| `20261009110000_case-area-comments-authenticated-policy.sql` | B | Registrada en la relectura | Las tres políticas aparecen con `roles = {authenticated}` en `pg_policies`. |
+| `20261009120000_case-student-name.sql` | E | No registrada; columna ausente | El código actual inserta `cases.student_name`; falta conciliar y aplicar esta migración antes de desplegar el código que la usa. |
 
 No se asigna clase D: no se demostró que retirar un SQL sea seguro para todas
 las rutas de actualización. Los archivos A-F no se clasifican por edad, sino
@@ -78,13 +105,11 @@ datos de la aplicación.
   `audit_dashboard_metrics` mantiene una dependencia histórica de
   `case_human_reviews`. No eliminar esa tabla ni rehacer la vista hasta
   verificar retención y semántica de las métricas históricas.
-- La inspección de lectura del 9 de octubre encontró 27 casos; cero tienen
-  `created_by IS NULL`. La columna sigue nullable por definición histórica, y
-  convertirla a `NOT NULL` no es parte de esta conciliación.
-- Roles de aplicación observados: cinco filas `coordinator`; cero filas
-  `user` o `manager`. No se consultaron identidades. La ausencia de esos dos
-  tipos de membership requiere revisar el alta operativa antes del acceso de
-  Asesores o Gerentes.
+- Snapshot inicial: 27 casos. La relectura del 9 de octubre encontró 29 casos,
+  ninguno con `created_by IS NULL`; la columna sigue nullable por definición
+  histórica y no debe normalizarse sin conciliar y respaldar casos huérfanos.
+- Snapshot inicial: cinco memberships `coordinator`. La relectura encontró 2
+  `coordinator` y 1 `manager`. Son conteos cambiantes que no incluyen identidades.
 - Los objetos principales tienen RLS habilitada. Las tablas de casos,
   evidencias y auditorías conceden `SELECT` a `authenticated` y aplican
   políticas por dueño; revisiones, comparaciones, memberships, comentarios y
@@ -103,20 +128,15 @@ datos de la aplicación.
   (11 columnas) `d54782df3d5f0898837ebdc83de0504b`. Son huellas de comparación,
   no hashes criptográficos de un dump canónico.
 - Índices observados: owner+created_at y owner+id en `cases`, ambos índices de
-  lectura por caso en `evidence` y `audits`, más `audits_created_at_idx`.
-  `cases_created_at_id_idx` y `cases_status_created_at_id_idx` no aparecen.
+  lectura por caso en `evidence` y `audits`, más `audits_created_at_idx`. La
+  relectura posterior confirma también `cases_created_at_id_idx` y
+  `cases_status_created_at_id_idx`.
 - Existen objetos de la arquitectura anterior en el proyecto InsForge. No se
   incluyeron en una nueva definición global porque requieren una decisión de
   retención y no pertenecen al conjunto mínimo de la aplicación actual.
-- `20261009100000_case-list-pagination-indexes.sql` no está verificada en el
-  catálogo remoto. Su ausencia no impide la corrección funcional, pero la
-  paginación global puede degradarse sin esos índices.
-- Las políticas `case_area_comments_*` del esquema remoto tienen roles
-  `{public}` porque el SQL original omitió `TO authenticated`. La tabla no da
-  `SELECT` a `anon` ni a `authenticated`, y el servidor usa `project_admin`, por
-  lo que la consulta actual no muestra acceso cliente. La nueva migración
-  `20261009110000_case-area-comments-authenticated-policy.sql` restringe esas
-  políticas explícitamente; sigue pendiente de staging y aprobación.
+- Snapshot inicial: los índices de paginación y el alcance de políticas de
+  comentarios parecían pendientes. La relectura actual confirma que ambos
+  cambios están registrados y sus efectos coinciden con el SQL local.
 
 ## Plan reproducible antes de cualquier escritura
 

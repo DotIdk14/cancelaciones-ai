@@ -8,7 +8,8 @@
 // =============================================================================
 
 import type { ReactNode } from 'react';
-import { Button, Panel } from './ui';
+import { ShieldCheck } from 'lucide-react';
+import { Button } from './ui';
 
 /** Origen del login con Google. Relativo a propósito: mismo origen, sin URL absoluta. */
 const GOOGLE_LOGIN_PATH = '/api/auth/google';
@@ -23,46 +24,51 @@ export function LoginScreen({ authError = null, sessionExpired = false }: LoginS
   const error = authError ?? (sessionExpired ? 'Tu sesión expiró. Vuelve a iniciar sesión.' : null);
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4 py-6">
-      <div className="w-full max-w-sm">
-        <div className="mb-6 text-center">
-          <h1 className="text-lg font-semibold text-ink">Auditoría de Cancelaciones</h1>
-          <p className="text-sm text-muted">Cancelaciones, bajas y deserción · UTEL</p>
-        </div>
-
-        <Panel title="Iniciar sesión">
-          <div className="flex flex-col gap-4">
-            {error !== null && (
-              <div
-                role="alert"
-                aria-live="polite"
-                className="rounded-xl border border-danger/40 bg-danger/10 p-3 text-sm text-danger"
-              >
-                {error}
-              </div>
-            )}
-
-            <Button
-              variant="primary"
-              fullWidth
-              onClick={() => {
-                // Navegación de nivel superior: el callback de Google responde
-                // con un 302/303 que un fetch no seguiría.
-                window.location.assign(GOOGLE_LOGIN_PATH);
-              }}
-            >
-              <GoogleMark />
-              Continuar con Google
-            </Button>
-
-            <p className="text-center text-xs text-subtle">
-              Solo se admiten correos de la UTEL (<span className="font-medium">@utel.edu.mx</span>) con
-              autorización activa.
-            </p>
+    <main className="login-shell">
+      <div className="login-layout">
+        <section className="login-context" aria-labelledby="login-product-name">
+          <a className="login-brand" href="#/" aria-label="Auditoría de Cancelaciones">
+            <span className="app-brand-mark" aria-hidden="true"><ShieldCheck size={22} /></span>
+            <span>Cancelaciones <b>AI</b></span>
+          </a>
+          <div className="login-context-copy">
+            <p className="login-context-label">UTEL · OPERACIÓN ACADÉMICA</p>
+            <h1 id="login-product-name">Auditoría de Cancelaciones</h1>
+            <p>Cancelaciones, bajas y deserción · UTEL</p>
           </div>
-        </Panel>
+          <div className="login-context-foot"><span aria-hidden="true" /> Acceso institucional</div>
+        </section>
+
+        <section className="login-panel" aria-labelledby="login-heading">
+          <div className="login-panel-heading">
+            <span>IDENTIFICACIÓN</span>
+            <h2 id="login-heading">Iniciar sesión</h2>
+          </div>
+          {error !== null && (
+            <div role="alert" aria-live="polite" className="login-error">
+              {error}
+            </div>
+          )}
+
+          <Button
+            variant="primary"
+            fullWidth
+            onClick={() => {
+              // Navegación de nivel superior: el callback de Google responde
+              // con un 302/303 que un fetch no seguiría.
+              window.location.assign(GOOGLE_LOGIN_PATH);
+            }}
+          >
+            <GoogleMark />
+            Continuar con Google
+          </Button>
+
+          <p className="login-access-note">
+            Solo se admiten correos de la UTEL (<span>@utel.edu.mx</span>) con autorización activa.
+          </p>
+        </section>
       </div>
-    </div>
+    </main>
   );
 }
 

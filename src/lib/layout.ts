@@ -1,12 +1,9 @@
 // =============================================================================
-// Ancho del shell: una sola fuente de verdad para cabecera, navegación y
+// Ancho del shell: una sola fuente de verdad para cabecera, dock y
 // contenido.
 //
 // Antes cada componente decidía su `max-w` por su cuenta: `AppHeader` y
-// `AppNav` usaban `max-w-5xl` mientras `App.tsx` usaba `max-w-6xl` en las
-// rutas del dashboard. El resultado visible era que en Resumen, IA & Costos y
-// Calidad las pestañas y el título quedaban 8rem más cortos que el contenido que
-// deberían enmarcar, y el bloque se veía descentrado.
+// rutas del dashboard mantienen más espacio para sus gráficas y tablas.
 //
 // La regla es la que ya se quería: las vistas del dashboard van más anchas
 // porque tienen gráficas y tablas; el resto mantiene la lectura cómoda.
@@ -27,7 +24,7 @@ export function isDashboardRoute(name: AppRoute['name']): boolean {
 }
 
 /**
- * Clase de ancho para el contenedor interior de cabecera, navegación y
+ * Clase de ancho para el contenedor interior de cabecera y
  * contenido. Se aplica siempre en los tres, para que compartan márgenes.
  */
 export function shellWidth(name: AppRoute['name']): string {

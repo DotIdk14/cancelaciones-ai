@@ -5,9 +5,9 @@
 // =============================================================================
 
 import type { MouseEvent, ReactNode } from 'react';
-import { Suspense, lazy } from 'react';
+import { Suspense, lazy, useEffect } from 'react';
 import { AppHeader } from './components/AppHeader';
-import { AppNav } from './components/AppNav';
+import { AppDock } from './components/AppDock';
 import { CaseDetailPage } from './components/CaseDetailPage';
 import { CaseDetailPreview } from './components/CaseDetailPreview';
 import { CaseListPage } from './components/CaseListPage';
@@ -30,6 +30,7 @@ import {
 import { useHashRoute } from './lib/useHashRoute';
 import type { AppRoute } from './lib/useHashRoute';
 import { useSession } from './lib/useSession';
+import { capabilitiesForRole } from './server/capabilities';
 
 // -----------------------------------------------------------------------------
 // Dashboard en carga diferida
@@ -107,7 +108,7 @@ function renderRoute(
       );
     case 'cases':
       return <CaseListPage />;
-    // El nav ofrece "Nuevo caso" y "Casos" como entradas distintas, así que
+    // El dock ofrece "Nueva auditoría" y "Expedientes" como entradas distintas, así que
     // `#/nuevo` muestra solo el alta y `#/casos` la lista. Ambas pantallas se
     // componían antes en `CaseListPage`; aquí solo se usa el panel que la
     // etiqueta del enlace promete.
@@ -136,7 +137,19 @@ function Shell({
   capabilities?: SessionSnapshot['capabilities'];
 }): ReactNode {
   const route = useHashRoute();
-  const displayRoute = route;
+  const restrictedRoute = !capabilities.canReadAllCases &&
+    (route.name === 'dashboard' || route.name === 'quality' || route.name === 'ai-costs');
+  const displayRoute: AppRoute = restrictedRoute ? { name: 'cases' } : route;
+  const routeKey = route.name === 'case' ? `${route.name}:${route.caseId}` : route.name;
+
+  useEffect(() => {
+    const workspace = document.querySelector<HTMLElement>('.app-workspace');
+    if (workspace !== null) workspace.scrollTop = 0;
+  }, [routeKey]);
+
+  useEffect(() => {
+    if (restrictedRoute && window.location.hash !== '#/casos') window.location.hash = '#/casos';
+  }, [restrictedRoute, routeKey]);
 
   /**
    * El skip link NO puede usar `href="#contenido"`: el hash lo interpreta el
@@ -152,10 +165,8 @@ function Shell({
     main.scrollIntoView();
   };
 
-  const detailRoute = displayRoute.name === 'case';
-
   return (
-    <div className="min-h-screen bg-background text-ink">
+    <div className="application-shell min-h-screen bg-background text-ink">
       <a
         href="#contenido"
         onClick={skipToContent}
@@ -163,22 +174,21 @@ function Shell({
       >
         Saltar al contenido
       </a>
-      <AppHeader onSignOut={onSignOut} previewOnly={previewOnly} role={role} canCreate={capabilities.canWriteOwnedCases} />
+      <AppHeader onSignOut={onSignOut} previewOnly={previewOnly} role={role} />
       {previewOnly && (
-        <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 border-b border-warning/30 bg-surface-2 px-4 py-2 text-center text-sm text-warning">
-          <span role="status">Vista previa local: datos ficticios, sin conexión a InsForge.</span>
+        <div className="local-preview-toolbar flex flex-wrap items-center justify-center gap-x-3 gap-y-1 border-b border-warning/30 bg-surface-2 px-4 py-2 text-center text-sm text-warning">
+          <span className="local-preview-note" role="status">Vista previa local: datos ficticios, sin conexión a InsForge.</span>
           <LocalRoleSwitch role={role} workflow={previewWorkflow} />
           <LocalWorkflowSwitch role={role} workflow={previewWorkflow} />
         </div>
       )}
-      <div className={cx('app-workspace', detailRoute && 'app-workspace-detail')}>
-        <AppNav previewOnly={previewOnly} horizontal={detailRoute} role={role} />
+      <div className="app-workspace">
         <main
           id="contenido"
           // `tabIndex={-1}` hace que el destino del skip link reciba el foco de
           // forma programática sin entrar en el orden de tabulación.
           tabIndex={-1}
-        className="app-content min-w-0 px-4 py-5 sm:px-6 lg:px-7"
+        className="app-content min-w-0 px-4 py-6 sm:px-6 lg:px-8"
         >
           <CurrentRoute
             route={displayRoute}
@@ -189,6 +199,7 @@ function Shell({
           />
         </main>
       </div>
+      <AppDock capabilities={capabilities} previewOnly={previewOnly} />
     </div>
   );
 }
@@ -315,7 +326,12 @@ export function App(): ReactNode {
   return (
     <ErrorBoundary>
       {localPreview ? (
-        <Shell previewOnly role={previewRole} previewWorkflow={previewWorkflow} />
+        <Shell
+          previewOnly
+          role={previewRole}
+          previewWorkflow={previewWorkflow}
+          capabilities={capabilitiesForRole(previewRole)}
+        />
       ) : (
         <AuthenticatedApp />
       )}

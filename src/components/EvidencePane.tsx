@@ -52,7 +52,7 @@ export function EvidencePane({ evidence, studentName }: EvidencePaneProps): Reac
           <a
             href={downloadUrl}
             download
-            className="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-[#0b1220] transition-colors hover:bg-brand/85"
+            className="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-[var(--accent-ink)] transition-colors hover:bg-[var(--accent-strong)]"
           >
             Descargar<span className="sr-only"> {evidence.filename}</span>
           </a>

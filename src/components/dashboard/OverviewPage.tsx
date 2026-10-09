@@ -43,6 +43,11 @@ interface KpiCard {
   withPct: boolean;
 }
 
+type PercentageKpiCard = KpiCard & { key: Exclude<KpiKey, 'auditedCases'> };
+function isPercentageKpi(card: KpiCard): card is PercentageKpiCard {
+  return card.key !== 'auditedCases';
+}
+
 const KPI_CARDS: KpiCard[] = [
   { key: 'auditedCases', label: 'Casos auditados', tone: 'neutral', icon: <Files {...ICON_PROPS} />, withPct: false },
   {
@@ -58,6 +63,7 @@ const KPI_CARDS: KpiCard[] = [
   { key: 'insufficient', label: 'Evidencia insuficiente', tone: 'brand', icon: <FileQuestion {...ICON_PROPS} />, withPct: true },
   { key: 'errors', label: 'Errores', tone: 'danger', icon: <TriangleAlert {...ICON_PROPS} />, withPct: true },
 ];
+const ATTENTION_KPIS: ReadonlySet<KpiKey> = new Set(['casesWithMissingEvidence', 'needsRuling', 'errors']);
 
 const EMPTY_CHART_TITLE = 'No hay suficientes datos para este periodo.';
 const EMPTY_TABLE_TITLE = 'Todavía no hay casos auditados en este periodo.';
@@ -105,31 +111,57 @@ export function OverviewPage(): ReactNode {
         />
       )}
 
-      {/* Fila 1: KPIs */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-        {KPI_CARDS.map((card) => {
-          const value = kpi?.[card.key];
-          const pctKey = card.key === 'auditedCases' ? null : KPI_PCT[card.key];
-          return (
-            <StatCard
-              key={card.key}
-              label={card.label}
-              tone={card.tone}
-              icon={card.icon}
-              value={isLoading || value === undefined ? <Skeleton className="h-8 w-20" /> : value}
-              hint={
-                card.withPct && pctKey !== null ? (
-                  isLoading || kpi === undefined ? (
-                    <Skeleton className="mt-2 h-3 w-14" />
-                  ) : (
-                    `${formatPercent(kpi[pctKey])} del total`
-                  )
-                ) : undefined
-              }
-            />
-          );
-        })}
-      </div>
+      {/* Las cifras que requieren acción quedan juntas y las resoluciones se leen
+          como contexto. Se conservan exactamente los agregados del servidor. */}
+      <section className="overview-kpi-layout" aria-label="Indicadores operativos">
+        <div className="overview-kpi-primary">
+          <StatCard
+            label="Casos auditados"
+            tone="neutral"
+            icon={<Files {...ICON_PROPS} />}
+            value={isLoading || kpi === undefined ? <Skeleton className="h-8 w-20" /> : kpi.auditedCases}
+            className="overview-total-card"
+          />
+          <div className="overview-attention-grid" aria-label="Casos que requieren atención">
+            {KPI_CARDS.filter((card): card is PercentageKpiCard => isPercentageKpi(card) && ATTENTION_KPIS.has(card.key)).map((card) => {
+              const value = kpi?.[card.key];
+              const pctKey = KPI_PCT[card.key];
+              return (
+                <StatCard
+                  key={card.key}
+                  label={card.label}
+                  tone={card.tone}
+                  icon={card.icon}
+                  value={isLoading || value === undefined ? <Skeleton className="h-8 w-20" /> : value}
+                  hint={isLoading || kpi === undefined ? <Skeleton className="mt-2 h-3 w-14" /> : `${formatPercent(kpi[pctKey])} del total`}
+                />
+              );
+            })}
+          </div>
+        </div>
+        <div className="overview-kpi-secondary">
+          <div className="overview-outcome-grid">
+            {KPI_CARDS.filter((card): card is PercentageKpiCard => isPercentageKpi(card) && !ATTENTION_KPIS.has(card.key)).map((card) => {
+              const value = kpi?.[card.key];
+              const pctKey = KPI_PCT[card.key];
+              return (
+                <StatCard
+                  key={card.key}
+                  label={card.label}
+                  tone={card.tone}
+                  icon={card.icon}
+                  value={isLoading || value === undefined ? <Skeleton className="h-8 w-20" /> : value}
+                  hint={
+                    isLoading || kpi === undefined
+                      ? <Skeleton className="mt-2 h-3 w-14" />
+                      : `${formatPercent(kpi[pctKey])} del total`
+                  }
+                />
+              );
+            })}
+          </div>
+        </div>
+      </section>
 
       {/* Fila 2: evolución + distribución */}
       <div className="grid gap-6 lg:grid-cols-2">
