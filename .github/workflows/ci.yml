@@ -38,7 +38,7 @@ jobs:
 
       - run: npm ci
 
-      # verify:release encadena lint de secretos (check-no-public-secrets.mjs),
-      # typecheck, contract tests de OpenRouter/schema, suite Vitest completa y
+      # verify:release encadena el grupo lint (secretos, contraste y typecheck),
+      # contract tests de OpenRouter/schema, suite Vitest completa y
       # build. Se ejecuta sin inyectar secretos: ver package.json -> scripts.
       - run: npm run verify:release

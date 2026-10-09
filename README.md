@@ -733,10 +733,11 @@ Scripts disponibles:
 | `npm run build` | `tsc` + `vite build` → `dist` (`prebuild` regenera la policy) |
 | `npm run preview` | Sirve `dist` |
 | `npm run typecheck` | `tsc` sin emitir |
+| `npm run lint` | Secret scan, contraste WCAG y typecheck |
 | `npm test` / `npm run test:watch` | Vitest |
 | `npm run test:contract` | Contratos OpenRouter, capabilities, schema y referencias |
 | `npm run test:ai-smoke` | Auditoría sintética real contra OpenRouter; requiere credencial configurada |
-| `npm run verify:release` | Secret scan, typecheck, contracts, toda la suite y build |
+| `npm run verify:release` | Lint, contract tests, toda la suite y build |
 | `npm run verify:release:live` | Release gate local más smoke real facturable |
 | `npm run policy:generate` | Compila `policy/` → `src/skills/audit/policy-v5.generated.ts` |
 
