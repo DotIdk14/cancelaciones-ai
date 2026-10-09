@@ -8,6 +8,7 @@ import {
   SECTION_5_2_MINIMUMS,
   TEMPORAL_RELATIONS,
 } from './types.js';
+import type { AssessmentValidationContext } from './types.js';
 import { ApiError } from '../../server/http.js';
 
 // =============================================================================
@@ -20,6 +21,18 @@ import { ApiError } from '../../server/http.js';
 const IsoDate = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, 'INVALID_AI_RESPONSE: la fecha debe estar en formato ISO YYYY-MM-DD');
+
+/**
+ * Única definición de "esto es una fecha del contrato".
+ *
+ * La usan los dos lados del camino de la fecha aportada por el equipo: el
+ * expediente solo la inyecta al prompt si es ISO (para que un valor inesperado
+ * no pueda llevar texto) y la validación la acepta o la rechaza igual. Se
+ * exporta para no duplicar el formato en dos módulos.
+ */
+export function isIsoDateValue(value: unknown): value is string {
+  return typeof value === 'string' && IsoDate.safeParse(value).success;
+}
 
 /**
  * Análisis temporal solicitud vs. inicio de ciclo.
@@ -90,37 +103,43 @@ const ProvisionalResolutionSchema = z.object({
 /**
  * Identificación del caso TAL COMO LA VE EL MODELO.
  *
- * `.strict()` y sin `cycleStartDate`: esa fecha la deriva el servidor desde
+ * Sin `cycleStartDate`: esa fecha la deriva el servidor desde
  * `temporalAnalysis.cycleStartDate` (ver `deriveCaseCycleStartDate`). Pedírsela al
  * modelo obligaba a comparar dos copias del mismo dato DESPUÉS de que respondiera,
  * y esa comparación solo puede fallar tumbando el dictamen entero. Nadie leía el
  * campo: era un peso muerto con una invariante post-hoc como única defensa.
  *
- * `.strict()` para que un `cycleStartDate` reintroducido por el modelo sea un
- * error de forma visible, no una divergencia silenciosa que llegue a `result_json`.
+ * SIN `.strict()`, a propósito. El JSON Schema que ve el proveedor ya fuerza
+ * `additionalProperties: false` en los dos perfiles (`provider-schema.ts`), así que
+ * quitarlo aquí NO cambia lo que se le pide al modelo: no se le pide "no emitas
+ * esta clave", se le sigue prohibiendo emitirla. Lo único que `.strict()` añadía
+ * era un modo de fallo —la clave que el modelo emita por costumbre tumba el
+ * dictamen tras dos intentos—, que es justo la clase de fallo que la Tarea 1
+ * existía para eliminar. Con `.strip()` la clave sobra se descarta, y la
+ * divergencia no puede llegar a `result_json` porque `deriveCaseCycleStartDate`
+ * sobrescribe la única copia después. Fijado en `tests/cycle-start-date.test.ts`.
  */
-const ModelCaseSchema = z
-  .object({
-    matricula: z.string().nullable(),
-    studentName: z.string().nullable(),
-    program: z.string().nullable(),
-    cycle: z.string().nullable(),
-  })
-  .strict();
+const ModelCaseSchema = z.object({
+  matricula: z.string().nullable(),
+  studentName: z.string().nullable(),
+  program: z.string().nullable(),
+  cycle: z.string().nullable(),
+});
 
 /**
  * Identificación del caso TAL COMO SE PERSISTE.
  *
  * Lleva `cycleStartDate` porque forma parte del `result_json` ya emitido y debe
- * seguir releyéndose. NO es `.strict()` por el mismo motivo: un dictamen guardado
- * con esa clave debe releerse sin romperse (PROJECTION_IS_NOT_THE_DICTAMEN).
+ * seguir releyéndose. Descarta claves desconocidas (no `.strict()`) por el mismo
+ * motivo: un dictamen guardado con una clave que este contrato ya no declara debe
+ * releerse sin romperse (PROJECTION_IS_NOT_THE_DICTAMEN).
  *
  * El campo es opcional en la ENTRADA para tolerar filas históricas que no lo
  * traigan; la derivación del servidor lo rellena.
  */
 const PersistedCaseSchema = ModelCaseSchema.extend({
   cycleStartDate: IsoDate.nullable().optional(),
-}).strip();
+});
 
 export const AiAuditAssessmentSchema = z
   .object({
@@ -240,12 +259,12 @@ export function deriveCaseCycleStartDate(result: AuditResult): AuditResult {
   };
 }
 
-export function parseAiAuditAssessment(raw: unknown): AiAuditAssessment {
-  return parseWithInvalidAiError(AiAuditAssessmentSchema, raw);
+export function parseAiAuditAssessment(raw: unknown, context: AssessmentValidationContext = {}): AiAuditAssessment {
+  return parseWithInvalidAiError(AiAuditAssessmentSchema, raw, context);
 }
 
-export function parseAuditResult(raw: unknown): AuditResult {
-  return parseWithInvalidAiError(AuditResultSchema, raw);
+export function parseAuditResult(raw: unknown, context: AssessmentValidationContext = {}): AuditResult {
+  return parseWithInvalidAiError(AuditResultSchema, raw, context);
 }
 
 interface ValidatedAssessment {
@@ -379,7 +398,7 @@ function validateContactAttemptsMinimum(assessment: ValidatedAssessment): void {
   }
 }
 
-function validateBusinessRules(assessment: ValidatedAssessment): void {
+function validateBusinessRules(assessment: ValidatedAssessment, context: AssessmentValidationContext): void {
   if (assessment.audit.rule.trim().length === 0) {
     throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.rule: debe ser un string no vacío');
   }
@@ -423,7 +442,7 @@ function validateBusinessRules(assessment: ValidatedAssessment): void {
     }
   });
   validateContactAttemptsMinimum(assessment);
-  validateTemporalCoherence(assessment);
+  validateTemporalCoherence(assessment, context);
   validateOrigin(assessment);
 }
 
@@ -451,6 +470,101 @@ function validateOrigin(assessment: ValidatedAssessment): void {
 }
 
 /**
+ * Ruta del bloque temporal en los mensajes del validador.
+ *
+ * Vive ACÁ y no dentro de cada función porque la rechazan dos sitios con
+ * propósito distinto: las reglas de coherencia y la conciliación. El prefijo
+ * `INVALID_AI_RESPONSE:` es lo que `parseWithInvalidAiError` reconoce para
+ * atestar el detalle, y el `sanitizeValidationDetail` de OpenRouter lo quita
+ * antes de reenviarlo al modelo.
+ */
+const TEMPORAL_PATH = 'INVALID_AI_RESPONSE: temporalAnalysis';
+
+/**
+ * Normaliza la fecha aportada por el equipo a la única forma que puede
+ * sustentar un dictamen: ISO `YYYY-MM-DD`, o `null` si no hay captura.
+ *
+ * Fail-closed: si el valor no cumple el formato, se rechaza con un mensaje
+ * ESTÁTICO (nunca se copia el valor al error, para no filtrar contenido de la
+ * fila). El endpoint ya lo rechaza antes de escribir; esto es la segunda vuelta
+ * de la puerta, porque acá el valor es lo que legitima una `cycleStartDate`.
+ */
+function humanCycleStartDateOrNull(value: string | null | undefined): string | null {
+  if (value === null || value === undefined) return null;
+  if (!isIsoDateValue(value)) {
+    throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: cases.cycle_start_date: la fecha aportada por el equipo debe estar en formato ISO YYYY-MM-DD');
+  }
+  return value;
+}
+
+/**
+ * Concilia la fecha afirmada por el modelo con la capturada por el equipo.
+ *
+ * SOLO concilia cuando la fecha del modelo NO venía acreditada. Si venía con
+ * evidencia, NO la sobrescribe: la rechaza. La razón es que conciliar deja un
+ * dictamen que se desmiente a sí mismo — la fecha escrita pasa a ser la
+ * capturada, pero `relationToCycleStart`, `audit.result`, `audit.rule` y el
+ * razonamiento se dedujeron de la OTRA, y no hay forma de recalcularlos sin
+ * reclasificar. El caso real: evidencia acreditando 28/09, captura del equipo en
+ * 21/08 y una solicitud del 24/09: tras conciliar, la fecha decía 21/08 y la
+ * relación seguía siendo ANTES_DEL_INICIO, cuando 24/09 es posterior. El
+ * `console.warn` lo registraba en un canal que ya sabemos inservible; nadie iba
+ * a leer un dictamen autocontradictorio.
+ *
+ * Dos fechas que dicen cosas distintas NO se resuelven en silencio: la
+ * prevalencia es la que es y, ahora, el fallo es visible (categoría, ruta y
+ * detalle en el diagnóstico) y el modelo tiene una segunda oportunidad con un
+ * feedback correctivo que le dice cuál es la fecha del caso.
+ *
+ * Otros dos límites deliberados:
+ *
+ *  - Si el modelo dejó `cycleStartDate` en `null`, NO se hereda la captura: no
+ *    afirmar la fecha es un dictamen legítimo (la captura no obliga al análisis).
+ *  - Solo se corrigen los VALORES (la fecha del bloque temporal y la del fact
+ *    `cycle_start_date`, que son la misma copia). No se tocan las citas ni los
+ *    `evidenceIds` que el modelo emitió: borrarlos taparía el error del modelo en
+ *    lugar de registrarlo, y esos ids siguen cotejándose contra las evidencias
+ *    reales en `validateAssessmentReferences`.
+ */
+function reconcileHumanCycleStartDate(assessment: ValidatedAssessment, captured: string): void {
+  const temporal = assessment.temporalAnalysis;
+  const asserted = temporal.cycleStartDate;
+  // La captura NO se hereda: si el modelo no afirmó fecha, no hay nada que conciliar.
+  if (asserted === null || asserted === captured) return;
+
+  if (temporal.cycleStartEvidenceIds.length > 0) {
+    // Mensaje en ASCII y con puntuación del alfabeto atestiguado a propósito: es
+    // lo que lee el modelo en el feedback del segundo intento
+    // (`sanitizeValidationDetail` recorta a ASCII) y lo que queda persistido
+    // como detalle en `provider_metadata`. Si lleva acentos, se mutila; si lleva
+    // `;` o `,`, el observabilidad lo descarta por no parecer atestiguado.
+    throw new ApiError(
+      502,
+      'INVALID_AI_RESPONSE',
+      `${TEMPORAL_PATH}.cycleStartDate: el caso tiene fecha de inicio aportada por el equipo (${captured}). La respuesta acredita con evidencia una fecha distinta. Afirma ${captured} con cycleStartEvidenceIds vacio.`,
+    );
+  }
+
+  const fact = assessment.facts.find((item) => item.key === CYCLE_START_FACT_KEY);
+  const factValue = fact?.value ?? null;
+  // El fact espeja la fecha de registro: sin él, la regla del fact de más abajo
+  // se encarga de exigirlo (o de rechazarlo).
+  if (factValue === captured) return;
+
+  temporal.cycleStartDate = captured;
+  if (fact) fact.value = captured;
+
+  console.warn('[audit] cycleStartDate del modelo conciliada con la fecha aportada por el equipo', {
+    // Ruta limpia, sin el prefijo `INVALID_AI_RESPONSE:` que llevan los mensajes:
+    // este campo es una ruta de dato (como `failurePath` en los diagnósticos).
+    path: 'temporalAnalysis.cycleStartDate',
+    assertedByModel: asserted,
+    assertedByFact: factValue,
+    capturedByTeam: captured,
+  });
+}
+
+/**
  * Coherencia del análisis temporal.
  *
  * NO reclasifica y NO calcula la relación: el modelo ya la emitió. Sólo rechaza
@@ -458,34 +572,51 @@ function validateOrigin(assessment: ValidatedAssessment): void {
  * escondía el defecto que motivó este bloque:
  *
  *  1. Una `cycleStartDate` afirmada sin evidencia ni cita textual no está
- *     acreditada: sería una fecha inventada.
+ *     acreditada: sería una fecha inventada. La ÚNICA excepción es que el caso
+ *     tenga una fecha de inicio aportada por el equipo (`humanCycleStartDate`):
+ *     esa captura sustituye a la evidencia como fuente, y entonces
+ *     `cycleStartEvidenceIds` puede ir vacío siempre que la cita declare el
+ *     origen humano.
  *  2. Una relación `DESPUES_DEL_INICIO` (o `ANTES_DEL_INICIO`) sin AMBAS fechas
  *     acreditadas no es una comparación: es una afirmación. Sin `cycleStartDate`
  *     no se puede afirmar que la solicitud fue posterior al inicio, que es
  *     justamente el razonamiento que convertía una baja en BAJA.
  *  3. Una fecha `null` con `evidenceIds` no vacíos referencia evidencia que no
  *     respalda nada.
- *  4. Una fecha de inicio acreditada DEBE tener su fact `cycle_start_date` con
- *     evidencia y cita, y con confianza < 1: una fecha crítica declarada con
- *     certeza absoluta es, por definición, una fecha mal caracterizada.
+ *  4. Una fecha de inicio acreditada DEBE tener su fact `cycle_start_date`, con
+ *     el mismo valor y con confianza < 1: una fecha crítica declarada con
+ *     certeza absoluta es, por definición, una fecha mal caracterizada. Con
+ *     origen humano, ese fact se sigue exigiendo y sus `evidenceIds` pueden ir
+ *     vacíos (misma vía nueva, mismo rastro).
  *  5. Si la relación es `NO_DETERMINABLE`, el dictamen no puede declararse con
  *     confianza máxima: la cronología crítica quedó sin acreditar.
+ *
+ * Existencia de la captura NO heredada: que `cases.cycle_start_date` tenga un
+ * valor no obliga al assessment a afirmarla; si el modelo la descarta, se
+ * persiste tal cual.
  *
  * `case.cycleStartDate` ya NO se comprueba aquí: no lo emite el modelo y lo deriva
  * el servidor (`deriveCaseCycleStartDate`) desde esta misma `temporalAnalysis`.
  * Era una comprobación post-hoc de la que dependía el dictamen entero y no la leía
  * nadie.
  */
-function validateTemporalCoherence(assessment: ValidatedAssessment): void {
+function validateTemporalCoherence(assessment: ValidatedAssessment, context: AssessmentValidationContext): void {
   const temporal = assessment.temporalAnalysis;
-  const path = 'INVALID_AI_RESPONSE: temporalAnalysis';
+  const path = TEMPORAL_PATH;
+  const humanCycleStartDate = humanCycleStartDateOrNull(context.humanCycleStartDate);
+
+  // Va ANTES de las comprobaciones: la conciliación cambia el valor que las
+  // demás reglas comparan, y decide si la evidencia es exigible o no.
+  if (humanCycleStartDate !== null) {
+    reconcileHumanCycleStartDate(assessment, humanCycleStartDate);
+  }
 
   if (temporal.cycleStartDate !== null) {
-    if (temporal.cycleStartEvidenceIds.length === 0) {
+    if (temporal.cycleStartEvidenceIds.length === 0 && humanCycleStartDate === null) {
       throw new ApiError(502, 'INVALID_AI_RESPONSE', `${path}.cycleStartDate: una fecha de inicio de ciclo afirmada exige cycleStartEvidenceIds; sin evidencia no está acreditada`);
     }
     if (temporal.cycleStartEvidenceText === null || temporal.cycleStartEvidenceText.trim() === '') {
-      throw new ApiError(502, 'INVALID_AI_RESPONSE', `${path}.cycleStartEvidenceText: una fecha de inicio de ciclo afirmada exige la cita textual que la identifica como inicio académico`);
+      throw new ApiError(502, 'INVALID_AI_RESPONSE', `${path}.cycleStartEvidenceText: una fecha de inicio de ciclo afirmada exige la cita textual que la identifica como inicio académico o, si la aportó el equipo, la declaración de ese origen humano`);
     }
   } else if (temporal.cycleStartEvidenceIds.length > 0) {
     throw new ApiError(502, 'INVALID_AI_RESPONSE', `${path}.cycleStartEvidenceIds: sin cycleStartDate no puede haber evidencia que acredite el inicio de ciclo`);
@@ -507,13 +638,16 @@ function validateTemporalCoherence(assessment: ValidatedAssessment): void {
   if (temporal.cycleStartDate !== null) {
     const fact = assessment.facts.find((item) => item.key === CYCLE_START_FACT_KEY);
     if (!fact) {
-      throw new ApiError(502, 'INVALID_AI_RESPONSE', `INVALID_AI_RESPONSE: facts: cycleStartDate afirmada exige el fact "${CYCLE_START_FACT_KEY}" con su evidencia y su cita`);
+      throw new ApiError(502, 'INVALID_AI_RESPONSE', `INVALID_AI_RESPONSE: facts: cycleStartDate afirmada exige el fact "${CYCLE_START_FACT_KEY}" con el mismo valor, su cita y su trazabilidad`);
     }
     if (fact.value !== temporal.cycleStartDate) {
       throw new ApiError(502, 'INVALID_AI_RESPONSE', `INVALID_AI_RESPONSE: facts.${CYCLE_START_FACT_KEY}.value debe ser la fecha de inicio acreditada (${temporal.cycleStartDate})`);
     }
-    if (fact.evidenceIds.length === 0 || fact.evidenceText === null || fact.evidenceText.trim() === '') {
+    if (fact.evidenceIds.length === 0 && humanCycleStartDate === null) {
       throw new ApiError(502, 'INVALID_AI_RESPONSE', `INVALID_AI_RESPONSE: facts.${CYCLE_START_FACT_KEY}: exige evidenceIds y evidenceText que acrediten la fecha de inicio`);
+    }
+    if (fact.evidenceText === null || fact.evidenceText.trim() === '') {
+      throw new ApiError(502, 'INVALID_AI_RESPONSE', `INVALID_AI_RESPONSE: facts.${CYCLE_START_FACT_KEY}: exige evidenceText con la cita que acredita la fecha de inicio o, si la aportó el equipo, la declaración de ese origen humano`);
     }
     if (fact.confidence >= 1) {
       throw new ApiError(502, 'INVALID_AI_RESPONSE', `INVALID_AI_RESPONSE: facts.${CYCLE_START_FACT_KEY}.confidence: una fecha crítica usada para el dictamen no admite confianza 1`);
@@ -525,11 +659,11 @@ function validateTemporalCoherence(assessment: ValidatedAssessment): void {
   }
 }
 
-function parseWithInvalidAiError<T>(schema: z.ZodType<T>, raw: unknown): T {
+function parseWithInvalidAiError<T>(schema: z.ZodType<T>, raw: unknown, context: AssessmentValidationContext = {}): T {
   try {
     const parsed = schema.parse(raw);
     if (parsed && typeof parsed === 'object' && 'audit' in parsed) {
-      validateBusinessRules(parsed as unknown as ValidatedAssessment);
+      validateBusinessRules(parsed as unknown as ValidatedAssessment, context);
     }
     return parsed;
   } catch (error) {
@@ -548,7 +682,10 @@ function parseWithInvalidAiError<T>(schema: z.ZodType<T>, raw: unknown): T {
       // mensajes son texto estático escrito aquí: fijos, rutas e índices/números
       // derivados de la respuesta, jamás texto libre del modelo. Validadores
       // ajenos (p. ej. tests o `validateAssessmentReferences`) lanzan fuera de
-      // este `try` y NO se atestiguan: su `message` crudo jamás llega a logs.
+      // este `try` y NO se atestiguan aquí: su `message` crudo jamás llega a
+      // logs. Si necesitan dejar detalle, lo atestiguan ellos mismos en su
+      // propio constructor — es lo que hace `invalidEvidenceReference` en
+      // `execute.ts`, que es el ÚNICO sitio que sabe qué ruta y qué id fallaron.
       error.sanitizedDetail = error.message;
     }
     throw error;

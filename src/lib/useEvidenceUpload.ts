@@ -14,6 +14,8 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { toErrorState, uploadEvidence } from './api';
+import { readEvidenceHead, resolveEvidenceMime } from '../shared/evidence-formats';
+import { EVIDENCE_TYPE_REJECTED_MESSAGE, isAcceptedEvidenceMime } from './labels';
 
 export type UploadStatus = 'uploading' | 'done' | 'error';
 
@@ -134,29 +136,45 @@ export function useEvidenceUpload(): EvidenceUploadController {
       setAnnouncement(`Subiendo ${files.length} archivo${files.length === 1 ? '' : 's'}…`);
 
       let uploaded = 0;
-      // Secuencial: evita ráfagas de subidas grandes y da progreso legible.
-      for (let index = 0; index < files.length; index += 1) {
-        const file = files[index];
-        const item = queued[index];
-        if (file === undefined || item === undefined) continue;
-        try {
-          await uploadEvidence(caseId, file);
-          patch(item.id, { status: 'done' });
-          uploaded += 1;
-        } catch (cause) {
-          const state = toErrorState(cause);
-          patch(item.id, { status: 'error', message: state.message, category: state.category });
-          failed.push({ file, message: state.message, category: state.category });
+      try {
+        // Secuencial: evita ráfagas de subidas grandes y da progreso legible.
+        for (let index = 0; index < files.length; index += 1) {
+          const file = files[index];
+          const item = queued[index];
+          if (file === undefined || item === undefined) continue;
+
+          try {
+            // Validación previa: resolvemos el MIME efectivo (firma real vs
+            // declarado, con la declaración decidiendo en firmas ambiguas). Si
+            // queda fuera de la allowlist, rechazamos localmente para no gastar
+            // una petición que terminaría en 400/415.
+            const head = await readEvidenceHead(file);
+            const acceptedMime = resolveEvidenceMime(head, file.type);
+            if (!isAcceptedEvidenceMime(acceptedMime)) {
+              const state = { category: 'UPLOAD_ERROR', message: EVIDENCE_TYPE_REJECTED_MESSAGE };
+              patch(item.id, { status: 'error', message: state.message, category: state.category });
+              failed.push({ file, message: state.message, category: state.category });
+              continue;
+            }
+
+            await uploadEvidence(caseId, file);
+            patch(item.id, { status: 'done' });
+            uploaded += 1;
+          } catch (cause) {
+            const state = toErrorState(cause);
+            patch(item.id, { status: 'error', message: state.message, category: state.category });
+            failed.push({ file, message: state.message, category: state.category });
+          }
         }
+      } finally {
+        setBusy(false);
+        const failedNames = failed.map((failure) => failure.file.name);
+        const parts = [`${uploaded} de ${files.length} archivo(s) subidos.`];
+        if (failedNames.length > 0) parts.push(`Fallaron: ${failedNames.join(', ')}.`);
+        setAnnouncement(parts.join(' '));
       }
 
-      setBusy(false);
-      const failedNames = failed.map((failure) => failure.file.name);
-      const parts = [`${uploaded} de ${files.length} archivo(s) subidos.`];
-      if (failedNames.length > 0) parts.push(`Fallaron: ${failedNames.join(', ')}.`);
-      setAnnouncement(parts.join(' '));
-
-      return { uploaded, failed, failedNames };
+      return { uploaded, failed, failedNames: failed.map((failure) => failure.file.name) };
     },
     [patch],
   );

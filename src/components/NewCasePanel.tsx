@@ -458,7 +458,7 @@ function NewCaseForm(): ReactNode {
               Archivos de evidencia
             </label>
             <p id={evidenceHintId} className="mt-1 text-xs text-muted">
-              Formatos: PNG, JPG, WEBP, PDF, MP3, WAV, M4A, OGG. Puedes seleccionar varios a la vez.
+              Formatos: PNG, JPG, WEBP, GIF, PDF, MP3, WAV, M4A, OGG, WEBM y TXT. Puedes seleccionar varios a la vez.
             </p>
             <input
               id={evidenceId}
@@ -631,8 +631,8 @@ function NewCasePreview(): ReactNode {
               <strong>Arrastra y suelta archivos de evidencia aquí</strong>
               <span>Audio, documentos, capturas e historial de conversación</span>
               <span className="preview-file-button">Explorar archivos locales</span>
-              <input type="file" multiple accept=".mp3,.wav,.pdf,.txt,.json,.jpg,.jpeg,.png" onChange={(event) => addFiles(event.target.files)} />
-              <small>MP3, WAV, PDF, TXT, JSON, JPG y PNG</small>
+              <input type="file" multiple accept={EVIDENCE_ACCEPT} onChange={(event) => addFiles(event.target.files)} />
+              <small>PNG, JPG, WEBP, GIF, PDF, MP3, WAV, M4A, OGG y TXT</small>
             </label>
             <div className="preview-files-heading"><strong>Archivos seleccionados ({files.length})</strong><span>Sin carga al servidor</span></div>
             {files.length === 0 ? <p className="preview-no-files">Todavía no hay archivos seleccionados.</p> : <ul className="preview-file-list">{files.map((file, index) => <li key={`${file.name}-${index}`}><span className="preview-file-icon">{file.type.startsWith('audio/') ? <Music2 size={17} /> : file.type.startsWith('text/') ? <MessageSquare size={17} /> : <FileText size={17} />}</span><span className="min-w-0 flex-1"><strong>{file.name}</strong><small>{(file.size / 1024 / 1024).toFixed(1)} MB · Solo vista local</small></span><button type="button" aria-label={`Quitar ${file.name}`} onClick={() => setFiles((current) => current.filter((_, fileIndex) => fileIndex !== index))}><X size={16} /></button></li>)}</ul>}

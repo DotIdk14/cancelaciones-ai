@@ -22,6 +22,7 @@ import {
   REVIEW_COMMENT_MAX,
   REVIEW_COMMENT_MIN,
 } from '../skills/review/types.js';
+import { EVIDENCE_MIME_ALLOWLIST } from '../shared/evidence-formats';
 import type { Tone } from '../components/ui';
 
 // -----------------------------------------------------------------------------
@@ -316,8 +317,42 @@ export const EVIDENCE_KIND_LABELS: Record<EvidenceKind, string> = {
   TEXT: 'Texto',
 };
 
+/**
+ * Lista de formatos que el picker de archivos ofrece al SO/browser.
+ *
+ * Debe mantenerse sincronizada con `EVIDENCE_MIME_ALLOWLIST` en
+ * `src/shared/evidence-formats.ts`. No incluir wildcards como `image/*` ni
+ * `audio/*`: permitirían seleccionar formatos que el servidor rechaza con 415
+ * (p. ej. BMP, TIFF, FLAC, SVG), generando un mismatch entre UX y validación.
+ */
 export const EVIDENCE_ACCEPT =
-  '.png,.jpg,.jpeg,.webp,.pdf,.mp3,.wav,.m4a,.ogg,audio/*,image/*,application/pdf';
+  '.png,.jpg,.jpeg,.webp,.gif,.pdf,.mp3,.wav,.m4a,.ogg,.webm,.txt,' +
+  'image/png,image/jpeg,image/webp,image/gif,' +
+  'application/pdf,' +
+  'audio/mpeg,audio/mp3,audio/wav,audio/mp4,audio/x-m4a,audio/m4a,audio/webm,audio/ogg,' +
+  'text/plain';
+
+/**
+ * MIMEs que el servidor considera evidencia válida.
+ *
+ * Es la contraparte normalizada de `EVIDENCE_ACCEPT`; la usa el cliente para
+ * rechazar localmente archivos que de todos modos fallarían en el endpoint,
+ * dando feedback inmediato sin gastar request.
+ *
+ * La fuente de verdad vive en `src/shared/evidence-formats.ts` para evitar
+ * drift entre cliente y servidor.
+ */
+const EVIDENCE_ACCEPT_MIMES = EVIDENCE_MIME_ALLOWLIST;
+
+/** Mensaje mostrado cuando el usuario selecciona un formato no soportado. */
+export const EVIDENCE_TYPE_REJECTED_MESSAGE =
+  'Formato no soportado. Usa PNG, JPG, WEBP, GIF, PDF, MP3, WAV, M4A, OGG o TXT.';
+
+/** Indica si un MIME reportado por el browser está en la allowlist del servidor. */
+export function isAcceptedEvidenceMime(mimeType: string | null | undefined): boolean {
+  if (typeof mimeType !== 'string' || mimeType === '') return false;
+  return EVIDENCE_ACCEPT_MIMES.has(mimeType.toLowerCase().split(';')[0]?.trim() ?? '');
+}
 
 /** Etiqueta para un dato de origen que el modelo no pudo determinar. */
 export const UNDETERMINED_LABEL = 'Sin determinar';

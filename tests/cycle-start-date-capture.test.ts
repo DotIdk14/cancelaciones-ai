@@ -597,4 +597,46 @@ describe('procedencia de la fecha · lo interno no sale al cliente', () => {
     expect(payload.case.cycleStartDateByName).toBeNull();
     expect(payload.case.cycleStartDateAt).toBeNull();
   });
+
+  it('sin captura, la marca de tiempo es null y NO la fecha de una migración', async () => {
+    // Contrato que sostiene la migración: `cycle_start_date_at` NO lleva
+    // `DEFAULT now()`. En PostgreSQL un DEFAULT no-VOLATILE en `ADD COLUMN` no
+    // reescribe la tabla, así que las filas preexistentes leerían el default al
+    // ser leídas: todos los casos ya existentes aparecerían "capturados" en la
+    // fecha en que se aplicó la migración. El DTO publicaría esa procedencia
+    // inventada como si fuera real.
+    //
+    // Aquí se comprueba el efecto observable en servidor: una fila sin captura
+    // devuelve `null` en los tres campos, nunca una fecha. El default, si
+    // estuviera en la base, ni se vería en este test (el fake no aplica
+    // defaults), pero lo que sí queda fijado es que el DTO no inventa el valor
+    // ni lo rellena.
+    seedCase();
+
+    const res = makeApiResponse();
+    await caseHandler(makeApiRequest({ method: 'GET' }), res);
+
+    const payload = JSON.parse(res.body) as { case: Record<string, unknown> };
+    expect(payload.case.cycleStartDate).toBeNull();
+    expect(payload.case.cycleStartDateByName).toBeNull();
+    expect(payload.case.cycleStartDateAt).toBeNull();
+    // Y el texto de la respuesta no contiene ninguna fecha suelta que alguien
+    // pudiera confundir con una captura.
+    expect(res.body).not.toMatch(/cycleStartDateAt":"\d{4}-/);
+  });
+
+  it('tras capturar, la marca de tiempo es la del servidor y no la que venga en el cuerpo', async () => {
+    // El `.strict()` del schema ya impide mandar `cycleStartDateAt`, pero el
+    // segundo requisito es que el valor guardado sea el del reloj del servidor.
+    seedCase();
+
+    await patchCase({ cycleStartDate: FECHA, cycleStartDateByName: 'Ana' });
+
+    const row = casesRows()[0];
+    const saved = row?.cycle_start_date_at as string;
+    expect(typeof saved).toBe('string');
+    // Cuenta con la hora, no es una fecha desnuda: es un instante.
+    expect(saved).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(Number.isNaN(Date.parse(saved))).toBe(false);
+  });
 });

@@ -11,7 +11,7 @@
 
 import { callOpenRouterAudit, type OpenRouterAttemptDiagnostic, type OpenRouterContentPart } from '../../server/openrouter.js';
 import { ApiError } from '../../server/http.js';
-import { deriveCaseCycleStartDate, parseAiAuditAssessment, type AuditResult } from './schema.js';
+import { deriveCaseCycleStartDate, isIsoDateValue, parseAiAuditAssessment, type AuditResult } from './schema.js';
 import { buildDossierHeader, buildSystemPrompt } from './instructions.js';
 import { sanitizeFenceDelimiters, sanitizeTagDelimiters, wrapUntrusted } from '../sanitize.js';
 import { PROCEDURE_TEXT } from './procedure-v5.js';
@@ -35,12 +35,18 @@ export const auditSkill: AuditSkill = {
       system,
       parts,
       deadlineMs: options?.deadlineMs,
+      // `validateAssessmentReferences` va AQUÍ, dentro del validador que el
+      // transporte envuelve, y no suelto después: fuera de él, su error carecía
+      // de `sanitizedDetail` y el diagnóstico acababa en
+      // `unknown evidence reference` —ni ruta ni id—, que fue exactamente lo que
+      // dejó el incidente de producción indescifrable. Dentro, el mismo fallo se
+      // clasifica por su código y deja el detalle atestiguado.
       validate: (parsed) => {
-        const assessment = parseAiAuditAssessment(stripTechnicalMetadata(parsed));
+        const assessment = parseAiAuditAssessment(stripTechnicalMetadata(parsed), validationContext(input));
         validateAssessmentReferences(assessment, input);
       },
     });
-    const assessment = parseAiAuditAssessment(stripTechnicalMetadata(response.parsed));
+    const assessment = parseAiAuditAssessment(stripTechnicalMetadata(response.parsed), validationContext(input));
     validateAssessmentReferences(assessment, input);
     return {
       // La derivación va AQUÍ y una sola vez: el assessment del modelo ya está
@@ -69,12 +75,62 @@ function stripTechnicalMetadata(parsed: unknown): unknown {
   return assessment;
 }
 
+/**
+ * Contexto que la validación recibe del servidor (no de la respuesta del modelo).
+ *
+ * `schema.ts` es un módulo hoja: no consulta la base ni conoce el caso, así que
+ * la fecha de inicio que el equipo capturó en `cases` se le entrega AQUÍ, en las
+ * dos llamadas al parser (la del `validate` del transporte y la final), para que
+ * ambas validen exactamente el mismo expediente que se le mandó al modelo.
+ */
+function validationContext(input: AuditSkillInput): { humanCycleStartDate: string | null } {
+  return { humanCycleStartDate: input.humanCycleStartDate ?? null };
+}
+
+/**
+ * Un id de evidencia es un identificador opaco (UUID en producción, `ev-1` en
+ * los tests), no texto. Lo que el modelo pone ahí puede ser cualquier cosa, y
+ * si el `sanitizedDetail` acabara en un log o en el DTO acabaría también.
+ *
+ * Se atestigua SÓLO si tiene la forma de un identificador; si no, se dice que
+ * hubo un id y no cuál. La política no se ablanda: el fallo sigue tumbando el
+ * dictamen (fail-closed). Esto sólo decide si el detalle es o no publicable.
+ */
+const ATTESTABLE_EVIDENCE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+
+/**
+ * Constructor ÚNICO del fallo por referencia de evidencia.
+ *
+ * Existe como función (y no como `new ApiError(...)` en la línea que falla) por
+ * dos razones concretas:
+ *
+ *  1. **Clasificación por código, no por texto.** Quien clasifica
+ *     (`openrouter.ts`) lee `validatorFailureCode`. Con el `new ApiError` en la
+ *     línea del fallo, el mensaje era lo único que distinguía esta familia de
+ *     `SCHEMA_VALIDATION_ERROR`, y renombrarlo reclasificaba el fallo.
+ *  2. **Detalle atestiguado.** `sanitizedDetail` lo escribe QUIEN CONOCE el
+ *     fallo, así que puede afirmar la ruta y el id sin miedo de estar copiando la
+ *     respuesta del modelo. Antes este error salía sin `sanitizedDetail` y el
+ *     diagnóstico acababa en `failureReason: 'unknown evidence reference'`: el
+ *     incidente fue indescifrable justo por eso.
+ *
+ * El `message` crudo se conserva para el feedback correctivo al modelo (que sí
+ * necesita saber qué corregir); nunca sale de la petición saliente.
+ */
+export function invalidEvidenceReference(path: string, evidenceId: string): ApiError {
+  const failure = new ApiError(502, 'INVALID_AI_RESPONSE', `${path} referencia evidencia inexistente: ${evidenceId}`);
+  failure.validatorFailureCode = 'INVALID_EVIDENCE_REFERENCE';
+  failure.failurePath = path;
+  failure.sanitizedDetail = `evidencia inexistente ${ATTESTABLE_EVIDENCE_ID.test(evidenceId) ? evidenceId : '(id no atestiguable)'}`;
+  return failure;
+}
+
 function validateAssessmentReferences(assessment: ReturnType<typeof parseAiAuditAssessment>, input: AuditSkillInput): void {
   const validIds = new Set(input.evidences.map((evidence) => evidence.evidenceId));
   const checkIds = (ids: string[], path: string) => {
     for (const id of ids) {
       if (!validIds.has(id)) {
-        throw new ApiError(502, 'INVALID_AI_RESPONSE', `${path} referencia evidencia inexistente: ${id}`);
+        throw invalidEvidenceReference(path, id);
       }
     }
   };
@@ -103,6 +159,24 @@ function validateAssessmentReferences(assessment: ReturnType<typeof parseAiAudit
 }
 
 /**
+ * Bloque del expediente con la fecha de inicio aportada por el equipo.
+ *
+ * Se rotula como lo que es —un dato que escribió una persona, no evidencia— y
+ * se le dice al modelo qué espera el backend de él si decide usarla. Es el
+ * único lugar donde el valor cruza al prompt, así que el rótulo no es adorno:
+ * `TRACE_EVERY_DECISION` exige que el razonamiento declare de dónde salió cada
+ * dato, y sin este rótulo el modelo no puede saber que esa fecha existe ni qué
+ * obligaciones de trazabilidad trae.
+ */
+function humanCycleStartDateBlock(date: string): string {
+  return `## Fecha de inicio de ciclo aportada por el equipo (DATO, no evidencia)
+
+Fecha de inicio de ciclo: ${date}
+
+La registró una persona del equipo en este caso y la academia puede ver quién y cuándo. Puedes usarla para sustentar temporalAnalysis.cycleStartDate, pero no es una evidencia del expediente y no acredita nada por sí sola: si la usas, deja cycleStartEvidenceIds vacío y explica en cycleStartEvidenceText que la aportó una persona. Si no la usas, cycleStartDate va en null y lo explicas en reasoning.`;
+}
+
+/**
  * Arma los mensajes del modelo. Expuesto por separado para poder testear
  * el ensamblado del expediente sin red.
  */
@@ -128,6 +202,23 @@ export function buildAuditMessages(input: AuditSkillInput): {
       studentIdentifier: input.studentIdentifier,
     }),
   });
+
+  // 1.1) Fecha de inicio que capturó el equipo (`cases.cycle_start_date`).
+  //
+  // POR QUÉ AQUÍ NO HAY `wrapUntrusted`: ese cercado existe porque el contenido
+  // no confiable puede ser TEXTO LIBRE y, por lo tanto, llevar instrucciones.
+  // Esta fecha no lo es — es un valor ISO que el endpoint validó con Zod antes de
+  // escribirlo — así que no hay nada que sanear ni que pueda cerrar bloques o
+  // abrir una etiqueta. Aun así se comprueba el formato aquí (`isIsoDateValue`):
+  // si algún día una fila trajera otra cosa, no viaja al prompt en vez de
+  // confiar en que siempre llegó limpia. Los comentarios de área, que sí son
+  // texto libre de personas, siguen yendo cercados con wrapUntrusted más abajo.
+  if (input.humanCycleStartDate && isIsoDateValue(input.humanCycleStartDate)) {
+    parts.push({
+      type: 'text',
+      text: humanCycleStartDateBlock(input.humanCycleStartDate),
+    });
+  }
 
   for (const evidence of input.evidences) {
     // El NOMBRE del archivo lo envía el cliente en un header: también es dato no

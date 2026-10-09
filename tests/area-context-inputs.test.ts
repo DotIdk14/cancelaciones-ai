@@ -120,3 +120,31 @@ describe('buildAuditInputs — contexto de áreas', () => {
     }
   });
 });
+
+/**
+ * La fecha de inicio que captura el equipo viaja al expediente como dato tipado.
+ *
+ * Se lee como OPCIONAL a propósito (igual que los derivados de `EvidenceRow`):
+ * si la migración `case-cycle-start-date-human` todavía no está aplicada, el
+ * `select('*')` no trae la columna, `cycle_start_date` es `undefined` y el
+ * expediente se arma sin ella en vez de romperse.
+ */
+describe('buildAuditInputs — fecha de inicio aportada por el equipo', () => {
+  const db = createFakeDatabase();
+
+  beforeEach(() => {
+    db.reset();
+  });
+
+  it('la pasa al expediente cuando existe, y a null cuando la columna no está', async () => {
+    const capturada = await buildAuditInputs(
+      db.client,
+      { ...CASE_ROW, cycle_start_date: '2026-08-21' } as unknown as CaseRow,
+      [EVIDENCE_READY],
+    );
+    expect(capturada.humanCycleStartDate).toBe('2026-08-21');
+
+    const sinColumna = await buildAuditInputs(db.client, CASE_ROW, [EVIDENCE_READY]);
+    expect(sinColumna.humanCycleStartDate).toBeNull();
+  });
+});

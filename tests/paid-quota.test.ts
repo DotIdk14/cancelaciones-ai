@@ -10,6 +10,7 @@
 // =============================================================================
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { latestCompletedAuditByFingerprint } from '../src/server/cases';
 import { setTestEnv } from './helpers/env';
 
 const insertAudit = vi.fn(async (client: unknown, row: Record<string, unknown>) => ({
@@ -45,18 +46,31 @@ const EVIDENCE_READY = {
 let completedByFingerprint: unknown = null;
 let runningByFingerprint: unknown = null;
 let evidenceRows: unknown[] = [EVIDENCE_READY];
+// Mutable para poder simular la columna `cycle_start_date` poblada o ausente
+// (migración sin aplicar). `?? null` en producción, igual que aquí.
+let caseRow: Record<string, unknown> = { ...CASE_ROW };
+
+/**
+ * Huella para la que el dictamen cacheado sigue siendo válido. `null` = sin
+ * restricción (comportamiento historical de este mock); con valor, la reutilización
+ * solo ocurre si `runAudit` buscó EXACTAMENTE esa huella, que es lo que decide si
+ * una fecha nueva obliga a re-auditar.
+ */
+let reusableForFingerprint: string | null = null;
 
 vi.mock('../src/server/cases', async () => {
   const actual = await vi.importActual<typeof import('../src/server/cases')>('../src/server/cases');
   return {
     ...actual,
-    getCaseOr404: vi.fn(async () => CASE_ROW),
+    getCaseOr404: vi.fn(async () => caseRow),
     listEvidenceRows: vi.fn(async () => evidenceRows),
     insertAudit: (...args: [unknown, Record<string, unknown>]) => insertAudit(...args),
     updateAuditResult: (...args: unknown[]) => updateAuditResult(...(args as [])),
     updateCaseStatus: (...args: unknown[]) => updateCaseStatus(...(args as [])),
     updateEvidenceStatus: (...args: unknown[]) => updateEvidenceStatus(...(args as [])),
-    latestCompletedAuditByFingerprint: vi.fn(async () => completedByFingerprint),
+    latestCompletedAuditByFingerprint: vi.fn(async (_client: unknown, _caseId: string, fingerprint: string) =>
+      reusableForFingerprint === null || fingerprint === reusableForFingerprint ? completedByFingerprint : null,
+    ),
     latestRunningAuditByFingerprint: vi.fn(async () => runningByFingerprint),
     countAuditsByFingerprint: vi.fn(async () => 0),
   };
@@ -114,6 +128,8 @@ beforeEach(() => {
   completedByFingerprint = null;
   runningByFingerprint = null;
   evidenceRows = [EVIDENCE_READY];
+  caseRow = { ...CASE_ROW };
+  reusableForFingerprint = null;
 });
 
 describe('R7 · reutilizar un dictamen durable no cobra cuota', () => {
@@ -249,5 +265,59 @@ describe('R9/R10 · fingerprint estable ante cambios de estado', () => {
     const otro = computeEvidenceFingerprint([ev2, EVIDENCE_READY] as never);
 
     expect(uno).toBe(otro);
+  });
+});
+
+/**
+ * La fecha de inicio que capturó el equipo cambia lo que el modelo ve, así que
+ * debe formar parte de QUÉ se audita. Estos tests fijan el cableado de `runAudit`
+ * (que es donde estaba el bug): la huella se calcula DESPUÉS de leer el caso, y
+ * de ella dependen tanto la decisión de reutilizar un dictamen cacheado como el
+ * cobro de cuota.
+ */
+describe('R11 · la fecha de inicio del equipo entra en la huella solo cuando existe', () => {
+  /** La huella con la que el caso buscó un dictamen COMPLETED reutilizable. */
+  function reusedFingerprint(): string | undefined {
+    const call = vi.mocked(latestCompletedAuditByFingerprint).mock.calls.at(-1);
+    return call?.[2];
+  }
+
+  beforeEach(() => {
+    vi.mocked(latestCompletedAuditByFingerprint).mockClear();
+  });
+
+  it('con la columna poblada, el dictamen cacheado deja de ser reutilizable', async () => {
+    caseRow = { ...CASE_ROW, cycle_start_date: '2026-08-21' };
+    const { runAudit, computeEvidenceFingerprint } = await import('../src/server/audit-service');
+    const rows = evidenceRows as never;
+    // El dictamen cacheado se emitió SIN la fecha: solo es reutilizable por la
+    // huella de siempre.
+    completedByFingerprint = COMPLETED_AUDIT;
+    reusableForFingerprint = computeEvidenceFingerprint(rows);
+
+    // No reutiliza: cobra cuota, escribe su fila y llama al proveedor (mockeado a
+    // fallar, así que `runAudit` envuelve el fallo). Si hubiera reutilizado, no
+    // habría fila ni cuota.
+    await expect(runAudit({} as never, 'caso-1', { userId: 'u-1' })).rejects.toThrow('La auditoría falló');
+
+    // La huella buscada lleva la fecha, así que el COMPLETED cacheado NO se
+    // reutiliza y el caso vuelve a auditarse de verdad.
+    expect(reusedFingerprint()).toBe(computeEvidenceFingerprint(rows, '2026-08-21'));
+    expect(reusedFingerprint()).not.toBe(reusableForFingerprint);
+    expect(insertAudit).toHaveBeenCalledTimes(1);
+    expect(checkPaidQuota).toHaveBeenCalledTimes(1);
+  });
+
+  it('con la columna ausente o sin capturar, la huella es la de siempre y el dictamen se reutiliza', async () => {
+    const { runAudit, computeEvidenceFingerprint } = await import('../src/server/audit-service');
+    completedByFingerprint = COMPLETED_AUDIT;
+    reusableForFingerprint = computeEvidenceFingerprint(evidenceRows as never);
+
+    const outcome = await runAudit({} as never, 'caso-1', { userId: 'u-1' });
+
+    expect(outcome.phase).toBe('done');
+    // Ni se vuelve a auditar ni se cobra cuota: la huella heredada no se movió.
+    expect(reusedFingerprint()).toBe(reusableForFingerprint);
+    expect(checkPaidQuota).not.toHaveBeenCalled();
   });
 });

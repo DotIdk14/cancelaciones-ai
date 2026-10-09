@@ -88,6 +88,7 @@ function makeApiResponse(): ApiResponse & { statusCode: number; headers: Record<
 const PDF = Buffer.from('%PDF-1.7\ncontenido\n%%EOF');
 const EXE = Buffer.concat([Buffer.from([0x4d, 0x5a, 0x90, 0x00]), Buffer.from('MZ payload')]);
 const MP3 = Buffer.concat([Buffer.from('ID3'), Buffer.from('\u0003\u0000'), Buffer.from('audio')]);
+const ISO_BMFF = Buffer.concat([Buffer.from([0x00, 0x00, 0x00, 0x00]), Buffer.from('ftypM4A '), Buffer.from('resto')]);
 
 async function upload(buffer: Buffer, contentType: string, fileName = 'evidencia.pdf') {
   const res = makeApiResponse();
@@ -126,6 +127,43 @@ describe('carga · validaciones que impiden tocar Storage', () => {
     expect(uploadSpy).not.toHaveBeenCalled();
     expect(insertEvidence).not.toHaveBeenCalled();
     expect(submitTranscription).not.toHaveBeenCalled();
+  });
+
+  it('ISO-BMFF declarado image/png se rechaza con 415 y no se cobra cuota de transcripcion', async () => {
+    const res = await upload(ISO_BMFF, 'image/png', 'video-renombrado.png');
+
+    expect(res.statusCode).toBe(415);
+    expect(checkPaidQuota).not.toHaveBeenCalled();
+    expect(uploadSpy).not.toHaveBeenCalled();
+    expect(insertEvidence).not.toHaveBeenCalled();
+    expect(submitTranscription).not.toHaveBeenCalled();
+  });
+
+  it('UTF-16LE BOM declarado text/plain se rechaza con 415 y no se cobra cuota de transcripcion', async () => {
+    // Texto real en UTF-16LE: ~50% de nulos, lo que `looksLikeBinary` detecta
+    // como binario y rechaza antes de que pueda subirse o transcribirse.
+    const utf16le = Buffer.concat([
+      Buffer.from([0xff, 0xfe]),
+      Buffer.from('texto con PII', 'utf16le'),
+    ]);
+
+    const res = await upload(utf16le, 'text/plain', 'notas.txt');
+
+    expect(res.statusCode).toBe(415);
+    expect(checkPaidQuota).not.toHaveBeenCalled();
+    expect(uploadSpy).not.toHaveBeenCalled();
+    expect(insertEvidence).not.toHaveBeenCalled();
+    expect(submitTranscription).not.toHaveBeenCalled();
+  });
+
+  it('415 incluye mensaje accionable sobre contenido/extensión inconsistente', async () => {
+    const res = await upload(EXE, 'image/png', 'captura.png');
+
+    expect(res.statusCode).toBe(415);
+    const body = JSON.parse(res.body);
+    expect(body.error.category).toBe('UPLOAD_ERROR');
+    expect(body.error.message).toMatch(/contenido|extensión|tipo declarado/i);
+    expect(body.error.message).toMatch(/coincida|dañado|corrupto/i);
   });
 
   it('400 y nada subido con un tipo no permitido', async () => {

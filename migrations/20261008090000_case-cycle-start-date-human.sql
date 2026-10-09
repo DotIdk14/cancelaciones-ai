@@ -61,9 +61,23 @@
 -- (AAAA-MM-DD), real en el calendario, de año entre 2000 y 2100 y no futura: ese
 -- rango es un CABO DE COHERENCIA, no una regla normativa.
 --
--- `cycle_start_date_at` lleva `DEFAULT now()` para que una fila escrita por
--- cualquier vía directa tenga hora; la API la envía explícita igual, porque la
--- marca de tiempo tiene que ser del servidor y no del navegador.
+-- `cycle_start_date_at` NO lleva DEFAULT, y es deliberado.
+--
+-- En PostgreSQL, un `DEFAULT` no-VOLATILE en `ADD COLUMN` no reescribe la tabla:
+-- las filas que ya existen leen el default AL SER LEÍDAS. Y `now()` es STABLE, así
+-- que un `DEFAULT now()` haría que TODOS los casos ya existentes devolvieran la
+-- fecha en que se aplicó esta migración, con `cycle_start_date = NULL`.
+--
+-- Eso convertiría la columna en una mentira documentada: su comentario dice "momento
+-- en que se capturó la fecha" y, para todo caso preexistente, sería la fecha de la
+-- migración. No es un detalle cosmético: `src/server/dto.ts` publica el valor tal
+-- cual y cualquier consumidor futuro (dashboard, export) leería procedencia
+-- inventada.
+--
+-- La API envía la marca SIEMPRE y explícitamente (`setCaseCycleStartDate` la
+-- escribe en el UPDATE), así que el default no hacía falta para nada. Sin captura,
+-- `cycle_start_date_at` es `NULL`, y `NULL` significa "nadie la capturó", que es
+-- la verdad.
 
 ALTER TABLE public.cases
   ADD COLUMN IF NOT EXISTS cycle_start_date date;
@@ -72,7 +86,7 @@ ALTER TABLE public.cases
   ADD COLUMN IF NOT EXISTS cycle_start_date_by uuid REFERENCES auth.users(id);
 
 ALTER TABLE public.cases
-  ADD COLUMN IF NOT EXISTS cycle_start_date_at timestamptz DEFAULT now();
+  ADD COLUMN IF NOT EXISTS cycle_start_date_at timestamptz;
 
 ALTER TABLE public.cases
   ADD COLUMN IF NOT EXISTS cycle_start_date_by_name text;
@@ -88,7 +102,7 @@ COMMENT ON COLUMN public.cases.cycle_start_date_by IS
   'UUID de auth.users de quien capturo la fecha. Es el autor real y el unico con sello de auditoria; lo escribe el servidor desde la sesion, nunca el cuerpo del PATCH. Mismo criterio que created_by.';
 
 COMMENT ON COLUMN public.cases.cycle_start_date_at IS
-  'Momento en que se capturo la fecha (timestamptz). Lo pone el servidor al guardar; el cliente no puede elegirlo.';
+  'Momento en que se capturo la fecha (timestamptz). Lo pone el servidor al guardar; el cliente no puede elegirlo. NULL = nadie ha capturado la fecha. SIN DEFAULT a proposito: un DEFAULT now() en ADD COLUMN no reescribe la tabla y haria que los casos preexistentes leyeran la fecha de la migracion como si fuera una captura real.';
 
 COMMENT ON COLUMN public.cases.cycle_start_date_by_name IS
   'Nombre que escribio la persona que capturo la fecha (1 a 120 caracteres). Texto libre, igual que case_reviews.reviewer_name: NO es un nombre de usuario autoritativo, solo se muestra. Sin vocabulario cerrado porque no lo hay en el sistema.';
@@ -115,15 +129,23 @@ BEGIN
     RAISE EXCEPTION 'las 4 columnas de cycle_start_date deben existir con su tipo y ser NULL-able (encontradas: %)', v_count;
   END IF;
 
-  -- 3.2 `cycle_start_date_at` trae la hora por defecto, para que una fila
-  --     escrita por otra vía no quede sin marca temporal.
+  -- 3.2 `cycle_start_date_at` es timestamptz NULL-able y SIN DEFAULT.
+  --
+  --     Comprobar que el default NO existe es la parte que importa: con un
+  --     `DEFAULT now()` las filas preexistentes leen la fecha de la migración al
+  --     ser leídas (un DEFAULT no-VOLATILE no reescribe la tabla) y el DTO
+  --     publicaría una procedencia que nadie capturó. Este control falla si
+  --     alguien lo reintroduce.
   SELECT count(*) INTO v_count
   FROM information_schema.columns
   WHERE table_schema='public' AND table_name='cases'
-    AND column_name='cycle_start_date_at' AND column_default LIKE '%now()%';
+    AND column_name='cycle_start_date_at'
+    AND data_type='timestamp with time zone'
+    AND is_nullable='YES'
+    AND column_default IS NULL;
 
   IF v_count <> 1 THEN
-    RAISE EXCEPTION 'cases.cycle_start_date_at debe tener DEFAULT now()';
+    RAISE EXCEPTION 'cases.cycle_start_date_at debe ser timestamptz NULL-able y SIN default: un DEFAULT now() haria que los casos preexistentes mostraran una captura que no ocurrio (encontradas: %)', v_count;
   END IF;
 
   -- 3.3 El autor es una FK a auth.users: el autor real tiene que existir como

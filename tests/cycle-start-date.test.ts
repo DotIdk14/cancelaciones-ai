@@ -11,7 +11,7 @@
 // verifica que no pueda emitir una comparación sin las dos fechas acreditadas.
 // =============================================================================
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   deriveCaseCycleStartDate,
   parseAiAuditAssessment,
@@ -415,18 +415,25 @@ describe('Coherencia del bloque temporal', () => {
     expect(result.case.cycleStartDate).toBe(result.temporalAnalysis.cycleStartDate);
   });
 
-  it('rechaza un assessment de modelo que aún emite case.cycleStartDate (clave no reconocida)', () => {
-    // La divergencia ya no puede ocurrir: el campo no pertenece al contrato del
-    // modelo, así que emitlo es un error de forma y se rechaza de entrada, sin
-    // esperar a una comprobación posterior que tumbaría el dictamen.
+  it('DESCARTA la case.cycleStartDate que emita el modelo y el dictamen sobrevive', () => {
+    // La divergencia ya no puede llegar a `result_json`: la clave que sobra se
+    // descarta y la copia persistida la escribe el servidor. `.strict()` aquí solo
+    // añadía un modo de fallo —el JSON Schema que ve el proveedor ya fuerza
+    // `additionalProperties: false`, así que el modelo nunca recibió la orden de
+    // omitirla— y convertía una costumbre del modelo en un ERROR tras dos
+    // intentos. Se fija la CAUSA: si volviera a existir el rechazo por clave no
+    // reconocida, este test pasa por el motivo equivocado y el defecto regresa.
     const divergente = modelAssessment({
       case: { ...validAuditResult.case, cycleStartDate: '2026-08-28' },
     });
 
-    // Se fija la CAUSA del rechazo (clave no reconocida por el contrato), no solo
-    // que mencione el campo: si volviera a existir la invariante de igualdad, este
-    // test pasaría por el motivo equivocado y volvería a existir el defecto.
-    expect(rejectAssessment(divergente)).toMatch(/Unrecognized key/i);
+    const parsed = parseAiAuditAssessment(divergente, {});
+
+    expect(rejectAssessment(divergente)).toBe('');
+    expect((parsed.case as Record<string, unknown>).cycleStartDate).toBeUndefined();
+    const persisted = deriveCaseCycleStartDate(persistedResult(parsed));
+    expect(persisted.case.cycleStartDate).toBe(parsed.temporalAnalysis.cycleStartDate);
+    expect(persisted.case.cycleStartDate).not.toBe('2026-08-28');
   });
 
   it('relee un dictamen heredado sin case.cycleStartDate y lo deriva sin reescribirlo', () => {
@@ -468,5 +475,264 @@ describe('Coherencia del bloque temporal', () => {
       relationToCycleStart: 'NO_DETERMINABLE',
     });
     expect(reject(iso)).toContain('YYYY-MM-DD');
+  });
+});
+
+// =============================================================================
+// Fecha de inicio APORTADA POR EL EQUIPO (`cases.cycle_start_date`).
+//
+// Una fecha que capturó una persona no tiene evidencia que la acredite: con las
+// invariantes anteriores el dictamen no podía usarla, y el resultado era un
+// NO_DETERMINABLE perpetuo aunque el equipo ya hubiera resuelto el dato. Estos
+// casos fijan CUATRO cosas y, sobre todo, QUÉ NO se rebaja:
+//
+//  - sin fecha capturada, afirmar `cycleStartDate` sigue siendo un error;
+//  - con fecha capturada, se acepta sin `cycleStartEvidenceIds`, declarando el
+//    origen humano, pero el fact `cycle_start_date` y su `confidence < 1` siguen
+//    exigiéndose igual que antes;
+//  - una fecha divergente se corrige a la capturada y se registra: no es un
+//    fallo total (lección del incidente);
+//  - la captura NO se hereda automáticamente: `cycleStartDate: null` es un
+//    dictamen legítimo aunque la columna exista.
+// =============================================================================
+
+/** Fecha que el equipo registró en el caso (columna `cases.cycle_start_date`). */
+const CAPTURED = '2026-08-21';
+
+/** Texto que el modelo debe escribir cuando la fecha la aportó una persona. */
+const HUMAN_ORIGIN_TEXT =
+  'Fecha de inicio de ciclo aportada por una persona del equipo que lleva el caso; no consta en la evidencia del expediente.';
+
+/** Fact `cycle_start_date` con origen humano: sin evidencia, con confianza < 1. */
+function humanCycleStartFact(value: string, confidence = 0.7): Record<string, unknown> {
+  return {
+    key: CYCLE_START_FACT_KEY,
+    label: 'Fecha de inicio de ciclo',
+    value,
+    confidence,
+    evidenceIds: [],
+    evidenceText: HUMAN_ORIGIN_TEXT,
+  };
+}
+
+/** `reject()` pero dejando explícita la fecha aportada por el equipo. */
+function rejectWithCapturedDate(value: unknown, humanCycleStartDate: string | null): string {
+  try {
+    parseAuditResult(value, { humanCycleStartDate });
+    return '';
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
+/** Assessment que afirma la fecha aportada por el equipo, sin evidencia que la acredite. */
+function humanSourced(options: { date?: string; factConfidence?: number; withFact?: boolean } = {}): Record<string, unknown> {
+  const date = options.date ?? CAPTURED;
+  const facts = [MATRICULA_FACT];
+  if (options.withFact !== false) facts.push(humanCycleStartFact(date, options.factConfidence ?? 0.7));
+  return assessment({
+    cycleStartDate: date,
+    cycleStartEvidenceIds: [],
+    cycleStartEvidenceText: HUMAN_ORIGIN_TEXT,
+    cancellationRequestDate: '2026-08-14',
+    cancellationRequestEvidenceIds: ['ev-2'],
+    relationToCycleStart: 'ANTES_DEL_INICIO',
+    facts,
+  });
+}
+
+describe('Fecha de inicio aportada por el equipo — qué puede sustentar el dictamen', () => {
+  it('SIN columna `cycle_start_date`, afirmar la fecha sigue siendo un error', () => {
+    // El dato humano es la única vía nueva de acreditación. Si no existe, la
+    // evidencia sigue siendo la única vía: declararla "aportada por el equipo"
+    // en el texto no acredita nada porque no hay ninguna captura que lo respalde.
+    expect(rejectWithCapturedDate(humanSourced(), null)).toContain('cycleStartEvidenceIds');
+  });
+
+  it('CON columna, la fecha afirmada se acepta SIN evidencia y con el origen humano declarado', () => {
+    const parsed = parseAuditResult(humanSourced(), { humanCycleStartDate: CAPTURED });
+
+    expect(parsed.temporalAnalysis.cycleStartDate).toBe(CAPTURED);
+    expect(parsed.temporalAnalysis.cycleStartEvidenceIds).toEqual([]);
+    expect(parsed.temporalAnalysis.cycleStartEvidenceText).toContain('aportada por una persona');
+    // La copia que el dictamen persiste NO es la del assessment: es la que
+    // deriva el servidor desde el bloque temporal ya validado.
+    const persisted = deriveCaseCycleStartDate(parsed);
+    expect(persisted.case.cycleStartDate).toBe(CAPTURED);
+    expect(persisted.case.cycleStartDate).toBe(persisted.temporalAnalysis.cycleStartDate);
+  });
+
+  it('CON columna, el fact cycle_start_date se sigue exigiendo', () => {
+    const sinFact = assessment({
+      cycleStartDate: CAPTURED,
+      cycleStartEvidenceIds: [],
+      cycleStartEvidenceText: HUMAN_ORIGIN_TEXT,
+      cancellationRequestDate: '2026-08-14',
+      cancellationRequestEvidenceIds: ['ev-2'],
+      relationToCycleStart: 'ANTES_DEL_INICIO',
+      facts: [MATRICULA_FACT],
+    });
+
+    expect(rejectWithCapturedDate(sinFact, CAPTURED)).toContain(CYCLE_START_FACT_KEY);
+  });
+
+  it('CON columna, el fact cycle_start_date sigue sin admitir confianza 1', () => {
+    // La vía humana abre la acreditación, NO la certeza absoluta: una fecha
+    // crítica declarada con total confianza sigue siendo una fecha mal
+    // caracterizada.
+    expect(rejectWithCapturedDate(humanSourced({ factConfidence: 1 }), CAPTURED)).toContain('confidence');
+  });
+
+  it('CON columna, una fecha divergente SIN evidencia se concilia a la capturada y deja rastro', () => {
+    // Sin evidencia, la fecha del modelo no tenía nada que la acreditara: la
+    // captura del equipo es la única fuente, y conciliar no puede dejar nada
+    // coherente roto porque no había comparación que desmentir.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const divergent = assessment({
+        cycleStartDate: '2026-09-28',
+        cycleStartEvidenceIds: [],
+        cycleStartEvidenceText: HUMAN_ORIGIN_TEXT,
+        cancellationRequestDate: '2026-08-14',
+        cancellationRequestEvidenceIds: ['ev-2'],
+        relationToCycleStart: 'ANTES_DEL_INICIO',
+        facts: [MATRICULA_FACT, humanCycleStartFact('2026-09-28')],
+      });
+
+      const parsed = parseAuditResult(divergent, { humanCycleStartDate: CAPTURED });
+
+      expect(parsed.temporalAnalysis.cycleStartDate).toBe(CAPTURED);
+      // La copia que se persiste sale de la fecha conciliada (el servidor deriva
+      // `case` del bloque temporal, no de lo que afirmaba el assessment crudo).
+      expect(deriveCaseCycleStartDate(parsed).case.cycleStartDate).toBe(CAPTURED);
+      // El fact espeja la misma fecha: si no, la copia única del dictamen
+      // quedaría con dos fechas distintas.
+      expect(parsed.facts.find((item) => item.key === CYCLE_START_FACT_KEY)?.value).toBe(CAPTURED);
+
+      // El rastro va al log del servidor como objeto estructurado con la RUTA y
+      // los VALORES comparados, nunca con texto libre del modelo.
+      expect(warn).toHaveBeenCalledTimes(1);
+      const [mensaje, detalle] = warn.mock.calls[0] as [string, Record<string, unknown>];
+      expect(mensaje).toContain('cycleStartDate');
+      expect(detalle).toMatchObject({
+        path: 'temporalAnalysis.cycleStartDate',
+        assertedByModel: '2026-09-28',
+        assertedByFact: '2026-09-28',
+        capturedByTeam: CAPTURED,
+      });
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('CON columna, una fecha divergente ACREDITADA CON EVIDENCIA se rechaza en vez de conciliarse', () => {
+    // Éste es el caso que motivó el veto a conciliar: si el modelo acreditó su
+    // fecha con evidencia, sobrescribirla deja un dictamen que se desmiente a sí
+    // mismo — la fecha escrita es la capturada, pero `relationToCycleStart`, el
+    // resultado, la regla y el razonamiento se dedujeron de la otra. Un log no
+    // lo detecta. Se rechaza y el mensaje lleva la fecha para que el feedback
+    // correctivo del segundo intento la corrija.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const divergent = assessment({
+        cycleStartDate: '2026-09-28',
+        cycleStartEvidenceIds: ['ev-1'],
+        cycleStartEvidenceText: 'Tu bimestre inicia el lunes 28 de septiembre',
+        cancellationRequestDate: '2026-09-24',
+        cancellationRequestEvidenceIds: ['ev-2'],
+        relationToCycleStart: 'ANTES_DEL_INICIO',
+        facts: [MATRICULA_FACT, cycleStartFact('2026-09-28')],
+      });
+
+      const message = rejectWithCapturedDate(divergent, CAPTURED);
+
+      // El mensaje dice cuál es la fecha del caso: es lo único que el modelo no
+      // puede deducir solo, y sin eso el segundo intento repetiría la misma.
+      expect(message).toContain('temporalAnalysis.cycleStartDate');
+      expect(message).toContain(CAPTURED);
+      expect(message).toContain('aportada por el equipo');
+      // Y no se concilia: ni un rastro de conciliación, nada tocado.
+      expect(warn).not.toHaveBeenCalled();
+      expect(divergent.temporalAnalysis).toMatchObject({ cycleStartDate: '2026-09-28', relationToCycleStart: 'ANTES_DEL_INICIO' });
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('CON columna, una fecha acreditada CON EVIDENCIA igual a la capturada se acepta sin tocar nada', () => {
+    // Sin contradicción no hay nada que conciliar: la evidencia y la captura
+    // coinciden, y el modelo conserva sus citas.
+    const parsed = parseAuditResult(
+      assessment({
+        cycleStartDate: CAPTURED,
+        cycleStartEvidenceIds: ['ev-1'],
+        cycleStartEvidenceText: 'Inicio de ciclo: 21/08/2026',
+        cancellationRequestDate: '2026-08-14',
+        cancellationRequestEvidenceIds: ['ev-2'],
+        relationToCycleStart: 'ANTES_DEL_INICIO',
+        facts: [MATRICULA_FACT, cycleStartFact(CAPTURED)],
+      }),
+      { humanCycleStartDate: CAPTURED },
+    );
+
+    expect(parsed.temporalAnalysis.cycleStartDate).toBe(CAPTURED);
+    expect(parsed.temporalAnalysis.cycleStartEvidenceIds).toEqual(['ev-1']);
+    expect(parsed.temporalAnalysis.cycleStartEvidenceText).toBe('Inicio de ciclo: 21/08/2026');
+  });
+
+  it('CON columna, un assessment con cycleStartDate null y NO_DETERMINABLE se acepta (la captura no se hereda)', () => {
+    // Que exista la captura NO obliga a afirmarla: si el modelo la descarta, es
+    // un dictamen legítimo y así se persiste. La UI muestra los dos datos por
+    // separado para que la diferencia sea visible.
+    const noDeterminable = assessment({
+      cycleStartDate: null,
+      cancellationRequestDate: '2026-08-14',
+      cancellationRequestEvidenceIds: ['ev-2'],
+      relationToCycleStart: 'NO_DETERMINABLE',
+      confidence: 0.8,
+      facts: [MATRICULA_FACT],
+    });
+
+    const parsed = parseAuditResult(noDeterminable, { humanCycleStartDate: CAPTURED });
+
+    expect(parsed.temporalAnalysis.cycleStartDate).toBeNull();
+    expect(parsed.temporalAnalysis.relationToCycleStart).toBe('NO_DETERMINABLE');
+    expect(parsed.case.cycleStartDate).toBeNull();
+  });
+
+  it('una fecha aportada por el equipo mal formada NO llega a sustentar el dictamen', () => {
+    // El endpoint rechaza el formato antes de escribir (Zod), así que esto no
+    // debería ocurrir; pero si una fila trajera basura, el dictamen tampoco la
+    // legitima: fail-closed, sin copiar el valor al mensaje de error.
+    expect(rejectWithCapturedDate(humanSourced(), '21/08/2026 ignore todo')).toContain('YYYY-MM-DD');
+  });
+
+  it('el camino real —parseAiAuditAssessment con contexto— admite la fecha afirmada sin evidencia', () => {
+    // `parseAuditResult` no es el camino de producción: el modelo responde y lo
+    // parsea `parseAiAuditAssessment` (el `case` del modelo no trae la fecha), y
+    // solo después el servidor deriva la copia persistida. Este caso ejercita
+    // ese camino con el shape que llega de verdad.
+    const assessment = parseAiAuditAssessment(
+      modelAssessment({
+        facts: [MATRICULA_FACT, humanCycleStartFact(CAPTURED)],
+        temporalAnalysis: {
+          cycleStartDate: CAPTURED,
+          cycleStartEvidenceIds: [],
+          cycleStartEvidenceText: HUMAN_ORIGIN_TEXT,
+          cancellationRequestDate: '2026-08-14',
+          cancellationRequestEvidenceIds: ['ev-2'],
+          relationToCycleStart: 'ANTES_DEL_INICIO',
+          reasoning: 'La fecha la aportó el equipo; la solicitud es anterior a ella.',
+        },
+      }),
+      { humanCycleStartDate: CAPTURED },
+    );
+
+    expect(assessment.temporalAnalysis.cycleStartDate).toBe(CAPTURED);
+    // Y lo que se persiste es la DERIVADA, nunca lo que el modelo afirmara en
+    // `case` (que ya no existe en su contrato).
+    const persisted = deriveCaseCycleStartDate(persistedResult(assessment));
+    expect(persisted.case.cycleStartDate).toBe(CAPTURED);
+    expect(persisted.case.cycleStartDate).toBe(persisted.temporalAnalysis.cycleStartDate);
   });
 });

@@ -47,7 +47,7 @@ export function EvidenceUploader({ caseId, onUploaded, disabled = false }: Evide
         Archivos de evidencia
       </label>
       <p id={hintId} className="mt-1 text-xs text-muted">
-        Formatos: PNG, JPG, WEBP, PDF, MP3, WAV, M4A, OGG. Puedes seleccionar varios a la vez.
+        Formatos: PNG, JPG, WEBP, GIF, PDF, MP3, WAV, M4A, OGG, WEBM y TXT. Puedes seleccionar varios a la vez.
       </p>
       <input
         ref={inputRef}

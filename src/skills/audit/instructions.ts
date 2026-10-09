@@ -147,6 +147,33 @@ Este razonamiento es OBLIGATORIO y va ANTES de aplicar la sección 5.3. Si relat
 - Completa SIEMPRE temporalAnalysis, incluso cuando cycleStartDate sea null. reasoning debe explicar, cuando cycleStartDate sea null, por qué no hay evidencia suficiente y qué fecha administrativa se descartó como inicio y por qué.
 `;
 
+/**
+ * Fecha de inicio APORTADA POR EL EQUIPO (`cases.cycle_start_date`).
+ *
+ * Es la vía nueva, y solo eso: una fecha que escribió una persona no tiene
+ * evidencia que la acredite, así que sin esta sección el dictamen quedaba en
+ * NO_DETERMINABLE aunque el equipo ya hubiera capturado el dato. Lo que este
+ * bloque NO hace es cambiar qué es una fecha de inicio: la sección anterior
+ * sigue mandando sobre búsqueda, significado semántico y fechas administrativas
+ * prohibidas. Aquí solo se abre la fuente y seObliga a declararla.
+ *
+ * Va después de `CYCLE_START_DATE_RULES` a propósito: donde dice "si NO
+ * encuentras evidencia que acredite el inicio académico, cycleStartDate debe ser
+ * null", esta sección es la única excepción, y va después para que la excepción
+ * sea lo último que el modelo lea.
+ */
+export const HUMAN_CYCLE_START_DATE_RULES = `
+## Fecha de inicio de ciclo aportada por el equipo (contexto, no evidencia)
+
+Si el expediente incluye la sección "Fecha de inicio de ciclo aportada por el equipo", esa fecha la registró una persona del equipo en el caso, con nombre y hora visibles en la academia. Es un DATO DE CONTEXTO: puede sustentar cycleStartDate, pero no es una evidencia y no acredita nada por sí sola.
+
+- Si la usas: deja temporalAnalysis.cycleStartEvidenceIds VACÍO y escribe en cycleStartEvidenceText que la fecha la aportó una persona del equipo, no la evidencia del expediente. Jamás la cites como evidencia ni menciones un id que la respalde.
+- Si la usas, el fact "${CYCLE_START_FACT_KEY}" se sigue exigiendo: value igual a esa fecha, evidenceIds vacío, evidenceText declarando el origen humano y confidence menor que 1. Una fecha aportada por una persona sigue siendo una fecha crítica, no una certeza.
+- Puedes NO usarla. La captura no se hereda automáticamente: si decides que el expediente no la sostiene, cycleStartDate va en null, relationToCycleStart en NO_DETERMINABLE y reasoning explica por qué la descartaste. Es un dictamen legítimo.
+- Si tu búsqueda en la evidencia produce una fecha DISTINTA de la aportada por el equipo, no ocultes la divergencia: afirma la fecha aportada por el equipo, porque es la que el caso tiene registrada, y explica la diferencia en reasoning y en conflicts.
+- Esta fecha es un dato, no una regla: no te autoriza a deducir otras fechas, a relajar la búsqueda en el expediente ni a emitir un resultado por su sola cuenta. El resto de las reglas de la sección anterior se siguen aplicando igual.
+`;
+
 const ORIGIN_RULES = `
 ## Origen de la cancelación: país y canal
 
@@ -208,6 +235,8 @@ Para emitir un dictamen, primero:
 El paso 5 es obligatorio y precede a la aplicación del Procedimiento V5: sin la relación temporal entre la solicitud y el inicio de ciclo no puedes determinar correctamente si corresponde cancelación de venta o baja.
 
 ${CYCLE_START_DATE_RULES}
+
+${HUMAN_CYCLE_START_DATE_RULES}
 
 ${ORIGIN_RULES}
 
@@ -310,6 +339,8 @@ ${ALLOWED_RELATIONS}
 La respuesta DEBE ser un único objeto JSON válido que cumpla EXACTAMENTE el contrato de salida que se entrega mediante structured output o que se adjunta explícitamente cuando se solicita json_object. No agregues campos fuera del contrato, ni texto fuera del JSON. Cuando una métrica no esté disponible usa null; nunca inventes métricas.
 
 La fecha de inicio de ciclo va ÚNICAMENTE en temporalAnalysis.cycleStartDate, con su evidencia y su cita. No la repitas en ningún otro bloque: el contrato no admite esa clave y una repetición hace inválida toda la respuesta.
+
+Excepción única y ya explicada: si el expediente trae "Fecha de inicio de ciclo aportada por el equipo", esa fecha puede sustentar temporalAnalysis.cycleStartDate con cycleStartEvidenceIds vacío y cycleStartEvidenceText declarando el origen humano; el fact "${CYCLE_START_FACT_KEY}" sigue siendo obligatorio, con confidence menor que 1.
 
 ## Eficiencia de salida
 
