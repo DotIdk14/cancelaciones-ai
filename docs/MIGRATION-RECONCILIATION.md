@@ -90,6 +90,18 @@ datos de la aplicación.
   políticas por dueño; revisiones, comparaciones, memberships, comentarios y
   cuotas no conceden `SELECT` directo a los roles cliente. Las vistas del
   dashboard conceden `SELECT` únicamente a `project_admin`.
+- Triggers observados: `cases_set_updated_at`,
+  `case_comparisons_set_updated_at` y `case_area_comments_set_updated_at`, los
+  tres ejecutan `set_updated_at()` en `BEFORE UPDATE`. Funciones de la app:
+  `set_updated_at()` tiene `search_path` fijo y no es ejecutable por `anon`;
+  `admit_or_reject_quota(text,text,text,uuid)` es `SECURITY DEFINER`, fija el
+  mismo `search_path` y solo `project_admin` puede ejecutarla. `project_admin`
+  tiene `BYPASSRLS`; `anon` y `authenticated` no.
+- Hashes de definición observados con `md5(pg_get_viewdef(..., true))`:
+  `audit_dashboard_metrics` (34 columnas)
+  `b6ba2c943832ddd1209611159368c467`; `case_comparisons_dashboard_metrics`
+  (11 columnas) `d54782df3d5f0898837ebdc83de0504b`. Son huellas de comparación,
+  no hashes criptográficos de un dump canónico.
 - Índices observados: owner+created_at y owner+id en `cases`, ambos índices de
   lectura por caso en `evidence` y `audits`, más `audits_created_at_idx`.
   `cases_created_at_id_idx` y `cases_status_created_at_id_idx` no aparecen.
