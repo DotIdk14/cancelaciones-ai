@@ -26,6 +26,8 @@ import {
 import { PdfCanvas } from './PdfCanvas';
 import { Spinner } from './ui';
 
+const EMPTY_TRANSCRIPT_SPEAKERS: NonNullable<Evidence['transcript']>['speakers'] = [];
+
 export interface EvidencePaneProps {
   evidence: Evidence;
   studentName?: string | null;
@@ -130,7 +132,7 @@ function extractGreetingName(text: string): string | null {
 function AudioTranscript({ evidence, studentName, audioUrl }: { evidence: Evidence; studentName: string | null; audioUrl: string }): ReactNode {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [currentTime, setCurrentTime] = useState(0);
-  const speakers = evidence.transcript?.speakers ?? [];
+  const speakers = evidence.transcript?.speakers ?? EMPTY_TRANSCRIPT_SPEAKERS;
   const speakerLabels = useMemo(() => {
     const profiles = new Map<string, { name: string | null; role: string | null }>();
     const normalizedStudent = studentName?.trim().toLocaleLowerCase('es-MX') ?? '';
