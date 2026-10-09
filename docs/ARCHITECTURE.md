@@ -59,7 +59,11 @@ cancelaciones-ai/
 │   │   ├── reviews.ts          # Persistencia de revisiones/comparaciones
 │   │   ├── area-comments.ts    # Bitácora por área (UPSERT)
 │   │   ├── dashboard-queries.ts # Consultas PostgREST, alcance de rol y filtros
-│   │   ├── dashboard.ts        # Agregaciones puras de métricas
+│   │   ├── dashboard-summary.ts # Resultados, acuerdo humano y resumen
+│   │   ├── dashboard-costs.ts   # Costos, tokens y latencia
+│   │   ├── dashboard-quality.ts # Confianza y comparación humana
+│   │   ├── dashboard-contracts.ts # Filas y límite compartidos
+│   │   ├── dashboard.ts        # Barrel compatible para consumidores
 │   │   ├── dto.ts              # DTOs, deriveWorkflowState, deriveEffectiveResolution
 │   │   ├── audit-service.ts    # Orquestación durable de auditoría
 │   │   ├── comparison-service.ts # Orquestación de revisión humana
@@ -322,7 +326,7 @@ Razón: las pruebas no deben inflar las métricas operativas, y filtrarlas en me
 - **Límites de evidencia**: `MAX_EVIDENCE_BYTES`, `MAX_EVIDENCE_COUNT`, `MAX_AUDIT_TEXT_CHARS`, `MAX_AUDIT_MULTIMODAL_BYTES` protegen presupuesto y latencia.
 - **Idempotencia**: fingerprint canónico evita re-auditar un expediente idéntico; un solo `RUNNING` por `(case_id, fingerprint)`.
 - **Dashboard**: las vistas `audit_dashboard_metrics` y `case_comparisons_dashboard_metrics` proyectan escalares para no traer jsonb completos al servidor.
-- **Consultas del dashboard**: `dashboard-queries.ts` aplica filtros de rol y exclusión de pruebas en SQL antes de contar o limitar filas; `dashboard.ts` transforma esas filas en métricas puras.
+- **Consultas del dashboard**: `dashboard-queries.ts` aplica filtros de rol y exclusión de pruebas en SQL antes de contar o limitar filas; `dashboard-summary.ts`, `dashboard-costs.ts` y `dashboard-quality.ts` transforman las filas en métricas puras. `dashboard.ts` conserva un barrel para los consumidores existentes.
 - **Expediente**: `CaseDetailPage` conserva la composición y presentación; `useCaseAuditWorkflow` concentra el POST de auditoría, la recuperación al abrir un caso y el polling acotado de transcripción y ejecución.
 - **Vercel Functions**: `maxDuration = 300` en handlers de auditoría/comparación para acomodar llamadas largas a OpenRouter.
 

@@ -121,8 +121,9 @@ src/
   server/                  env, insforge, http, errors, auth, quotas, derived,
                            cases, dto, audit-service, comparison-service,
                            reviews, area-comments, dashboard-queries,
-                           dashboard (agregaciones), dashboard-filters,
-                           openrouter, assemblyai,
+                           dashboard-summary, dashboard-costs, dashboard-quality,
+                           dashboard-contracts, dashboard (barrel),
+                           dashboard-filters, openrouter, assemblyai,
                            evidence-prep, pdf
     ai/                    model-capabilities, provider-schema (contrato con el modelo)
   components/              LoginScreen, AppHeader, AppNav, CaseListPage,
