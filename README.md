@@ -141,13 +141,11 @@ src/
 policy/                    Procedimiento GDM_GAM_PRD_MLG_003 v5 (FUENTE NORMATIVA)
   manifest.json            26 secciones + SHA-256 del PDF fuente
   sections/*.md            secciones indexadas (26)
-migrations/                baseline + 16 migraciones incrementales (orden por nombre).
-                           Cada una trae sus comprobaciones en
-                           scripts/migration-checks/<archivo>.checks.json
+migrations/                baseline inicial + migraciones incrementales ordenadas.
 scripts/                   generate-policy.mjs, dev-api.mjs,
                            check-no-public-secrets.mjs, run-ai-smoke.mjs,
                            verify-rls-grants.sql
-tests/                     Vitest (67 archivos, 999 tests registrados)
+tests/                     Vitest (70 archivos; 1,012 pasaron y 3 live quedaron omitidos)
 docs/                      documentación del proyecto
 .github/                   CI (verify:release), Dependabot, plantillas de issue/PR
 vercel.json                framework vite, output dist, install npm ci
@@ -390,19 +388,20 @@ modifica (`PRESERVE_EVIDENCE_PROVENANCE`).
 
 ### Tablas, vistas y funciones de soporte
 
-Migraciones incrementales posteriores al baseline. Ninguna es destructiva; todas
-son `CREATE … IF NOT EXISTS`, `CREATE OR REPLACE VIEW`, `ALTER TABLE … ADD
-COLUMN` o `CREATE OR REPLACE FUNCTION`, por lo que re-ejecutarlas es un no-op.
+Migraciones incrementales posteriores al baseline. El estado real del esquema y
+el historial remoto difieren; consulta `docs/MIGRATION-RECONCILIATION.md` antes
+de aplicar cualquier archivo. No se garantiza que una vista histórica pueda
+reemplazarse sobre la definición final.
 
 | Objeto | Migración | Para qué |
 |---|---|---|
-| `app_memberships` (`user_id` PK, `role` CHECK en `user`/`coordinator`) | `20261002000000_auth_core.sql` | Autorización de acceso a la app. **No hay sign-up**: sin fila aquí, `403`. |
+| `app_memberships` (`user_id` PK, `role` CHECK en `user`/`coordinator`/`manager`) | `20261002000000_auth_core.sql` + `20261008100000_membership-role-manager.sql` | Autorización de acceso a la app. **No hay sign-up**: sin fila aquí, `403`. |
 | `request_admissions` + `admit_or_reject_quota(...)` | `20261003000000_paid_admissions.sql` | Cuotas de admisión. Cubre las operaciones **pagadas** (auditoría, comparación, transcripción de audio) y las de **login** (5/correo y 10/IP por 15 min). El sujeto se persiste **hasheado**; la admisión es una fila, no un contador en memoria. |
 | `audit_dashboard_metrics` (view) + `audits_created_at_idx` | `20260929040000_…` | Métricas agregadas de auditoría para `/api/dashboard/*`. |
 | `case_reviews` (+ columna del responsable) | `20260930010000_…`, `20261001010000_…` | Revisión humana del dictamen. |
 | `case_comparisons` | `20260930010000_human-resolution.sql` | Comparaciones entre casos. |
 | `case_comparisons_dashboard_metrics` (view) + `case_comparisons_created_at_idx` | `20260930020000_…` | Métricas de comparaciones. **Requiere** `20260930010000_…` aplicada. |
-| `case_area_comments` | `20261005010000_case-area-comments.sql` | Comentarios manuales por área (Back Office, HelpDesk, Servicios Escolares, Finanzas, Adicional). Un comentario vigente por `(case_id, area)`: guardar **sustituye**. El área es vocabulario cerrado (`CHECK` en la base, `z.enum` en el servidor, lista en el cliente). Se muestran al final del dictamen y **no participan en él**. |
+| `case_area_comments` | `20261005010000_case-area-comments.sql`; corrección preparada en `20261009110000_case-area-comments-authenticated-policy.sql` | Comentarios manuales por área (Back Office, HelpDesk, Servicios Escolares, Finanzas, Adicional). Un comentario vigente por `(case_id, area)`: guardar **sustituye**. El área es vocabulario cerrado (`CHECK` en la base, `z.enum` en el servidor, lista en el cliente). Se muestran al final del dictamen y **no participan en él**. |
 | `evidence.extracted_text`, `evidence.extraction_pipeline_version` | `20261003010000_…` | Caché de derivados (ver arriba). |
 
 Las vistas del dashboard se crean con `CREATE OR REPLACE VIEW` y llevan una
@@ -622,7 +621,7 @@ Los mensajes del proveedor se sanean (se ocultan `api_key`, `secret`, `token`,
 - **Autorización por dueño.** Cada ruta de caso pasa por
   `getScopedCaseOr404`/`assertCaseOwner`. Un caso ajeno devuelve **404, no 403**:
   responder 403 confirmaría que el identificador existe.
-- **Roles.** `user` y `coordinator` salen de `app_memberships`. Un rol
+- **Roles.** `user`, `coordinator` y `manager` salen de `app_memberships`. Un rol
   desconocido se trata como "sin permiso" (fail-closed), no como `user`.
 
 ### Entrada no confiable
@@ -686,7 +685,10 @@ Los mensajes del proveedor se sanean (se ocultan `api_key`, `secret`, `token`,
 En `docs/REPOSITORY_AUDIT.md` está el detalle. Lo mínimo que falta resolver en
 la instancia existente antes de habilitar login:
 
-1. Aplicar las migraciones pendientes (`migrations/*.sql` posteriores al baseline).
+1. Resolver la conciliación de migraciones descrita en
+   [`docs/MIGRATION-RECONCILIATION.md`](docs/MIGRATION-RECONCILIATION.md).
+   No aplicar `up --all` hasta validar el esquema en staging y confirmar el
+   procedimiento soportado por InsForge.
 2. Crear y poblar `app_memberships` para los usuarios autorizados.
 3. Hacer backfill de los casos con `created_by IS NULL` (quedan invisibles bajo
    RLS) al custodio que corresponda.
@@ -790,32 +792,11 @@ APP_URL=https://<tu-dominio>
 
 ### Checklist de primer despliegue
 
-1. Ejecutar las migraciones en InsForge **antes** del deploy, **en orden** por
-   nombre de archivo (CLI de InsForge). La secuencia es:
-
-   ```
-   00000000000000_baseline.sql
-   20260928010000_ai-native-production.sql
-   20260929040000_audit-dashboard-metrics.sql
-   20260930010000_human-resolution.sql
-   20260930020000_human-review-dashboard-metrics.sql
-   20260930120000_case-metadata-and-human-reviews.sql
-   20261001010000_case-reviewer-name.sql
-   20261002000000_auth_core.sql
-   20261003000000_paid-admissions.sql
-   20261003010000_derived-extractions.sql
-   20261005010000_case-area-comments.sql
-   20261005120000_origin-country-channel.sql
-   20261008090000_case-cycle-start-date-human.sql
-   20261008100000_membership-role-manager.sql
-   20261008110000_case-test-flag.sql
-   20261008120000_case-review-coordinator-decision.sql
-   20261008130000_dashboard-view-test-owner-scope.sql
-   ```
-
-   `20260930020000_…` **requiere** que `20260930010000_human-resolution.sql` esté
-   aplicada. Ninguna migración destructiva: todas son `CREATE … IF NOT EXISTS` o
-   `ALTER TABLE … ADD COLUMN`.
+1. No aplicar migraciones hasta completar el plan de
+   [`docs/MIGRATION-RECONCILIATION.md`](docs/MIGRATION-RECONCILIATION.md).
+   El historial remoto no representa todos los cambios presentes en el
+   esquema; `up --all` y la reproducción manual de SQL no son seguros en este
+   estado.
 
 2. Crear el bucket de Storage `evidencias` (lo crea la CLI, no el SQL) y
    revisarle la política de acceso (owner-scoped).

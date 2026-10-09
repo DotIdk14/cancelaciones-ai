@@ -256,7 +256,7 @@ La especificación detallada con estados y responsabilidades por archivo está e
 
 ## Persistencia y despliegue
 
-La base PostgreSQL contiene casos, evidencias, auditorías, memberships, revisiones (de dos etapas), comparaciones, comentarios por área y admisiones de cuota. Las migraciones son forward-only y versionadas bajo `migrations/`; la feature de roles añade `membership-role-manager`, `case-test-flag`, `case-review-coordinator-decision` y `dashboard-view-test-owner-scope` (detalle en [`DATABASE.md`](DATABASE.md)). Cada migración nueva trae sus comprobaciones en `scripts/migration-checks/<archivo>.checks.json`. El procedimiento normativo se compila desde `policy/` con `npm run policy:generate`. La configuración de producción y el estado aplicado no se pueden inferir de estos archivos: véase [`DEPLOYMENT.md`](DEPLOYMENT.md) y las limitaciones `NO VERIFICADO` del informe de auditoría.
+La base PostgreSQL contiene casos, evidencias, auditorías, memberships, revisiones (de dos etapas), comparaciones, comentarios por área y admisiones de cuota. Las migraciones son forward-only y versionadas bajo `migrations/`; la feature de roles añade `membership-role-manager`, `case-test-flag`, `case-review-coordinator-decision` y `dashboard-view-test-owner-scope` (detalle en [`DATABASE.md`](DATABASE.md)). Las comprobaciones SQL están embebidas como bloques `DO $verify$` en sus migraciones. El procedimiento normativo se compila desde `policy/` con `npm run policy:generate`. La configuración de producción y el estado aplicado no se pueden inferir de estos archivos: véase [`DEPLOYMENT.md`](DEPLOYMENT.md) y [`MIGRATION-RECONCILIATION.md`](MIGRATION-RECONCILIATION.md).
 
 ## Decisiones clave (ADRs)
 

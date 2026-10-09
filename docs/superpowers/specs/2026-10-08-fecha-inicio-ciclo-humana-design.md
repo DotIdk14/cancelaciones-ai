@@ -85,7 +85,7 @@ Tres columnas nuevas en `cases` (la única fuente es humana por definición, as�
 Sobre el nombre: **no existe un nombre de usuario autoritativo en el sistema**. La revisión humana resuelve lo mismo guardando `case_reviews.reviewer_name` como texto que la persona escribe (`CaseReviewPanel.tsx:318`, `src/skills/review/schema.ts:109`). Se replica ese patrón: `cycle_start_date_by` (uuid) es el autor real y con sello de auditoría; `_by_name` es solo para mostrar, igual que hoy `reviewer_name`.
 
 - Migración nueva, forward-only e idempotente: `migrations/20261008090000_case-cycle-start-date-human.sql`.
-- Comprobaciones en `scripts/migration-checks/20261008090000_case-cycle-start-date-human.checks.json`, siguiendo el patrón existente.
+- Comprobaciones de esquema dentro de la migración como bloque `DO $verify$`.
 - **No se toca RLS**: las políticas de `cases` siguen igual.
 
 ### 4.2 Endpoint — sin gastar una Function
