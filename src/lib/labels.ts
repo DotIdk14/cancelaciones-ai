@@ -22,7 +22,7 @@ import {
   REVIEW_COMMENT_MAX,
   REVIEW_COMMENT_MIN,
 } from '../skills/review/types.js';
-import { EVIDENCE_MIME_ALLOWLIST } from '../shared/evidence-formats';
+import { EVIDENCE_MIME_ALLOWLIST } from '../shared/evidence-formats.js';
 import type { Tone } from '../components/ui';
 
 // -----------------------------------------------------------------------------

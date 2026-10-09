@@ -6,7 +6,7 @@
 import type { AuditResult } from '../skills/audit/schema';
 import type { AuditResultType, CaseStatus, ErrorCategory, EvidenceStatus, TranscriptData } from '../skills/audit/types';
 import type { ComparisonOutcomePayload } from '../skills/review/schema';
-import { readEvidenceHead, resolveEvidenceMime } from '../shared/evidence-formats';
+import { readEvidenceHead, resolveEvidenceMime } from '../shared/evidence-formats.js';
 
 // -----------------------------------------------------------------------------
 // Formas de la API (contrato compartido con el servidor)

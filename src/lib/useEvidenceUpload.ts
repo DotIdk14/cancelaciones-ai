@@ -14,7 +14,7 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { toErrorState, uploadEvidence } from './api';
-import { readEvidenceHead, resolveEvidenceMime } from '../shared/evidence-formats';
+import { readEvidenceHead, resolveEvidenceMime } from '../shared/evidence-formats.js';
 import { EVIDENCE_TYPE_REJECTED_MESSAGE, isAcceptedEvidenceMime } from './labels';
 
 export type UploadStatus = 'uploading' | 'done' | 'error';
