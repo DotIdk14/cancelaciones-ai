@@ -6,11 +6,12 @@ pruebas visuales con información real.
 
 ## Estado
 
-El código local pasó `npm run verify:release`. InsForge ya tiene aplicadas las
-migraciones `20261009120000_case-student-name` y
+El commit `6c4e694` está publicado en `main` y el frontend está desplegado en
+Vercel Production. El deployment `dpl_DJBzRrAaEja4AJwMbMb88WEuhT3y` quedó en
+estado `READY` y sirve el alias `cancelaciones-ai.vercel.app`. InsForge ya tiene
+aplicadas las migraciones `20261009120000_case-student-name` y
 `20261009212142_restrict-security-definer-rpc-execution`; `disable_signup` está
-configurado en `true`. El commit todavía no se ha subido a `main` ni el frontend
-se ha desplegado en Vercel en esta revisión.
+configurado en `true`.
 
 ## Cambios de preparación aplicados
 
@@ -35,13 +36,14 @@ ni reclasifican expedientes.
 
 ## Verificaciones
 
-- `npm run verify:release`: lint y typecheck, 101 pruebas de contrato, 1,015
-  pruebas aprobadas y 3 omitidas, y build Vite correcto. ESLint conserva dos
-  warnings de dependencias de hooks en `CaseDetailPage.tsx` y `EvidencePane.tsx`.
+- `npm run verify:release`: lint y typecheck, 101 pruebas de contrato, 1,016
+  pruebas aprobadas y 3 omitidas, y build Vite correcto. ESLint terminó sin
+  warnings.
 - `npm run lint:contrast`: todos los pares de texto y series de gráficas
   revisados cumplen WCAG 2.2 AA.
-- Producción respondió HTTP 200 en `/api/health/ai` (`status: ok`). El healthcheck
-  sin sesión valida configuración, no una generación real del proveedor.
+- El deployment respondió HTTP 200 en `/` (título `Auditoría de Cancelaciones · UTEL`)
+  y `/api/health/ai` (`status: ok`). El healthcheck sin sesión valida
+  configuración, no una generación real del proveedor.
 - `vercel deploy --dry` identificó Vite, 12 funciones y el paquete después de
   aplicar `.vercelignore`.
 - El asesor de InsForge reportó antes 296 hallazgos (80 críticos, 173 warnings,
@@ -74,6 +76,6 @@ ni reclasifican expedientes.
 - El límite Hobby sigue en 12 funciones (12 archivos en `api/`); no hay margen
   para añadir un endpoint como archivo nuevo sin consolidar rutas.
 
-El deploy de Vercel debe seguirse observando después del push a `main`; la
-configuración y los checks de este documento no sustituyen la prueba posterior
-del deployment.
+El deployment quedó observado en `READY` después del push a `main`. La
+configuración y los checks de este documento no sustituyen los flujos
+autenticados y la restauración de backup que siguen pendientes arriba.
