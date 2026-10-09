@@ -12,12 +12,12 @@ interface AppHeaderProps {
   onSignOut?: () => void;
   previewOnly?: boolean;
   role?: AppRole | null;
+  canCreate?: boolean;
 }
 
-export function AppHeader({ onSignOut, previewOnly = false, role = null }: AppHeaderProps): ReactNode {
+export function AppHeader({ onSignOut, previewOnly = false, role = null, canCreate = false }: AppHeaderProps): ReactNode {
   // Solo los roles con capacidad de escritura ven el alta. El Gerente (o un rol
   // no resuelto) no la ve; el servidor además responde 403.
-  const canCreate = role === 'user' || role === 'coordinator';
   const label = roleLabel(role);
   return (
     <header className="app-header sticky top-0 z-30 border-b border-line bg-surface-1">

@@ -52,6 +52,8 @@ export interface CycleStartDateCaptureProps {
   cycleStartDate: string | null;
   cycleStartDateByName: string | null;
   cycleStartDateAt: string | null;
+  /** Capacidad efectiva sobre el expediente. */
+  readOnly?: boolean;
   /** Avisa al padre para que relea el caso y la fecha quede reflejada arriba. */
   onSaved: () => void | Promise<void>;
 }
@@ -77,6 +79,7 @@ export function CycleStartDateCapture({
   cycleStartDate,
   cycleStartDateByName,
   cycleStartDateAt,
+  readOnly = false,
   onSaved,
 }: CycleStartDateCaptureProps): ReactNode {
   const [draftDate, setDraftDate] = useState(cycleStartDate ?? '');
@@ -202,16 +205,16 @@ export function CycleStartDateCapture({
           <p className="mt-1 text-xs text-muted">
             Es un dato del equipo, no evidencia: solo entra al expediente cuando se audita de nuevo.
           </p>
-          <div className="mt-2">
+          {!readOnly && <div className="mt-2">
             <Button variant="secondary" onClick={openEditor} disabled={busy}>
               <Pencil size={14} aria-hidden="true" />
               Corregir
             </Button>
-          </div>
+          </div>}
         </div>
       )}
 
-      {formOpen && (
+      {formOpen && !readOnly && (
         <div className={captured === null ? 'mt-3' : 'mt-3 border-t border-line pt-3'}>
           <SectionTitle>
             {captured === null ? 'Falta la fecha de inicio de clases' : 'Corrige la fecha de inicio de clases'}
@@ -292,7 +295,7 @@ export function CycleStartDateCapture({
         {notice !== null && (
           <p className={`text-xs ${notice.tone === 'error' ? 'text-danger' : 'text-muted'}`}>{notice.text}</p>
         )}
-        {reauditText !== null && (
+        {reauditText !== null && !readOnly && (
           <div className="mt-2">
             <p className="text-xs text-muted">{reauditText}</p>
             <Button

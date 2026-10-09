@@ -1,9 +1,11 @@
 ﻿# Base de datos — Cancelaciones AI
 
-Este documento describe el esquema real de PostgreSQL/InsForge, migración por migración.
-Todas las migraciones son **forward-only** y se aplican en orden lexicográfico (timestamp).
+Este documento describe el esquema PostgreSQL/InsForge, migración por migración.
+El historial remoto y el esquema observado no están completamente sincronizados;
+consulta [`MIGRATION-RECONCILIATION.md`](MIGRATION-RECONCILIATION.md) antes de
+aplicar SQL. No ejecutes `up --all` en producción hasta resolver esa conciliación.
 
-## Orden de aplicación
+## Secuencia histórica
 
 | Orden | Archivo | Propósito |
 |---|---|---|
@@ -24,10 +26,16 @@ Todas las migraciones son **forward-only** y se aplican en orden lexicográfico 
 | 14 | `migrations/20261008110000_case-test-flag.sql` | Columna `cases.is_test boolean NOT NULL DEFAULT false`. |
 | 15 | `migrations/20261008120000_case-review-coordinator-decision.sql` | Cinco columnas del coordinador en `case_reviews` + dos `CHECK`. |
 | 16 | `migrations/20261008130000_dashboard-view-test-owner-scope.sql` | Recrea las dos vistas de dashboard con `created_by` e `is_test` (34 y 11 columnas). |
+| 17 | `migrations/20261009100000_case-list-pagination-indexes.sql` | Índices para paginación por fecha y estado; pendiente de verificar en la base existente. |
+| 18 | `migrations/20261009110000_case-area-comments-authenticated-policy.sql` | Limita explícitamente las tres políticas de comentarios a `authenticated`; pendiente de staging y aprobación. |
 
-> En una instalación limpia se aplica el baseline (1a). En la base de producción existente se salta el baseline y se aplica `20260928010000_ai-native-production.sql` (1b), que es idempotente y no borra datos legacy.
+> Esta tabla documenta los archivos y sus dependencias históricas; no es una
+> instrucción para ejecutarlos en el estado remoto actual. El baseline solo
+> cubre las tablas principales y no representa el esquema completo vigente.
 >
-> Las migraciones 13-16 son las de la feature de **revisión humana por roles**. Cada archivo trae un bloque `DO $verify$` que falla si el esquema no queda como describe, y sus comprobaciones ejecutables viven en `scripts/migration-checks/<archivo>.checks.json` (aplicadas por `scripts/apply-migration.mjs`).
+> Las migraciones recientes traen `DO $verify$`.
+> Estas comprobaciones no registran la migración; no se debe aplicar DDL por un
+> ejecutor alterno que omita el ledger oficial.
 
 ## Resumen de objetos
 

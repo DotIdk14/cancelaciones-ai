@@ -43,19 +43,21 @@ export function CoordinatorStage({
   review,
   workflowState,
   role,
+  canFinalize = false,
   onSubmitted,
 }: {
   caseId: string;
   review: CaseReviewDto;
   workflowState?: WorkflowState;
   role: AppRole | null;
+  canFinalize?: boolean;
   onSubmitted?: () => void;
 }): ReactNode {
   const state = workflowStateOf(review, workflowState);
   if (state === 'FINALIZED') {
     return <CoordinatorDecisionRecord review={review} />;
   }
-  if (role === 'coordinator') {
+  if (canFinalize) {
     return <CoordinatorFinalizeForm caseId={caseId} review={review} onSubmitted={onSubmitted} />;
   }
   const message =

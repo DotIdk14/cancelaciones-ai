@@ -2,7 +2,7 @@
 
 - **Fecha:** 2026-10-05
 - **Path:** ARCHITECTURAL
-- **Estado:** pendiente de revisión
+- **Estado:** implementado. Se conserva como registro de diseño; la arquitectura vigente está en `AGENTS.md` y `docs/ARCHITECTURE.md`.
 - **Alcance:** Assessment del Audit Skill → columnas de dimensión → filtros de Calidad → visualizaciones de Resumen
 
 ---
@@ -173,7 +173,9 @@ de `20260930120000`.
 Se mantiene `text` y no FK, coherente con las 6 dims existentes: el catálogo del CRM
 sigue sin existir (`LEGACY_IS_NOT_POLICY`).
 
-Se aplica con `scripts/apply-migration.mjs` (ya existe en el repo).
+La aplicación de esta migración queda sujeta a la conciliación oficial descrita
+en [`docs/MIGRATION-RECONCILIATION.md`](../../MIGRATION-RECONCILIATION.md). No
+aplicar SQL directamente con `db query`.
 
 ---
 

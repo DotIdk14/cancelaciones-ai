@@ -59,18 +59,29 @@ COMMENT ON COLUMN public.cases.country IS
 -- 2. Proyección de métricas extendida
 -- -----------------------------------------------------------------------------
 --
--- Se RECREA la vista (no se modifica) y la columna nueva va AL FINAL, después de
--- `human_result`. `CREATE OR REPLACE VIEW` no puede insertar una columna en medio
--- sin renombrar las siguientes, así que `channel` es la columna 32. El orden es
--- irrelevante para los consumidores: todos seleccionan columnas por nombre
--- (`.select('*')` o listas explícitas), nunca por posición.
+-- En una instalación que todavía no proyecta `channel`, se recrea la vista y la
+-- columna nueva queda al final, después de `human_result`. Si `channel` ya está
+-- proyectado (por ejemplo, cuando se reconcilia el ledger de una base existente
+-- que también incluye columnas añadidas por migraciones posteriores), se conserva
+-- la definición actual: CREATE OR REPLACE VIEW no permite quitar esas columnas.
 --
--- Las 31 columnas anteriores conservan nombre, tipo y posición, y la verificación
--- final lo comprueba contando 32 y buscando `channel` por nombre.
+-- La verificación acepta la vista de esta etapa (32 columnas) y la vista vigente
+-- extendida (34 columnas); ambas deben conservar las dimensiones y permisos.
 --
 -- `channel` va SIN la envoltura NULL de la sección de costes: es una dimensión del
 -- caso, no un agregado, y `NULL` es un valor con significado propio.
 
+DO $create_view$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_attribute
+    WHERE attrelid = to_regclass('public.audit_dashboard_metrics')
+      AND attnum > 0
+      AND NOT attisdropped
+      AND attname = 'channel'
+  ) THEN
+    EXECUTE $view$
 CREATE OR REPLACE VIEW public.audit_dashboard_metrics AS
 WITH att AS (
   SELECT
@@ -180,6 +191,10 @@ FROM public.audits a
 LEFT JOIN public.cases c ON c.id = a.case_id
 LEFT JOIN att ON att.audit_id = a.id
 LEFT JOIN public.case_human_reviews hr ON hr.audit_id = a.id;
+    $view$;
+  END IF;
+END
+$create_view$;
 
 COMMENT ON VIEW public.audit_dashboard_metrics IS
   'Proyeccion de solo lectura para el dashboard. Incluye student_identifier (dato personal) y el dictamen humano de case_human_reviews. NO contiene credenciales ni jsonb crudo.';
@@ -227,7 +242,8 @@ BEGIN
     RAISE EXCEPTION 'cases.country debe seguir siendo text NULL-able (encontradas: %)', v_count;
   END IF;
 
-  -- 4.3 La vista existe, es una vista, y expone las 32 columnas (31 previas + channel).
+-- 4.3 La vista existe, es una vista y conserva la forma de esta migración
+--     (32 columnas) o la forma vigente posterior (34 columnas).
   IF NOT EXISTS (
     SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
     WHERE n.nspname='public' AND c.relname='audit_dashboard_metrics' AND c.relkind='v'
@@ -240,8 +256,8 @@ BEGIN
   WHERE attrelid='public.audit_dashboard_metrics'::regclass
     AND attnum > 0 AND NOT attisdropped;
 
-  IF v_count <> 32 THEN
-    RAISE EXCEPTION 'la vista deberia exponer 32 columnas y expone %', v_count;
+  IF v_count NOT IN (32, 34) THEN
+    RAISE EXCEPTION 'la vista deberia exponer 32 o 34 columnas y expone %', v_count;
   END IF;
 
   -- 4.4 La vista PROYECTA channel, que es lo que habilita el filtro. Sin esto, el
@@ -255,8 +271,25 @@ BEGIN
     RAISE EXCEPTION 'la vista no proyecta channel';
   END IF;
 
+  -- Si se conserva la forma posterior de 34 columnas, sus columnas de alcance y
+  -- exclusión de pruebas también deben seguir disponibles.
+  IF (SELECT count(*) FROM pg_attribute
+      WHERE attrelid='public.audit_dashboard_metrics'::regclass
+        AND attnum > 0 AND NOT attisdropped) = 34 THEN
+    FOREACH v_col IN ARRAY ARRAY['created_by','is_test'] LOOP
+      SELECT count(*) INTO v_count
+      FROM pg_attribute
+      WHERE attrelid='public.audit_dashboard_metrics'::regclass AND attnum > 0
+        AND NOT attisdropped AND attname=v_col;
+
+      IF v_count <> 1 THEN
+        RAISE EXCEPTION 'la vista vigente no proyecta %', v_col;
+      END IF;
+    END LOOP;
+  END IF;
+
   -- 4.5 Las 7 dimensiones del caso siguen proyectadas: ninguna se perdió al recrear.
-  FOREACH v_col SLICE 1 IN ARRAY ARRAY[
+  FOREACH v_col IN ARRAY ARRAY[
     'country','channel','campus','modality','project','responsible','guideline'
   ] LOOP
     SELECT count(*) INTO v_count
@@ -291,6 +324,6 @@ BEGIN
     RAISE EXCEPTION 'project_admin debe tener SELECT en la vista';
   END IF;
 
-  RAISE NOTICE 'OK — cases.channel, vista de 32 columnas y permisos verificados';
+  RAISE NOTICE 'OK — cases.channel, vista compatible y permisos verificados';
 END
 $verify$;

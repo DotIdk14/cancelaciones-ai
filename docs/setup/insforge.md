@@ -51,18 +51,16 @@ arrancar con `[env] Falta la variable de entorno <NOMBRE>`.
 
 ## Base de datos y Storage
 
-- El esquema base es **una migración baseline**:
-  `migrations/00000000000000_baseline.sql` (3 tablas `cases`, `evidence`,
-  `audits`; RLS por `created_by = auth.uid()`; trigger `set_updated_at` solo en
-  `cases`). Se aplica sobre una base **vacía** de InsForge.
-- Encima corre `migrations/20260929040000_audit-dashboard-metrics.sql`, que crea
-  la vista **de solo lectura** `public.audit_dashboard_metrics` que leen las
-  pantallas de Resumen, IA & Costos y Calidad. No escribe datos ni altera
-  `cases`, `evidence` ni `audits`. Si no está aplicada, los tres endpoints del
-  dashboard devuelven error hasta que se aplique.
-- Aplicar todas las migraciones: `npx @insforge/cli db migrations up --all`
-  (la CLI lee el directorio `migrations/` por convención; no hay script npm que
-  las aplique).
+- `migrations/00000000000000_baseline.sql` representa únicamente el núcleo
+  inicial (`cases`, `evidence`, `audits`), no todo el esquema vigente.
+- El historial local y el esquema remoto están desincronizados. No ejecutes
+  `db migrations up --all` ni un script de `db query` para “ponerse al día”:
+  algunos efectos ya están presentes y hay migraciones de vistas intermedias
+  que no se pueden reaplicar directamente.
+- Antes de cualquier cambio, sigue el análisis y el plan de
+  [`../MIGRATION-RECONCILIATION.md`](../MIGRATION-RECONCILIATION.md). No escribas
+  en producción sin staging aislado, respaldo restaurable y aprobación del SQL
+  exacto.
 - Storage: bucket **único** `evidencias`. El path del objeto es
   `{caseId}/{uuid}-{sanitizedFilename}` — el nombre del archivo nunca controla la
   ruta. El bucket **no lo crea la aplicación**: se crea con la CLI de InsForge.
@@ -78,8 +76,11 @@ insforge current --json
 # Listar buckets de Storage
 insforge storage buckets
 
-# Aplicar migraciones de la DB
-insforge db migrations up --all
+# Inspeccionar historial y objetos (solo lectura)
+insforge db migrations list
+insforge db tables
+insforge db indexes
+insforge db policies
 
 # Inspeccionar/leer secrets del proyecto
 insforge secrets list

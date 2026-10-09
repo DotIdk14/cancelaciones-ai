@@ -54,5 +54,5 @@ export interface DashboardMetricRow {
   human_result: string | null;
 }
 
-/** Tope de filas leídas de la vista. Si la vista trae más, `truncated` va en `true`. */
-export const DASHBOARD_MAX_ROWS = 5000;
+/** Tamaño de página REST. Las consultas recorren todas las páginas antes de agregar KPI. */
+export const DASHBOARD_PAGE_SIZE = 500;

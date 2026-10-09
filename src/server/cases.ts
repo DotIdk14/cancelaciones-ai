@@ -12,6 +12,7 @@ import type { CaseReviewRow } from './reviews.js';
 import type { AuthContext } from './auth.js';
 import { capabilitiesForRole } from './auth.js';
 import { ApiError, mapProviderError } from './http.js';
+import { computeEvidenceFingerprint } from './audit-fingerprint.js';
 
 export interface CaseRow {
   id: string;
@@ -56,6 +57,8 @@ export interface CaseSummaryRow extends CaseRow {
   review?: CaseReviewRow | null;
   /** Auditoría COMPLETED vigente del caso (cargada en batch junto con el listado). */
   audit?: AuditRow | null;
+  /** Si la última auditoría completada usa los datos actuales del expediente. */
+  auditIsCurrent?: boolean | null;
 }
 
 export interface EvidenceRow {
@@ -115,55 +118,134 @@ export async function createCase(
   return data as CaseRow;
 }
 
-export async function listCaseSummaries(client: InsForgeClient, auth: AuthContext): Promise<CaseSummaryRow[]> {
+async function enrichCaseSummaries(
+  client: InsForgeClient,
+  rows: CaseSummaryRow[],
+  snapshot: string,
+): Promise<CaseSummaryRow[]> {
+  const pageSize = 100;
+  // Las relaciones se consultan por bloques acotados, evitando tanto N+1 como
+  // URLs PostgREST con miles de UUID. `id DESC` resuelve empates de fecha.
+  const reviewMap = new Map<string, CaseReviewRow>();
+  const auditMap = new Map<string, AuditRow>();
+  const evidencesByCase = new Map<string, EvidenceRow[]>();
+  for (let offset = 0; offset < rows.length; offset += pageSize) {
+    const caseIds = rows.slice(offset, offset + pageSize).map((row) => row.id);
+    const [{ data: reviewsData, error: reviewsError }] = await Promise.all([
+      client.database.from('case_reviews').select('*').in('case_id', caseIds),
+    ]);
+    if (reviewsError) dbError(reviewsError);
+    for (const review of (reviewsData as CaseReviewRow[] | null) ?? []) {
+      if (!reviewMap.has(review.case_id)) reviewMap.set(review.case_id, review);
+    }
+    // Un caso puede acumular más auditorías que el límite REST. Paginar también
+    // esta consulta evita perder la auditoría COMPLETED más reciente del lote.
+    for (let auditOffset = 0; ; auditOffset += 500) {
+      const { data: auditsData, error: auditsError } = await client.database
+        .from('audits')
+        .select('id,case_id,status,provider,model,result_json,error_category,latency_ms,evidence_fingerprint,created_at')
+        .eq('status', 'COMPLETED')
+        .lte('created_at', snapshot)
+        .in('case_id', caseIds)
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
+        .range(auditOffset, auditOffset + 499);
+      if (auditsError || !auditsData) dbError(auditsError);
+      const auditPage = auditsData as AuditRow[];
+      for (const audit of auditPage) {
+        if (!auditMap.has(audit.case_id)) auditMap.set(audit.case_id, audit);
+      }
+      // Cada caso solo necesita su primera fila por el orden DESC. Si todos ya
+      // tienen dictamen, las páginas más antiguas no pueden cambiar el resultado.
+      if (auditMap.size === caseIds.length || auditPage.length < 500) break;
+    }
+
+    // Se requiere la evidencia íntegra para comparar la huella del dictamen.
+    // Se pagina aparte para no depender del tope REST en casos con muchos archivos.
+    for (let evidenceOffset = 0; ; evidenceOffset += 500) {
+      const { data: evidenceData, error: evidenceError } = await client.database
+        .from('evidence')
+        .select('id,case_id,hash,transcript_json')
+        .in('case_id', caseIds)
+        .order('id', { ascending: true })
+        .range(evidenceOffset, evidenceOffset + 499);
+      if (evidenceError || !evidenceData) dbError(evidenceError);
+      const page = evidenceData as EvidenceRow[];
+      for (const evidence of page) {
+        const group = evidencesByCase.get(evidence.case_id) ?? [];
+        group.push(evidence);
+        evidencesByCase.set(evidence.case_id, group);
+      }
+      if (page.length < 500) break;
+    }
+  }
+
+  return rows.map((row) => {
+    const review = reviewMap.get(row.id) ?? null;
+    const audit = auditMap.get(row.id) ?? null;
+    const auditIsCurrent = audit === null
+      ? null
+      : audit.evidence_fingerprint === computeEvidenceFingerprint(evidencesByCase.get(row.id) ?? [], row.cycle_start_date ?? null);
+    return { ...row, review, audit, auditIsCurrent };
+  });
+}
+
+/** Página acotada para la UI. `snapshot` fija el conjunto ante inserciones nuevas. */
+export async function listCaseSummaryPage(
+  client: InsForgeClient,
+  auth: AuthContext,
+  options: { offset: number; limit: number; snapshot: string; status?: CaseStatus },
+): Promise<CaseSummaryRow[]> {
   let query = client.database
     .from('cases')
     .select('*,evidence(count)')
+    .lte('created_at', options.snapshot)
     .order('created_at', { ascending: false })
-    .limit(100);
-  // Capacidad, no nombre de rol: "¿TIENE el rol capacidad de leer todos?", no
-  // "¿el rol es exactamente este?". Nombrar el rol aquí congelaría el vocabulario
-  // en cada guard, que es justo lo que `capabilitiesForRole` evita.
-  if (!capabilitiesForRole(auth.role).canReadAllCases) {
-    query = query.eq('created_by', auth.sub);
-  }
-  const { data, error } = await query;
+    .order('id', { ascending: false });
+  if (!capabilitiesForRole(auth.role).canReadAllCases) query = query.eq('created_by', auth.sub);
+  if (options.status) query = query.eq('status', options.status);
+  const { data, error } = await query.range(options.offset, options.offset + options.limit - 1);
   if (error || !data) dbError(error);
-  const rows = data as CaseSummaryRow[];
+  return enrichCaseSummaries(client, data as CaseSummaryRow[], options.snapshot);
+}
 
-  // Carga en batch la revisión humana y la auditoría COMPLETED vigente de los
-  // casos de la página, para que `caseToSummary` derive `effectiveResolution`
-  // sin N+1 (FIX 1).
-  const caseIds = rows.map((row) => row.id);
-  if (caseIds.length === 0) return rows;
+export async function countCaseSummaryStatuses(
+  client: InsForgeClient,
+  auth: AuthContext,
+): Promise<Record<CaseStatus | 'ALL', number>> {
+  const statuses: CaseStatus[] = ['DRAFT', 'READY', 'AUDITING', 'COMPLETED', 'ERROR'];
+  const count = async (status?: CaseStatus): Promise<number> => {
+    let query = client.database.from('cases').select('id', { count: 'exact', head: true });
+    if (!capabilitiesForRole(auth.role).canReadAllCases) query = query.eq('created_by', auth.sub);
+    if (status) query = query.eq('status', status);
+    const result = await query;
+    if (result.error) dbError(result.error);
+    return result.count ?? 0;
+  };
+  const [all, ...values] = await Promise.all([count(), ...statuses.map((status) => count(status))]);
+  return { ALL: all, ...Object.fromEntries(statuses.map((status, index) => [status, values[index] ?? 0])) } as Record<CaseStatus | 'ALL', number>;
+}
 
-  const [{ data: reviewsData, error: reviewsError }, { data: auditsData, error: auditsError }] = await Promise.all([
-    client.database.from('case_reviews').select('*').in('case_id', caseIds),
-    client.database
-      .from('audits')
-      .select('*')
-      .eq('status', 'COMPLETED')
-      .in('case_id', caseIds)
-      .order('created_at', { ascending: false }),
-  ]);
-  if (reviewsError) dbError(reviewsError);
-  if (auditsError) dbError(auditsError);
-
-  const reviewMap = new Map<string, CaseReviewRow>();
-  for (const review of (reviewsData as CaseReviewRow[] | null) ?? []) {
-    if (!reviewMap.has(review.case_id)) reviewMap.set(review.case_id, review);
+/** Contrato legado: devuelve todos los casos, conservado para clientes existentes. */
+export async function listCaseSummaries(client: InsForgeClient, auth: AuthContext): Promise<CaseSummaryRow[]> {
+  const pageSize = 100;
+  const snapshot = new Date().toISOString();
+  const rows: CaseSummaryRow[] = [];
+  for (let offset = 0; ; offset += pageSize) {
+    let query = client.database
+      .from('cases')
+      .select('*,evidence(count)')
+      .lte('created_at', snapshot)
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false });
+    if (!capabilitiesForRole(auth.role).canReadAllCases) query = query.eq('created_by', auth.sub);
+    const { data, error } = await query.range(offset, offset + pageSize - 1);
+    if (error || !data) dbError(error);
+    const page = data as CaseSummaryRow[];
+    rows.push(...page);
+    if (page.length < pageSize) break;
   }
-
-  const auditMap = new Map<string, AuditRow>();
-  for (const audit of (auditsData as AuditRow[] | null) ?? []) {
-    if (!auditMap.has(audit.case_id)) auditMap.set(audit.case_id, audit);
-  }
-
-  return rows.map((row) => ({
-    ...row,
-    review: reviewMap.get(row.id) ?? null,
-    audit: auditMap.get(row.id) ?? null,
-  }));
+  return enrichCaseSummaries(client, rows, snapshot);
 }
 
 export async function getCaseOr404(client: InsForgeClient, caseId: string): Promise<CaseRow> {

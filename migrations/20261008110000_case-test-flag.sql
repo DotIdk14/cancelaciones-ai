@@ -11,7 +11,7 @@
 --   prueba o real para excluir las pruebas de las métricas operativas. La
 --   exclusión se resuelve en SQL en el servidor (`.eq('is_test', false)`), NO en
 --   la base: la columna sólo guarda la marca. Diseño alineado con
---   `docs/superpowers/plans/2026-10-06-case-test-flag.md`.
+--   `cases.is_test` fue implementado para distinguir pruebas de operación real.
 --
 -- `NOT NULL DEFAULT false`
 --   Un caso creado sin la marca es real (false). Los casos existentes reciben

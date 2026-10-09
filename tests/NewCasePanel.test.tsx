@@ -190,7 +190,7 @@ afterEach(() => {
 describe('NewCasePanel · alta con evidencia obligatoria', () => {
   it('2.1 sin archivos seleccionados no da de alta el caso ni llama al servidor', async () => {
     const calls = stubApp();
-    render(<NewCasePanel />);
+    render(<NewCasePanel canWrite />);
 
     const submit = screen.getByRole('button', { name: /crear y abrir expediente/i });
     expect((submit as HTMLButtonElement).disabled).toBe(true);
@@ -204,7 +204,7 @@ describe('NewCasePanel · alta con evidencia obligatoria', () => {
 
   it('2.2 con archivos seleccionados dispara createCase con el identificador capturado', async () => {
     const calls = stubApp();
-    render(<NewCasePanel />);
+    render(<NewCasePanel canWrite />);
 
     await userEvent.type(screen.getByLabelText(/matrícula o identificador/i), '202312345');
     await selectEvidence('convocatoria.pdf');
@@ -225,7 +225,7 @@ describe('NewCasePanel · alta con evidencia obligatoria', () => {
 describe('NewCasePanel · subida de evidencias', () => {
   it('2.3 sube la evidencia y navega al expediente nuevo', async () => {
     const calls = stubApp();
-    render(<NewCasePanel />);
+    render(<NewCasePanel canWrite />);
 
     await selectEvidence('convocatoria.pdf');
     await submitCase();
@@ -265,7 +265,7 @@ describe('NewCasePanel · subida de evidencias', () => {
       }),
     );
 
-    render(<NewCasePanel />);
+    render(<NewCasePanel canWrite />);
     await selectEvidence('a.pdf', 'b.pdf', 'c.pdf');
     await submitCase();
 
@@ -285,7 +285,7 @@ describe('NewCasePanel · subida de evidencias', () => {
         return attempts === 1 ? FILE_ERROR : { status: 201, body: { evidence: evidenceDto('case-1', name) } };
       },
     });
-    render(<NewCasePanel />);
+    render(<NewCasePanel canWrite />);
 
     await selectEvidence('convocatoria.pdf');
     await submitCase();
@@ -314,7 +314,7 @@ describe('NewCasePanel · subida de evidencias', () => {
       evidence: (name) =>
         name === 'nuevo.pdf' ? { status: 201, body: { evidence: evidenceDto('case-1', name) } } : FILE_ERROR,
     });
-    render(<NewCasePanel />);
+    render(<NewCasePanel canWrite />);
 
     await selectEvidence('a.pdf', 'b.pdf');
     await submitCase();
@@ -349,7 +349,7 @@ describe('NewCasePanel · subida de evidencias', () => {
 
   it('2.4c quitar una fila tras un fallo total quita el archivo correcto', async () => {
     stubApp({ evidence: () => FILE_ERROR });
-    render(<NewCasePanel />);
+    render(<NewCasePanel canWrite />);
 
     await selectEvidence('a.pdf', 'b.pdf');
     await submitCase();
@@ -373,7 +373,7 @@ describe('NewCasePanel · subida de evidencias', () => {
   // "Reintentar carga" y los fallidos se irían sin subir al navegar sin aviso.
   it('2.4f el reintento sigue visible si queda algún fallido junto a un pendiente', async () => {
     stubApp({ evidence: () => FILE_ERROR });
-    render(<NewCasePanel />);
+    render(<NewCasePanel canWrite />);
 
     await selectEvidence('a.pdf', 'b.pdf');
     await submitCase();
@@ -394,7 +394,7 @@ describe('NewCasePanel · subida de evidencias', () => {
 
   it('2.4e quitar filas no borra el archivo que sigue visible', async () => {
     stubApp();
-    render(<NewCasePanel />);
+    render(<NewCasePanel canWrite />);
 
     await selectEvidence('a.pdf', 'b.pdf');
     expect(screen.getByText('a.pdf')).toBeTruthy();
@@ -418,7 +418,7 @@ describe('NewCasePanel · subida de evidencias', () => {
 
   it('2.4d sin archivos pendientes de subir el alta no se presenta como exitosa', async () => {
     const calls = stubApp({ evidence: () => FILE_ERROR });
-    render(<NewCasePanel />);
+    render(<NewCasePanel canWrite />);
 
     await selectEvidence('a.pdf');
     await submitCase();
@@ -444,7 +444,7 @@ describe('NewCasePanel · subida de evidencias', () => {
           ? FILE_ERROR
           : { status: 201, body: { evidence: evidenceDto('case-1', name) } },
     });
-    render(<NewCasePanel />);
+    render(<NewCasePanel canWrite />);
 
     await selectEvidence('bueno.pdf', 'malo.pdf');
     await submitCase();
@@ -471,7 +471,7 @@ describe('NewCasePanel · subida de evidencias', () => {
         return badAttempts === 1 ? FILE_ERROR : { status: 201, body: { evidence: evidenceDto('case-1', name) } };
       },
     });
-    render(<NewCasePanel />);
+    render(<NewCasePanel canWrite />);
 
     await selectEvidence('bueno.pdf', 'malo.pdf');
     await submitCase();
@@ -512,7 +512,7 @@ describe('NewCasePanel · subida de evidencias', () => {
         return FILE_ERROR;
       },
     });
-    render(<NewCasePanel />);
+    render(<NewCasePanel canWrite />);
 
     await selectEvidence('bueno.pdf', 'malo.pdf');
     await submitCase();
@@ -532,7 +532,7 @@ describe('NewCasePanel · subida de evidencias', () => {
 
   it('2.6 error de creación conserva el formulario y los archivos seleccionados', async () => {
     const calls = stubApp({ create: () => SERVER_ERROR });
-    render(<NewCasePanel />);
+    render(<NewCasePanel canWrite />);
 
     await userEvent.type(screen.getByLabelText(/matrícula o identificador/i), '202312345');
     await selectEvidence('convocatoria.pdf');
@@ -556,7 +556,7 @@ describe('NewCasePanel · subida de evidencias', () => {
 describe('NewCasePanel · notas de Back Office y HelpDesk', () => {
   it('2.7 guarda las notas de ambas áreas asociadas al caso nuevo', async () => {
     const calls = stubApp();
-    render(<NewCasePanel />);
+    render(<NewCasePanel canWrite />);
 
     await selectEvidence('convocatoria.pdf');
     await fillNote('BACK_OFFICE', 'Se aceptó la cancelación en ventanilla');
@@ -585,7 +585,7 @@ describe('NewCasePanel · notas de Back Office y HelpDesk', () => {
 
   it('2.8 notas vacías no bloquean el alta ni generan peticiones de comentarios', async () => {
     const calls = stubApp();
-    render(<NewCasePanel />);
+    render(<NewCasePanel canWrite />);
 
     await selectEvidence('convocatoria.pdf');
     // Escribir y borrar deja la nota en blanco: es el caso "sin nota".
@@ -608,7 +608,7 @@ describe('NewCasePanel · notas de Back Office y HelpDesk', () => {
         return noteAttempts === 1 ? SERVER_ERROR : { status: 201, body: { comment: commentDto('case-1', 'BACK_OFFICE', 'nota') } };
       },
     });
-    render(<NewCasePanel />);
+    render(<NewCasePanel canWrite />);
 
     await selectEvidence('convocatoria.pdf');
     await fillNote('BACK_OFFICE', 'intento de contacto');
@@ -647,7 +647,7 @@ describe('NewCasePanel · notas de Back Office y HelpDesk', () => {
       },
       comment: () => SERVER_ERROR,
     });
-    render(<NewCasePanel />);
+    render(<NewCasePanel canWrite />);
 
     const input = screen.getByLabelText(/archivos de evidencia/i, { selector: 'input[type="file"]' });
     await userEvent.upload(input, new File(['AAAA'], 'igual.pdf', { type: 'application/pdf' }));
@@ -671,7 +671,7 @@ describe('NewCasePanel · notas de Back Office y HelpDesk', () => {
   // notas" reenvía el mismo texto y el alta entra en bucle.
   it('2.10 el contador refleja el límite del servidor sin recortar en silencio', async () => {
     stubApp();
-    render(<NewCasePanel />);
+    render(<NewCasePanel canWrite />);
 
     await selectEvidence('convocatoria.pdf');
     const box = screen.getByLabelText('Back Office') as HTMLTextAreaElement;
@@ -689,7 +689,7 @@ describe('NewCasePanel · notas de Back Office y HelpDesk', () => {
 
   it('2.10b si el texto excede el límite el alta se bloquea y avisa', async () => {
     const calls = stubApp();
-    render(<NewCasePanel />);
+    render(<NewCasePanel canWrite />);
 
     await selectEvidence('convocatoria.pdf');
     const box = screen.getByLabelText('Back Office');
@@ -709,7 +709,7 @@ describe('NewCasePanel · notas de Back Office y HelpDesk', () => {
     stubApp({
       comment: () => SERVER_ERROR,
     });
-    render(<NewCasePanel />);
+    render(<NewCasePanel canWrite />);
 
     await selectEvidence('convocatoria.pdf');
     await fillNote('BACK_OFFICE', 'nota');
@@ -728,7 +728,7 @@ describe('NewCasePanel · notas de Back Office y HelpDesk', () => {
 
   it('2.7b solo se guarda la nota cuyo texto no está en blanco', async () => {
     const calls = stubApp();
-    render(<NewCasePanel />);
+    render(<NewCasePanel canWrite />);
 
     await selectEvidence('convocatoria.pdf');
     await fillNote('HELPDESK', 'solo helpdesk escribió algo');
@@ -750,7 +750,7 @@ describe('NewCasePanel · notas de Back Office y HelpDesk', () => {
 describe('NewCasePanel · accesibilidad del formulario', () => {
   it('asocia una etiqueta a cada control y anuncia el progreso', async () => {
     stubApp();
-    render(<NewCasePanel />);
+    render(<NewCasePanel canWrite />);
 
     // Cada control tiene su etiqueta y su descripción.
     const identifier = screen.getByLabelText(/matrícula o identificador/i);
@@ -770,7 +770,7 @@ describe('NewCasePanel · accesibilidad del formulario', () => {
 
   it('el botón de alta es alcanzable y operable por teclado', async () => {
     const calls = stubApp();
-    render(<NewCasePanel />);
+    render(<NewCasePanel canWrite />);
 
     await selectEvidence('convocatoria.pdf');
     const submit = screen.getByRole('button', { name: /crear y abrir expediente/i });
@@ -813,7 +813,7 @@ describe('NewCasePanel · selector prueba/real', () => {
 
   it('envía isTest=true cuando se elige la clasificación Prueba', async () => {
     const calls = stubApp();
-    render(<NewCasePanel />);
+    render(<NewCasePanel canWrite />);
 
     await userEvent.click(screen.getByRole('radio', { name: /prueba/i }));
     await selectEvidence('convocatoria.pdf');
@@ -827,7 +827,7 @@ describe('NewCasePanel · selector prueba/real', () => {
 
   it('envía isTest=false cuando se deja la clasificación Real por defecto', async () => {
     const calls = stubApp();
-    render(<NewCasePanel />);
+    render(<NewCasePanel canWrite />);
 
     // Sin tocar el selector, «Real» es la opción por defecto.
     expect((screen.getByRole('radio', { name: /^real$/i }) as HTMLInputElement).checked).toBe(true);

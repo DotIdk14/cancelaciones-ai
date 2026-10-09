@@ -17,7 +17,6 @@ import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ApiRequest, ApiResponse } from '../src/server/http';
 import { setTestEnv } from './helpers/env';
-import authHandler from '../api/auth/[action]';
 
 const VERIFIER_COOKIE = 'insforge_oauth_verifier';
 const ACCESS_COOKIE = 'insforge_access_token';

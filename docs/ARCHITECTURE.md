@@ -62,7 +62,7 @@ cancelaciones-ai/
 │   │   ├── dashboard-summary.ts # Resultados, acuerdo humano y resumen
 │   │   ├── dashboard-costs.ts   # Costos, tokens y latencia
 │   │   ├── dashboard-quality.ts # Confianza y comparación humana
-│   │   ├── dashboard-contracts.ts # Filas y límite compartidos
+│   │   ├── dashboard-contracts.ts # Filas y tamaño de página compartidos
 │   │   ├── dashboard.ts        # Barrel compatible para consumidores
 │   │   ├── dto.ts              # DTOs, deriveWorkflowState, deriveEffectiveResolution
 │   │   ├── audit-service.ts    # Orquestación durable de auditoría
@@ -256,7 +256,7 @@ La especificación detallada con estados y responsabilidades por archivo está e
 
 ## Persistencia y despliegue
 
-La base PostgreSQL contiene casos, evidencias, auditorías, memberships, revisiones (de dos etapas), comparaciones, comentarios por área y admisiones de cuota. Las migraciones son forward-only y versionadas bajo `migrations/`; la feature de roles añade `membership-role-manager`, `case-test-flag`, `case-review-coordinator-decision` y `dashboard-view-test-owner-scope` (detalle en [`DATABASE.md`](DATABASE.md)). Cada migración nueva trae sus comprobaciones en `scripts/migration-checks/<archivo>.checks.json`. El procedimiento normativo se compila desde `policy/` con `npm run policy:generate`. La configuración de producción y el estado aplicado no se pueden inferir de estos archivos: véase [`DEPLOYMENT.md`](DEPLOYMENT.md) y las limitaciones `NO VERIFICADO` del informe de auditoría.
+La base PostgreSQL contiene casos, evidencias, auditorías, memberships, revisiones (de dos etapas), comparaciones, comentarios por área y admisiones de cuota. Las migraciones son forward-only y versionadas bajo `migrations/`; la feature de roles añade `membership-role-manager`, `case-test-flag`, `case-review-coordinator-decision` y `dashboard-view-test-owner-scope` (detalle en [`DATABASE.md`](DATABASE.md)). Las comprobaciones SQL están embebidas como bloques `DO $verify$` en sus migraciones. El procedimiento normativo se compila desde `policy/` con `npm run policy:generate`. La configuración de producción y el estado aplicado no se pueden inferir de estos archivos: véase [`DEPLOYMENT.md`](DEPLOYMENT.md) y [`MIGRATION-RECONCILIATION.md`](MIGRATION-RECONCILIATION.md).
 
 ## Decisiones clave (ADRs)
 
@@ -326,7 +326,9 @@ Razón: las pruebas no deben inflar las métricas operativas, y filtrarlas en me
 - **Límites de evidencia**: `MAX_EVIDENCE_BYTES`, `MAX_EVIDENCE_COUNT`, `MAX_AUDIT_TEXT_CHARS`, `MAX_AUDIT_MULTIMODAL_BYTES` protegen presupuesto y latencia.
 - **Idempotencia**: fingerprint canónico evita re-auditar un expediente idéntico; un solo `RUNNING` por `(case_id, fingerprint)`.
 - **Dashboard**: las vistas `audit_dashboard_metrics` y `case_comparisons_dashboard_metrics` proyectan escalares para no traer jsonb completos al servidor.
-- **Consultas del dashboard**: `dashboard-queries.ts` aplica filtros de rol y exclusión de pruebas en SQL antes de contar o limitar filas; `dashboard-summary.ts`, `dashboard-costs.ts` y `dashboard-quality.ts` transforman las filas en métricas puras. `dashboard.ts` conserva un barrel para los consumidores existentes.
+- **Consultas del dashboard**: `dashboard-queries.ts` aplica filtros de rol y exclusión de pruebas en SQL y recorre todas las páginas PostgREST antes de agregar. El tamaño de página es 500; no hay un límite total silencioso. `dashboard-summary.ts`, `dashboard-costs.ts` y `dashboard-quality.ts` transforman los registros completos en métricas puras. `dashboard.ts` conserva un barrel para los consumidores existentes.
+- **Listado de casos**: `cases.ts` recorre páginas estables de 100 filas, aplica el alcance del propietario en la consulta y carga revisiones, auditorías y huellas de evidencia por bloques para evitar N+1. La API todavía entrega el conjunto accesible completo en una respuesta; el listado de UI permite buscar en ese conjunto, pero no ofrece carga incremental por cursor.
+- **Vigencia**: las proyecciones del listado y del detalle comparan `evidence_fingerprint` con la huella actual de las evidencias y la fecha capturada por el equipo. Una auditoría obsoleta se conserva como historial, pero no se presenta como dictamen vigente.
 - **Expediente**: `CaseDetailPage` conserva la composición y presentación; `useCaseAuditWorkflow` concentra el POST de auditoría, la recuperación al abrir un caso y el polling acotado de transcripción y ejecución.
 - **Vercel Functions**: `maxDuration = 300` en handlers de auditoría/comparación para acomodar llamadas largas a OpenRouter.
 

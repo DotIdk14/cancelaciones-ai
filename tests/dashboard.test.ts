@@ -4,7 +4,7 @@ import { RESOLUTION_GROUPS } from '../src/lib/labels';
 import type { DashboardFilters } from '../src/lib/dashboard';
 import {
   COST_PER_ROW,
-  DASHBOARD_MAX_ROWS,
+  DASHBOARD_PAGE_SIZE,
   aggregateAiCosts,
   aggregateHumanReview,
   aggregateQuality,
@@ -401,11 +401,11 @@ describe('aggregateSummary — series fijas y tabla de recientes', () => {
   });
 });
 
-describe('aggregateSummary — truncado y metadatos', () => {
-  it('truncated se activa solo si hay más filas disponibles que el tope', () => {
+describe('aggregateSummary — completitud y metadatos', () => {
+  it('no marca truncado cuando las filas ya fueron agregadas sin recorte', () => {
     const rows = [row()];
-    expect(summarize(rows, DASHBOARD_MAX_ROWS).truncated).toBe(false);
-    expect(summarize(rows, DASHBOARD_MAX_ROWS + 1).truncated).toBe(true);
+    expect(summarize(rows, DASHBOARD_PAGE_SIZE).truncated).toBe(false);
+    expect(summarize(rows, DASHBOARD_PAGE_SIZE + 1).truncated).toBe(false);
   });
 
   it('devuelve los filtros aplicados y un generatedAt ISO', () => {
@@ -989,11 +989,11 @@ describe('aggregateAiCosts — fiabilidad', () => {
   });
 });
 
-describe('aggregateAiCosts — truncado y metadatos', () => {
-  it('truncated se activa solo si hay más filas disponibles que el tope', () => {
+describe('aggregateAiCosts — completitud y metadatos', () => {
+  it('no marca truncado cuando las filas ya fueron agregadas sin recorte', () => {
     const rows = [completada({ usage_cost_usd: 0.01, attempts_cost_usd: 0.01 })];
-    expect(costs(rows, 'day', DASHBOARD_MAX_ROWS).truncated).toBe(false);
-    expect(costs(rows, 'day', DASHBOARD_MAX_ROWS + 1).truncated).toBe(true);
+    expect(costs(rows, 'day', DASHBOARD_PAGE_SIZE).truncated).toBe(false);
+    expect(costs(rows, 'day', DASHBOARD_PAGE_SIZE + 1).truncated).toBe(false);
   });
 
   it('devuelve los filtros, la granularidad y un generatedAt ISO', () => {
@@ -1533,20 +1533,20 @@ describe('aggregateQuality — la parte humana viaja dentro del informe', () => 
   });
 });
 
-describe('aggregateQuality — truncado y metadatos', () => {
-  it('truncated avisa si la fuente recortada es la de auditorías o la de comparaciones', () => {
+describe('aggregateQuality — completitud y metadatos', () => {
+  it('no marca truncado para auditorías o comparaciones cargadas completas', () => {
     const rows = [conConfianza(0.9, 0)];
 
-    expect(quality(rows, DASHBOARD_MAX_ROWS).truncated).toBe(false);
-    expect(quality(rows, DASHBOARD_MAX_ROWS + 1).truncated).toBe(true);
+    expect(quality(rows, DASHBOARD_PAGE_SIZE).truncated).toBe(false);
+    expect(quality(rows, DASHBOARD_PAGE_SIZE + 1).truncated).toBe(false);
     // La parte humana tiene su propio tope: si se recortó ÉSTA, la tarjeta
     // tiene que decirlo, porque su tasa se calculó sobre menos comparaciones.
     const truncada: HumanReviewInput = {
       reviewedCases: 3,
       comparisons: [comparacion()],
-      comparisonsAvailable: DASHBOARD_MAX_ROWS + 1,
+      comparisonsAvailable: DASHBOARD_PAGE_SIZE + 1,
     };
-    expect(quality(rows, 1, truncada).truncated).toBe(true);
+    expect(quality(rows, 1, truncada).truncated).toBe(false);
   });
 
   it('devuelve los filtros aplicados y un generatedAt ISO', () => {

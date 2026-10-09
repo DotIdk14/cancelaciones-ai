@@ -8,9 +8,10 @@ import {
   readJsonBody,
 } from '../../src/server/http.js';
 import { createServerClient } from '../../src/server/insforge.js';
-import { createCase, listCaseSummaries } from '../../src/server/cases.js';
+import { countCaseSummaryStatuses, createCase, listCaseSummaries, listCaseSummaryPage } from '../../src/server/cases.js';
 import { caseToSummary } from '../../src/server/dto.js';
 import { assertCaseWriteCapability } from '../../src/server/auth.js';
+import { CASE_STATUSES } from '../../src/skills/audit/types.js';
 
 // GET  /api/cases            → { cases: CaseSummary[] }
 // POST /api/cases { studentIdentifier?, isTest? } → 201 { case: CaseSummary }
@@ -35,9 +36,62 @@ const CreateCaseBodySchema = z
   })
   .strict();
 
+const CaseCursorSchema = z.object({
+  offset: z.number().int().min(0).max(10_000_000),
+  snapshot: z.string().datetime(),
+  limit: z.number().int().min(1).max(100),
+  status: z.enum(CASE_STATUSES).optional(),
+}).strict();
+
+function decodeCursor(value: string): z.infer<typeof CaseCursorSchema> {
+  try {
+    const parsed = CaseCursorSchema.safeParse(JSON.parse(Buffer.from(value, 'base64url').toString('utf8')));
+    if (parsed.success) return parsed.data;
+  } catch { /* cursor inválido */ }
+  throw new ApiError(400, 'VALIDATION_ERROR', 'Cursor de paginación inválido');
+}
+
 export default handleRoute(async (req, res) => {
   if (req.method === 'GET') {
     const client = createServerClient();
+    const rawLimit = req.query.limit;
+    if (rawLimit !== undefined) {
+      const parsedLimit = z.coerce.number().int().min(1).max(100).safeParse(rawLimit);
+      if (!parsedLimit.success || Array.isArray(rawLimit)) {
+        throw new ApiError(400, 'VALIDATION_ERROR', 'limit debe ser un entero entre 1 y 100');
+      }
+      if (req.query.cursor !== undefined && typeof req.query.cursor !== 'string') {
+        throw new ApiError(400, 'VALIDATION_ERROR', 'cursor debe ser una cadena');
+      }
+      if (req.query.status !== undefined && typeof req.query.status !== 'string') {
+        throw new ApiError(400, 'VALIDATION_ERROR', 'status debe ser una cadena');
+      }
+      const cursor = typeof req.query.cursor === 'string' ? decodeCursor(req.query.cursor) : null;
+      const rawStatus = typeof req.query.status === 'string' ? req.query.status : undefined;
+      const statusParsed = rawStatus === undefined ? undefined : z.enum(CASE_STATUSES).safeParse(rawStatus);
+      if (statusParsed && !statusParsed.success) throw new ApiError(400, 'VALIDATION_ERROR', 'status no es válido');
+      if (cursor && (cursor.limit !== parsedLimit.data || cursor.status !== statusParsed?.data)) {
+        throw new ApiError(400, 'VALIDATION_ERROR', 'El cursor no corresponde a los filtros solicitados');
+      }
+      const limit = cursor?.limit ?? parsedLimit.data;
+      const snapshot = cursor?.snapshot ?? new Date().toISOString();
+      const status = cursor?.status ?? statusParsed?.data;
+      const offset = cursor?.offset ?? 0;
+      const rows = await listCaseSummaryPage(client, req.auth!, {
+        offset,
+        limit: limit + 1,
+        snapshot,
+        ...(status ? { status } : {}),
+      });
+      const hasMore = rows.length > limit;
+      const cases = rows.slice(0, limit);
+      const nextCursor = hasMore
+        ? Buffer.from(JSON.stringify({ offset: offset + limit, snapshot, limit, ...(status ? { status } : {}) })).toString('base64url')
+        : null;
+      const statusCounts = cursor ? undefined : await countCaseSummaryStatuses(client, req.auth!);
+      ok(res, { cases: cases.map(caseToSummary), nextCursor, statusCounts });
+      return;
+    }
     const rows = await listCaseSummaries(client, req.auth!);
     ok(res, { cases: rows.map(caseToSummary) });
     return;

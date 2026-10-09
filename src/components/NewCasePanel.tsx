@@ -1,7 +1,7 @@
 // =============================================================================
 // Panel de alta de caso. Solo UI: la creación real vive en el backend.
 //
-// ORDEN DEL ALTA (plan 2026-10-08, Fase 3, Paso 3.4)
+// ORDEN DEL ALTA
 //   seleccionar archivos -> `createCase` -> `uploadEvidence` por archivo ->
 //   guardar notas de Back Office / HelpDesk -> navegar, SI Y SOLO SI al menos
 //   una evidencia subió con éxito.
@@ -59,10 +59,11 @@ type NoteArea = (typeof NOTE_AREAS)[number];
  */
 const MAX_NOTE_LENGTH = 4000;
 
-export function NewCasePanel({ role = null }: { role?: AppRole | null }): ReactNode {
+export function NewCasePanel({ role = null, canWrite = false }: { role?: AppRole | null; canWrite?: boolean }): ReactNode {
   // El Gerente es solo lectura: no crea casos, NI siquiera en la vista previa
   // local. El servidor lo rechaza igual (403); esto es presentación.
-  if (role === 'manager') return <NewCaseReadOnly />;
+  if (!canWrite && !isLocalDashboardPreview()) return <NewCaseReadOnly />;
+  if (!canWrite && role === 'manager') return <NewCaseReadOnly />;
   if (isLocalDashboardPreview()) return <NewCasePreview />;
   return <NewCaseForm />;
 }

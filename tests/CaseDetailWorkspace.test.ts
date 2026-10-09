@@ -151,6 +151,7 @@ async function renderDetail(detail: CaseDetailResponse): Promise<void> {
 }
 
 async function renderDetailAs(detail: CaseDetailResponse, role: AppRole | null): Promise<void> {
+  detail.case.canWrite = role === 'user' || role === 'coordinator';
   getCase.mockResolvedValue(detail);
   render(createElement(CaseDetailPage, { caseId: 'case-1', role }));
   await waitFor(() => {

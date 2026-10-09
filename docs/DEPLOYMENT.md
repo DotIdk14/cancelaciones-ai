@@ -39,48 +39,44 @@ Todas las variables son **server-side**. No debe existir ninguna variable con pr
 
 > *`APP_URL` tiene default a `https://${VERCEL_URL}` o `http://localhost:5173`. Si `APP_URL` no está configurada **y** Vercel no inyecta `VERCEL_URL` (p. ej. un entorno custom), el chequeo de `Origin` en mutaciones fallará con 403.
 
-## Orden de aplicación de migraciones
+## Estado y aplicación de migraciones
 
-**MANUAL**. Aplicar en orden según el entorno:
+**No ejecutes migraciones en producción desde este repositorio hasta cerrar la
+conciliación documentada en [`MIGRATION-RECONCILIATION.md`](MIGRATION-RECONCILIATION.md).**
+El historial remoto solo llega a `20261003010000`, aunque el esquema ya contiene
+los efectos de ocho archivos locales posteriores. Algunos de esos archivos
+reemplazan vistas intermedias y no se pueden reproducir directamente sobre la
+vista final. El baseline limpio también está incompleto respecto a la
+aplicación actual.
 
-### Instalación limpia (base vacía)
+El procedimiento oficial de InsForge (`db migrations list/fetch/new/up`) no
+incluye un comando para adoptar una migración sin ejecutarla ni para marcar un
+baseline existente. No uses un ejecutor de `db query` por sentencia: produciría
+SQL aplicado sin registro. La conciliación requiere staging aislado, respaldo
+restaurable, comprobación de la vía que InsForge soporte y aprobación explícita
+del SQL exacto antes de cualquier escritura de producción.
 
-```bash
-insforge db migrations up --all
-```
+La migración de índices
+`migrations/20261009100000_case-list-pagination-indexes.sql` está preparada,
+pero no aplicada ni verificada en producción. Ensáyala primero en staging.
 
-Esto aplica:
-1. `00000000000000_baseline.sql`
-2. `20260929040000_audit-dashboard-metrics.sql`
-3. `20260930010000_human-resolution.sql`
-4. `20260930020000_human-review-dashboard-metrics.sql`
-5. `20260930120000_case-metadata-and-human-reviews.sql`
-6. `20261001010000_case-reviewer-name.sql`
-7. `20261002000000_auth_core.sql`
-8. `20261003000000_paid-admissions.sql`
-9. `20261003010000_derived-extractions.sql`
-10. `20261005010000_case-area-comments.sql`
-11. `20261005120000_origin-country-channel.sql`
-12. `20261008090000_case-cycle-start-date-human.sql`
-13. `20261008100000_membership-role-manager.sql`
-14. `20261008110000_case-test-flag.sql`
-15. `20261008120000_case-review-coordinator-decision.sql`
-16. `20261008130000_dashboard-view-test-owner-scope.sql`
+## Protección requerida para `main`
 
-### Base de producción con esquema legacy
+La API de GitHub respondió `404 Branch not protected` para `main` el 9 de octubre
+de 2026. Para exigir revisión y el check de CI:
 
-```bash
-# El baseline abortaría; no usarlo.
-insforge db migrations up --all
-```
-
-Esto aplica:
-1. `20260928010000_ai-native-production.sql` (renombra `audits` legacy a `legacy_audits`)
-2. Las migraciones 2-16 de la lista anterior.
-
-> Las migraciones 13-16 son las de la feature de revisión humana por roles y traen un `DO $verify$` que aborta si el esquema no queda como se describe. Aplicarlas una por una con `node scripts/apply-migration.mjs <archivo>` ejecuta además las comprobaciones de `scripts/migration-checks/<archivo>.checks.json`.
-
-Verifica que ninguna migración termine con `RAISE EXCEPTION`.
+1. Abre **Settings → Rules → Rulesets → New branch ruleset** en el repositorio.
+2. Nombra el ruleset, selecciona **Enforcement status: Active** y agrega el
+   patrón `main` en **Target branches**.
+3. Activa **Require a pull request before merging** y pide al menos una
+   aprobación.
+4. Activa **Require status checks to pass** y selecciona exactamente el check
+   `validate` (workflow **CI**). Activa **Require branches to be up to date
+   before merging**.
+5. Activa **Block force pushes** y **Restrict deletions**. No configures bypass
+   para administradores si la política debe aplicar también al owner.
+6. Guarda el ruleset y vuelve a consultar la protección de `main`; confirma que
+   el check obligatorio sea `validate` y que no haya bypass inesperado.
 
 ## Provisión de `app_memberships`
 

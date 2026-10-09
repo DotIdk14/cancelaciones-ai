@@ -15,7 +15,7 @@ import { LoginScreen } from './components/LoginScreen';
 import { NewCasePanel } from './components/NewCasePanel';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Panel, Spinner } from './components/ui';
-import type { AppRole, WorkflowState } from './lib/api';
+import type { AppRole, SessionSnapshot, WorkflowState } from './lib/api';
 import { cx } from './lib/cx';
 import { WORKFLOW_STATE_LABELS } from './lib/labels';
 import { isLocalDashboardPreview } from './lib/local-dashboard-preview';
@@ -76,15 +76,17 @@ function CurrentRoute({
   previewOnly,
   role,
   previewWorkflow,
+  capabilities,
 }: {
   route: AppRoute;
   previewOnly: boolean;
   role: AppRole | null;
   previewWorkflow: WorkflowState;
+  capabilities: SessionSnapshot['capabilities'];
 }): ReactNode {
   return (
     <Suspense fallback={<DashboardFallback />}>
-      {renderRoute(route, previewOnly, role, previewWorkflow)}
+      {renderRoute(route, previewOnly, role, previewWorkflow, capabilities)}
     </Suspense>
   );
 }
@@ -94,13 +96,14 @@ function renderRoute(
   previewOnly: boolean,
   role: AppRole | null,
   previewWorkflow: WorkflowState,
+  capabilities: SessionSnapshot['capabilities'],
 ): ReactNode {
   switch (route.name) {
     case 'case':
       return previewOnly ? (
         <CaseDetailPreview caseId={route.caseId} role={role} workflowState={previewWorkflow} />
       ) : (
-        <CaseDetailPage caseId={route.caseId} role={role} />
+        <CaseDetailPage caseId={route.caseId} role={role} capabilities={capabilities} />
       );
     case 'cases':
       return <CaseListPage />;
@@ -109,7 +112,7 @@ function renderRoute(
     // componían antes en `CaseListPage`; aquí solo se usa el panel que la
     // etiqueta del enlace promete.
     case 'new-case':
-      return <NewCasePanel role={role} />;
+      return <NewCasePanel role={role} canWrite={capabilities.canWriteOwnedCases} />;
     case 'quality':
       return <QualityPage />;
     case 'ai-costs':
@@ -124,11 +127,13 @@ function Shell({
   previewOnly = false,
   role = null,
   previewWorkflow = 'PENDING_COORDINATOR',
+  capabilities = { canReadAllCases: false, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false },
 }: {
   onSignOut?: () => void;
   previewOnly?: boolean;
   role?: AppRole | null;
   previewWorkflow?: WorkflowState;
+  capabilities?: SessionSnapshot['capabilities'];
 }): ReactNode {
   const route = useHashRoute();
   const displayRoute = route;
@@ -158,7 +163,7 @@ function Shell({
       >
         Saltar al contenido
       </a>
-      <AppHeader onSignOut={onSignOut} previewOnly={previewOnly} role={role} />
+      <AppHeader onSignOut={onSignOut} previewOnly={previewOnly} role={role} canCreate={capabilities.canWriteOwnedCases} />
       {previewOnly && (
         <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 border-b border-warning/30 bg-surface-2 px-4 py-2 text-center text-sm text-warning">
           <span role="status">Vista previa local: datos ficticios, sin conexión a InsForge.</span>
@@ -180,6 +185,7 @@ function Shell({
             previewOnly={previewOnly}
             role={role}
             previewWorkflow={previewWorkflow}
+            capabilities={capabilities}
           />
         </main>
       </div>
@@ -292,11 +298,11 @@ function AuthLoadingScreen(): ReactNode {
 }
 
 function AuthenticatedApp(): ReactNode {
-  const { status, signOut, sessionExpired, authError, role } = useSession();
+  const { status, signOut, sessionExpired, authError, role, capabilities } = useSession();
 
   if (status === 'loading') return <AuthLoadingScreen />;
   if (status === 'anon') return <LoginScreen authError={authError} sessionExpired={sessionExpired} />;
-  return <Shell onSignOut={signOut} role={role} />;
+  return <Shell onSignOut={() => { void signOut(); }} role={role} capabilities={capabilities} />;
 }
 
 export function App(): ReactNode {
