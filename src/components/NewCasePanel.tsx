@@ -31,7 +31,7 @@ import { createCase, saveAreaComment, toErrorState, type AppRole, type AreaComme
 import { isLocalDashboardPreview } from '../lib/local-dashboard-preview';
 import { getLocalPreviewCases, localPreviewCaseLabel } from '../lib/local-ui-preview';
 import { goToCase } from '../lib/useHashRoute';
-import { useEvidenceUpload, uploadItemKey } from '../lib/useEvidenceUpload';
+import { useEvidenceUpload } from '../lib/useEvidenceUpload';
 import { AREA_COMMENT_LABELS, CASE_KIND_LABELS, CASE_STATUS_LABELS, CASE_STATUS_TONE, EVIDENCE_ACCEPT } from '../lib/labels';
 import { formatBytes, formatDateTime } from '../lib/format';
 import { Badge, Button, ErrorCard, Panel } from './ui';
@@ -94,8 +94,6 @@ function NewCaseReadOnly(): ReactNode {
 interface EvidenceEntry {
   /** Identidad de la fila, estable entre renders. Es lo que se quita. */
   key: string;
-  /** Identidad del ARCHIVO: dos filas del mismo archivo comparten `fileKey`. */
-  fileKey: string;
   file: File;
   status: 'pending' | 'uploading' | 'error';
   message?: string;
@@ -112,13 +110,8 @@ interface EvidenceRow {
   category?: string;
 }
 
-/** Identidad del archivo, no de la fila: permite reconciliar un reintento. */
-function entryKeyFor(file: File): string {
-  return uploadItemKey(file.name, file.size);
-}
-
 function newEntry(file: File, key: string): EvidenceEntry {
-  return { key, fileKey: entryKeyFor(file), file, status: 'pending' };
+  return { key, file, status: 'pending' };
 }
 
 function entryToRow(entry: EvidenceEntry): EvidenceRow {
@@ -193,7 +186,8 @@ function NewCaseForm(): ReactNode {
   // Nunca intentados: es lo que envía el alta. Los fallidos tienen su propia
   // acción ("Reintentar carga") para que un archivo nuevo no arrastre en el
   // mismo lote la reintención de los anteriores.
-  const freshFiles = entries.filter((entry) => entry.status === 'pending').map((entry) => entry.file);
+  const freshEntries = entries.filter((entry) => entry.status === 'pending');
+  const freshFiles = freshEntries.map((entry) => entry.file);
   // Ya intentados y fallidos: solo reintentables, nunca automáticos.
   const failedEntries = entries.filter((entry) => entry.status === 'error');
   // Sin evidencia pendiente no hay alta: la exigencia vive aquí, en la interfaz.
@@ -285,7 +279,7 @@ function NewCaseForm(): ReactNode {
    * jamás vuelve a enviar los ya exitosos (riesgo 2 del plan). Los fallidos se
    * quedan en `entries` con su error para que sigan visibles y reintentables.
    */
-  async function uploadAndFinish(batch: File[]): Promise<void> {
+  async function uploadAndFinish(batch: EvidenceEntry[]): Promise<void> {
     // Antes de `ensureCase`: crear el caso y descubrir después que no hay nada
     // que subir dejaría una fila huérfana sin evidencia.
     if (batch.length === 0) return;
@@ -294,24 +288,24 @@ function NewCaseForm(): ReactNode {
 
     // Marca el lote como "subiendo" antes de tocar la red: la lista no puede
     // ofrecer enviar de nuevo mientras la petición está en vuelo.
-    const batchKeys = new Set(batch.map((file) => entryKeyFor(file)));
+    const batchKeys = new Set(batch.map((entry) => entry.key));
     setEntries((current) =>
       current.map((entry) =>
-        batchKeys.has(entry.fileKey) ? { ...entry, status: 'uploading' } : entry,
+        batchKeys.has(entry.key) ? { ...entry, status: 'uploading' } : entry,
       ),
     );
 
-    const outcome = await runUploads(targetCaseId, batch);
+    const outcome = await runUploads(targetCaseId, batch.map((entry) => entry.file));
 
     // Los exitosos salen de la lista; los fallidos permanecen con su error.
     // `outcome.failed` es la fuente exacta: leer `items` aquí daría el render
     // anterior y dejaría fuera archivos que acaban de subir.
-    const failedByKey = new Map(outcome.failed.map((failure) => [entryKeyFor(failure.file), failure]));
+    const failedByFile = new Map(outcome.failed.map((failure) => [failure.file, failure]));
     setEntries((current) =>
       current.flatMap((entry) => {
         // Fuera del lote (p. ej. añadido mientras subía): se queda como estaba.
-        if (!batchKeys.has(entry.fileKey)) return [entry];
-        const failure = failedByKey.get(entry.fileKey);
+        if (!batchKeys.has(entry.key)) return [entry];
+        const failure = failedByFile.get(entry.file);
         // Subió con éxito: sale de la lista. Jamás se vuelve a enviar.
         if (failure === undefined) return [];
         // Falló: sigue visible con su error y es reintentable.
@@ -333,13 +327,13 @@ function NewCaseForm(): ReactNode {
   async function handleCreate(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     if (!canSubmit) return;
-    await uploadAndFinish(freshFiles);
+    await uploadAndFinish(freshEntries);
   }
 
   async function handleRetryUploads(): Promise<void> {
     if (failedEntries.length === 0 || busy) return;
     // Reintenta SOLO lo fallido: nunca toca un archivo que ya subió.
-    await uploadAndFinish(failedEntries.map((entry) => entry.file));
+    await uploadAndFinish(failedEntries);
   }
 
   async function handleRetryNotes(): Promise<void> {
