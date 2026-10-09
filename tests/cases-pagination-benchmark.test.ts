@@ -52,13 +52,19 @@ describe('benchmark sintético del listado incremental', () => {
       const heapStart = process.memoryUsage().heapUsed;
       const started = performance.now();
       let bytes = 0;
+      let peakHeapDeltaBytes = 0;
       let count = 0;
+      const retained: ReturnType<typeof caseToSummary>[] = [];
       for (let offset = 0; offset < size; offset += 50) {
         const page = await listCaseSummaryPage(client, auth, { offset, limit: Math.min(50, size - offset), snapshot });
         count += page.length;
-        bytes += Buffer.byteLength(JSON.stringify(page.map(caseToSummary)));
+        const summaries = page.map(caseToSummary);
+        retained.push(...summaries);
+        bytes += Buffer.byteLength(JSON.stringify(summaries));
+        peakHeapDeltaBytes = Math.max(peakHeapDeltaBytes, process.memoryUsage().heapUsed - heapStart);
       }
-      report.push({ rows: count, elapsedMs: Math.round(performance.now() - started), heapDeltaBytes: process.memoryUsage().heapUsed - heapStart, responseBytes: bytes });
+      report.push({ rows: count, elapsedMs: Math.round(performance.now() - started), peakHeapDeltaBytes, responseBytes: bytes });
+      void retained;
     }
     console.info('[synthetic-pagination-benchmark]', JSON.stringify(report));
   });
