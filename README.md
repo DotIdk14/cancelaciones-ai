@@ -136,7 +136,7 @@ src/
 policy/                    Procedimiento GDM_GAM_PRD_MLG_003 v5 (FUENTE NORMATIVA)
   manifest.json            26 secciones + SHA-256 del PDF fuente
   sections/*.md            secciones indexadas (26)
-migrations/                baseline + 11 migraciones incrementales (orden por nombre).
+migrations/                baseline + 16 migraciones incrementales (orden por nombre).
                            Cada una trae sus comprobaciones en
                            scripts/migration-checks/<archivo>.checks.json
 scripts/                   generate-policy.mjs, dev-api.mjs,
@@ -793,10 +793,18 @@ APP_URL=https://<tu-dominio>
    20260929040000_audit-dashboard-metrics.sql
    20260930010000_human-resolution.sql
    20260930020000_human-review-dashboard-metrics.sql
+   20260930120000_case-metadata-and-human-reviews.sql
    20261001010000_case-reviewer-name.sql
    20261002000000_auth_core.sql
-   20261003000000_paid_admissions.sql
-   20261003010000_derived_extractions.sql
+   20261003000000_paid-admissions.sql
+   20261003010000_derived-extractions.sql
+   20261005010000_case-area-comments.sql
+   20261005120000_origin-country-channel.sql
+   20261008090000_case-cycle-start-date-human.sql
+   20261008100000_membership-role-manager.sql
+   20261008110000_case-test-flag.sql
+   20261008120000_case-review-coordinator-decision.sql
+   20261008130000_dashboard-view-test-owner-scope.sql
    ```
 
    `20260930020000_…` **requiere** que `20260930010000_human-resolution.sql` esté

@@ -14,6 +14,22 @@ import type { ComparisonOutcomePayload } from '../skills/review/schema';
 /** De dónde sale la resolución que gobierna el caso. */
 export type ResolutionSource = 'HUMAN' | 'AI';
 
+/**
+ * Decisión final del Coordinador sobre la resolución del Asesor.
+ *
+ * Duplica el vocabulario cerrado del servidor (`COORDINATOR_DECISIONS`): el
+ * cliente no importa de `src/skills/review` porque ese módulo arrastra el
+ * servidor. `APPROVE` conserva la resolución del Asesor; `CHANGE` la sustituye.
+ */
+export type CoordinatorDecision = 'APPROVE' | 'CHANGE';
+
+/**
+ * Estado DERIVADO del flujo humano de dos etapas. No es una columna ni
+ * `cases.status`: sin revisión falta el Asesor; con revisión sin decisión del
+ * Coordinador falta la finalización; con decisión, el caso está finalizado.
+ */
+export type WorkflowState = 'PENDING_ADVISOR' | 'PENDING_COORDINATOR' | 'FINALIZED';
+
 export interface CaseSummary {
   id: string;
   status: CaseStatus;
@@ -30,6 +46,14 @@ export interface CaseSummary {
    * para el listado: no hay resolución que mostrar.
    */
   effectiveResolution?: EffectiveResolution | null;
+  /**
+   * Clasificación del caso: `true` = prueba, `false` = real.
+   *
+   * OPCIONAL como `effectiveResolution`: un servidor que todavía no la envíe debe
+   * dejar la fila como estaba y la UI no dibuja etiqueta de prueba. El servidor
+   * actual siempre la emite.
+   */
+  isTest?: boolean;
 }
 
 export interface CaseDetail {
@@ -49,6 +73,8 @@ export interface CaseDetail {
   cycleStartDate?: string | null;
   cycleStartDateByName?: string | null;
   cycleStartDateAt?: string | null;
+  /** Clasificación del caso: `true` = prueba, `false` = real. */
+  isTest?: boolean;
 }
 
 export interface Evidence {
@@ -145,10 +171,24 @@ export interface CaseReviewDto {
   caseId: string;
   /** Auditoría cuyo dictamen se compara. Inmutable: la revisión no apunta a "la última". */
   auditId: string;
+  /** Resolución del ASESOR. No se sobrescribe con la decisión del Coordinador. */
   result: AuditResultType;
+  /**
+   * Atribución DERIVADA por el servidor (correo de la sesión). El cliente nunca
+   * la envía: un `reviewerName` del navegador se rechaza en el schema estricto.
+   */
   reviewerName: string | null;
   comment: string;
   createdAt: string;
+  /**
+   * Bloque del Coordinador. Opcionales a propósito (mismo criterio que el resto
+   * del contrato): un servidor que todavía no los emita deja la fila como estaba
+   * y la UI los lee igual que `null` (aún sin finalizar).
+   */
+  coordinatorDecision?: CoordinatorDecision | null;
+  coordinatorResolution?: string | null;
+  coordinatorCreatedAt?: string | null;
+  coordinatorComment?: string | null;
 }
 
 /** Estado TÉCNICO de la comparación; no es un veredicto. */
@@ -221,6 +261,8 @@ export interface CaseReviewResponse {
   review: CaseReviewDto | null;
   comparison: ComparisonDto | null;
   effectiveResolution: EffectiveResolution | null;
+  /** Estado derivado del flujo de dos etapas; opcional por compatibilidad. */
+  workflowState?: WorkflowState;
 }
 
 export interface CaseDetailResponse {
@@ -231,6 +273,8 @@ export interface CaseDetailResponse {
   review: CaseReviewDto | null;
   comparison: ComparisonDto | null;
   effectiveResolution: EffectiveResolution | null;
+  /** Estado derivado del flujo humano; opcional por compatibilidad. */
+  workflowState?: WorkflowState;
 }
 
 /** Respuesta de `POST /api/cases/:caseId/audit` cuando aún hay audio procesándose. */
@@ -413,13 +457,16 @@ export async function listCases(): Promise<CaseSummary[]> {
   return data.cases ?? [];
 }
 
-export async function createCase(studentIdentifier?: string): Promise<CaseSummary> {
+export async function createCase(studentIdentifier?: string, isTest = false): Promise<CaseSummary> {
   const data = await request<{ case: CaseSummary }>(
     '/api/cases',
     {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(studentIdentifier ? { studentIdentifier } : {}),
+      body: JSON.stringify({
+        ...(studentIdentifier ? { studentIdentifier } : {}),
+        isTest,
+      }),
     },
     [200, 201],
   );
@@ -436,6 +483,7 @@ export async function getCase(caseId: string): Promise<CaseDetailResponse> {
     review: data.review ?? null,
     comparison: data.comparison ?? null,
     effectiveResolution: data.effectiveResolution ?? null,
+    workflowState: data.workflowState,
   };
 }
 
@@ -584,36 +632,76 @@ export async function getCaseReview(caseId: string): Promise<CaseReviewResponse>
     review: data.review ?? null,
     comparison: data.comparison ?? null,
     effectiveResolution: data.effectiveResolution ?? null,
+    workflowState: data.workflowState,
   };
 }
 
 /**
- * Registra la revisión humana y arranca su comparación en la misma llamada.
+ * Estado del flujo humano, DERIVADO de la revisión cuando el servidor no lo
+ * manda explícito. Es la MISMA regla que `deriveWorkflowState` del servidor
+ * (módulo hoja, sin imports de servidor): sin fila falta el Asesor; con fila sin
+ * decisión del Coordinador falta la finalización; con decisión, finalizado.
+ */
+export function workflowStateOf(review: CaseReviewDto | null, provided?: WorkflowState | null): WorkflowState {
+  if (provided) return provided;
+  if (review === null) return 'PENDING_ADVISOR';
+  return review.coordinatorDecision == null ? 'PENDING_COORDINATOR' : 'FINALIZED';
+}
+
+/**
+ * Registra la revisión humana de la ETAPA DE ASESOR y arranca su comparación.
  *
- * El comentario se RECORTA antes de viajar porque es exactamente lo que valida
- * el servidor (`HumanReviewInputSchema` hace `.trim()`): mandarlo sin recortar
- * convertiría un comentario válido en uno de 2001 caracteres por los espacios.
+ * El cuerpo es `{ result, comment? }`. NO se envía `reviewerName`: el servidor
+ * deriva la atribución de la sesión y un `reviewerName` del cliente se rechaza
+ * como campo extra (`HumanReviewInputSchema` es `strict`).
  *
  * Lanza `ApiError` con `status` 400 (validación) o 409 (ya existe revisión).
  */
 export async function submitCaseReview(
   caseId: string,
-  input: { result: AuditResultType; reviewerName: string; comment: string },
-): Promise<{ review: CaseReviewDto; comparison: ComparisonDto }> {
-  const data = await request<{ review: CaseReviewDto; comparison: ComparisonDto }>(
+  input: { result: AuditResultType; comment: string },
+): Promise<{ review: CaseReviewDto; comparison: ComparisonDto; workflowState: WorkflowState | null }> {
+  const data = await request<{ review: CaseReviewDto; comparison: ComparisonDto; workflowState?: WorkflowState }>(
     casePath(caseId, '/review'),
     {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         result: input.result,
-        reviewerName: input.reviewerName.trim(),
         comment: input.comment.trim(),
       }),
     },
     [200, 201],
   );
-  return { review: data.review, comparison: data.comparison };
+  return { review: data.review, comparison: data.comparison, workflowState: data.workflowState ?? null };
+}
+
+/**
+ * Finaliza la ETAPA DE COORDINADOR sobre una revisión de Asesor.
+ *
+ * `APPROVE` conserva la resolución del Asesor y NO admite `resolution`.
+ * `CHANGE` exige una resolución distinta de la del Asesor. El actor y la hora
+ * los pone el servidor desde la sesión; ningún campo de atribución viaja.
+ */
+export async function finalizeCaseReview(
+  caseId: string,
+  input: { decision: CoordinatorDecision; resolution?: AuditResultType; comment?: string },
+): Promise<{ review: CaseReviewDto; workflowState: WorkflowState | null }> {
+  const body: Record<string, unknown> = {
+    decision: input.decision,
+    comment: (input.comment ?? '').trim(),
+  };
+  if (input.decision === 'CHANGE' && input.resolution) body.resolution = input.resolution;
+  const data = await request<{ review: CaseReviewDto; workflowState?: WorkflowState }>(
+    casePath(caseId, '/review'),
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+    [200],
+  );
+  return { review: data.review, workflowState: data.workflowState ?? null };
 }
 
 /**
@@ -637,6 +725,28 @@ export interface SessionUser {
   email: string;
 }
 
+/**
+ * Rol de aplicación que viaja en la sesión. Vocabulario cerrado y persistido en
+ * `app_memberships`: `user` se presenta como "Asesor". Duplicado del servidor a
+ * propósito (el cliente no importa de `src/server`, que arrastra el SDK de
+ * InsForge al bundle del navegador). Sigue siendo SOLO presentación: ningún
+ * guard de la UI reemplaza la autorización server-side.
+ */
+export type AppRole = 'user' | 'coordinator' | 'manager';
+
+const APP_ROLES: readonly AppRole[] = ['user', 'coordinator', 'manager'];
+
+/** Guard de vocabulario del cliente: comparte el vocabulario con el servidor. */
+export function isAppRole(value: unknown): value is AppRole {
+  return typeof value === 'string' && (APP_ROLES as readonly string[]).includes(value);
+}
+
+/** Snapshot de sesión que consume la SPA. `null` = sin sesión. */
+export interface SessionSnapshot {
+  /** Rol resuelto por el servidor; `null` si no resolvió o no se reconoce. */
+  role: AppRole | null;
+}
+
 export async function signOut(): Promise<void> {
   const res = await safeFetch('/api/auth/session', {
     method: 'DELETE',
@@ -648,11 +758,22 @@ export async function signOut(): Promise<void> {
   }
 }
 
-/** Refresco explícito. Devuelve true si la sesión sigue vigente. */
-export async function refreshSession(): Promise<boolean> {
+/**
+ * Refresco explícito. Devuelve el snapshot de sesión con el rol que resolvió el
+ * servidor, o `null` si no hay sesión. Un rol que el servidor no reconoce se
+ * degrada a `null` (no se cree una capacidad nueva desde el cliente).
+ */
+export async function refreshSession(): Promise<SessionSnapshot | null> {
   const res = await safeFetch('/api/auth/refresh', {
     method: 'POST',
     retryAuth: false,
   });
-  return res.status === 200;
+  if (res.status !== 200) return null;
+  try {
+    const data = (await res.json()) as { ok?: unknown; role?: unknown };
+    const role = isAppRole(data.role) ? data.role : null;
+    return { role };
+  } catch {
+    return { role: null };
+  }
 }

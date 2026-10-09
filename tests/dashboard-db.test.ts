@@ -20,9 +20,11 @@ import {
   DASHBOARD_MAX_ROWS,
   getAiCosts,
   getAiQuality,
+  getDashboardFilterOptions,
   getDashboardSummary,
   type DashboardMetricRow,
 } from '../src/server/dashboard';
+import { fakeAuthContext, FAKE_USER_SUB } from './helpers/auth';
 
 const BASE: DashboardFilters = { from: '2026-09-01', to: '2026-09-30', result: null, status: null };
 
@@ -168,7 +170,9 @@ describe('capa de datos del dashboard — consulta construida', () => {
   it('aplica result y status solo cuando vienen informedados', async () => {
     const sinFiltros = fakeClient({ rows: [metricRow()] });
     await getDashboardSummary(sinFiltros.client, BASE);
-    expect(sinFiltros.queries[0].eqs).toEqual([]);
+    // Sin filtros del usuario, el único predicado es la exclusión de pruebas, que
+    // SIEMPRE va (una prueba no es métrica operativa para ningún rol).
+    expect(sinFiltros.queries[0].eqs).toEqual([['is_test', false]]);
 
     const conFiltros = fakeClient({ rows: [metricRow()] });
     await getDashboardSummary(conFiltros.client, {
@@ -179,6 +183,7 @@ describe('capa de datos del dashboard — consulta construida', () => {
     expect(conFiltros.queries[0].eqs).toEqual([
       ['result', 'CANCELACION_VENTA'],
       ['case_status', 'COMPLETED'],
+      ['is_test', false],
     ]);
   });
 
@@ -276,14 +281,18 @@ describe('getAiCosts — el filtro `result` NO se aplica, a propósito', () => {
 
     const columnas = queries[0].eqs.map(([columna]) => columna);
     expect(columnas).not.toContain('result');
-    // `status` sí se respeta: ese criterio lo puso quien está mirando.
-    expect(queries[0].eqs).toEqual([]);
+    // `status` sí se respeta: ese criterio lo puso quien está mirando. La única
+    // igualdad incondicional es la exclusión de pruebas.
+    expect(queries[0].eqs).toEqual([['is_test', false]]);
   });
 
   it('sí respeta `status`', async () => {
     const { client, queries } = fakeClient({ rows: [metricRow()] });
     await getAiCosts(client, { ...BASE, status: 'COMPLETED' }, 'day');
-    expect(queries[0].eqs).toEqual([['case_status', 'COMPLETED']]);
+    expect(queries[0].eqs).toEqual([
+      ['case_status', 'COMPLETED'],
+      ['is_test', false],
+    ]);
   });
 
   it('cambia el agrupamiento según la granularidad pedida', async () => {
@@ -366,3 +375,133 @@ describe('agregación sobre datos reales de la vista', () => {
 // El tipo real se reexporta desde `insforge.ts`; esta línea evita que el import
 // quede sin usar si alguien reorganiza los imports.
 export type { InsForgeClient };
+
+// -----------------------------------------------------------------------------
+// Scope de dueño y exclusión de pruebas
+// -----------------------------------------------------------------------------
+
+describe('dashboard — scope de dueño y exclusión de pruebas, en SQL', () => {
+  it('un Asesor acota por created_by y excluye pruebas; Coordinador/Gerente leen global pero sin pruebas', async () => {
+    const asesor = fakeClient({ rows: [metricRow()] });
+    await getDashboardSummary(asesor.client, BASE, fakeAuthContext('user'));
+    expect(asesor.queries[0].eqs).toEqual([
+      ['created_by', FAKE_USER_SUB],
+      ['is_test', false],
+    ]);
+
+    for (const role of ['coordinator', 'manager'] as const) {
+      const global = fakeClient({ rows: [metricRow()] });
+      await getDashboardSummary(global.client, BASE, fakeAuthContext(role));
+      // La visibilidad global NO mete las pruebas en las métricas operativas.
+      expect(global.queries[0].eqs).toEqual([['is_test', false]]);
+    }
+  });
+
+  it('getAiCosts y getAiQuality aplican el mismo scope y exclusión', async () => {
+    const costs = fakeClient({ rows: [] });
+    await getAiCosts(costs.client, BASE, 'day', fakeAuthContext('user'));
+    expect(costs.queries[0].eqs).toEqual([
+      ['created_by', FAKE_USER_SUB],
+      ['is_test', false],
+    ]);
+
+    const quality = fakeClient({ rows: [] });
+    await getAiQuality(quality.client, BASE, fakeAuthContext('user'));
+    expect(quality.queries[0].eqs).toEqual([
+      ['created_by', FAKE_USER_SUB],
+      ['is_test', false],
+    ]);
+  });
+
+  it('getDashboardFilterOptions recibe el alcance y excluye pruebas', async () => {
+    const asesor = fakeClient({ rows: [] });
+    await getDashboardFilterOptions(asesor.client, fakeAuthContext('user'));
+    expect(asesor.queries[0].eqs).toEqual([
+      ['created_by', FAKE_USER_SUB],
+      ['is_test', false],
+    ]);
+
+    const gerente = fakeClient({ rows: [] });
+    await getDashboardFilterOptions(gerente.client, fakeAuthContext('manager'));
+    expect(gerente.queries[0].eqs).toEqual([['is_test', false]]);
+  });
+
+  it('el scope va en la MISMA consulta que el limit: con más filas que el tope no se subcuenta', async () => {
+    // Defecto que se corrige: antes el scope se aplicaba en memoria DESPUÉS del
+    // `limit`. Con 5000 filas ajenas (más recientes) y 3 propias (más antiguas),
+    // el recorte traía las 5000 ajenas, el filtro en memoria dejaba 0 y el Asesor
+    // veía un total subcontado. Aquí el fixture es un PostgREST en memoria que
+    // aplica de verdad `eq`/`gte`/`lte` y `limit`, así que la única forma de ver
+    // las 3 propias es que el scope viaje en la consulta.
+    const foreign: DashboardMetricRow[] = Array.from({ length: DASHBOARD_MAX_ROWS }, (_, i) =>
+      metricRow({
+        id: `foreign-${i}`,
+        case_id: `foreign-case-${i}`,
+        created_at: `2026-09-${String((i % 28) + 1).padStart(2, '0')}T12:00:00.000Z`,
+      }) as unknown as DashboardMetricRow,
+    );
+    const owned: DashboardMetricRow[] = [0, 1, 2].map((i) =>
+      metricRow({ id: `owned-${i}`, case_id: `owned-case-${i}` }) as unknown as DashboardMetricRow,
+    );
+    // Filas crudas con las columnas que la consulta filtra (`is_test`,
+    // `created_by`) — la vista las proyecta tras la migración.
+    const raw: Array<Record<string, unknown>> = [...foreign, ...owned].map((row, index) => ({
+      ...row,
+      is_test: false,
+      created_by: index < DASHBOARD_MAX_ROWS ? 'otro-usuario' : FAKE_USER_SUB,
+    }));
+
+    const summary = await getDashboardSummary(scopedClient(raw), BASE, fakeAuthContext('user'));
+
+    expect(summary.kpi.auditedCases).toBe(3);
+  });
+});
+
+/**
+ * PostgREST en memoria mínimo: aplica `eq`/`gte`/`lte` y `limit` de verdad, para
+ * poder observar el efecto de aplicar (o no) el scope ANTES del recorte.
+ */
+function scopedClient(rows: Array<Record<string, unknown>>): SdkClient {
+  function from(_table: string) {
+    const predicates: Array<[string, string, unknown]> = [];
+    let limitCount: number | null = null;
+    const query = {
+      select(): typeof query {
+        return query;
+      },
+      gte(column: string, value: unknown): typeof query {
+        predicates.push([column, 'gte', value]);
+        return query;
+      },
+      lte(column: string, value: unknown): typeof query {
+        predicates.push([column, 'lte', value]);
+        return query;
+      },
+      eq(column: string, value: unknown): typeof query {
+        predicates.push([column, 'eq', value]);
+        return query;
+      },
+      order(): typeof query {
+        return query;
+      },
+      limit(count: number): typeof query {
+        limitCount = count;
+        return query;
+      },
+      then(resolve: (value: unknown) => unknown): unknown {
+        const matching = rows.filter((row) =>
+          predicates.every(([column, op, value]) => {
+            const left = row[column];
+            if (op === 'eq') return left === value;
+            if (op === 'gte') return String(left) >= String(value);
+            return String(left) <= String(value);
+          }),
+        );
+        const data = limitCount === null ? matching : matching.slice(0, limitCount);
+        return Promise.resolve({ data, error: null, count: matching.length }).then(resolve);
+      },
+    };
+    return query;
+  }
+  return { database: { from } } as unknown as SdkClient;
+}

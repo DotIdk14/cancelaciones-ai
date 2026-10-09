@@ -1,0 +1,12 @@
+[
+  [
+    "cases.is_test existe como boolean NOT NULL",
+    "SELECT count(*)::int AS total FROM information_schema.columns WHERE table_schema='public' AND table_name='cases' AND column_name='is_test' AND data_type='boolean' AND is_nullable='NO'",
+    ["\"total\": 1"]
+  ],
+  [
+    "cases.is_test tiene DEFAULT false (los casos existentes y los creados sin marca son reales)",
+    "SELECT count(*)::int AS total FROM information_schema.columns WHERE table_schema='public' AND table_name='cases' AND column_name='is_test' AND column_default LIKE '%false%'",
+    ["\"total\": 1"]
+  ]
+]

@@ -25,7 +25,7 @@ import { runAudit } from '../src/server/audit-service';
 import { callOpenRouterAudit, OpenRouterAuditError } from '../src/server/openrouter';
 import type { OpenRouterAttemptDiagnostic } from '../src/server/openrouter';
 import type { AuditRow } from '../src/server/cases';
-import { fakeAuthContext } from './helpers/auth';
+import { fakeAuthContext, FAKE_USER_SUB } from './helpers/auth';
 import { setTestEnv } from './helpers/env';
 import {
   fakeClient,
@@ -312,7 +312,7 @@ describe('observabilidad: un fallo de auditoría se puede diagnosticar', () => {
   beforeEach(() => {
     setTestEnv();
     resetStore();
-    seedCase({ id: 'case-1', student_identifier: 'UTEL-2026-001' });
+    seedCase({ id: 'case-1', student_identifier: 'UTEL-2026-001', created_by: FAKE_USER_SUB });
     seedEvidence({ id: 'ev-1', processing_status: 'READY', content: 'cancelo mi matricula', filename: 'renuncia.txt' });
     mockedCall.mockReset();
     mockedCall.mockRejectedValue(makeProviderFailure());
@@ -418,7 +418,7 @@ describe('observabilidad: un fallo de auditoría se puede diagnosticar', () => {
     mockedCall.mockRejectedValue(
       new OpenRouterAuditError('SCHEMA_VALIDATION_ERROR', FALLBACK_DIAGNOSTICS, rawModelBody),
     );
-    seedCase({ id: 'case-1', student_identifier: 'UTEL-2026-001' });
+    seedCase({ id: 'case-1', student_identifier: 'UTEL-2026-001', created_by: FAKE_USER_SUB });
 
     await auditHandler(makeApiRequest({ method: 'POST', query: { caseId: 'case-1' } }), makeApiResponse());
     const res = makeApiResponse();
@@ -631,7 +631,7 @@ describe('observabilidad: la fila ERROR conserva los diagnostics del fallback', 
   beforeEach(() => {
     setTestEnv();
     resetStore();
-    seedCase({ id: 'case-1' });
+    seedCase({ id: 'case-1', created_by: FAKE_USER_SUB });
     seedEvidence({ id: 'ev-1', processing_status: 'READY', content: 'cancelo mi matricula' });
     mockedCall.mockReset();
     mockedCall.mockRejectedValue(makeProviderFailure());

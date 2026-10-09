@@ -11,6 +11,12 @@
 // (mock) -> store -> http` y colgaría la suite antes del primer test.
 import { ApiError } from '../../src/server/errors';
 import type { InsForgeClient } from '../../src/server/insforge';
+// `capabilities` y no `auth`: el store se carga DENTRO de las fabricas de
+// `vi.mock`, y `auth.ts` arrastra el SDK de InsForge (cuyo mock llama a este
+// mismo store), asi que importarlo aqui cerraria el circulo y colgaria la suite
+// antes del primer test. `capabilities.ts` es el modulo hoja que `auth.ts`
+// reexporta: la MISMA funcion, sin el arrastre.
+import { capabilitiesForRole } from '../../src/server/capabilities';
 import type { CaseStatus, EvidenceStatus, TranscriptData } from '../../src/skills/audit/types';
 import type { HumanResolution } from '../../src/skills/review/types';
 import type {
@@ -26,6 +32,7 @@ import type {
   ComparisonRow,
   ComparisonStatus,
   CreateCaseReviewInput,
+  FinalizeCaseReviewInput,
   InsertComparisonInput,
   RearmComparisonInput,
   UpdateComparisonErrorInput,
@@ -85,6 +92,9 @@ export function seedCase(overrides: Partial<CaseRow> = {}): CaseRow {
     created_by: null,
     created_at: '2026-02-01T10:00:00Z',
     updated_at: '2026-02-01T10:00:00Z',
+    // Mismo default que la columna: un caso sin marca es REAL. Los tests que
+    // necesitan una prueba pasan `is_test: true` explícito.
+    is_test: false,
     ...overrides,
   };
   caseRows.push(row);
@@ -155,6 +165,11 @@ export function seedReview(overrides: Partial<CaseReviewRow> = {}): CaseReviewRo
     comment: overrides.comment ?? 'Se acredita la baja por solicitud posterior al inicio de ciclo.',
     created_at: overrides.created_at ?? '2026-02-02T09:00:00Z',
     created_by: overrides.created_by ?? null,
+    coordinator_decision: overrides.coordinator_decision ?? null,
+    coordinator_resolution: overrides.coordinator_resolution ?? null,
+    coordinator_created_by: overrides.coordinator_created_by ?? null,
+    coordinator_created_at: overrides.coordinator_created_at ?? null,
+    coordinator_comment: overrides.coordinator_comment ?? null,
   };
   reviewRows.push(row);
   return { ...row };
@@ -238,20 +253,29 @@ export async function persistDerivedExtraction(
 }
 
 /**
- * Scoping por dueño, replicando la regla real: un `user` solo ve sus casos; un
- * `coordinator` los ve todos. "Ajeno" y "inexistente" responden igual (404).
+ * Scoping por dueño, replicando la regla real: se ve el caso propio y, además,
+ * cualquier caso si el rol tiene `canReadAllCases` (coordinador y gerente).
+ * "Ajeno" e "inexistente" responden igual (404).
  *
- * Los tests siembran casos con `created_by` nulo; un caso sin dueño se trata como
- * visible para no obligar a cada test a declarar el propietario.
+ * Reutiliza la MISMA `capabilitiesForRole` de producción en vez de copiar la
+ * regla: si el contrato de capacidades cambia, este doble no puede quedarse
+ * viejo por descuido (era el riesgo real del `role === 'user'` de antes).
+ *
+ * Igual que la producción, un `created_by` nulo NO es visible para un lector no
+ * global: el alcance compara el dueño con `auth.sub` sin excepción para nulo (la
+ * producción real siempre asigna dueño al crear el caso, así que un nulo es, a
+ * todos los efectos, "de otro"). Los tests que necesiten un caso propio siembran
+ * `created_by` explícito.
  */
 export async function getScopedCaseOr404(
   _client: unknown,
   caseId: string,
-  auth: { sub: string; role: 'user' | 'coordinator' },
+  auth: { sub: string; role: 'user' | 'coordinator' | 'manager' },
 ): Promise<CaseRow> {
   const row = getCase(caseId);
   if (!row) throw new ApiError(404, 'NOT_FOUND', 'Caso no encontrado');
-  if (auth.role === 'user' && row.created_by !== null && row.created_by !== undefined && row.created_by !== auth.sub) {
+  const foreign = row.created_by !== auth.sub;
+  if (foreign && !capabilitiesForRole(auth.role).canReadAllCases) {
     throw new ApiError(404, 'NOT_FOUND', 'Caso no encontrado');
   }
   return { ...row };
@@ -259,31 +283,47 @@ export async function getScopedCaseOr404(
 
 /** Mutación: solo el dueño. Responde 404 (no 403) para no enumerar existencia. */
 export function assertCaseOwner(row: { created_by?: string | null }, auth: { sub: string }): void {
-  if (row.created_by && row.created_by !== auth.sub) {
+  if (row.created_by !== auth.sub) {
     throw new ApiError(404, 'NOT_FOUND', 'Caso no encontrado');
   }
 }
 
-export async function listCaseSummaries(): Promise<unknown[]> {
-  return caseRows.map((row) => {
-    const review = reviewRows.find((r) => r.case_id === row.id) ?? null;
-    const auditsForCase = auditRows.filter((a) => a.case_id === row.id && a.status === 'COMPLETED');
-    const audit = auditsForCase[auditsForCase.length - 1] ?? null;
-    return {
-      ...row,
-      evidence: [{ count: evidenceRows.filter((e) => e.case_id === row.id).length }],
-      review,
-      audit,
-    };
-  });
+export async function listCaseSummaries(
+  _client: unknown,
+  auth?: { sub: string; role: 'user' | 'coordinator' | 'manager' },
+): Promise<unknown[]> {
+  const canReadAll = auth ? capabilitiesForRole(auth.role).canReadAllCases : true;
+  return caseRows
+    // Espejo de la producción: sin capacidad de lectura global (Asesor) solo se
+    // devuelven los casos propios. Se trata un `created_by` nulo como visible
+    // para no obligar a cada test a declarar el dueño (la producción real nunca
+    // crea un caso sin `created_by`).
+    .filter((row) => canReadAll || row.created_by === null || row.created_by === undefined || row.created_by === auth?.sub)
+    .map((row) => {
+      const review = reviewRows.find((r) => r.case_id === row.id) ?? null;
+      const auditsForCase = auditRows.filter((a) => a.case_id === row.id && a.status === 'COMPLETED');
+      const audit = auditsForCase[auditsForCase.length - 1] ?? null;
+      return {
+        ...row,
+        evidence: [{ count: evidenceRows.filter((e) => e.case_id === row.id).length }],
+        review,
+        audit,
+      };
+    });
 }
 
 export async function createCase(
   _client: unknown,
   studentIdentifier: string | null,
   createdBy?: string,
+  isTest = false,
 ): Promise<CaseRow> {
-  return seedCase({ id: nextId('case'), created_by: createdBy ?? null, student_identifier: studentIdentifier });
+  return seedCase({
+    id: nextId('case'),
+    created_by: createdBy ?? null,
+    student_identifier: studentIdentifier,
+    is_test: isTest,
+  });
 }
 
 export async function listEvidenceRows(_client: unknown, caseId: string): Promise<EvidenceRow[]> {
@@ -412,6 +452,10 @@ export async function latestCompletedAudit(_client: unknown, caseId: string): Pr
 const DUPLICATE_REVIEW_MESSAGE =
   'El caso ya tiene una revisión humana registrada; cada caso admite una sola revisión.';
 
+/** Mensaje único de finalización duplicada, espejo del de producción. */
+const DUPLICATE_FINALIZATION_MESSAGE =
+  'El caso ya tiene la decisión final del coordinador registrada; la finalización es única e inmutable.';
+
 export async function createCaseReview(_client: unknown, input: CreateCaseReviewInput): Promise<CaseReviewRow> {
   if (reviewRows.some((row) => row.case_id === input.caseId)) {
     throw new ApiError(409, 'VALIDATION_ERROR', DUPLICATE_REVIEW_MESSAGE);
@@ -429,6 +473,35 @@ export async function createCaseReview(_client: unknown, input: CreateCaseReview
 export async function getCaseReview(_client: unknown, caseId: string): Promise<CaseReviewRow | null> {
   const row = reviewRows.find((item) => item.case_id === caseId);
   return row ? { ...row } : null;
+}
+
+/**
+ * Espejo de `finalizeCaseReview` de producción: misma semántica de persistencia
+ * (sin revisión → 400; ya finalizada → 409; CHANGE exige resolución distinta).
+ * No implementa reglas de negocio: las decide el endpoint con capabilities.
+ */
+export async function finalizeCaseReview(_client: unknown, input: FinalizeCaseReviewInput): Promise<CaseReviewRow> {
+  const row = reviewRows.find((item) => item.case_id === input.caseId);
+  if (!row) {
+    throw new ApiError(400, 'VALIDATION_ERROR', 'El caso no tiene revisión de asesor que finalizar; regístrala antes de decidir.');
+  }
+  if (row.coordinator_decision != null) {
+    throw new ApiError(409, 'VALIDATION_ERROR', DUPLICATE_FINALIZATION_MESSAGE);
+  }
+  if (input.decision === 'CHANGE') {
+    if (!input.resolution) {
+      throw new ApiError(400, 'VALIDATION_ERROR', 'La decisión CHANGE exige una resolución final distinta de la del asesor.');
+    }
+    if (input.resolution === row.result) {
+      throw new ApiError(400, 'VALIDATION_ERROR', 'La decisión CHANGE exige una resolución distinta de la del asesor.');
+    }
+  }
+  row.coordinator_decision = input.decision;
+  row.coordinator_resolution = input.decision === 'CHANGE' ? input.resolution : null;
+  row.coordinator_created_by = input.coordinatorUserId;
+  row.coordinator_created_at = new Date().toISOString();
+  row.coordinator_comment = input.comment;
+  return { ...row };
 }
 
 export async function insertComparison(_client: unknown, input: InsertComparisonInput): Promise<ComparisonRow> {

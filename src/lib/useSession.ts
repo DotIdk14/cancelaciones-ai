@@ -9,10 +9,26 @@
 // =============================================================================
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { refreshSession, signOut as apiSignOut } from './api';
+import { refreshSession, signOut as apiSignOut, type AppRole } from './api';
 import { isSessionExpiredError } from './api';
 
 export type SessionStatus = 'loading' | 'anon' | 'authed';
+
+/**
+ * Rótulos de presentación de cada rol. `user` se muestra como "Asesor"; el
+ * identificador persistido no cambia. Solo afecta lo que la UI pinta: ningún
+ * rótulo habilita una capacidad.
+ */
+export const ROLE_LABELS: Record<AppRole, string> = {
+  user: 'Asesor',
+  coordinator: 'Coordinador',
+  manager: 'Gerente',
+};
+
+/** Traduce un rol a su rótulo; `null` (o rol desconocido) no tiene rótulo. */
+export function roleLabel(role: AppRole | null): string | null {
+  return role === null ? null : (ROLE_LABELS[role] ?? null);
+}
 
 /** Motivos que el callback de Google puede devolver en `?authError=`. */
 export type AuthErrorReason =
@@ -69,6 +85,11 @@ export interface UseSessionResult {
   sessionExpired: boolean;
   /** Motivo del último rechazo del login por Google, si lo hubo. */
   authError: string | null;
+  /**
+   * Rol resuelto por el servidor, SOLO para presentación. `null` cuando no hay
+   * sesión o el rol no se reconoce; la autorización sigue en el servidor.
+   */
+  role: AppRole | null;
   signOut: () => Promise<void>;
 }
 
@@ -78,6 +99,7 @@ export function useSession(): UseSessionResult {
   // el mensaje vacío. El inicializador es perezoso y corre una sola vez.
   const [status, setStatus] = useState<SessionStatus>('loading');
   const [sessionExpired, setSessionExpired] = useState(false);
+  const [role, setRole] = useState<AppRole | null>(null);
   const [authError] = useState<string | null>(() => {
     const reason = takeAuthErrorFromUrl();
     return reason === null ? null : AUTH_ERROR_MESSAGES[reason];
@@ -88,12 +110,14 @@ export function useSession(): UseSessionResult {
     if (checking.current) return;
     checking.current = true;
     try {
-      const ok = await refreshSession();
-      setStatus(ok ? 'authed' : 'anon');
-      if (!ok) {
+      const snapshot = await refreshSession();
+      setRole(snapshot?.role ?? null);
+      setStatus(snapshot ? 'authed' : 'anon');
+      if (!snapshot) {
         setSessionExpired(false);
       }
     } catch (error) {
+      setRole(null);
       setStatus('anon');
       setSessionExpired(isSessionExpiredError(error));
     } finally {
@@ -111,6 +135,7 @@ export function useSession(): UseSessionResult {
     } finally {
       setStatus('anon');
       setSessionExpired(false);
+      setRole(null);
     }
   }, []);
 
@@ -118,6 +143,7 @@ export function useSession(): UseSessionResult {
     status,
     sessionExpired,
     authError,
+    role,
     signOut: handleSignOut,
   };
 }

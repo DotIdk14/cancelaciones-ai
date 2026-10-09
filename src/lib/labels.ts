@@ -14,6 +14,7 @@ import type {
 // El vocabulario de áreas vive en el cliente (`api.ts`) y no en `src/server`,
 // que arrastraría el cliente de InsForge al bundle del navegador.
 import type { AreaCommentArea } from './api';
+import type { CoordinatorDecision, WorkflowState } from './api';
 // Valores, no sólo tipos: el vocabulario cerrado y los límites de la revisión
 // humana se IMPORTAN del módulo que los define, no se reescriben aquí.
 import {
@@ -199,6 +200,49 @@ export const COMPARISON_STATUS_LABELS: Record<'RUNNING' | 'COMPLETED' | 'ERROR',
   COMPLETED: 'Comparación terminada',
   ERROR: 'Comparación con error',
 };
+
+// -----------------------------------------------------------------------------
+// Flujo humano de dos etapas y clasificación del caso
+// -----------------------------------------------------------------------------
+
+/** Rótulo del estado derivado del flujo de revisión (nunca `cases.status`). */
+export const WORKFLOW_STATE_LABELS: Record<WorkflowState, string> = {
+  PENDING_ADVISOR: 'Pendiente de Asesor',
+  PENDING_COORDINATOR: 'Pendiente de Coordinador',
+  FINALIZED: 'Finalizado',
+};
+
+export const WORKFLOW_STATE_TONE: Record<WorkflowState, Tone> = {
+  PENDING_ADVISOR: 'warning',
+  PENDING_COORDINATOR: 'brand',
+  FINALIZED: 'success',
+};
+
+/** Rótulo de la decisión final del Coordinador. */
+export const COORDINATOR_DECISION_LABELS: Record<CoordinatorDecision, string> = {
+  APPROVE: 'Aprobada',
+  CHANGE: 'Modificada',
+};
+
+/**
+ * Clasificación explícita del caso: prueba o real. Es la etiqueta persistente que
+ * distingue ambos tipos en lista y detalle; el backend además excluye las
+ * pruebas de las métricas operativas (PROJECTION_IS_NOT_THE_DICTAMEN).
+ */
+export const CASE_KIND_LABELS = {
+  test: 'Prueba',
+  real: 'Real',
+} as const;
+
+/** Rótulo de la clasificación a partir del flag `isTest`. */
+export function caseKindLabel(isTest: boolean | null | undefined): string {
+  return isTest === true ? CASE_KIND_LABELS.test : CASE_KIND_LABELS.real;
+}
+
+/** Tono del badge de clasificación: prueba resaltada, real discreta. */
+export function caseKindTone(isTest: boolean | null | undefined): Tone {
+  return isTest === true ? 'warning' : 'neutral';
+}
 
 /**
  * Etiqueta de un resultado recibido por el cable.

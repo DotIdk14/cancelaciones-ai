@@ -174,6 +174,9 @@ function currentHash(): string {
 beforeEach(() => {
   vi.unstubAllGlobals();
   window.location.hash = '';
+  // La vista previa local se activa por `?preview=dashboard`: se limpia entre
+  // tests para que no se filtre a los que esperan el formulario productivo.
+  window.history.replaceState({}, '', '/');
 });
 
 afterEach(() => {
@@ -749,5 +752,61 @@ describe('NewCasePanel · accesibilidad del formulario', () => {
     await waitFor(() => {
       expect(calls.some((call) => call.url === '/api/cases' && call.method === 'POST')).toBe(true);
     });
+  });
+});
+
+// -----------------------------------------------------------------------------
+// Gating por rol y clasificación prueba/real
+// -----------------------------------------------------------------------------
+
+describe('NewCasePanel · gating por rol (solo presentación)', () => {
+  it('el Gerente no ve el formulario de alta, ni siquiera en la vista previa local', () => {
+    // La vista previa local NO puede saltarse el gating por rol: el Gerente
+    // sigue en solo lectura aunque el preview sea el que monta el panel.
+    window.history.replaceState({}, '', '/?preview=dashboard');
+
+    render(<NewCasePanel role="manager" />);
+
+    expect(screen.queryByRole('button', { name: /crear y abrir expediente/i })).toBeNull();
+    expect(
+      screen.queryByLabelText(/archivos de evidencia/i, { selector: 'input[type="file"]' }),
+    ).toBeNull();
+    expect(screen.getByText(/tu rol no puede crear casos/i)).toBeTruthy();
+  });
+});
+
+describe('NewCasePanel · selector prueba/real', () => {
+  function createPayload(calls: RecordedCall[]): { isTest?: boolean } {
+    const create = calls.find((call) => call.url === '/api/cases' && call.method === 'POST');
+    return JSON.parse(create?.payload ?? '{}') as { isTest?: boolean };
+  }
+
+  it('envía isTest=true cuando se elige la clasificación Prueba', async () => {
+    const calls = stubApp();
+    render(<NewCasePanel />);
+
+    await userEvent.click(screen.getByRole('radio', { name: /prueba/i }));
+    await selectEvidence('convocatoria.pdf');
+    await submitCase();
+
+    await waitFor(() => {
+      expect(calls.some((call) => call.url === '/api/cases' && call.method === 'POST')).toBe(true);
+    });
+    expect(createPayload(calls)).toMatchObject({ isTest: true });
+  });
+
+  it('envía isTest=false cuando se deja la clasificación Real por defecto', async () => {
+    const calls = stubApp();
+    render(<NewCasePanel />);
+
+    // Sin tocar el selector, «Real» es la opción por defecto.
+    expect((screen.getByRole('radio', { name: /^real$/i }) as HTMLInputElement).checked).toBe(true);
+    await selectEvidence('convocatoria.pdf');
+    await submitCase();
+
+    await waitFor(() => {
+      expect(calls.some((call) => call.url === '/api/cases' && call.method === 'POST')).toBe(true);
+    });
+    expect(createPayload(calls)).toMatchObject({ isTest: false });
   });
 });

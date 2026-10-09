@@ -1,41 +1,57 @@
 // =============================================================================
-// Revisión humana del caso y comparación con la IA.
+// Revisión humana del caso en DOS ETAPAS y comparación con la IA.
 //
 // QUÉ MUESTRA ESTE ARCHIVO, Y POR QUÉ SON TRES COSAS DISTINTAS
 //   1. El DICTAMEN ORIGINAL de la auditoría, en su propio panel (`AuditResultPanel`).
-//   2. La RESOLUCIÓN FINAL HUMANA, que aquí se registra y que, si existe, manda
-//      sobre el dictamen. No lo modifica ni lo oculta.
-//   3. La CONCLUSIÓN DE LA COMPARACIÓN, que es un juicio con trazabilidad sobre
-//      la distancia entre 1 y 2. No es un segundo dictamen: no trae `result`, no
-//      reclasifica y no sustituye nada.
+//   2. La RESOLUCIÓN del ASESOR (etapa 1), que aquí se registra y que, si existe,
+//      manda sobre el dictamen. No lo modifica ni lo oculta.
+//   3. La DECISIÓN FINAL del COORDINADOR (etapa 2), que aprueba o cambia la
+//      resolución del Asesor sin sobrescribirla. La comparación con la IA evalúa
+//      la distancia entre el dictamen y la decisión del Asesor.
+//
+// EL GATING POR ROL ES SOLO PRESENTACIÓN
+//   El servidor resuelve la etapa a partir de las capacidades del rol
+//   (`capabilitiesForRole`) y del estado persistido (`deriveWorkflowState`). Aquí
+//   solo se decide QUÉ controles dibujar: un Asesor no ve el botón de finalizar,
+//   un Coordinador no ve el formulario de Asesor y un Gerente no ve ninguno. Si
+//   la UI se equivocara, la API seguiría rechazando la mutación.
+//
+// LA REVISIÓN DEL ASESOR ES ÚNICA
+//   Cuando existe, es su resolución propuesta y las auditorías posteriores NO la
+//   sobrescriben. Un `CHANGE` del Coordinador se guarda APARTE.
 //
 // DOS MÉTRICAS QUE NO SON LA MISMA
-//   `agrees` es el acierto MEDIDO (¿coincide el dictamen con la decisión de la
-//   persona?). `confidence` es la confianza que la IA DECLARA sobre SU propia
-//   comparación. Presentarlos juntos sin nombrarlos es exactamente el error que
-//   hace que alguien lea "74%" como "acertó el 74% de las veces". Aquí se
-//   separan, y `confidence` nunca se presenta como porcentaje de acierto.
-//
-// LA REVISIÓN ES ÚNICA
-//   Cuando existe, es la resolución final y las auditorías posteriores NO la
-//   sobrescriben. Por eso este panel desaparece cuando `review !== null`, y por
-//   eso un 409 no ofrece reenviar: la única salida es leer la que ya está.
+//   `agrees` es el acierto MEDIDO. `confidence` es la confianza que la IA DECLARA
+//   sobre SU propia comparación. Se presentan separadas y `confidence` nunca se
+//   muestra como porcentaje de acierto.
 // =============================================================================
 
 import type { FormEvent, ReactNode } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ApiError, getCaseReview, retryComparison, submitCaseReview, toErrorState } from '../lib/api';
+import {
+  ApiError,
+  finalizeCaseReview,
+  getCaseReview,
+  retryComparison,
+  submitCaseReview,
+  toErrorState,
+  workflowStateOf,
+} from '../lib/api';
 import type {
+  AppRole,
   AuditDetail,
   CaseReviewDto,
   ComparisonDto,
+  CoordinatorDecision,
   EffectiveResolution,
   ErrorState,
+  WorkflowState,
 } from '../lib/api';
 import type { AuditResultType } from '../skills/audit/types';
 import { cx } from '../lib/cx';
 import { DASH, formatDateTime, formatLatency, formatPercent, shortId } from '../lib/format';
 import {
+  COORDINATOR_DECISION_LABELS,
   COMPARISON_STATUS_LABELS,
   RESOLUTION_SOURCE_LABELS,
   RESULT_DESCRIPTIONS,
@@ -55,14 +71,28 @@ const COMPARISON_POLL_MS = 4000;
 /** Consultas de estado de una comparación en curso (≈6 min). */
 const MAX_RUNNING_POLLS = 90;
 
+/** Etiqueta de la decisión de etapa 2, para los radios del Coordinador. */
+const DECISION_OPTIONS: ReadonlyArray<{ value: CoordinatorDecision; label: string; description: string }> = [
+  {
+    value: 'APPROVE',
+    label: 'Aprobar la resolución del Asesor',
+    description: 'Conserva la resolución propuesta. No se cambia nada de lo registrado por el Asesor.',
+  },
+  {
+    value: 'CHANGE',
+    label: 'Cambiar la resolución',
+    description: 'Sustituye la resolución propuesta por otra distinta del vocabulario vigente.',
+  },
+];
+
 // =============================================================================
-// CaseReviewPanel — el formulario. Sólo existe si NO hay revisión.
+// CaseReviewPanel — contenedor de las dos etapas.
 // =============================================================================
 
 /**
  * Estados del envío. Son estados de LA INTERFAZ, no del negocio: el estado real
- * (revisión registrada, comparación RUNNING/ERROR) vive en el servidor y se
- * recupera con `getCaseReview`, no se adivina desde aquí.
+ * (revisión registrada, comparación RUNNING/ERROR, decisión final) vive en el
+ * servidor y se recupera con `getCaseReview`/`getCase`, no se adivina desde aquí.
  */
 type ReviewPhase = 'idle' | 'sending' | 'comparing' | 'done' | 'error';
 
@@ -70,13 +100,29 @@ export interface CaseReviewPanelProps {
   caseId: string;
   audit: AuditDetail | null;
   review: CaseReviewDto | null;
-  /** Se llama tras registrar la revisión, para que el padre refresque el caso. */
+  comparison?: ComparisonDto | null;
+  effectiveResolution?: EffectiveResolution | null;
+  reviewAuditResult?: AuditResultType | null;
+  /** Estado derivado del flujo; si falta se deriva de `review`. */
+  workflowState?: WorkflowState;
+  /** Rol para PRESENTACIÓN. `null`/desconocido no ve controles de mutación. */
+  role?: AppRole | null;
+  /** Se llama tras registrar la revisión o la decisión final, para refrescar el caso. */
   onSubmitted?: () => void;
 }
 
-export function CaseReviewPanel({ caseId, audit, review, onSubmitted }: CaseReviewPanelProps): ReactNode {
+export function CaseReviewPanel({
+  caseId,
+  audit,
+  review,
+  comparison = null,
+  effectiveResolution = null,
+  reviewAuditResult = null,
+  workflowState,
+  role = null,
+  onSubmitted,
+}: CaseReviewPanelProps): ReactNode {
   const [result, setResult] = useState<AuditResultType | ''>('');
-  const [reviewerName, setReviewerName] = useState('');
   const [comment, setComment] = useState('');
   const [phase, setPhase] = useState<ReviewPhase>('idle');
   const [error, setError] = useState<ErrorState | null>(null);
@@ -93,7 +139,6 @@ export function CaseReviewPanel({ caseId, audit, review, onSubmitted }: CaseRevi
   // El caso cambia de ruta: se descarta todo el estado del formulario anterior.
   useEffect(() => {
     setResult('');
-    setReviewerName('');
     setComment('');
     setPhase('idle');
     setError(null);
@@ -107,10 +152,8 @@ export function CaseReviewPanel({ caseId, audit, review, onSubmitted }: CaseRevi
    *
    * Cuando el formulario se sustituye (envío correcto, o 409 porque la revisión
    * ya existía) el elemento que tenía el foco se desmonta y el foco cae al
-   * `<body>`, que no está en el orden de tabulación: la siguiente tecla Tab
-   * manda a la persona al principio del documento sin aviso. Se lleva entonces
-   * al contenedor que Took over, que es `tabIndex={-1}` y por tanto recibe el
-   * foco sin entrar al orden de tabulación por sí mismo.
+   * `<body>`, que no está en el orden de tabulación. Se lleva entonces al
+   * contenedor que tomó el relevo, que es `tabIndex={-1}`.
    */
   const takeoverRef = useRef<HTMLDivElement | null>(null);
   const hasTakeover = submitted !== null || conflict;
@@ -122,34 +165,24 @@ export function CaseReviewPanel({ caseId, audit, review, onSubmitted }: CaseRevi
 
   // Longitud del comentario YA RECORTADO: la misma que valida el servidor.
   const trimmed = comment.trim();
-  const trimmedReviewer = reviewerName.trim();
   const commentLength = trimmed.length;
   const commentValid = isValidReviewComment(commentLength);
   const lengthError = comment.length === 0 ? null : commentLengthError(commentLength);
   const aiResult = audit?.resultJson?.audit?.result ?? null;
   const sending = phase === 'sending';
-  const canSubmit = result !== '' && trimmedReviewer !== '' && commentValid && !sending && !conflict;
+  // El comentario es OPCIONAL (el servidor lo acepta vacío); la resolución es lo
+  // único obligatorio para registrar la etapa del Asesor.
+  const canSubmit = result !== '' && commentValid && !sending && !conflict;
 
-  /*
-   * Los callbacks van ANTES de cualquier `return` condicional, y no por estilo.
-   * `audit.status` cambia en caliente mientras esta pantalla está montada: una
-   * auditoría que pasa de RUNNING a COMPLETED hace que este panel pase de "no
-   * existe" a "existe" en la MISMA instancia. Si un hook se declarara después
-   * del `return null`, ese montaje declararía menos hooks que el siguiente y
-   * React abortaría con "Rendered fewer hooks than expected" justo en el
-   * momento en que el usuario acaba de obtener su dictamen.
-   */
   const handleSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>): Promise<void> => {
       event.preventDefault();
-      // `result === ''` se comprueba aquí y no sólo en `canSubmit` para que el
-      // tipo se estreche a una resolución concreta antes de construir el body.
       if (result === '' || !canSubmit) return;
       setPhase('sending');
       setError(null);
       try {
-        const data = await submitCaseReview(caseId, { result, reviewerName: trimmedReviewer, comment: trimmed });
-        setSubmitted({ ...data, effectiveResolution: null, reviewAuditResult: aiResult });
+        const data = await submitCaseReview(caseId, { result, comment: trimmed });
+        setSubmitted({ review: data.review, comparison: data.comparison, effectiveResolution: null, reviewAuditResult: aiResult });
         setPhase(data.comparison?.status === 'RUNNING' ? 'comparing' : 'done');
         onSubmitted?.();
       } catch (err) {
@@ -163,7 +196,7 @@ export function CaseReviewPanel({ caseId, audit, review, onSubmitted }: CaseRevi
         setPhase('error');
       }
     },
-    [aiResult, canSubmit, caseId, onSubmitted, result, trimmed, trimmedReviewer],
+    [aiResult, canSubmit, caseId, onSubmitted, result, trimmed],
   );
 
   const loadExisting = useCallback(async (): Promise<void> => {
@@ -186,13 +219,38 @@ export function CaseReviewPanel({ caseId, audit, review, onSubmitted }: CaseRevi
     } finally {
       setLoadingExisting(false);
     }
-  }, [caseId]);
+  }, [caseId, aiResult]);
 
-  // Condición de existencia, y es una sola: sin dictamen emitido no hay nada que
-  // revisar, y con revisión registrada este panel no debe existir. La revisión
-  // es única, así que "ya existe" significa "no se vuelve a ofrecer".
-  if (review !== null || audit === null || audit.status !== 'COMPLETED') {
+  // Condición de existencia: sin dictamen emitido no hay nada que revisar.
+  if (audit === null || audit.status !== 'COMPLETED') {
     return null;
+  }
+
+  // Etapa 1 ya resuelta: se muestra el registro del Asesor y, debajo, la etapa 2.
+  if (review !== null) {
+    return (
+      <div className="flex flex-col gap-4">
+        <CaseReviewRecord
+          caseId={caseId}
+          review={review}
+          comparison={comparison}
+          effectiveResolution={effectiveResolution}
+          reviewAuditResult={reviewAuditResult}
+        />
+        <CoordinatorStage
+          caseId={caseId}
+          review={review}
+          workflowState={workflowState}
+          role={role}
+          onSubmitted={onSubmitted}
+        />
+      </div>
+    );
+  }
+
+  // Etapa 1 pendiente, pero quien mira no puede registrarla (Coordinador/Gerente).
+  if (role !== 'user') {
+    return <AdvisorReadOnlyStage role={role} />;
   }
 
   const commentHintId = 'revision-comment-hint';
@@ -200,17 +258,23 @@ export function CaseReviewPanel({ caseId, audit, review, onSubmitted }: CaseRevi
   const commentErrorId = 'revision-comment-error';
   const formErrorId = 'revision-form-error';
 
-  // Tras un envío correcto se muestra la revisión ya registrada. Se devuelve sin
-  // Panel propio para no duplicar el encabezado que ella ya trae.
+  // Tras un envío correcto se muestra la revisión ya registrada.
   if (submitted !== null) {
     return (
-      <div ref={takeoverRef} tabIndex={-1}>
+      <div ref={takeoverRef} tabIndex={-1} className="flex flex-col gap-4">
         <CaseReviewRecord
           caseId={caseId}
           review={submitted.review}
           comparison={submitted.comparison}
           effectiveResolution={submitted.effectiveResolution}
           reviewAuditResult={submitted.reviewAuditResult}
+        />
+        <CoordinatorStage
+          caseId={caseId}
+          review={submitted.review}
+          workflowState={workflowState}
+          role={role}
+          onSubmitted={onSubmitted}
         />
       </div>
     );
@@ -221,7 +285,7 @@ export function CaseReviewPanel({ caseId, audit, review, onSubmitted }: CaseRevi
       <div ref={takeoverRef} tabIndex={-1}>
         <Panel
           title="Revisión humana"
-          description="Este caso ya tiene una revisión registrada y es su resolución final."
+          description="Este caso ya tiene una revisión registrada del Asesor; la resolución final la decide un Coordinador."
         >
           <div className="flex flex-col gap-4">
             {error !== null && (
@@ -309,24 +373,6 @@ export function CaseReviewPanel({ caseId, audit, review, onSubmitted }: CaseRevi
           </div>
         </fieldset>
 
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor="revision-reviewer" className="text-sm font-semibold text-ink">
-            Nombre de quien revisa
-          </label>
-          <input
-            id="revision-reviewer"
-            name="reviewerName"
-            type="text"
-            autoComplete="name"
-            maxLength={120}
-            value={reviewerName}
-            onChange={(event) => setReviewerName(event.target.value)}
-            disabled={sending}
-            required
-            className="w-full rounded-xl border border-line bg-surface-2 px-3 py-2 text-sm text-ink"
-          />
-        </div>
-
         {/* ------------------------------------------------- comentario */}
         <div className="flex flex-col gap-1.5">
           <label htmlFor="revision-comment" className="text-sm font-semibold text-ink">
@@ -394,7 +440,7 @@ export function CaseReviewPanel({ caseId, audit, review, onSubmitted }: CaseRevi
             </span>
           )}
           <p className="text-xs text-muted">
-            La revisión es única por caso. Una vez registrada, es la resolución final.
+            La revisión del Asesor es única por caso. Después, un Coordinador registra la decisión final.
           </p>
         </div>
       </form>
@@ -414,7 +460,319 @@ function commentLengthError(length: number): string | null {
 }
 
 // =============================================================================
-// CaseReviewRecord — la revisión ya registrada y el estado de su comparación.
+// Etapa 1 pendiente sin capacidad de registrarla (Coordinador / Gerente)
+// =============================================================================
+
+function AdvisorReadOnlyStage({ role }: { role: AppRole | null }): ReactNode {
+  const message =
+    role === 'manager'
+      ? 'Solo lectura: la revisión del Asesor la registra el Asesor dueño del caso.'
+      : 'La etapa de Asesor la registra el Asesor dueño del caso. Todavía no hay una decisión que finalizar.';
+  return (
+    <Panel
+      title="Revisión humana"
+      description="Flujo de revisión en dos etapas: primero el Asesor, después el Coordinador."
+    >
+      <p role="status" className="text-sm text-muted">
+        {message}
+      </p>
+    </Panel>
+  );
+}
+
+// =============================================================================
+// Etapa 2 — decisión final del Coordinador
+// =============================================================================
+
+/**
+ * Etapa 2. Muestra la decisión final si ya existe; ofrece el formulario al
+ * Coordinador cuando el caso está `PENDING_COORDINATOR`; y para Asesor/Gerente
+ * deja constancia de que el caso está pendiente, sin controles de mutación.
+ */
+function CoordinatorStage({
+  caseId,
+  review,
+  workflowState,
+  role,
+  onSubmitted,
+}: {
+  caseId: string;
+  review: CaseReviewDto;
+  workflowState?: WorkflowState;
+  role: AppRole | null;
+  onSubmitted?: () => void;
+}): ReactNode {
+  const state = workflowStateOf(review, workflowState);
+  if (state === 'FINALIZED') {
+    return <CoordinatorDecisionRecord review={review} />;
+  }
+  if (role === 'coordinator') {
+    return <CoordinatorFinalizeForm caseId={caseId} review={review} onSubmitted={onSubmitted} />;
+  }
+  const message =
+    role === 'manager'
+      ? 'Solo lectura: la finalización del caso la registra un Coordinador.'
+      : 'Pendiente de la decisión del Coordinador. Tu decisión de Asesor quedó registrada y no se puede modificar.';
+  return (
+    <Panel
+      title="Decisión del Coordinador"
+      description="Finalización del flujo de revisión en dos etapas."
+    >
+      <p role="status" className="text-sm text-muted">
+        {message}
+      </p>
+    </Panel>
+  );
+}
+
+/** Formulario de la etapa 2. Sólo lo ve el Coordinador. */
+function CoordinatorFinalizeForm({
+  caseId,
+  review,
+  onSubmitted,
+}: {
+  caseId: string;
+  review: CaseReviewDto;
+  onSubmitted?: () => void;
+}): ReactNode {
+  const [decision, setDecision] = useState<CoordinatorDecision | ''>('');
+  const [resolution, setResolution] = useState<AuditResultType | ''>('');
+  const [comment, setComment] = useState('');
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<ErrorState | null>(null);
+  const [finalized, setFinalized] = useState<CaseReviewDto | null>(null);
+
+  const trimmed = comment.trim();
+  const tooLong = trimmed.length > REVIEW_COMMENT_LIMITS.max;
+  // La resolución de cambio debe ser DISTINTA de la del Asesor: la del Asesor no
+  // se ofrece, así que "misma" no es una opción representable.
+  const resolutionOptions = REVIEW_RESULT_OPTIONS.filter((option) => option !== review.result);
+  const canSubmit =
+    (decision === 'APPROVE' || (decision === 'CHANGE' && resolution !== '')) && !tooLong && !sending;
+
+  const handleSubmit = useCallback(
+    async (event: FormEvent<HTMLFormElement>): Promise<void> => {
+      event.preventDefault();
+      if (decision === '' || !canSubmit) return;
+      setSending(true);
+      setError(null);
+      try {
+        const data = await finalizeCaseReview(caseId, {
+          decision,
+          ...(decision === 'CHANGE' && resolution !== '' ? { resolution } : {}),
+          comment: trimmed,
+        });
+        setFinalized(data.review);
+        onSubmitted?.();
+      } catch (err) {
+        setError(toErrorState(err));
+      } finally {
+        setSending(false);
+      }
+    },
+    [canSubmit, caseId, decision, onSubmitted, resolution, trimmed],
+  );
+
+  if (finalized !== null) {
+    return <CoordinatorDecisionRecord review={finalized} />;
+  }
+
+  const commentErrorId = 'coordinador-comment-error';
+  const formErrorId = 'coordinador-form-error';
+
+  return (
+    <Panel
+      title="Decisión del Coordinador"
+      description="Aprueba la resolución del Asesor o cámbiala por otra distinta. No se modifica la decisión del Asesor."
+    >
+      <form className="flex flex-col gap-5" onSubmit={(event) => void handleSubmit(event)} aria-busy={sending}>
+        <fieldset className="flex flex-col gap-2" disabled={sending}>
+          <legend className="text-sm font-semibold text-ink">Decisión final</legend>
+          <p className="text-xs text-muted">
+            La resolución propuesta por el Asesor es <strong>{resolutionLabel(review.result)}</strong>.
+          </p>
+          {DECISION_OPTIONS.map((option) => {
+            const inputId = `coordinador-decision-${option.value}`;
+            const descId = `${inputId}-desc`;
+            return (
+              <div
+                key={option.value}
+                className={cx(
+                  'rounded-xl border p-3 transition-colors',
+                  decision === option.value ? 'border-brand/50 bg-brand/5' : 'border-line bg-surface-2',
+                )}
+              >
+                <div className="flex items-start gap-2.5">
+                  <input
+                    id={inputId}
+                    type="radio"
+                    name="coordinador-decision"
+                    value={option.value}
+                    checked={decision === option.value}
+                    onChange={() => setDecision(option.value)}
+                    aria-describedby={descId}
+                    className="mt-0.5 h-4 w-4 shrink-0 accent-brand"
+                  />
+                  <label htmlFor={inputId} className="text-sm font-medium text-ink">
+                    {option.label}
+                  </label>
+                </div>
+                <p id={descId} className="mt-1 pl-7 text-xs text-muted">
+                  {option.description}
+                </p>
+              </div>
+            );
+          })}
+        </fieldset>
+
+        {decision === 'CHANGE' && (
+          <fieldset className="flex flex-col gap-2" disabled={sending}>
+            <legend className="text-sm font-semibold text-ink">Resolución final distinta</legend>
+            <p className="text-xs text-muted">
+              Elige la resolución que sustituye a la del Asesor. No puede ser la misma.
+            </p>
+            <div className="flex flex-col gap-2">
+              {resolutionOptions.map((option) => {
+                const inputId = `coordinador-resolution-${option}`;
+                const descId = `${inputId}-desc`;
+                return (
+                  <div
+                    key={option}
+                    className={cx(
+                      'rounded-xl border p-3 transition-colors',
+                      resolution === option ? 'border-brand/50 bg-brand/5' : 'border-line bg-surface-2',
+                    )}
+                  >
+                    <div className="flex items-start gap-2.5">
+                      <input
+                        id={inputId}
+                        type="radio"
+                        name="coordinador-resolution"
+                        value={option}
+                        checked={resolution === option}
+                        onChange={() => setResolution(option)}
+                        aria-describedby={descId}
+                        className="mt-0.5 h-4 w-4 shrink-0 accent-brand"
+                      />
+                      <label htmlFor={inputId} className="text-sm font-medium text-ink">
+                        {RESULT_LABELS[option]}
+                      </label>
+                    </div>
+                    <p id={descId} className="mt-1 pl-7 text-xs text-muted">
+                      {RESULT_DESCRIPTIONS[option]}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          </fieldset>
+        )}
+
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="coordinador-comment" className="text-sm font-semibold text-ink">
+            Comentario del Coordinador <span className="font-normal text-muted">(opcional)</span>
+          </label>
+          <textarea
+            id="coordinador-comment"
+            name="comment"
+            rows={4}
+            value={comment}
+            onChange={(event) => setComment(event.target.value)}
+            disabled={sending}
+            aria-invalid={tooLong ? true : undefined}
+            aria-describedby={tooLong ? commentErrorId : undefined}
+            className={cx(
+              'w-full rounded-xl border bg-surface-2 px-3 py-2 text-sm text-ink',
+              'placeholder:text-subtle disabled:cursor-not-allowed disabled:opacity-60',
+              tooLong ? 'border-danger/60' : 'border-line',
+            )}
+          />
+          {tooLong && (
+            <p id={commentErrorId} className="text-xs text-danger">
+              El comentario excede el máximo de {REVIEW_COMMENT_LIMITS.max} caracteres.
+            </p>
+          )}
+        </div>
+
+        {error !== null && (
+          <div id={formErrorId}>
+            <ErrorCard title="No se pudo registrar la decisión" message={error.message} />
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={!canSubmit}
+            loading={sending}
+            loadingLabel="Registrando la decisión"
+            aria-describedby={error !== null ? formErrorId : undefined}
+          >
+            Finalizar el caso
+          </Button>
+          <p className="text-xs text-muted">
+            La decisión final es única e inmutable: no se puede reabrir ni sustituir.
+          </p>
+        </div>
+      </form>
+    </Panel>
+  );
+}
+
+/** Decisión final registrada del Coordinador. Solo lectura. */
+export function CoordinatorDecisionRecord({ review }: { review: CaseReviewDto }): ReactNode {
+  const decision = review.coordinatorDecision ?? null;
+  if (decision === null) return null;
+  return (
+    <Panel
+      title="Decisión del Coordinador"
+      description="Finalización del flujo de revisión. La resolución del Asesor se conserva aparte."
+      labelledBy="decision-coordinador"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted">Decisión final</p>
+          <div className="mt-2">
+            <Badge tone={decision === 'APPROVE' ? 'success' : 'brand'}>
+              {COORDINATOR_DECISION_LABELS[decision]}
+            </Badge>
+          </div>
+        </div>
+        {review.coordinatorCreatedAt != null && (
+          <div className="text-right">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted">Registrada</p>
+            <p className="text-sm text-ink">{formatDateTime(review.coordinatorCreatedAt)}</p>
+          </div>
+        )}
+      </div>
+
+      <dl className="mt-4">
+        <DataRow label="Resolución propuesta por el Asesor" value={resolutionLabel(review.result)} />
+        <DataRow
+          label="Resolución final"
+          value={
+            decision === 'CHANGE' && review.coordinatorResolution
+              ? resolutionLabel(review.coordinatorResolution)
+              : resolutionLabel(review.result)
+          }
+        />
+      </dl>
+
+      {review.coordinatorComment != null && review.coordinatorComment !== '' && (
+        <div className="mt-4">
+          <SectionTitle>Comentario del Coordinador</SectionTitle>
+          <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-ink">
+            {review.coordinatorComment}
+          </p>
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+// =============================================================================
+// CaseReviewRecord — la revisión del Asesor y el estado de su comparación.
 // =============================================================================
 
 export interface CaseReviewRecordProps {
@@ -426,7 +784,7 @@ export interface CaseReviewRecordProps {
 }
 
 /**
- * Revisión registrada, su comparación y el reintento.
+ * Revisión del Asesor registrada, su comparación y el reintento.
  *
  * Es la mitad "de lectura" del flujo y se monta con datos del servidor, así que
  * recargar durante la comparación NO duplica nada: el polling es un `GET`.
@@ -470,10 +828,6 @@ export function CaseReviewRecord({
     setLive(data.comparison);
   }, [caseId]);
 
-  // Sólo se consulta mientras la comparación está en curso. Con ERROR el
-  // reintento es explícito, con COMPLETED no hay nada que preguntar, y si se
-  // agota el límite de consultas se deja de preguntar para no dejar el spinner
-  // infinito.
   usePolling(tick, live?.status === 'RUNNING' && !comparisonTimedOut ? COMPARISON_POLL_MS : null);
 
   const handleRetry = useCallback(async (): Promise<void> => {
@@ -496,13 +850,13 @@ export function CaseReviewRecord({
   return (
     <Panel
       title="Revisión humana"
-      description="Resolución final del caso. Es la decisión de la persona y no altera el dictamen original de la auditoría."
+      description="Resolución del Asesor. Es la decisión de la persona y no altera el dictamen original de la auditoría."
       labelledBy="revision-humana"
     >
       {/* ------------------------------------------------- la decisión */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted">Resolución final</p>
+          <p className="text-xs font-medium uppercase tracking-wide text-muted">Resolución del Asesor</p>
           <div className="mt-2">
             <Badge tone={resolutionTone(review.result)}>{resultLabel}</Badge>
           </div>
@@ -556,8 +910,8 @@ export function CaseReviewRecord({
       </dl>
 
       <p className="mt-4 text-xs text-muted">
-        Esta decisión resuelve el caso. No modifica el dictamen original de la auditoría, que sigue
-        visible con su resultado y su trazabilidad.
+        Esta decisión es la resolución propuesta del Asesor. No modifica el dictamen original de la
+        auditoría, que sigue visible con su resultado y su trazabilidad.
       </p>
 
       {/* ------------------------------------------------- comparación */}
@@ -566,7 +920,7 @@ export function CaseReviewRecord({
 
         {live === null ? (
           <p className="text-sm text-muted">
-            La revisión está registrada y es la resolución final del caso. La comparación todavía no
+            La revisión está registrada y es la resolución propuesta del Asesor. La comparación todavía no
             se ha iniciado.
           </p>
         ) : live.status === 'RUNNING' ? (

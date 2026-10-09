@@ -11,7 +11,7 @@
 
 import type { InsForgeClient } from './insforge.js';
 import type { ErrorCategory } from '../skills/audit/types.js';
-import type { HumanResolution } from '../skills/review/types.js';
+import type { CoordinatorDecision, HumanResolution } from '../skills/review/types.js';
 import { ApiError, mapProviderError } from './http.js';
 
 export type ComparisonStatusRow = 'RUNNING' | 'COMPLETED' | 'ERROR';
@@ -27,6 +27,17 @@ export interface CaseReviewRow {
   comment: string;
   created_at: string;
   created_by: string | null;
+  /**
+   * Bloque del coordinador (migración `20261008120000`). OPCIONALES a propósito,
+   * como los derivados de `CaseRow`: si la migración aún no está aplicada, el
+   * `select('*')` sigue funcionando y `coordinator_decision` llega `undefined`,
+   * que `deriveWorkflowState` lee igual que `null` (aún sin finalizar).
+   */
+  coordinator_decision?: CoordinatorDecision | null;
+  coordinator_resolution?: HumanResolution | null;
+  coordinator_created_by?: string | null;
+  coordinator_created_at?: string | null;
+  coordinator_comment?: string | null;
 }
 
 /** Fila de `case_comparisons`: el juicio IA sobre el dictamen vs. la decisión humana. */
@@ -52,10 +63,22 @@ export interface CreateCaseReviewInput {
   caseId: string;
   auditId: string;
   result: HumanResolution;
+  /** Nombre de quien revisa, DERIVADO en el servidor de la sesión (no del cliente). */
   reviewerName: string;
   comment: string;
   /** Identidad de quien registra la revisión. */
   userId: string;
+}
+
+export interface FinalizeCaseReviewInput {
+  caseId: string;
+  /** `APPROVE` conserva `result`; `CHANGE` la sustituye por `resolution`. */
+  decision: CoordinatorDecision;
+  /** Resolución final; requerida solo cuando `decision === 'CHANGE'`. */
+  resolution: HumanResolution | null;
+  comment: string;
+  /** Identidad del coordinador (uuid de la sesión), derivada en el servidor. */
+  coordinatorUserId: string;
 }
 
 export interface InsertComparisonInput {
@@ -92,6 +115,10 @@ export interface UpdateComparisonErrorInput {
 /** Mensaje único del conflicto "una revisión por caso" (lo comparan cliente y test). */
 export const DUPLICATE_REVIEW_MESSAGE =
   'El caso ya tiene una revisión humana registrada; cada caso admite una sola revisión.';
+
+/** Mensaje único del conflicto "una finalización por caso" (el coordinador no decide dos veces). */
+export const DUPLICATE_FINALIZATION_MESSAGE =
+  'El caso ya tiene la decisión final del coordinador registrada; la finalización es única e inmutable.';
 
 function dbError(error: unknown, fallback: ErrorCategory = 'DATABASE_ERROR'): never {
   throw mapProviderError(error, fallback);
@@ -154,6 +181,87 @@ export async function getCaseReview(client: InsForgeClient, caseId: string): Pro
   if (error) dbError(error);
   const rows = data as CaseReviewRow[] | null;
   return rows?.[0] ?? null;
+}
+
+/**
+ * Registra la decisión final del coordinador sobre una revisión de asesor.
+ *
+ * SÓLO persiste: la etapa la resuelve el endpoint con `deriveWorkflowState` +
+ * `capabilitiesForRole`. Aquí se garantiza que la decisión sea coherente y
+ * única:
+ *   - sin revisión de asesor → 400 (no hay qué finalizar);
+ *   - ya finalizada (`coordinator_decision` presente) → 409 estable (la decisión
+ *     final es inmutable y un segundo POST no pisa nada);
+ *   - `CHANGE` exige `resolution` válida y DISTINTA de `result`; `APPROVE` la
+ *     deja NULL (se conserva `result`).
+ *
+ * El actor (`coordinator_created_by`) y la hora (`coordinator_created_at`) los
+ * pone SIEMPRE el servidor desde la sesión; nunca se aceptan del cliente.
+ * `result` (la decisión del asesor) NO se modifica: la decisión del coordinador
+ * se guarda APARTE para no perder la traza de quién propuso qué.
+ *
+ * La comprobación previa de "ya finalizada" NO basta por sí sola: dos
+ * finalizaciones concurrentes (o un doble clic) pueden pasarla las dos y
+ * escribir a la vez. Por eso la escritura va CONDICIONADA a que la decisión
+ * siga siendo NULL (`is('coordinator_decision', null)`): la base resuelve la
+ * carrera y solo una fila se actualiza. La que pierde ve CERO filas y recibe el
+ * MISMO 409 que la comprobación previa, sin haber mutado nada.
+ */
+export async function finalizeCaseReview(
+  client: InsForgeClient,
+  input: FinalizeCaseReviewInput,
+): Promise<CaseReviewRow> {
+  const existing = await getCaseReview(client, input.caseId);
+  if (!existing) {
+    throw new ApiError(
+      400,
+      'VALIDATION_ERROR',
+      'El caso no tiene revisión de asesor que finalizar; regístrala antes de decidir.',
+    );
+  }
+  if (existing.coordinator_decision != null) {
+    throw new ApiError(409, 'VALIDATION_ERROR', DUPLICATE_FINALIZATION_MESSAGE);
+  }
+  if (input.decision === 'CHANGE') {
+    if (!input.resolution) {
+      throw new ApiError(
+        400,
+        'VALIDATION_ERROR',
+        'La decisión CHANGE exige una resolución final distinta de la del asesor.',
+      );
+    }
+    if (input.resolution === existing.result) {
+      throw new ApiError(
+        400,
+        'VALIDATION_ERROR',
+        'La decisión CHANGE exige una resolución distinta de la del asesor.',
+      );
+    }
+  }
+
+  const { data, error } = await client.database
+    .from('case_reviews')
+    .update({
+      coordinator_decision: input.decision,
+      coordinator_resolution: input.decision === 'CHANGE' ? input.resolution : null,
+      coordinator_created_by: input.coordinatorUserId,
+      coordinator_created_at: new Date().toISOString(),
+      coordinator_comment: input.comment,
+    })
+    .eq('id', existing.id)
+    // Guarda atómica: la fila solo se finaliza si `coordinator_decision` sigue
+    // NULL. Un update condicional que afecta 0 filas significa "otra
+    // finalización ganó la carrera" (o la fila dejó de estar pendiente), y eso
+    // se traduce al MISMO 409 estable. Sin `.single()`: un 0-rows no debe
+    // convertirse en un PGRST116 que el mapeador leería como fallo de proveedor.
+    .is('coordinator_decision', null)
+    .select();
+  if (error) dbError(error);
+  const rows = (data as CaseReviewRow[] | null) ?? [];
+  if (rows.length === 0) {
+    throw new ApiError(409, 'VALIDATION_ERROR', DUPLICATE_FINALIZATION_MESSAGE);
+  }
+  return rows[0]!;
 }
 
 /**

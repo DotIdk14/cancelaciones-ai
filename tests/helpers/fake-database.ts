@@ -15,7 +15,7 @@ type Op = 'select' | 'insert' | 'update' | 'upsert';
 type QueryResult = { data: Row[] | Row | null; error: null };
 
 class FakeQuery implements PromiseLike<QueryResult> {
-  private readonly filters: Array<[string, unknown]> = [];
+  private readonly filters: Array<[string, unknown, 'eq' | 'is']> = [];
   private readonly orders: Array<[string, boolean]> = [];
   private limitCount: number | null = null;
 
@@ -62,7 +62,17 @@ class FakeQuery implements PromiseLike<QueryResult> {
   }
 
   eq(column: string, value: unknown): this {
-    this.filters.push([column, value]);
+    this.filters.push([column, value, 'eq']);
+    return this;
+  }
+
+  /**
+   * `col IS NULL` (o `IS value`). Reproduce el `is` de PostgREST, que la capa de
+   * datos usa como guarda atómica: `undefined` cuenta como NULL porque una
+   * columna ausente en el fake representa lo mismo que un NULL en Postgres.
+   */
+  is(column: string, value: unknown): this {
+    this.filters.push([column, value, 'is']);
     return this;
   }
 
@@ -125,7 +135,14 @@ class FakeQuery implements PromiseLike<QueryResult> {
 
     let rows = this.db
       .rows(this.table)
-      .filter((row) => this.filters.every(([column, value]) => row[column] === value));
+      .filter((row) =>
+        this.filters.every(([column, value, op]) => {
+          if (op === 'is') {
+            return value === null ? row[column] === null || row[column] === undefined : row[column] === value;
+          }
+          return row[column] === value;
+        }),
+      );
 
     if (this.op === 'update') {
       for (const row of rows) Object.assign(row, this.patch ?? {});

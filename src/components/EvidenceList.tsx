@@ -33,6 +33,8 @@ export interface EvidenceListProps {
   confirmId?: string | null;
   onConfirmDelete?: (evidence: Evidence) => void;
   onCancelConfirm?: () => void;
+  /** Solo lectura: oculta la acción de eliminar (Gerente o rol no resuelto). */
+  readOnly?: boolean;
 }
 
 export function EvidenceList({
@@ -43,6 +45,7 @@ export function EvidenceList({
   confirmId = null,
   onConfirmDelete,
   onCancelConfirm,
+  readOnly = false,
 }: EvidenceListProps): ReactNode {
   if (evidences.length === 0) {
     return (
@@ -58,7 +61,7 @@ export function EvidenceList({
     <ul className="flex flex-col gap-2">
       {evidences.map((evidence) => {
         const kind = kindFromMime(evidence.mimeType);
-        const isConfirming = confirmId === evidence.id;
+        const isConfirming = !readOnly && confirmId === evidence.id;
         const isDeleting = deletingId === evidence.id;
         return (
           // La columna de evidencias es angosta (~250 px). Con los datos y las
@@ -141,14 +144,16 @@ export function EvidenceList({
                     Descargar
                     <span className="sr-only"> {evidence.filename}</span>
                   </a>
-                  <button
-                    type="button"
-                    onClick={() => onDelete(evidence)}
-                    className="min-w-0 flex-1 truncate rounded-lg border border-line px-2 py-1.5 text-xs font-semibold text-danger transition-colors hover:bg-danger/10"
-                  >
-                    Eliminar
-                    <span className="sr-only"> {evidence.filename}</span>
-                  </button>
+                  {!readOnly && (
+                    <button
+                      type="button"
+                      onClick={() => onDelete(evidence)}
+                      className="min-w-0 flex-1 truncate rounded-lg border border-line px-2 py-1.5 text-xs font-semibold text-danger transition-colors hover:bg-danger/10"
+                    >
+                      Eliminar
+                      <span className="sr-only"> {evidence.filename}</span>
+                    </button>
+                  )}
                 </>
               )}
             </div>

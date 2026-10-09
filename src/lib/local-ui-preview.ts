@@ -1,4 +1,69 @@
-import type { CaseSummary } from './api';
+import type { AppRole, CaseSummary, WorkflowState } from './api';
+
+/**
+ * Roles que la vista previa local puede representar. Es SOLO presentación: el
+ * preview nunca llama a la API ni resuelve sesión, así que cambiar este valor no
+ * altera ninguna autorización real.
+ */
+export const PREVIEW_ROLES: readonly AppRole[] = ['user', 'coordinator', 'manager'];
+
+export const PREVIEW_ROLE_LABELS: Record<AppRole, string> = {
+  user: 'Asesor',
+  coordinator: 'Coordinador',
+  manager: 'Gerente',
+};
+
+/**
+ * Rol que representa la vista previa local.
+ *
+ * Por defecto `coordinator`, para conservar el comportamiento previo de
+ * `?preview=dashboard` (todas las entradas de navegación visibles) y poder
+ * cambiar a Asesor o Gerente con `?role=`. Solo se lee en modo desarrollo.
+ */
+export function getLocalPreviewRole(
+  search: string = typeof window === 'undefined' ? '' : window.location.search,
+): AppRole {
+  const raw = new URLSearchParams(search).get('role');
+  return (PREVIEW_ROLES as readonly string[]).includes(raw ?? '') ? (raw as AppRole) : 'coordinator';
+}
+
+/**
+ * Estados del flujo humano de dos etapas que la vista previa local puede
+ * simular. Es SOLO presentación: no hay ninguna revisión ni decisión persistida.
+ */
+export const PREVIEW_WORKFLOW_STATES: readonly WorkflowState[] = [
+  'PENDING_ADVISOR',
+  'PENDING_COORDINATOR',
+  'FINALIZED',
+];
+
+/**
+ * Estado del flujo que representa la vista previa local.
+ *
+ * Se lee de `?workflow=`; por defecto `PENDING_COORDINATOR` para que el rol por
+ * defecto (Coordinador) muestre de entrada su formulario de finalización. Un
+ * valor ausente o inválido cae a ese mismo estado. Solo se lee en desarrollo.
+ */
+export function getLocalPreviewWorkflowState(
+  search: string = typeof window === 'undefined' ? '' : window.location.search,
+): WorkflowState {
+  const raw = new URLSearchParams(search).get('workflow');
+  return (PREVIEW_WORKFLOW_STATES as readonly string[]).includes(raw ?? '')
+    ? (raw as WorkflowState)
+    : 'PENDING_COORDINATOR';
+}
+
+/**
+ * Enlace de la vista previa local que cambia rol/estado y CONSERVA el fragmento.
+ *
+ * El enrutado es por hash: sin el fragmento, cada cambio de rol recargaría en el
+ * dashboard en vez de quedarse en la ruta que el revisor estaba viendo. Se
+ * compone a mano porque `URLSearchParams` no cubre el fragmento.
+ */
+export function localPreviewHref(role: AppRole, workflow: WorkflowState, hash: string): string {
+  const fragment = hash === '' ? '' : hash.startsWith('#') ? hash : `#${hash}`;
+  return `?preview=dashboard&role=${role}&workflow=${workflow}${fragment}`;
+}
 
 /** Datos sintéticos, usados únicamente por `?preview=dashboard` en desarrollo. */
 export function getLocalPreviewCases(): CaseSummary[] {

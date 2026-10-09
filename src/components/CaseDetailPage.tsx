@@ -6,8 +6,8 @@
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AudioLines, BookOpenCheck, Clock3, FileCheck2, FileText, Paperclip, Search } from 'lucide-react';
-import { deleteEvidence, getAreaComments, getAudit, getCase, startAudit, toErrorState } from '../lib/api';
-import type { AreaComment, AuditDetail, CaseDetailResponse, ErrorState, Evidence } from '../lib/api';
+import { deleteEvidence, getAreaComments, getAudit, getCase, startAudit, toErrorState, workflowStateOf } from '../lib/api';
+import type { AppRole, AreaComment, AuditDetail, CaseDetailResponse, ErrorState, Evidence } from '../lib/api';
 import { formatDateTime, formatDuration, formatPercent, formatFactValue, shortId, textOrDash } from '../lib/format';
 import {
   CASE_STATUS_LABELS,
@@ -15,13 +15,15 @@ import {
   EVIDENCE_STATUS_LABELS,
   RESULT_LABELS,
   RESULT_TONE,
+  caseKindLabel,
+  caseKindTone,
   errorCategoryLabel,
   errorCategoryMessage,
 } from '../lib/labels';
 import { goToCases } from '../lib/useHashRoute';
 import { usePolling } from '../lib/usePolling';
 import { AuditResultPanel } from './AuditResultPanel';
-import { CaseReviewPanel, CaseReviewRecord } from './CaseReviewPanel';
+import { CaseReviewPanel } from './CaseReviewPanel';
 import { AUDIT_RESULTS } from '../skills/audit/types';
 import type { AuditResultType } from '../skills/audit/types';
 import { EvidenceList } from './EvidenceList';
@@ -77,9 +79,11 @@ type AuditPhase = 'idle' | 'starting' | 'waiting' | 'running';
 
 export interface CaseDetailPageProps {
   caseId: string;
+  /** Rol para PRESENTACIÓN. `null`/desconocido se trata como solo lectura. */
+  role: AppRole | null;
 }
 
-export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
+export function CaseDetailPage({ caseId, role }: CaseDetailPageProps): ReactNode {
   const [detail, setDetail] = useState<CaseDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<ErrorState | null>(null);
@@ -275,6 +279,12 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
   const review = detail?.review ?? null;
   const comparison = detail?.comparison ?? null;
   const effectiveResolution = detail?.effectiveResolution ?? null;
+  const workflowState = detail?.workflowState ?? workflowStateOf(review);
+  /**
+   * Rol de SOLO LECTURA para la presentación: el Gerente (y un rol no resuelto)
+   * no ve controles de mutación. El servidor sigue siendo la frontera real.
+   */
+  const readOnly = role === 'manager' || role === null;
   const reviewAuditValue = review === null ? null : detail?.audits.find((item) => item.id === review.auditId)?.result ?? null;
   const reviewAuditResult: AuditResultType | null =
     AUDIT_RESULTS.find((result) => result === reviewAuditValue) ?? null;
@@ -480,6 +490,7 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
             <Badge tone={CASE_STATUS_TONE[detail.case.status]}>
               {CASE_STATUS_LABELS[detail.case.status]}
             </Badge>
+            <Badge tone={caseKindTone(detail.case.isTest)}>{caseKindLabel(detail.case.isTest)}</Badge>
           </div>
           <p className="mt-1 text-xs text-muted">
             {detail.case.studentIdentifier !== null && detail.case.studentIdentifier !== ''
@@ -500,16 +511,19 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
 
       <div className="case-detail-layout">
         <aside className="case-detail-evidence">
-          <details className="case-detail-upload">
-            <summary><span aria-hidden="true">+</span> Adjuntar evidencias</summary>
-            <EvidenceUploader caseId={caseId} onUploaded={() => load()} disabled={Boolean(caseIsError)} />
-          </details>
+          {!readOnly && (
+            <details className="case-detail-upload">
+              <summary><span aria-hidden="true">+</span> Adjuntar evidencias</summary>
+              <EvidenceUploader caseId={caseId} onUploaded={() => load()} disabled={Boolean(caseIsError)} />
+            </details>
+          )}
           <AreaQuickComments
             caseId={caseId}
             hasCompletedAudit={detail?.audit?.status === 'COMPLETED'}
             autoFocus={focusNotesRequest}
             initialComments={quickComments ?? undefined}
             onSaved={() => void loadQuickComments()}
+            readOnly={readOnly}
           />
           <Panel
             title={`Evidencias (${evidences.length})`}
@@ -527,6 +541,7 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
               onCancelConfirm={() => setConfirmId(null)}
               deletingId={deletingId}
               confirmId={confirmId}
+              readOnly={readOnly}
             />
           </Panel>
         </aside>
@@ -761,9 +776,16 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
               <div className="case-verdict-section"><span>Sección</span><strong>{result.audit.procedureSection}</strong></div>
               <button type="button" onClick={() => setActiveTab('verdict')}>Abrir dictamen completo <span aria-hidden="true">→</span></button>
             </div>}
-            <Button variant="primary" className="w-full" onClick={() => void maybeRunAudit()} disabled={!canAudit} loading={auditBusy} loadingLabel="Consultando auditoría">
-              {auditPhase === 'waiting' ? 'Esperando transcripción…' : auditPhase === 'running' || auditPhase === 'starting' ? 'Auditando con IA…' : shouldShowReauditLabel ? 'Volver a auditar' : 'Auditar con IA'}
-            </Button>
+            {!readOnly && (
+              <Button variant="primary" className="w-full" onClick={() => void maybeRunAudit()} disabled={!canAudit} loading={auditBusy} loadingLabel="Consultando auditoría">
+                {auditPhase === 'waiting' ? 'Esperando transcripción…' : auditPhase === 'running' || auditPhase === 'starting' ? 'Auditando con IA…' : shouldShowReauditLabel ? 'Volver a auditar' : 'Auditar con IA'}
+              </Button>
+            )}
+            {readOnly && (
+              <p role="status" className="text-xs text-muted">
+                Solo lectura: tu rol no puede ejecutar ni modificar el caso.
+              </p>
+            )}
 
             {showNotesPrompt && (
               <section
@@ -800,17 +822,17 @@ export function CaseDetailPage({ caseId }: CaseDetailPageProps): ReactNode {
 
             {auditBusy && <p role="status" className="case-audit-progress"><Spinner label="Auditoría en curso" className="h-3.5 w-3.5" />{auditPhase === 'waiting' ? `Esperando transcripción de ${pendingEvidence.length} evidencia(s)…` : `Auditando… ${audit ? `${audit.provider}/${audit.model}` : ''}`}</p>}
           </Panel>
-          {review !== null ? (
-            <CaseReviewRecord
-              caseId={caseId}
-              review={review}
-              comparison={comparison}
-              effectiveResolution={effectiveResolution}
-              reviewAuditResult={reviewAuditResult}
-            />
-          ) : (
-            <CaseReviewPanel caseId={caseId} audit={audit} review={null} onSubmitted={() => void load()} />
-          )}
+          <CaseReviewPanel
+            caseId={caseId}
+            audit={audit}
+            review={review}
+            comparison={comparison}
+            effectiveResolution={effectiveResolution}
+            reviewAuditResult={reviewAuditResult}
+            workflowState={workflowState}
+            role={role}
+            onSubmitted={() => void load()}
+          />
         </aside>
       </div>
     </div>

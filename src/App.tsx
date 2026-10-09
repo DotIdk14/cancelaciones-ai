@@ -15,8 +15,18 @@ import { LoginScreen } from './components/LoginScreen';
 import { NewCasePanel } from './components/NewCasePanel';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Panel, Spinner } from './components/ui';
+import type { AppRole, WorkflowState } from './lib/api';
 import { cx } from './lib/cx';
+import { WORKFLOW_STATE_LABELS } from './lib/labels';
 import { isLocalDashboardPreview } from './lib/local-dashboard-preview';
+import {
+  getLocalPreviewRole,
+  getLocalPreviewWorkflowState,
+  localPreviewHref,
+  PREVIEW_ROLE_LABELS,
+  PREVIEW_ROLES,
+  PREVIEW_WORKFLOW_STATES,
+} from './lib/local-ui-preview';
 import { useHashRoute } from './lib/useHashRoute';
 import type { AppRoute } from './lib/useHashRoute';
 import { useSession } from './lib/useSession';
@@ -61,14 +71,37 @@ function DashboardFallback(): ReactNode {
   );
 }
 
-function CurrentRoute({ route, previewOnly }: { route: AppRoute; previewOnly: boolean }): ReactNode {
-  return <Suspense fallback={<DashboardFallback />}>{renderRoute(route, previewOnly)}</Suspense>;
+function CurrentRoute({
+  route,
+  previewOnly,
+  role,
+  previewWorkflow,
+}: {
+  route: AppRoute;
+  previewOnly: boolean;
+  role: AppRole | null;
+  previewWorkflow: WorkflowState;
+}): ReactNode {
+  return (
+    <Suspense fallback={<DashboardFallback />}>
+      {renderRoute(route, previewOnly, role, previewWorkflow)}
+    </Suspense>
+  );
 }
 
-function renderRoute(route: AppRoute, previewOnly: boolean): ReactNode {
+function renderRoute(
+  route: AppRoute,
+  previewOnly: boolean,
+  role: AppRole | null,
+  previewWorkflow: WorkflowState,
+): ReactNode {
   switch (route.name) {
     case 'case':
-      return previewOnly ? <CaseDetailPreview caseId={route.caseId} /> : <CaseDetailPage caseId={route.caseId} />;
+      return previewOnly ? (
+        <CaseDetailPreview caseId={route.caseId} role={role} workflowState={previewWorkflow} />
+      ) : (
+        <CaseDetailPage caseId={route.caseId} role={role} />
+      );
     case 'cases':
       return <CaseListPage />;
     // El nav ofrece "Nuevo caso" y "Casos" como entradas distintas, así que
@@ -76,7 +109,7 @@ function renderRoute(route: AppRoute, previewOnly: boolean): ReactNode {
     // componían antes en `CaseListPage`; aquí solo se usa el panel que la
     // etiqueta del enlace promete.
     case 'new-case':
-      return <NewCasePanel />;
+      return <NewCasePanel role={role} />;
     case 'quality':
       return <QualityPage />;
     case 'ai-costs':
@@ -89,9 +122,13 @@ function renderRoute(route: AppRoute, previewOnly: boolean): ReactNode {
 function Shell({
   onSignOut,
   previewOnly = false,
+  role = null,
+  previewWorkflow = 'PENDING_COORDINATOR',
 }: {
   onSignOut?: () => void;
   previewOnly?: boolean;
+  role?: AppRole | null;
+  previewWorkflow?: WorkflowState;
 }): ReactNode {
   const route = useHashRoute();
   const displayRoute = route;
@@ -121,17 +158,16 @@ function Shell({
       >
         Saltar al contenido
       </a>
-      <AppHeader onSignOut={onSignOut} previewOnly={previewOnly} />
+      <AppHeader onSignOut={onSignOut} previewOnly={previewOnly} role={role} />
       {previewOnly && (
-        <div
-          role="status"
-          className="border-b border-warning/30 bg-surface-2 px-4 py-2 text-center text-sm text-warning"
-        >
-          Vista previa local: datos ficticios, sin conexión a InsForge.
+        <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 border-b border-warning/30 bg-surface-2 px-4 py-2 text-center text-sm text-warning">
+          <span role="status">Vista previa local: datos ficticios, sin conexión a InsForge.</span>
+          <LocalRoleSwitch role={role} workflow={previewWorkflow} />
+          <LocalWorkflowSwitch role={role} workflow={previewWorkflow} />
         </div>
       )}
       <div className={cx('app-workspace', detailRoute && 'app-workspace-detail')}>
-        <AppNav previewOnly={previewOnly} horizontal={detailRoute} />
+        <AppNav previewOnly={previewOnly} horizontal={detailRoute} role={role} />
         <main
           id="contenido"
           // `tabIndex={-1}` hace que el destino del skip link reciba el foco de
@@ -139,10 +175,110 @@ function Shell({
           tabIndex={-1}
         className="app-content min-w-0 px-4 py-5 sm:px-6 lg:px-7"
         >
-          <CurrentRoute route={displayRoute} previewOnly={previewOnly} />
+          <CurrentRoute
+            route={displayRoute}
+            previewOnly={previewOnly}
+            role={role}
+            previewWorkflow={previewWorkflow}
+          />
         </main>
       </div>
     </div>
+  );
+}
+
+/**
+ * Selector de rol de la VISTA PREVIA LOCAL.
+ *
+ * Es SOLO presentación y SOLO desarrollo: vive dentro del aviso `previewOnly`,
+ * que únicamente se monta con `?preview=dashboard` y `import.meta.env.DEV`.
+ * Cambiar el rol aquí NO altera la sesión ni la autorización del servidor: los
+ * enlaces solo reescriben el parámetro `?role=` de la URL y la app recarga con
+ * la vista de ese rol. Nunca existe en producción porque el aviso no se monta
+ * fuera de la vista previa.
+ */
+function LocalRoleSwitch({
+  role,
+  workflow,
+}: {
+  role: AppRole | null;
+  workflow: WorkflowState;
+}): ReactNode {
+  // El fragmento actual se conserva en los enlaces: si no, cambiar de rol
+  // recargaría en el dashboard y el revisor perdería la ruta que estaba viendo.
+  const hash = typeof window === 'undefined' ? '' : window.location.hash;
+  const linkClass = (active: boolean): string =>
+    cx(
+      'rounded-full border px-2.5 py-0.5 text-xs font-medium no-underline',
+      active
+        ? 'border-warning bg-warning/20 text-warning'
+        : 'border-warning/40 text-warning hover:bg-warning/10',
+    );
+  return (
+    <nav
+      aria-label="Rol de la vista previa local"
+      className="inline-flex flex-wrap items-center justify-center gap-1.5"
+    >
+      <span className="font-medium">Rol de la vista previa (solo local):</span>
+      {PREVIEW_ROLES.map((previewRole) => {
+        const active = role === previewRole;
+        return (
+          <a
+            key={previewRole}
+            href={localPreviewHref(previewRole, workflow, hash)}
+            aria-current={active ? 'true' : undefined}
+            className={linkClass(active)}
+          >
+            {PREVIEW_ROLE_LABELS[previewRole]}
+          </a>
+        );
+      })}
+    </nav>
+  );
+}
+
+/**
+ * Selector del ESTADO DEL FLUJO simulado de la vista previa local.
+ *
+ * Igual que el selector de rol, es SOLO presentación y SOLO desarrollo: cambia
+ * qué etapa del flujo en dos etapas muestra el expediente de demostración (qué
+ * formulario ve cada rol). Nunca persiste nada ni toca el servidor.
+ */
+function LocalWorkflowSwitch({
+  role,
+  workflow,
+}: {
+  role: AppRole | null;
+  workflow: WorkflowState;
+}): ReactNode {
+  const hash = typeof window === 'undefined' ? '' : window.location.hash;
+  const linkClass = (active: boolean): string =>
+    cx(
+      'rounded-full border px-2.5 py-0.5 text-xs font-medium no-underline',
+      active
+        ? 'border-warning bg-warning/20 text-warning'
+        : 'border-warning/40 text-warning hover:bg-warning/10',
+    );
+  return (
+    <nav
+      aria-label="Estado del flujo de la vista previa local"
+      className="inline-flex flex-wrap items-center justify-center gap-1.5"
+    >
+      <span className="font-medium">Estado del flujo (solo local):</span>
+      {PREVIEW_WORKFLOW_STATES.map((state) => {
+        const active = workflow === state;
+        return (
+          <a
+            key={state}
+            href={localPreviewHref(role ?? 'coordinator', state, hash)}
+            aria-current={active ? 'true' : undefined}
+            className={linkClass(active)}
+          >
+            {WORKFLOW_STATE_LABELS[state]}
+          </a>
+        );
+      })}
+    </nav>
   );
 }
 
@@ -156,19 +292,27 @@ function AuthLoadingScreen(): ReactNode {
 }
 
 function AuthenticatedApp(): ReactNode {
-  const { status, signOut, sessionExpired, authError } = useSession();
+  const { status, signOut, sessionExpired, authError, role } = useSession();
 
   if (status === 'loading') return <AuthLoadingScreen />;
   if (status === 'anon') return <LoginScreen authError={authError} sessionExpired={sessionExpired} />;
-  return <Shell onSignOut={signOut} />;
+  return <Shell onSignOut={signOut} role={role} />;
 }
 
 export function App(): ReactNode {
   const localPreview = isLocalDashboardPreview();
+  // Rol y estado del flujo de la vista previa: SOLO presentación y solo se leen
+  // en desarrollo. No alteran la sesión ni la autorización del servidor.
+  const previewRole = localPreview ? getLocalPreviewRole() : null;
+  const previewWorkflow = localPreview ? getLocalPreviewWorkflowState() : 'PENDING_COORDINATOR';
 
   return (
     <ErrorBoundary>
-      {localPreview ? <Shell previewOnly /> : <AuthenticatedApp />}
+      {localPreview ? (
+        <Shell previewOnly role={previewRole} previewWorkflow={previewWorkflow} />
+      ) : (
+        <AuthenticatedApp />
+      )}
     </ErrorBoundary>
   );
 }

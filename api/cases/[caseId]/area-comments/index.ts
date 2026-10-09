@@ -6,6 +6,7 @@ import {
   requiredUuid,
 } from '../../../../src/server/http.js';
 import { createServerClient } from '../../../../src/server/insforge.js';
+import { assertCaseWriteCapability } from '../../../../src/server/auth.js';
 import { assertCaseOwner, getScopedCaseOr404 } from '../../../../src/server/cases.js';
 import {
   listAreaComments,
@@ -37,6 +38,8 @@ export default handleRoute(async (req, res) => {
 
   if (req.method === 'POST') {
     const caseRow = await getScopedCaseOr404(client, caseId, req.auth!);
+    // Capacidad ANTES que propiedad: el gerente no escribe ni en un caso propio.
+    assertCaseWriteCapability(req.auth!);
     assertCaseOwner(caseRow, req.auth!);
     // Validación SIEMPRE en servidor: el comentario es texto libre de una
     // persona y el área es vocabulario cerrado. Nunca se confía en el cliente.

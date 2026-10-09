@@ -1,5 +1,6 @@
 import { ApiError, handleRoute, ok, methodNotAllowed, requiredUuid } from '../../../../../src/server/http.js';
 import { createServerClient } from '../../../../../src/server/insforge.js';
+import { assertCaseWriteCapability } from '../../../../../src/server/auth.js';
 import { getEnv } from '../../../../../src/server/env.js';
 import {
   assertCaseOwner,
@@ -21,6 +22,8 @@ export default handleRoute(async (req, res) => {
   const evidenceId = requiredUuid(req.query, 'evidenceId');
 
   const caseRow = await getScopedCaseOr404(client, caseId, req.auth!);
+  // Capacidad ANTES que propiedad: el gerente no borra evidencia, ni propia.
+  assertCaseWriteCapability(req.auth!);
   assertCaseOwner(caseRow, req.auth!);
   const evidence = await getEvidenceOr404(client, caseId, evidenceId);
 

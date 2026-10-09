@@ -5,10 +5,13 @@
 //
 // Lo que estos tests fijan, y que es la parte fácil de romper sin darse cuenta:
 //
-//   1. El formulario NO aparece si no hay dictamen emitido, NI si ya hay
-//      revisión. La revisión es ÚNICA por caso.
-//   2. El botón de enviar se DESHABILITA sin resultado o nombre de revisor, o
-//      con notas por encima del máximo del servidor (2000 caracteres recortados).
+//   1. El formulario del Asesor NO aparece si no hay dictamen emitido, NI si ya
+//      hay revisión (la revisión es ÚNICA por caso). Tampoco lo ve quien no
+//      puede registrarlo: el gating por rol es SOLO presentación.
+//   2. El botón de enviar se DESHABILITA sin resolución elegida, o con notas por
+//      encima del máximo del servidor (2000 caracteres recortados). El
+//      comentario es opcional y la atribución la deriva el servidor de la sesión:
+//      el cliente NUNCA envía `reviewerName`.
 //   3. Un 409 dice que la revisión ya existe y NO ofrece reenviarla.
 //   4. Un `comparison.status === 'RUNNING'` al montar retoma el polling contra
 //      el servidor, y recargar NO duplica revisión ni comparación.
@@ -21,7 +24,7 @@
 import { createElement } from 'react';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { AuditDetail, CaseReviewDto, ComparisonDto, EffectiveResolution } from '../src/lib/api';
+import type { AppRole, AuditDetail, CaseReviewDto, ComparisonDto, EffectiveResolution, WorkflowState } from '../src/lib/api';
 import { CaseReviewPanel, CaseReviewRecord } from '../src/components/CaseReviewPanel';
 import { RESULT_LABELS } from '../src/lib/labels';
 import { validAuditResult } from './fixtures/audit-result';
@@ -133,6 +136,8 @@ const noop = (): void => undefined;
 function renderPanel(overrides: {
   audit?: AuditDetail | null;
   review?: CaseReviewDto | null;
+  role?: AppRole | null;
+  workflowState?: WorkflowState;
   onSubmitted?: () => void;
 } = {}): HTMLElement {
   const view = render(
@@ -140,6 +145,9 @@ function renderPanel(overrides: {
       caseId: 'case-1',
       audit: overrides.audit === undefined ? makeAudit() : overrides.audit,
       review: overrides.review === undefined ? null : overrides.review,
+      // El formulario de Asesor sólo existe para el rol que puede registrarlo.
+      role: overrides.role === undefined ? 'user' : overrides.role,
+      workflowState: overrides.workflowState,
       onSubmitted: overrides.onSubmitted ?? noop,
     }),
   );
@@ -170,13 +178,10 @@ function commentBox(): HTMLTextAreaElement {
   return screen.getByLabelText(/notas de la revisión/i) as HTMLTextAreaElement;
 }
 
-function reviewerNameBox(): HTMLInputElement {
-  return screen.getByLabelText(/nombre de quien revisa/i) as HTMLInputElement;
-}
-
 function chooseReview(resultLabel = 'Baja'): void {
+  // El comentario es opcional y la atribución la pone el servidor: para habilitar
+  // el envío basta con elegir una resolución.
   fireEvent.click(screen.getByRole('radio', { name: resultLabel }));
-  fireEvent.change(reviewerNameBox(), { target: { value: 'Revisora de pruebas' } });
 }
 
 function submitButton(): HTMLButtonElement {
@@ -210,10 +215,13 @@ describe('CaseReviewPanel — cuándo existe', () => {
     }
   });
 
-  it('no aparece cuando ya existe revisión: la revisión es única por caso', () => {
+  it('con revisión ya registrada no ofrece el formulario del Asesor: es única por caso', () => {
     const container = renderPanel({ review: makeReview() });
 
-    expect(container.firstChild).toBeNull();
+    // La revisión registrada sí se muestra (es la resolución del Asesor)...
+    expect(screen.getByRole('heading', { name: /revisión humana/i })).toBeTruthy();
+    // ...pero el formulario del Asesor NO: su decisión es única e inmutable.
+    expect(container.querySelector('form')).toBeNull();
     expect(screen.queryByRole('button', { name: /registrar la revisión/i })).toBeNull();
   });
 
@@ -223,17 +231,71 @@ describe('CaseReviewPanel — cuándo existe', () => {
     // ese remount declararía menos hooks y React abortaría la pantalla justo
     // cuando el usuario acaba de recibir su dictamen.
     const view = render(
-      createElement(CaseReviewPanel, { caseId: 'case-1', audit: makeAudit('RUNNING'), review: null, onSubmitted: noop }),
+      createElement(CaseReviewPanel, { caseId: 'case-1', audit: makeAudit('RUNNING'), review: null, role: 'user', onSubmitted: noop }),
     );
     expect(view.container.firstChild).toBeNull();
 
     view.rerender(
-      createElement(CaseReviewPanel, { caseId: 'case-1', audit: makeAudit('COMPLETED'), review: null, onSubmitted: noop }),
+      createElement(CaseReviewPanel, { caseId: 'case-1', audit: makeAudit('COMPLETED'), review: null, role: 'user', onSubmitted: noop }),
     );
 
     expect(view.container.querySelector('form')).not.toBeNull();
     // El vocabulario humano tiene 6 opciones: ni matrícula ni dictaminación.
     expect(within(view.container).getAllByRole('radio')).toHaveLength(6);
+  });
+});
+
+// =============================================================================
+describe('CaseReviewPanel — gating por rol (solo presentación)', () => {
+  it('el Asesor ve su formulario cuando la etapa está pendiente', () => {
+    renderPanel({ role: 'user' });
+
+    expect(screen.getByRole('button', { name: /registrar la revisión/i })).toBeTruthy();
+  });
+
+  it('el Asesor NO puede registrar la etapa del Coordinador', () => {
+    // Hay revisión de Asesor y falta la decisión final: es la etapa del Coordinador.
+    renderPanel({ role: 'user', review: makeReview() });
+
+    expect(screen.queryByRole('button', { name: /finalizar el caso/i })).toBeNull();
+    expect(screen.queryByRole('group', { name: /decisión final/i })).toBeNull();
+    // Se le deja constancia de que su etapa ya quedó registrada e inmutable.
+    expect(screen.getByText(/pendiente de la decisión del coordinador/i)).toBeTruthy();
+  });
+
+  it('el Coordinador NO puede registrar la etapa del Asesor', () => {
+    // Sin revisión de Asesor todavía no hay nada que finalizar.
+    renderPanel({ role: 'coordinator', review: null });
+
+    expect(screen.queryByRole('button', { name: /registrar la revisión/i })).toBeNull();
+    expect(screen.getByText(/la etapa de asesor la registra el asesor/i)).toBeTruthy();
+  });
+
+  it('el Coordinador sí finaliza cuando la etapa está PENDING_COORDINATOR', () => {
+    renderPanel({ role: 'coordinator', review: makeReview(), workflowState: 'PENDING_COORDINATOR' });
+
+    expect(screen.getByRole('button', { name: /finalizar el caso/i })).toBeTruthy();
+  });
+
+  it('el Gerente no ve ningún control de mutación, ni del Asesor ni del Coordinador', () => {
+    // Etapa pendiente de Asesor: sin formulario de Asesor.
+    renderPanel({ role: 'manager', review: null });
+    expect(screen.queryByRole('button', { name: /registrar la revisión/i })).toBeNull();
+    expect(screen.getByText(/solo lectura/i)).toBeTruthy();
+    cleanup();
+
+    // Etapa pendiente de Coordinador: sin formulario de Coordinador.
+    renderPanel({ role: 'manager', review: makeReview() });
+    expect(screen.queryByRole('button', { name: /finalizar el caso/i })).toBeNull();
+    expect(screen.getByText(/solo lectura/i)).toBeTruthy();
+  });
+
+  it('con la decisión final registrada nadie ve un formulario: sólo el registro', () => {
+    renderPanel({ role: 'coordinator', review: makeReview({ coordinatorDecision: 'APPROVE' }) });
+
+    expect(screen.queryByRole('button', { name: /finalizar el caso/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /registrar la revisión/i })).toBeNull();
+    expect(screen.getByText(/decisión del coordinador/i)).toBeTruthy();
   });
 });
 
@@ -248,13 +310,15 @@ describe('CaseReviewPanel — decisión y datos de la revisión', () => {
     expect((screen.getByRole('radio', { name: RESULT_LABELS[aiResult] }) as HTMLInputElement).checked).toBe(true);
   });
 
-  it('requiere identificar a quien revisa, pero permite dejar las notas vacías', () => {
+  it('requiere elegir una resolución, pero permite dejar las notas vacías', () => {
     renderForm();
-    fireEvent.click(screen.getByRole('radio', { name: /^baja$/i }));
 
+    // Sin resolución no hay envío posible...
     expect(submitButton().disabled).toBe(true);
-    fireEvent.change(reviewerNameBox(), { target: { value: 'Revisora de pruebas' } });
+    fireEvent.click(screen.getByRole('radio', { name: /^baja$/i }));
+    // ...y con resolución, el comentario vacío es válido: es opcional.
     expect(submitButton().disabled).toBe(false);
+    expect(commentBox().value).toBe('');
   });
 
   it('permite notas de hasta 2000 caracteres y bloquea las que exceden el límite', () => {
@@ -276,7 +340,6 @@ describe('CaseReviewPanel — decisión y datos de la revisión', () => {
 
   it('el botón sigue deshabilitado si no se eligió resolución', () => {
     renderForm();
-    fireEvent.change(reviewerNameBox(), { target: { value: 'Revisora de pruebas' } });
 
     expect(submitButton().disabled).toBe(true);
   });
@@ -302,7 +365,7 @@ describe('CaseReviewPanel — decisión y datos de la revisión', () => {
 
 // =============================================================================
 describe('CaseReviewPanel — envío válido', () => {
-  it('llama al endpoint con { result, reviewerName, comment } y muestra el estado de comparación', async () => {
+  it('llama al endpoint con { result, comment } y muestra el estado de comparación', async () => {
     const calls = stubFetch(() =>
       fakeResponse(201, {
         review: makeReview(),
@@ -322,9 +385,11 @@ describe('CaseReviewPanel — envío válido', () => {
     // Los datos viajan recortados: es exactamente lo que valida el servidor.
     expect(calls[0]?.body).toEqual({
       result: 'BAJA',
-      reviewerName: 'Revisora de pruebas',
       comment: COMMENT,
     });
+    // El cliente NUNCA envía la atribución: el servidor la deriva de la sesión y
+    // rechazaría un `reviewerName` (schema estricto).
+    expect(calls[0]?.body).not.toHaveProperty('reviewerName');
 
     expect(await screen.findByText(/comparando/i)).toBeTruthy();
   });

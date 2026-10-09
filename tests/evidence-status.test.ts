@@ -21,7 +21,7 @@ import evidenceDeleteHandler from '../api/cases/[caseId]/evidence/[evidenceId]/i
 import auditHandler from '../api/cases/[caseId]/audit/index';
 import { setTestEnv } from './helpers/env';
 import { validAuditResult } from './fixtures/audit-result';
-import { fakeAuthContext } from './helpers/auth';
+import { fakeAuthContext, FAKE_USER_SUB } from './helpers/auth';
 import {
   fakeClient,
   storageLog,
@@ -193,7 +193,7 @@ beforeEach(() => {
   // Ventana holgada por defecto: el primer poll ya devuelve READY y no hay sleep.
   setPollWindow(2_000);
   resetStore();
-  seedCase();
+  seedCase({ created_by: FAKE_USER_SUB });
   mockedCall.mockReset();
   mockedCall.mockResolvedValue({
     parsed: validAuditResult,
@@ -332,7 +332,7 @@ describe('fingerprint de expediente y ciclo de vida del caso', () => {
 
   it('upload READY después de COMPLETED reabre el caso a READY', async () => {
     resetStore();
-    seedCase({ status: 'COMPLETED' });
+    seedCase({ status: 'COMPLETED', created_by: FAKE_USER_SUB });
     await upload('text/plain', 'nueva.txt', 'nueva evidencia');
 
     expect(getCase('case-1')?.status).toBe('READY');
@@ -340,7 +340,7 @@ describe('fingerprint de expediente y ciclo de vida del caso', () => {
 
   it('delete después de COMPLETED reabre a DRAFT si no quedan evidencias', async () => {
     resetStore();
-    seedCase({ status: 'COMPLETED' });
+    seedCase({ status: 'COMPLETED', created_by: FAKE_USER_SUB });
     const evidence = seedEvidence({ id: 'ev-1', processing_status: 'READY' });
     const res = makeApiResponse();
 

@@ -23,7 +23,7 @@
 import { createElement } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CaseDetailResponse, Evidence } from '../src/lib/api';
+import type { AppRole, CaseDetailResponse, Evidence } from '../src/lib/api';
 import { CaseDetailPage } from '../src/components/CaseDetailPage';
 import { EvidenceList } from '../src/components/EvidenceList';
 
@@ -145,6 +145,14 @@ function makeDetailWithAudit(): CaseDetailResponse {
 async function renderDetail(detail: CaseDetailResponse): Promise<void> {
   getCase.mockResolvedValue(detail);
   render(createElement(CaseDetailPage, { caseId: 'case-1' }));
+  await waitFor(() => {
+    expect(screen.queryByText('Cargando caso')).toBeNull();
+  });
+}
+
+async function renderDetailAs(detail: CaseDetailResponse, role: AppRole | null): Promise<void> {
+  getCase.mockResolvedValue(detail);
+  render(createElement(CaseDetailPage, { caseId: 'case-1', role }));
   await waitFor(() => {
     expect(screen.queryByText('Cargando caso')).toBeNull();
   });
@@ -336,5 +344,32 @@ describe('Cronología del caso', () => {
     // 2 eventos del cliente + expediente creado + la subida agrupada. Las dos
     // evidencias siguen siendo 1 evento, y el histórico de auditoría va aparte.
     expect(within(timelineTab).getByText('4')).toBeTruthy();
+  });
+});
+
+describe('CaseDetailPage — gating por rol (solo presentación)', () => {
+  it('el Gerente ve el expediente en solo lectura, sin controles de mutación', async () => {
+    await renderDetailAs(makeDetailWithAudit(), 'manager');
+
+    // Sin subida de evidencia.
+    expect(screen.queryByText(/adjuntar evidencias/i)).toBeNull();
+    // Sin borrar evidencia (la lectura sigue disponible).
+    expect(screen.queryByRole('button', { name: /^eliminar/i })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Ver captura.png' })).toBeTruthy();
+    // Sin botón de auditar.
+    expect(screen.queryByRole('button', { name: /auditar con ia/i })).toBeNull();
+    // Sin guardar notas de área.
+    expect(screen.queryByRole('button', { name: /guardar/i })).toBeNull();
+    // El modo de solo lectura se declara en la revisión y en el dictamen.
+    expect(screen.getByText(/solo lectura: tu rol no puede ejecutar/i)).toBeTruthy();
+    expect(screen.getByText(/solo lectura: la revisión del asesor/i)).toBeTruthy();
+  });
+
+  it('un Asesor sí ve los controles de mutación del expediente', async () => {
+    await renderDetailAs(makeDetailWithAudit(), 'user');
+
+    expect(screen.getByText(/adjuntar evidencias/i)).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: /^eliminar/i }).length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: /auditar con ia/i })).toBeTruthy();
   });
 });

@@ -54,8 +54,18 @@ Esto aplica:
 2. `20260929040000_audit-dashboard-metrics.sql`
 3. `20260930010000_human-resolution.sql`
 4. `20260930020000_human-review-dashboard-metrics.sql`
-5. `20261001010000_case-reviewer-name.sql`
-6. `20261002000000_auth_core.sql`
+5. `20260930120000_case-metadata-and-human-reviews.sql`
+6. `20261001010000_case-reviewer-name.sql`
+7. `20261002000000_auth_core.sql`
+8. `20261003000000_paid-admissions.sql`
+9. `20261003010000_derived-extractions.sql`
+10. `20261005010000_case-area-comments.sql`
+11. `20261005120000_origin-country-channel.sql`
+12. `20261008090000_case-cycle-start-date-human.sql`
+13. `20261008100000_membership-role-manager.sql`
+14. `20261008110000_case-test-flag.sql`
+15. `20261008120000_case-review-coordinator-decision.sql`
+16. `20261008130000_dashboard-view-test-owner-scope.sql`
 
 ### Base de producción con esquema legacy
 
@@ -66,7 +76,9 @@ insforge db migrations up --all
 
 Esto aplica:
 1. `20260928010000_ai-native-production.sql` (renombra `audits` legacy a `legacy_audits`)
-2. Las migraciones 2-6 de la lista anterior.
+2. Las migraciones 2-16 de la lista anterior.
+
+> Las migraciones 13-16 son las de la feature de revisión humana por roles y traen un `DO $verify$` que aborta si el esquema no queda como se describe. Aplicarlas una por una con `node scripts/apply-migration.mjs <archivo>` ejecuta además las comprobaciones de `scripts/migration-checks/<archivo>.checks.json`.
 
 Verifica que ninguna migración termine con `RAISE EXCEPTION`.
 
@@ -79,13 +91,18 @@ Verifica que ninguna migración termine con `RAISE EXCEPTION`.
 
 ```sql
 INSERT INTO public.app_memberships (user_id, role) VALUES
-  ('<uuid-del-usuario>', 'user'),
-  ('<uuid-del-coordinador>', 'coordinator');
+  ('<uuid-del-asesor>', 'user'),
+  ('<uuid-del-coordinador>', 'coordinator'),
+  ('<uuid-del-gerente>', 'manager');
 ```
 
-Roles:
-- `user`: ve y muta solo sus propios casos.
-- `coordinator`: puede leer cualquier caso; no puede crear casos ni evidencias ajenas (el scoping de escritura sigue siendo de dueño).
+Roles (vocabulario cerrado, `CHECK` en la base desde `20261008100000`):
+
+- `user` (**Asesor**): ve y muta solo sus propios casos; registra la decisión de asesor.
+- `coordinator` (**Coordinador**): lee cualquier caso y finaliza cualquiera; crea y muta los suyos, pero NO escribe en casos ajenos (el scoping de escritura sigue siendo de dueño).
+- `manager` (**Gerente**): solo lectura global; no crea, no muta, no revisa ni finaliza (un `POST` suyo es `403`).
+
+Los permisos los decide `capabilitiesForRole` (`src/server/capabilities.ts`), no la RLS: el servidor escribe como `project_admin` y para él las políticas no aplican. Un rol fuera del vocabulario, o sin fila, recibe `403` (fail-closed).
 
 Hasta que un usuario tenga fila en `app_memberships`, podrá autenticarse pero recibirá **403**.
 

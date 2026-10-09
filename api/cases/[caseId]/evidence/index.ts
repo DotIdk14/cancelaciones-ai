@@ -9,6 +9,7 @@ import {
   requiredUuid,
 } from '../../../../src/server/http.js';
 import { createServerClient } from '../../../../src/server/insforge.js';
+import { assertCaseWriteCapability } from '../../../../src/server/auth.js';
 import { getEnv } from '../../../../src/server/env.js';
 import {
   assertCaseOwner,
@@ -39,6 +40,8 @@ export default handleRoute(async (req, res) => {
   const client = createServerClient();
   const caseId = requiredUuid(req.query, 'caseId');
   const caseRow = await getScopedCaseOr404(client, caseId, req.auth!);
+  // Capacidad ANTES que propiedad: el gerente no sube evidencia, ni propia.
+  assertCaseWriteCapability(req.auth!);
   assertCaseOwner(caseRow, req.auth!);
 
   const headerValue = (value: string | string[] | undefined): string =>

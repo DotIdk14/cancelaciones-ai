@@ -21,6 +21,7 @@ import {
   HumanReviewInputSchema,
   parseComparisonOutcome,
   parseComparisonResult,
+  parseCoordinatorReviewInput,
 } from '../src/skills/review/schema';
 
 /** Comparación válida de referencia. */
@@ -137,9 +138,12 @@ describe('ComparisonResultSchema', () => {
 });
 
 describe('HumanReviewInputSchema', () => {
+  // CONTRATO NUEVO: el body de la etapa del asesor es `{ result, comment? }`.
+  // El nombre de quien revisa NO viaja: se deriva del correo de la sesión. Por eso
+  // este bloque no exige `reviewerName` y además comprueba que un nombre enviado
+  // por el cliente se RECHAZA (no se "ignora en silencio": `strict`).
   const valid = {
     result: 'BAJA' as const,
-    reviewerName: 'Revisora de pruebas',
     comment: 'Se acredita la baja por solicitud posterior al inicio de ciclo.',
   };
 
@@ -147,15 +151,27 @@ describe('HumanReviewInputSchema', () => {
     expect(HumanReviewInputSchema.parse(valid)).toEqual(valid);
   });
 
+  it('el comentario es opcional: sin él la revisión sigue siendo válida', () => {
+    const parsed = HumanReviewInputSchema.parse({ result: 'BAJA' });
+    expect(parsed.result).toBe('BAJA');
+    expect(parsed.comment).toBe('');
+  });
+
   it('permite notas vacías porque son opcionales', () => {
     expect(HumanReviewInputSchema.parse({ ...valid, comment: '' }).comment).toBe('');
     expect(HumanReviewInputSchema.parse({ ...valid, comment: '    ' }).comment).toBe('');
   });
 
-  it('exige identificar a la persona revisora', () => {
-    expect(HumanReviewInputSchema.safeParse({ ...valid, reviewerName: '' }).success).toBe(false);
-    expect(HumanReviewInputSchema.safeParse({ ...valid, reviewerName: '    ' }).success).toBe(false);
-    expect(HumanReviewInputSchema.safeParse({ ...valid, reviewerName: 'R'.repeat(121) }).success).toBe(false);
+  it('rechaza un reviewerName del cliente: la atribución la pone el servidor', () => {
+    for (const forged of ['', '    ', 'La jefa', 'R'.repeat(121)]) {
+      expect(HumanReviewInputSchema.safeParse({ ...valid, reviewerName: forged }).success).toBe(false);
+    }
+  });
+
+  it('rechaza un actor, rol o auditId del cliente', () => {
+    for (const extra of [{ createdBy: 'otro' }, { role: 'coordinator' }, { auditId: 'audit-1' }, { createdAt: 'ayer' }]) {
+      expect(HumanReviewInputSchema.safeParse({ ...valid, ...extra }).success).toBe(false);
+    }
   });
 
   it('rechaza comentario por encima del máximo', () => {
@@ -173,6 +189,50 @@ describe('HumanReviewInputSchema', () => {
   });
 
   it('rechaza campos extra en el body de la revisión', () => {
-    expect(HumanReviewInputSchema.safeParse({ ...valid, auditId: 'audit-1' }).success).toBe(false);
+    expect(HumanReviewInputSchema.safeParse({ ...valid, coordinatorDecision: 'APPROVE' }).success).toBe(false);
+  });
+});
+
+describe('CoordinatorReviewInputSchema', () => {
+  it('APPROVE sin resolución es válida: conserva la del asesor', () => {
+    expect(parseCoordinatorReviewInput({ decision: 'APPROVE' })).toEqual({ decision: 'APPROVE', comment: '' });
+  });
+
+  it('CHANGE exige una resolución del vocabulario cerrado', () => {
+    expect(() => parseCoordinatorReviewInput({ decision: 'CHANGE' })).toThrowError();
+    expect(() => parseCoordinatorReviewInput({ decision: 'CHANGE', resolution: 'RESULTADO_INVENTADO' })).toThrowError();
+    expect(parseCoordinatorReviewInput({ decision: 'CHANGE', resolution: 'TICKET_RECHAZADO' })).toEqual({
+      decision: 'CHANGE',
+      resolution: 'TICKET_RECHAZADO',
+      comment: '',
+    });
+  });
+
+  it('APPROVE no admite resolución de cambio: "aprobar con cambio" no es una decisión', () => {
+    expect(() => parseCoordinatorReviewInput({ decision: 'APPROVE', resolution: 'TICKET_RECHAZADO' })).toThrowError();
+  });
+
+  it('la decisión fuera del vocabulario cerrado se rechaza', () => {
+    expect(() => parseCoordinatorReviewInput({ decision: 'RECHAZAR' })).toThrowError();
+  });
+
+  it('el actor, la hora y el nombre del cliente no se aceptan', () => {
+    for (const extra of [
+      { reviewerName: 'La jefa' },
+      { createdBy: 'otro' },
+      { coordinatorCreatedBy: 'otro' },
+      { coordinatorCreatedAt: 'ayer' },
+      { role: 'user' },
+    ]) {
+      expect(() => parseCoordinatorReviewInput({ decision: 'APPROVE', ...extra })).toThrowError();
+    }
+  });
+
+  it('el comentario del coordinador es opcional y acotado', () => {
+    expect(parseCoordinatorReviewInput({ decision: 'APPROVE' }).comment).toBe('');
+    expect(parseCoordinatorReviewInput({ decision: 'APPROVE', comment: 'De acuerdo.' }).comment).toBe('De acuerdo.');
+    expect(() =>
+      parseCoordinatorReviewInput({ decision: 'APPROVE', comment: 'a'.repeat(REVIEW_COMMENT_MAX + 1) }),
+    ).toThrowError();
   });
 });

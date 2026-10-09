@@ -4,6 +4,7 @@
 
 import type { ErrorCategory, EvidenceStatus, TranscriptData } from '../skills/audit/types.js';
 import type { ComparisonOutcomePayload } from '../skills/review/schema.js';
+import type { CoordinatorDecision, WorkflowState } from '../skills/review/types.js';
 import { readTranscriptFromJson } from './evidence-prep.js';
 import { sanitizeProviderMetadata, type AuditProviderMetadata } from './audit-observability.js';
 import type { AuditRow, AuditStatus, CaseRow, CaseSummaryRow, EvidenceRow } from './cases.js';
@@ -18,6 +19,13 @@ export interface CaseSummaryDto {
   createdAt: string;
   updatedAt: string;
   effectiveResolution: EffectiveResolution | null;
+  /**
+   * Clasificación explícita del caso: `true` = prueba, `false` = real. La UI la
+   * usa para etiquetar; el backend la usa para excluir las pruebas de las
+   * métricas operativas (PROJECTION_IS_NOT_THE_DICTAMEN: el flag no participa en
+   * el dictamen).
+   */
+  isTest: boolean;
 }
 
 export interface CaseDetailDto {
@@ -26,6 +34,7 @@ export interface CaseDetailDto {
   studentIdentifier: string | null;
   createdAt: string;
   updatedAt: string;
+  isTest: boolean;
   /**
    * Fecha de inicio de clases aportada por una persona, con su procedencia.
    *
@@ -92,8 +101,10 @@ export interface AuditHistoryItemDto {
 }
 
 /**
- * Revisión humana del caso. `result` es la RESOLUCIÓN FINAL: si existe, manda
- * sobre el dictamen de la auditoría.
+ * Revisión humana del caso. `result` es la RESOLUCIÓN del ASESOR; si existe una
+ * decisión del coordinador, el bloque `coordinator*` la registra APARTE sin
+ * sobrescribir la del asesor. La resolución efectiva del caso la deriva
+ * `deriveEffectiveResolution` en lectura.
  */
 export interface CaseReviewDto {
   id: string;
@@ -104,6 +115,11 @@ export interface CaseReviewDto {
   reviewerName: string | null;
   comment: string;
   createdAt: string;
+  coordinatorDecision: CoordinatorDecision | null;
+  coordinatorResolution: string | null;
+  /** Momento en que el coordinador registró la decisión. NULL hasta que actúa. */
+  coordinatorCreatedAt: string | null;
+  coordinatorComment: string | null;
 }
 
 /**
@@ -182,6 +198,10 @@ export function caseToSummary(row: CaseSummaryRow): CaseSummaryDto {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     effectiveResolution: deriveEffectiveResolution(row.review ?? null, row.audit ?? null),
+    // `?? false` y no el valor directo: la columna es opcional en `CaseRow` para
+    // que el listado siga funcionando si la migración aún no está aplicada, y el
+    // default de la columna es `false` (real).
+    isTest: row.is_test ?? false,
   };
 }
 
@@ -192,6 +212,7 @@ export function caseToDetail(row: CaseRow): CaseDetailDto {
     studentIdentifier: row.student_identifier,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    isTest: row.is_test ?? false,
     // `?? null` y no el valor directo: las columnas son opcionales en `CaseRow`
     // para que el `select('*')` siga funcionando si la migración aún no está
     // aplicada, y una columna ausente no es lo mismo que un `NULL` explícito
@@ -283,7 +304,28 @@ export function caseReviewToDto(row: CaseReviewRow): CaseReviewDto {
     reviewerName: row.reviewer_name ?? null,
     comment: row.comment,
     createdAt: row.created_at,
+    coordinatorDecision: row.coordinator_decision ?? null,
+    coordinatorResolution: row.coordinator_resolution ?? null,
+    coordinatorCreatedAt: row.coordinator_created_at ?? null,
+    coordinatorComment: row.coordinator_comment ?? null,
   };
+}
+
+/**
+ * Estado del flujo de revisión humana, DERIVADO de la fila (nunca una columna
+ * ni `cases.status`).
+ *
+ *   - sin fila                     → PENDING_ADVISOR (falta la decisión del asesor);
+ *   - fila sin `coordinator_decision` → PENDING_COORDINATOR (falta la finalización);
+ *   - fila con `coordinator_decision` → FINALIZED.
+ *
+ * `coordinator_decision` ausente (migración sin aplicar) se lee igual que NULL:
+ * aún no hay finalización. Nunca se reutiliza `cases.status` ni `audits` para
+ * este estado.
+ */
+export function deriveWorkflowState(review: CaseReviewRow | null): WorkflowState {
+  if (!review) return 'PENDING_ADVISOR';
+  return review.coordinator_decision == null ? 'PENDING_COORDINATOR' : 'FINALIZED';
 }
 
 export function areaCommentToDto(row: AreaCommentRow): AreaCommentDto {
@@ -344,7 +386,7 @@ export function deriveEffectiveResolution(
   audit: AuditRow | null,
 ): EffectiveResolution | null {
   if (review) {
-    return { result: review.result, source: 'HUMAN' };
+    return { result: finalHumanResolution(review), source: 'HUMAN' };
   }
   if (!audit || audit.status !== 'COMPLETED') return null;
   const resultJson = parseJsonField(audit.result_json);
@@ -353,4 +395,15 @@ export function deriveEffectiveResolution(
   const result = assessment?.result;
   if (typeof result !== 'string' || result === '') return null;
   return { result, source: 'AI' };
+}
+
+/**
+ * Resolución humana que gobierna el caso: la del coordinador cuando hubo
+ * `CHANGE`, si no la del asesor. `APPROVE` conserva `result`, así que ambas
+ * devuelven lo mismo en ese caso.
+ */
+function finalHumanResolution(review: CaseReviewRow): string {
+  return review.coordinator_decision === 'CHANGE' && review.coordinator_resolution
+    ? review.coordinator_resolution
+    : review.result;
 }

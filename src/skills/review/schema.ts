@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import {
+  COORDINATOR_DECISIONS,
   HUMAN_RESOLUTIONS,
   REVIEW_COMMENT_MAX,
 } from './types.js';
@@ -94,29 +95,79 @@ export const ComparisonResultSchema = ComparisonResultObject.superRefine(validat
 export const ComparisonOutcomeSchema = ComparisonOutcomeObject.superRefine(validateCoherence);
 
 /**
- * Body de `POST /api/cases/:caseId/review`.
+ * Body de `POST /api/cases/:caseId/review` en la ETAPA DE ASESOR.
  *
- * Es la validación de ENTRADA del servidor, no del modelo: sin ella, un nombre
- * vacío, una nota demasiado larga o una clasificación inventada llegarían a
- * `case_reviews` y de ahí al contexto de la comparación. `.strict()` también aquí: `auditId` no
- * lo elige quien revisa (lo resuelve el servidor contra la auditoría
- * COMPLETED vigente), y aceptarlo sería permitir que un cliente señale qué
- * dictamen se compara.
+ * Es la validación de ENTRADA del servidor, no del modelo: sin ella, una nota
+ * demasiado larga o una clasificación inventada llegarían a `case_reviews` y de
+ * ahí al contexto de la comparación. `.strict()` también aquí: `auditId` no lo
+ * elige quien revisa (lo resuelve el servidor contra la auditoría COMPLETED
+ * vigente), y el autor/rol/nombre NO viajan en el cuerpo: los deriva el servidor
+ * de la sesión autenticada (`auth.sub`, `auth.email`). Un `reviewerName` del
+ * cliente se rechaza como campo extra, nunca se persiste.
+ *
+ * `comment` es OPCIONAL (antes obligatorio): el dato que se registra es la
+ * resolución propuesta; el comentario la justifica cuando existe.
  */
 export const HumanReviewInputSchema = z
   .object({
     result: z.enum(HUMAN_RESOLUTIONS),
-    reviewerName: z.string().trim().min(1).max(120),
     comment: z
       .string()
       .trim()
-      .max(REVIEW_COMMENT_MAX, `El comentario no puede superar ${REVIEW_COMMENT_MAX} caracteres`),
+      .max(REVIEW_COMMENT_MAX, `El comentario no puede superar ${REVIEW_COMMENT_MAX} caracteres`)
+      .optional()
+      .transform((value) => value ?? ''),
   })
   .strict();
+
+/**
+ * Body de `POST /api/cases/:caseId/review` en la ETAPA DE COORDINADOR.
+ *
+ * `resolution` es requerida SII `decision === 'CHANGE'`, y rechazada en
+ * `APPROVE` (que conserva la resolución del asesor). El vocabulario de
+ * `resolution` es el MISMO cerrado de 6 opciones que `result`, y el servidor
+ * además exige que sea DISTINTA de `result` (ese chequeo necesita la fila, así
+ * que vive en `finalizeCaseReview`, no en el schema). El actor y la hora los
+ * pone el servidor; ningún campo de atribución se acepta del cliente.
+ */
+export const CoordinatorReviewInputSchema = z
+  .object({
+    decision: z.enum(COORDINATOR_DECISIONS),
+    resolution: z.enum(HUMAN_RESOLUTIONS).optional(),
+    comment: z
+      .string()
+      .trim()
+      .max(REVIEW_COMMENT_MAX, `El comentario no puede superar ${REVIEW_COMMENT_MAX} caracteres`)
+      .optional()
+      .transform((value) => value ?? ''),
+  })
+  .strict()
+  .superRefine(validateCoordinatorDecision);
+
+function validateCoordinatorDecision(
+  value: { decision: string; resolution?: string },
+  ctx: z.RefinementCtx,
+): void {
+  if (value.decision === 'CHANGE' && value.resolution === undefined) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['resolution'],
+      message: 'La decisión CHANGE exige la resolución final distinta de la del asesor.',
+    });
+  }
+  if (value.decision === 'APPROVE' && value.resolution !== undefined) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['resolution'],
+      message: 'La decisión APPROVE conserva la resolución del asesor: no admite una resolución de cambio.',
+    });
+  }
+}
 
 export type ComparisonResultPayload = z.infer<typeof ComparisonResultSchema>;
 export type ComparisonOutcomePayload = z.infer<typeof ComparisonOutcomeSchema>;
 export type HumanReviewInput = z.infer<typeof HumanReviewInputSchema>;
+export type CoordinatorReviewInput = z.infer<typeof CoordinatorReviewInputSchema>;
 
 /** Veredicto del modelo, sin metadata técnica. */
 export function parseComparisonResult(raw: unknown): ComparisonResultPayload {
@@ -129,7 +180,7 @@ export function parseComparisonOutcome(raw: unknown): ComparisonOutcomePayload {
 }
 
 /**
- * Body de la revisión, validado en servidor.
+ * Body de la revisión del ASESOR, validado en servidor.
  *
  * Traduce los fallos de Zod al `ApiError` con el que trabaja `handleRoute`, para
  * que el endpoint no tenga que distinguir "validación de entrada" de "el modelo
@@ -144,6 +195,22 @@ export function parseHumanReviewInput(raw: unknown): HumanReviewInput {
     .map((issue) => `${issue.path.join('.') || 'body'}: ${issue.message}`)
     .join(' | ');
   throw new ApiError(400, 'VALIDATION_ERROR', `Revisión humana inválida — ${detail}`);
+}
+
+/**
+ * Body de la decisión del COORDINADOR, validado en servidor.
+ *
+ * Mismo tratamiento que `parseHumanReviewInput`: el comentario es texto humano
+ * y no se loguea; los fallos de Zod salen como 400 con el campo concreto.
+ */
+export function parseCoordinatorReviewInput(raw: unknown): CoordinatorReviewInput {
+  const result = CoordinatorReviewInputSchema.safeParse(raw);
+  if (result.success) return result.data;
+  const detail = result.error.issues
+    .slice(0, 5)
+    .map((issue) => `${issue.path.join('.') || 'body'}: ${issue.message}`)
+    .join(' | ');
+  throw new ApiError(400, 'VALIDATION_ERROR', `Decisión de coordinador inválida — ${detail}`);
 }
 
 function parseWithInvalidAiError<T>(schema: z.ZodType<T>, raw: unknown): T {

@@ -80,9 +80,11 @@ export default handleRoute(async (req, res) => {
   const view = requiredView(req.query);
   const client = createServerClient();
 
-  // `options` es la única vista sin filtros: devuelve el catálogo completo.
+  // `options` es la única vista sin filtros: devuelve el catálogo. Recibe el
+  // alcance autenticado para no ofrecer valores que solo existan en pruebas o en
+  // casos que el actor no puede ver.
   if (view === 'options') {
-    ok(res, { options: await getDashboardFilterOptions(client) });
+    ok(res, { options: await getDashboardFilterOptions(client, req.auth) });
     return;
   }
 

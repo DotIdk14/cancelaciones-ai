@@ -26,8 +26,17 @@ import { getEnv } from './env.js';
 import { createServerClient } from './insforge.js';
 import { ApiError, parseCookies } from './http.js';
 import { checkLoginIpQuota } from './quotas.js';
+import { capabilitiesForRole } from './capabilities.js';
+import type { AppRole } from './capabilities.js';
 
-export type AppRole = 'user' | 'coordinator';
+// El vocabulario de roles y sus capacidades viven en `capabilities.ts`, un módulo
+// HOJA sin imports de servidor, para que los dobles en memoria de los tests puedan
+// derivar capacidades sin arrastrar el SDK de InsForge (y con él, un ciclo de
+// módulos que cuelga la suite antes del primer test). Se reexporta aquí porque
+// `auth.ts` es, para el código de producción, la puerta de entrada a la
+// autorización.
+export { capabilitiesForRole, DENY_ALL_CAPABILITIES, isAppRole } from './capabilities.js';
+export type { AppRole, AuthCapabilities } from './capabilities.js';
 
 export interface AuthContext {
   readonly sub: string;
@@ -35,7 +44,39 @@ export interface AuthContext {
   readonly role: AppRole;
 }
 
-const ROLES: AppRole[] = ['user', 'coordinator'];
+const ROLES: AppRole[] = ['user', 'coordinator', 'manager'];
+
+// -----------------------------------------------------------------------------
+// Capacidades derivadas del rol (única fuente para los guards de casos)
+//
+// `user` es el identificador PERSISTIDO en `app_memberships` y se presenta como
+// "Asesor". El rol se resuelve una sola vez en el servidor y de él se derivan
+// las cuatro capacidades del contrato (`capabilitiesForRole`); ningún endpoint
+// decide con un `if (role === ...)` repartido. Un rol que no resuelve se trata
+// como DENEGADO, nunca como un rol con más privilegios.
+// -----------------------------------------------------------------------------
+
+/**
+ * Guard de MUTACIÓN de un caso, para los endpoints que no son el de revisión.
+ *
+ * El gerente es SOLO LECTURA global: `canWriteOwnedCases` en false significa que
+ * no muta NINGÚN caso, ni siquiera uno propio. Sin este guard, `assertCaseOwner`
+ * (que sólo mira `created_by`) le abriría la escritura de los casos que él mismo
+ * certificó, que es una capacidad que el contrato no le concede.
+ *
+ * Va ANTES de `assertCaseOwner` a propósito, y el orden es el que fija el código
+ * de respuesta:
+ *   - sin capacidad de escritura → 403, porque el caso está en alcance (los roles
+ *     de lectura global lo ven) y lo que falta es permiso. No confirma nada que
+ *     ese rol no pudiera leer ya.
+ *   - con capacidad pero caso ajeno → 404, porque "no es tuyo" y "no existe" se
+ *     responden igual (NO_RESOURCE_EXISTENCE_LEAK).
+ */
+export function assertCaseWriteCapability(auth: AuthContext): void {
+  if (!capabilitiesForRole(auth.role).canWriteOwnedCases) {
+    throw new ApiError(403, 'AUTH_ERROR', 'No tienes permiso para modificar este caso.');
+  }
+}
 
 function createAuthClient(accessToken?: string): InsForgeClient {
   const env = getEnv();
@@ -403,7 +444,7 @@ export async function completeGoogleOAuth(
 export async function refreshSession(
   req: { headers: { cookie?: string | string[] } },
   res: { appendHeader(name: string, value: string): unknown },
-): Promise<void> {
+): Promise<{ role: AppRole }> {
   const env = getEnv();
   const requestCookies = cookieReader(req);
   const responseCookies = cookieWriter(res);
@@ -420,6 +461,29 @@ export async function refreshSession(
     clearAuthCookies(responseCookies, COOKIE_SETTINGS);
     throw new ApiError(401, 'UNAUTHENTICATED', 'Sesión expirada; vuelve a iniciar sesión');
   }
+
+  // Resuelve identidad y rol con el token ROTADO, no con el de la petición: el
+  // token devuelto por `updateSession` es el único que queda vigente después de
+  // la rotación. Un fallo aquí limpia cookies y sale 401, igual que un refresh
+  // fallido; un rol que no resuelve sale 403 fail-closed (nunca `ok: true` con
+  // rol vacío).
+  const client = createAuthClient(result.accessToken);
+  const { data, error } = await client.auth.getCurrentUser();
+  if (error || !data?.user) {
+    clearAuthCookies(responseCookies, COOKIE_SETTINGS);
+    throw new ApiError(401, 'UNAUTHENTICATED', 'Sesión expirada; vuelve a iniciar sesión');
+  }
+
+  const role = await loadMembershipRole(data.user.id);
+  if (!role) {
+    // El refresh ya rotó y escribió cookies válidas antes de resolver el rol. Si
+    // la autorización falla (sin fila en `app_memberships`), hay que borrar esas
+    // cookies: un rechazo no puede dejar una sesión InsForge viva en el navegador.
+    clearAuthCookies(responseCookies, COOKIE_SETTINGS);
+    throw new ApiError(403, 'AUTH_ERROR', 'No tienes permiso para acceder a esta aplicación');
+  }
+
+  return { role };
 }
 
 export async function closeSession(

@@ -60,7 +60,7 @@ npm.cmd run dev
 ### Migración sin aplicar
 
 - Revisar `insforge db migrations status`.
-- Aplicar en orden: baseline/ai-native-production → dashboard → human-resolution → human-review-dashboard → case-reviewer-name → auth_core.
+- Aplicar en orden por nombre de archivo; la secuencia completa y las comprobaciones por migración están en [`DATABASE.md`](DATABASE.md) y [`DEPLOYMENT.md`](DEPLOYMENT.md). Las últimas de la feature de roles son `membership-role-manager`, `case-test-flag`, `case-review-coordinator-decision` y `dashboard-view-test-owner-scope`.
 
 ## Evidencias
 

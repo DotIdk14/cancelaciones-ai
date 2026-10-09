@@ -1,0 +1,17 @@
+[
+  [
+    "app_memberships sigue existiendo como tabla (la migracion no la crea, viene de auth-core)",
+    "SELECT count(*)::int AS total FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname='app_memberships' AND c.relkind='r'",
+    ["\"total\": 1"]
+  ],
+  [
+    "exactamente UN check sobre la tabla (un segundo check viejo bloquearia manager)",
+    "SELECT count(*)::int AS total FROM pg_constraint WHERE conrelid='public.app_memberships'::regclass AND contype='c'",
+    ["\"total\": 1"]
+  ],
+  [
+    "el CHECK de role admite user, coordinator y manager",
+    "SELECT count(*)::int AS total FROM pg_constraint WHERE conrelid='public.app_memberships'::regclass AND contype='c' AND pg_get_constraintdef(oid) LIKE '%user%' AND pg_get_constraintdef(oid) LIKE '%coordinator%' AND pg_get_constraintdef(oid) LIKE '%manager%'",
+    ["\"total\": 1"]
+  ]
+]

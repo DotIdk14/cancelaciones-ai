@@ -16,6 +16,8 @@ import {
   CASE_STATUS_TONE,
   RESOLUTION_SOURCE_DESCRIPTIONS,
   RESOLUTION_SOURCE_LABELS,
+  caseKindLabel,
+  caseKindTone,
   resolutionLabel,
   resolutionTone,
 } from '../lib/labels';
@@ -201,7 +203,12 @@ export function CasesPanel(): ReactNode {
                       <td>{item.studentIdentifier ? <><span>{item.studentIdentifier}</span><span className="case-cell-secondary">Identificador</span></> : <span className="text-muted">Sin identificar</span>}</td>
                       <td><span className="inline-flex items-center gap-1.5"><FileText size={15} aria-hidden="true" />{item.evidenceCount}</span></td>
                       <td>{resolution ? <><Badge tone={resolutionTone(resolution.result)}>{resolutionLabel(resolution.result)}</Badge><span className="case-cell-secondary">{RESOLUTION_SOURCE_LABELS[resolution.source]}</span></> : <span className="text-muted">Sin dictamen</span>}</td>
-                      <td><Badge tone={CASE_STATUS_TONE[item.status]}>{CASE_STATUS_LABELS[item.status]}</Badge></td>
+                      <td>
+                        <div className="flex flex-col items-start gap-1">
+                          <Badge tone={CASE_STATUS_TONE[item.status]}>{CASE_STATUS_LABELS[item.status]}</Badge>
+                          <Badge tone={caseKindTone(item.isTest)}>{caseKindLabel(item.isTest)}</Badge>
+                        </div>
+                      </td>
                       <td><a className="case-row-action" href={`#/casos/${encodeURIComponent(item.id)}`} onClick={(event) => event.stopPropagation()}>Abrir <ArrowRight size={14} aria-hidden="true" /></a></td>
                     </tr>
                   );
@@ -223,6 +230,7 @@ export function CasesPanel(): ReactNode {
               </div>
               <dl className="mt-4 flex flex-col gap-3 text-sm">
                 <div className="flex justify-between gap-3"><dt className="text-muted">Evidencias</dt><dd>{selectedCase.evidenceCount}</dd></div>
+                <div className="flex justify-between gap-3"><dt className="text-muted">Clasificación</dt><dd><Badge tone={caseKindTone(selectedCase.isTest)}>{caseKindLabel(selectedCase.isTest)}</Badge></dd></div>
                 <div className="flex justify-between gap-3"><dt className="text-muted">Dictamen vigente</dt><dd className="max-w-[65%] text-right">{selectedCase.effectiveResolution ? resolutionLabel(selectedCase.effectiveResolution.result) : 'Sin dictamen'}</dd></div>
                 {selectedCase.effectiveResolution && <div className="flex justify-between gap-3"><dt className="text-muted">Origen</dt><dd title={RESOLUTION_SOURCE_DESCRIPTIONS[selectedCase.effectiveResolution.source]}>{RESOLUTION_SOURCE_LABELS[selectedCase.effectiveResolution.source]}</dd></div>}
               </dl>

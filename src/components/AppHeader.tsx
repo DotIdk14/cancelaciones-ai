@@ -4,14 +4,21 @@
 
 import type { ReactNode } from 'react';
 import { LogOut, Plus, ShieldCheck, UserRound } from 'lucide-react';
+import type { AppRole } from '../lib/api';
+import { roleLabel } from '../lib/useSession';
 import { Button } from './ui';
 
 interface AppHeaderProps {
   onSignOut?: () => void;
   previewOnly?: boolean;
+  role?: AppRole | null;
 }
 
-export function AppHeader({ onSignOut, previewOnly = false }: AppHeaderProps): ReactNode {
+export function AppHeader({ onSignOut, previewOnly = false, role = null }: AppHeaderProps): ReactNode {
+  // Solo los roles con capacidad de escritura ven el alta. El Gerente (o un rol
+  // no resuelto) no la ve; el servidor además responde 403.
+  const canCreate = role === 'user' || role === 'coordinator';
+  const label = roleLabel(role);
   return (
     <header className="app-header sticky top-0 z-30 border-b border-line bg-surface-1">
       <div
@@ -27,7 +34,13 @@ export function AppHeader({ onSignOut, previewOnly = false }: AppHeaderProps): R
           <span className="app-organization">UTEL</span>
         </div>
         <div className="flex items-center gap-2 sm:gap-3">
-          <a href="#/nuevo" className="app-new-case"><Plus size={17} aria-hidden="true" /> <span>Nuevo caso</span></a>
+          {canCreate && <a href="#/nuevo" className="app-new-case"><Plus size={17} aria-hidden="true" /> <span>Nuevo caso</span></a>}
+          {label !== null && (
+            <span className="app-preview-user" title={`Rol: ${label}`}>
+              <UserRound size={17} aria-hidden="true" />
+              <span>{label}</span>
+            </span>
+          )}
           {previewOnly && <span className="app-preview-user"><UserRound size={17} aria-hidden="true" /><span>Vista local</span></span>}
           {onSignOut && <Button variant="ghost" onClick={onSignOut} className="app-signout"><LogOut size={16} aria-hidden="true" /><span>Cerrar sesión</span></Button>}
         </div>

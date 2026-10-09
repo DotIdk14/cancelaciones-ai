@@ -11,7 +11,7 @@ import type { ApiRequest, ApiResponse } from '../src/server/http';
 import casesHandler from '../api/cases/index';
 import { setTestEnv } from './helpers/env';
 import { validAuditResult } from './fixtures/audit-result';
-import { fakeAuthContext } from './helpers/auth';
+import { fakeAuthContext, FAKE_USER_SUB, FAKE_COORDINATOR_SUB } from './helpers/auth';
 import {
   fakeClient,
   resetStore,
@@ -19,6 +19,7 @@ import {
   seedAudit,
   seedReview,
   seedEvidence,
+  listCaseSummaries as storeListCaseSummaries,
 } from './helpers/fake-store';
 
 // --- Persistencia: store en memoria de `cases`, `evidence` y `audits` --------
@@ -95,8 +96,13 @@ function makeApiResponse(): ApiResponse & { statusCode: number; body: string } {
   return fake as unknown as ApiResponse & { statusCode: number; body: string };
 }
 
-function makeApiRequest(method: string, query: Record<string, string> = {}, body?: unknown): ApiRequest {
-  return { method, url: '/', headers: {}, query, body, auth: fakeAuthContext() } as unknown as ApiRequest;
+function makeApiRequest(
+  method: string,
+  query: Record<string, string> = {},
+  body?: unknown,
+  auth: ReturnType<typeof fakeAuthContext> = fakeAuthContext(),
+): ApiRequest {
+  return { method, url: '/', headers: {}, query, body, auth } as unknown as ApiRequest;
 }
 
 beforeEach(() => {
@@ -144,5 +150,117 @@ describe('GET /api/cases incluye effectiveResolution', () => {
     const payload = JSON.parse(res.body) as { cases: Array<{ id: string; effectiveResolution: { result: string; source: string } | null }> };
     const row = payload.cases.find((c) => c.id === 'case-empty');
     expect(row?.effectiveResolution).toBeNull();
+  });
+});
+
+/** Lista los casos como los vería `role`, llamando al espejo de producción. */
+async function listFor(role: 'user' | 'coordinator' | 'manager'): Promise<unknown[]> {
+  return storeListCaseSummaries(undefined, fakeAuthContext(role));
+}
+
+describe('POST /api/cases — isTest estricto, alcance y capacidad', () => {
+  it('un isTest booleano se persiste y se expone en el summary', async () => {
+    const res = makeApiResponse();
+    await casesHandler(makeApiRequest('POST', {}, { isTest: true }), res);
+
+    expect(res.statusCode).toBe(201);
+    expect((JSON.parse(res.body) as { case: { isTest: boolean } }).case.isTest).toBe(true);
+
+    const rows = await listFor('manager');
+    expect(rows).toHaveLength(1);
+    expect((rows[0] as { is_test: boolean }).is_test).toBe(true);
+  });
+
+  it('omitir isTest crea un caso REAL (false)', async () => {
+    const res = makeApiResponse();
+    await casesHandler(makeApiRequest('POST', {}, {}), res);
+
+    expect(res.statusCode).toBe(201);
+    expect((JSON.parse(res.body) as { case: { isTest: boolean } }).case.isTest).toBe(false);
+    expect((await listFor('manager'))[0] as { is_test: boolean }).toMatchObject({ is_test: false });
+  });
+
+  it('rechaza "true" (texto) con 400 y NO crea nada', async () => {
+    const res = makeApiResponse();
+    await casesHandler(makeApiRequest('POST', {}, { isTest: 'true' }), res);
+
+    expect(res.statusCode).toBe(400);
+    expect((JSON.parse(res.body) as { error: { category: string } }).error.category).toBe('VALIDATION_ERROR');
+    expect(await listFor('manager')).toHaveLength(0);
+  });
+
+  it('rechaza 1 (número) con 400 y NO crea nada', async () => {
+    const res = makeApiResponse();
+    await casesHandler(makeApiRequest('POST', {}, { isTest: 1 }), res);
+
+    expect(res.statusCode).toBe(400);
+    expect(await listFor('manager')).toHaveLength(0);
+  });
+
+  it('sigue rechazando ownership/rol/actor del cliente', async () => {
+    for (const key of ['created_by', 'role', 'actor']) {
+      const res = makeApiResponse();
+      await casesHandler(makeApiRequest('POST', {}, { [key]: 'x' }), res);
+      expect(res.statusCode).toBe(400);
+    }
+    expect(await listFor('manager')).toHaveLength(0);
+  });
+
+  it('un Gerente recibe 403 y NO crea el caso (solo lectura global)', async () => {
+    const res = makeApiResponse();
+    await casesHandler(makeApiRequest('POST', {}, { isTest: false }, fakeAuthContext('manager')), res);
+
+    expect(res.statusCode).toBe(403);
+    expect((JSON.parse(res.body) as { error: { category: string } }).error.category).toBe('AUTH_ERROR');
+    expect(await listFor('manager')).toHaveLength(0);
+  });
+});
+
+describe('GET /api/cases — alcance por capacidad, no por nombre de rol', () => {
+  it('un Asesor solo ve sus propios casos', async () => {
+    seedCase({ id: 'mio', created_by: FAKE_USER_SUB });
+    seedCase({ id: 'ajeno', created_by: FAKE_COORDINATOR_SUB });
+
+    const res = makeApiResponse();
+    await casesHandler(makeApiRequest('GET', {}, undefined, fakeAuthContext('user')), res);
+
+    expect(res.statusCode).toBe(200);
+    const ids = (JSON.parse(res.body) as { cases: Array<{ id: string }> }).cases.map((c) => c.id);
+    expect(ids).toContain('mio');
+    expect(ids).not.toContain('ajeno');
+  });
+
+  it('un Coordinador ve todos los casos', async () => {
+    seedCase({ id: 'mio', created_by: FAKE_USER_SUB });
+    seedCase({ id: 'ajeno', created_by: FAKE_COORDINATOR_SUB });
+
+    const res = makeApiResponse();
+    await casesHandler(makeApiRequest('GET', {}, undefined, fakeAuthContext('coordinator')), res);
+
+    const ids = (JSON.parse(res.body) as { cases: Array<{ id: string }> }).cases.map((c) => c.id);
+    expect(ids).toEqual(expect.arrayContaining(['mio', 'ajeno']));
+  });
+
+  it('un Gerente ve todos los casos', async () => {
+    seedCase({ id: 'mio', created_by: FAKE_USER_SUB });
+    seedCase({ id: 'ajeno', created_by: FAKE_COORDINATOR_SUB });
+
+    const res = makeApiResponse();
+    await casesHandler(makeApiRequest('GET', {}, undefined, fakeAuthContext('manager')), res);
+
+    const ids = (JSON.parse(res.body) as { cases: Array<{ id: string }> }).cases.map((c) => c.id);
+    expect(ids).toEqual(expect.arrayContaining(['mio', 'ajeno']));
+  });
+
+  it('expone isTest en el listado (real vs prueba)', async () => {
+    seedCase({ id: 'real', is_test: false });
+    seedCase({ id: 'prueba', is_test: true });
+
+    const res = makeApiResponse();
+    await casesHandler(makeApiRequest('GET', {}, undefined, fakeAuthContext('manager')), res);
+
+    const cases = (JSON.parse(res.body) as { cases: Array<{ id: string; isTest: boolean }> }).cases;
+    expect(cases.find((c) => c.id === 'real')?.isTest).toBe(false);
+    expect(cases.find((c) => c.id === 'prueba')?.isTest).toBe(true);
   });
 });

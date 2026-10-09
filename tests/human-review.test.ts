@@ -15,14 +15,16 @@ import type { ApiRequest, ApiResponse } from '../src/server/http';
 import type { AuditRow } from '../src/server/cases';
 import { callOpenRouterAudit } from '../src/server/openrouter';
 import { retryComparison, startComparison, submitCaseReview } from '../src/server/comparison-service';
-import { deriveEffectiveResolution } from '../src/server/dto';
+import type { SubmitCaseReviewInput } from '../src/server/comparison-service';
+import { deriveEffectiveResolution, deriveWorkflowState } from '../src/server/dto';
 import reviewHandler from '../api/cases/[caseId]/review/index';
 import comparisonHandler from '../api/cases/[caseId]/comparison/index';
 import { setTestEnv } from './helpers/env';
 import { validAuditResult } from './fixtures/audit-result';
-import { fakeAuthContext, FAKE_USER_SUB } from './helpers/auth';
+import { fakeAuthContext, FAKE_COORDINATOR_EMAIL, FAKE_COORDINATOR_SUB, FAKE_USER_EMAIL, FAKE_USER_SUB } from './helpers/auth';
 import {
   fakeClient,
+  getCase,
   listAudits,
   listComparisons,
   listReviews,
@@ -70,6 +72,7 @@ vi.mock('../src/server/reviews', async () => {
   return {
     createCaseReview: store.createCaseReview,
     getCaseReview: store.getCaseReview,
+    finalizeCaseReview: store.finalizeCaseReview,
     insertComparison: store.insertComparison,
     getLatestComparisonForReview: store.getLatestComparisonForReview,
     rearmComparison: store.rearmComparison,
@@ -108,9 +111,25 @@ const validComparison = {
 
 const NO_USAGE = { promptTokens: 800, completionTokens: 120, totalTokens: 920, estimatedCostUSD: 0.0003 };
 
+/**
+ * Entrada de la etapa de ASESOR para el servicio.
+ *
+ * El campo de atribución se llama `reviewerEmail` y lo rellena la SESIÓN: es el
+ * contrato nuevo (antes era `reviewerName` y lo mandaba el cliente). Tener un
+ * único constructor evita que un test escriba por accidente un nombre de cliente.
+ */
+function advisorInput(overrides: { result: SubmitCaseReviewInput['result']; comment?: string } = { result: 'BAJA' }) {
+  return {
+    result: overrides.result,
+    comment: overrides.comment ?? HUMAN_COMMENT,
+    userId: FAKE_USER_SUB,
+    reviewerEmail: FAKE_USER_EMAIL,
+  };
+}
+
 /** Siembra el escenario mínimo auditable: caso + evidencia READY + dictamen. */
 function seedAuditableCase(options: { auditId?: string; createdAt?: string; rule?: string } = {}): AuditRow {
-  seedCase();
+  seedCase({ created_by: FAKE_USER_SUB });
   seedEvidence({ id: 'ev-1', processing_status: 'READY', content: 'El estudiante solicita cancelar la matrícula.' });
   return seedAudit({
     id: options.auditId ?? 'audit-1',
@@ -144,8 +163,13 @@ function makeApiResponse(): ApiResponse & { statusCode: number; body: string } {
   return fake as unknown as ApiResponse & { statusCode: number; body: string };
 }
 
-function makeApiRequest(method: string, query: Record<string, string>, body?: unknown): ApiRequest {
-  return { method, url: '/', headers: {}, query, body, auth: fakeAuthContext() } as unknown as ApiRequest;
+function makeApiRequest(
+  method: string,
+  query: Record<string, string>,
+  body?: unknown,
+  auth = fakeAuthContext(),
+): ApiRequest {
+  return { method, url: '/', headers: {}, query, body, auth } as unknown as ApiRequest;
 }
 
 /** System prompt + expediente tal como se enviaron al modelo en la llamada `index`. */
@@ -450,12 +474,12 @@ describe('retryComparison — sólo desde ERROR', () => {
 
 describe('submitCaseReview — una revisión por caso', () => {
   it('sin auditoría COMPLETED devuelve 400 y no registra nada', async () => {
-    seedCase();
+    seedCase({ created_by: FAKE_USER_SUB });
     seedEvidence({ id: 'ev-1', processing_status: 'READY', content: 'contenido' });
     seedAudit({ id: 'audit-error', status: 'ERROR', result_json: null });
 
     await expect(
-      submitCaseReview(fakeClient, 'case-1', { result: 'BAJA', reviewerName: 'Revisora de pruebas', comment: HUMAN_COMMENT, userId: FAKE_USER_SUB }),
+      submitCaseReview(fakeClient, 'case-1', advisorInput({ result: 'BAJA' })),
     ).rejects.toMatchObject({ status: 400, category: 'VALIDATION_ERROR' });
 
     expect(listReviews()).toHaveLength(0);
@@ -465,21 +489,25 @@ describe('submitCaseReview — una revisión por caso', () => {
     seedAuditableCase();
     seedAudit({ id: 'audit-nueva', created_at: '2026-02-05T10:10:00Z' });
 
-    const result = await submitCaseReview(fakeClient, 'case-1', { result: 'DICTAMINACION', reviewerName: 'Revisora de pruebas', comment: HUMAN_COMMENT, userId: FAKE_USER_SUB });
+    const result = await submitCaseReview(fakeClient, 'case-1', advisorInput({ result: 'CANCELACION_VENTA' }));
 
     expect(result.review.auditId).toBe('audit-nueva');
-    expect(result.review.result).toBe('DICTAMINACION');
+    expect(result.review.result).toBe('CANCELACION_VENTA');
     expect(result.comparison.status).toBe('COMPLETED');
+    // La atribución sale de la SESIÓN (correo), nunca de un nombre del cliente.
+    expect(result.review.reviewerName).toBe(FAKE_USER_EMAIL);
+    // Registrar la decisión del asesor abre la etapa de finalización.
+    expect(result.workflowState).toBe('PENDING_COORDINATOR');
     expect(listReviews()).toHaveLength(1);
     expect(listComparisons()).toHaveLength(1);
   });
 
   it('una segunda revisión del mismo caso es 409 y no crea fila', async () => {
     seedAuditableCase();
-    await submitCaseReview(fakeClient, 'case-1', { result: 'BAJA', reviewerName: 'Revisora de pruebas', comment: HUMAN_COMMENT, userId: FAKE_USER_SUB });
+    await submitCaseReview(fakeClient, 'case-1', advisorInput({ result: 'BAJA' }));
 
     await expect(
-      submitCaseReview(fakeClient, 'case-1', { result: 'DICTAMINACION', reviewerName: 'Revisora de pruebas', comment: HUMAN_COMMENT, userId: FAKE_USER_SUB }),
+      submitCaseReview(fakeClient, 'case-1', advisorInput({ result: 'TICKET_RECHAZADO' })),
     ).rejects.toMatchObject({ status: 409 });
 
     expect(listReviews()).toHaveLength(1);
@@ -488,11 +516,32 @@ describe('submitCaseReview — una revisión por caso', () => {
 });
 
 describe('endpoints de revisión y comparación', () => {
-  it('POST /review sin nombre de quien revisa devuelve 400', async () => {
+  it('POST /review ya no exige nombre de quien revisa: la atribución la pone el servidor', async () => {
+    // CONTRATO NUEVO (flujo de dos etapas): el nombre de quien revisa NO viaja en
+    // el body. Antes era obligatorio; ahora se deriva de la sesión (`auth.email`),
+    // así que un body sin nombre es válido, y no inválido.
     seedAuditableCase();
     const res = makeApiResponse();
 
     await reviewHandler(makeApiRequest('POST', { caseId: 'case-1' }, { result: 'BAJA', comment: HUMAN_COMMENT }), res);
+
+    expect(res.statusCode).toBe(201);
+    const payload = JSON.parse(res.body) as { review: { reviewerName: string | null } };
+    expect(payload.review.reviewerName).toBe(FAKE_USER_EMAIL);
+    expect(listReviews()).toHaveLength(1);
+  });
+
+  it('POST /review con un reviewerName del cliente es 400: la atribución no se acepta', async () => {
+    // No se "ignora en silencio": el schema es `strict` y el campo no declarado se
+    // rechaza. Un nombre forjado es un cuerpo inválido y, en cualquier caso, jamás
+    // se persiste.
+    seedAuditableCase();
+    const res = makeApiResponse();
+
+    await reviewHandler(
+      makeApiRequest('POST', { caseId: 'case-1' }, { result: 'BAJA', reviewerName: ' impostor', comment: HUMAN_COMMENT }),
+      res,
+    );
 
     expect(res.statusCode).toBe(400);
     expect((JSON.parse(res.body) as { error: { category: string } }).error.category).toBe('VALIDATION_ERROR');
@@ -505,7 +554,7 @@ describe('endpoints de revisión y comparación', () => {
     const res = makeApiResponse();
 
     await reviewHandler(
-      makeApiRequest('POST', { caseId: 'case-1' }, { result: 'RESULTADO_INVENTADO', reviewerName: 'Revisora de pruebas', comment: HUMAN_COMMENT }),
+      makeApiRequest('POST', { caseId: 'case-1' }, { result: 'RESULTADO_INVENTADO', comment: HUMAN_COMMENT }),
       res,
     );
 
@@ -517,46 +566,56 @@ describe('endpoints de revisión y comparación', () => {
     seedAuditableCase();
     const res = makeApiResponse();
 
-    await reviewHandler(makeApiRequest('POST', { caseId: 'case-1' }, { result: 'BAJA', reviewerName: 'Revisora de pruebas', comment: HUMAN_COMMENT }), res);
+    await reviewHandler(makeApiRequest('POST', { caseId: 'case-1' }, { result: 'BAJA', comment: HUMAN_COMMENT }), res);
 
     expect(res.statusCode).toBe(201);
-    const payload = JSON.parse(res.body) as { review: { result: string; reviewerName: string; comment: string }; comparison: { status: string } };
+    const payload = JSON.parse(res.body) as {
+      review: { result: string; reviewerName: string; comment: string };
+      comparison: { status: string };
+      workflowState: string;
+    };
     expect(payload.review.result).toBe('BAJA');
-    expect(payload.review.reviewerName).toBe('Revisora de pruebas');
+    // La atribución es la de la SESIÓN, no la del body.
+    expect(payload.review.reviewerName).toBe(FAKE_USER_EMAIL);
     expect(payload.review.comment).toBe(HUMAN_COMMENT);
     expect(payload.comparison.status).toBe('COMPLETED');
+    expect(payload.workflowState).toBe('PENDING_COORDINATOR');
   });
 
   it('POST /review duplicado devuelve 409 sin crear una segunda revisión', async () => {
     seedAuditableCase();
-    await reviewHandler(makeApiRequest('POST', { caseId: 'case-1' }, { result: 'BAJA', reviewerName: 'Revisora de pruebas', comment: HUMAN_COMMENT }), makeApiResponse());
+    await reviewHandler(makeApiRequest('POST', { caseId: 'case-1' }, { result: 'BAJA', comment: HUMAN_COMMENT }), makeApiResponse());
     const res = makeApiResponse();
 
     // El segundo POST usa un resultado VÁLIDO de la lista de 6 a propósito: lo
     // que se prueba aquí es el DUPLICADO (409), no la validación de contenido.
-    // (Hasta la Fase B, DICTAMINACION era aceptado por el handler; ya no.)
-    await reviewHandler(makeApiRequest('POST', { caseId: 'case-1' }, { result: 'BAJA', reviewerName: 'Revisora de pruebas', comment: HUMAN_COMMENT }), res);
+    await reviewHandler(makeApiRequest('POST', { caseId: 'case-1' }, { result: 'BAJA', comment: HUMAN_COMMENT }), res);
 
     expect(res.statusCode).toBe(409);
     expect(listReviews()).toHaveLength(1);
   });
 
-  it('GET /review devuelve revisión + comparación + resolución efectiva', async () => {
+  it('GET /review devuelve revisión + comparación + estado del flujo + resolución efectiva', async () => {
     seedAuditableCase();
-    await reviewHandler(makeApiRequest('POST', { caseId: 'case-1' }, { result: 'BAJA', reviewerName: 'Revisora de pruebas', comment: HUMAN_COMMENT }), makeApiResponse());
+    await reviewHandler(makeApiRequest('POST', { caseId: 'case-1' }, { result: 'BAJA', comment: HUMAN_COMMENT }), makeApiResponse());
     const res = makeApiResponse();
 
     await reviewHandler(makeApiRequest('GET', { caseId: 'case-1' }), res);
 
     expect(res.statusCode).toBe(200);
     const payload = JSON.parse(res.body) as {
-      review: { result: string };
+      review: { result: string; coordinatorDecision: string | null };
       comparison: { status: string; resultJson: { agrees: boolean } | null };
+      workflowState: string;
       effectiveResolution: { result: string; source: string };
     };
     expect(payload.review.result).toBe('BAJA');
+    // El bloque del coordinador viaja aunque esté vacío: la UI no tiene que
+    // adivinar si existe o no.
+    expect(payload.review.coordinatorDecision).toBeNull();
     expect(payload.comparison.status).toBe('COMPLETED');
     expect(payload.comparison.resultJson?.agrees).toBe(false);
+    expect(payload.workflowState).toBe('PENDING_COORDINATOR');
     expect(payload.effectiveResolution).toEqual({ result: 'BAJA', source: 'HUMAN' });
   });
 
@@ -570,10 +629,12 @@ describe('endpoints de revisión y comparación', () => {
     const payload = JSON.parse(res.body) as {
       review: unknown;
       comparison: unknown;
+      workflowState: string;
       effectiveResolution: { result: string; source: string };
     };
     expect(payload.review).toBeNull();
     expect(payload.comparison).toBeNull();
+    expect(payload.workflowState).toBe('PENDING_ADVISOR');
     expect(payload.effectiveResolution).toEqual({ result: 'CANCELACION_VENTA', source: 'AI' });
   });
 
@@ -714,5 +775,351 @@ describe('effectiveResolution — se deriva en lectura, no muta el dictamen', ()
   it('sin auditoría completada no inventa resolución efectiva', () => {
     expect(deriveEffectiveResolution(null, null)).toBeNull();
     expect(deriveEffectiveResolution(null, { status: 'ERROR', result_json: null } as never)).toBeNull();
+  });
+});
+
+// =============================================================================
+// Flujo de DOS etapas sobre el endpoint real. La etapa la resuelve el servidor
+// (capacidades + fila persistida); el cliente manda el body de SU etapa y nada
+// más. Aquí se fija, de punta a punta:
+//   PENDING_ADVISOR → asesor → PENDING_COORDINATOR → coordinador → FINALIZED
+// =============================================================================
+
+const ASESOR = fakeAuthContext('user');
+const COORDINADOR = fakeAuthContext('coordinator', {
+  sub: FAKE_COORDINATOR_SUB,
+  email: FAKE_COORDINATOR_EMAIL,
+});
+const GERENTE = fakeAuthContext('manager');
+
+/** Payload del GET: la forma que consume la UI. */
+interface ReviewPayload {
+  review: {
+    result: string;
+    reviewerName: string | null;
+    comment: string;
+    coordinatorDecision: string | null;
+    coordinatorResolution: string | null;
+    coordinatorCreatedAt: string | null;
+    coordinatorComment: string | null;
+  } | null;
+  workflowState: string;
+  effectiveResolution: { result: string; source: string } | null;
+}
+
+async function getReview(auth = ASESOR): Promise<ReviewPayload> {
+  const res = makeApiResponse();
+  await reviewHandler(makeApiRequest('GET', { caseId: 'case-1' }, undefined, auth), res);
+  expect(res.statusCode).toBe(200);
+  return JSON.parse(res.body) as ReviewPayload;
+}
+
+async function postReview(
+  body: unknown,
+  auth = ASESOR,
+): Promise<ReturnType<typeof makeApiResponse>> {
+  const res = makeApiResponse();
+  await reviewHandler(makeApiRequest('POST', { caseId: 'case-1' }, body, auth), res);
+  return res;
+}
+
+/** Deja el caso en PENDING_COORDINATOR con la revisión del asesor ya escrita. */
+function seedAwaitingCoordinator(result: 'BAJA' | 'CANCELACION_VENTA' = 'BAJA') {
+  const audit = seedAuditableCase();
+  const review = seedReview({ audit_id: audit.id, result, created_by: FAKE_USER_SUB, reviewer_name: FAKE_USER_EMAIL });
+  return { audit, review };
+}
+
+describe('deriveWorkflowState — se deriva de la fila, no de cases.status', () => {
+  it('sin fila de revisión la etapa es PENDING_ADVISOR', () => {
+    expect(deriveWorkflowState(null)).toBe('PENDING_ADVISOR');
+  });
+
+  it('fila sin decisión de coordinador es PENDING_COORDINATOR', () => {
+    expect(deriveWorkflowState(seedReview())).toBe('PENDING_COORDINATOR');
+  });
+
+  it('fila con decisión de coordinador es FINALIZED', () => {
+    const review = seedReview();
+    review.coordinator_decision = 'APPROVE';
+    expect(deriveWorkflowState(review)).toBe('FINALIZED');
+  });
+
+  it('una columna coordinator_decision ausente (migración sin aplicar) se lee como NULL', () => {
+    const review = { ...seedReview() };
+    delete review.coordinator_decision;
+    expect(deriveWorkflowState(review)).toBe('PENDING_COORDINATOR');
+  });
+});
+
+describe('etapa 1 · el asesor registra su decisión y abre la finalización', () => {
+  it('PENDING_ADVISOR → asesor → PENDING_COORDINATOR', async () => {
+    seedAuditableCase();
+    expect((await getReview()).workflowState).toBe('PENDING_ADVISOR');
+
+    const res = await postReview({ result: 'BAJA', comment: HUMAN_COMMENT }, ASESOR);
+
+    expect(res.statusCode).toBe(201);
+    expect((await getReview()).workflowState).toBe('PENDING_COORDINATOR');
+    const row = listReviews()[0];
+    expect(row?.result).toBe('BAJA');
+    expect(row?.coordinator_decision).toBeNull();
+    expect(row?.coordinator_created_at).toBeNull();
+  });
+
+  it('la atribución y el actor los pone el servidor: created_by es la sesión y el nombre es su correo', async () => {
+    seedAuditableCase();
+
+    await postReview({ result: 'BAJA', comment: HUMAN_COMMENT }, ASESOR);
+
+    const row = listReviews()[0];
+    expect(row?.created_by).toBe(FAKE_USER_SUB);
+    expect(row?.reviewer_name).toBe(FAKE_USER_EMAIL);
+  });
+
+  it('un segundo envío del asesor es 409 estable y NO muta lo ya escrito', async () => {
+    seedAuditableCase();
+    await postReview({ result: 'BAJA', comment: HUMAN_COMMENT }, ASESOR);
+    const before = listReviews()[0];
+
+    // Cuerpo con OTRA resolución válida: lo que se prueba es el conflicto, no la
+    // validación de contenido.
+    const res = await postReview({ result: 'TICKET_RECHAZADO', comment: 'otra opinión' }, ASESOR);
+
+    expect(res.statusCode).toBe(409);
+    const after = listReviews()[0];
+    expect(listReviews()).toHaveLength(1);
+    expect(after?.result).toBe('BAJA');
+    expect(after?.comment).toBe(HUMAN_COMMENT);
+    expect(after?.created_at).toBe(before?.created_at);
+    // Y tampoco se relanza la comparación: una sola fila por revisión.
+    expect(listComparisons()).toHaveLength(1);
+  });
+
+  it('la comparación se dispara en la etapa del asesor y compara SU resolución', async () => {
+    seedAuditableCase();
+
+    await postReview({ result: 'BAJA', comment: HUMAN_COMMENT }, ASESOR);
+
+    expect(listComparisons()).toHaveLength(1);
+    expect(listComparisons()[0]?.status).toBe('COMPLETED');
+    expect(sentText()).toContain('BAJA');
+  });
+});
+
+describe('etapa 2 · el coordinador finaliza cualquier caso', () => {
+  it('PENDING_COORDINATOR → APPROVE → FINALIZED conservando la resolución del asesor', async () => {
+    seedAwaitingCoordinator('BAJA');
+
+    const res = await postReview({ decision: 'APPROVE', comment: 'De acuerdo con el asesor.' }, COORDINADOR);
+
+    expect(res.statusCode).toBe(200);
+    const payload = (await getReview(COORDINADOR)) as ReviewPayload;
+    expect(payload.workflowState).toBe('FINALIZED');
+    expect(payload.review?.result).toBe('BAJA');
+    // APPROVE NO escribe resolución de cambio: la del asesor sigue vigente.
+    expect(payload.review?.coordinatorDecision).toBe('APPROVE');
+    expect(payload.review?.coordinatorResolution).toBeNull();
+    expect(payload.effectiveResolution).toEqual({ result: 'BAJA', source: 'HUMAN' });
+  });
+
+  it('CHANGE guarda una resolución DISTINTA y no toca la del asesor', async () => {
+    seedAwaitingCoordinator('BAJA');
+
+    const res = await postReview(
+      { decision: 'CHANGE', resolution: 'EVIDENCIA_INSUFICIENTE', comment: 'Falta acreditar el retiro.' },
+      COORDINADOR,
+    );
+
+    expect(res.statusCode).toBe(200);
+    const payload = (await getReview(COORDINADOR)) as ReviewPayload;
+    expect(payload.workflowState).toBe('FINALIZED');
+    expect(payload.review?.coordinatorDecision).toBe('CHANGE');
+    expect(payload.review?.coordinatorResolution).toBe('EVIDENCIA_INSUFICIENTE');
+    // La decisión del asesor queda APARTE, para no perder la traza de quién propuso qué.
+    expect(payload.review?.result).toBe('BAJA');
+    expect(payload.review?.comment).toBe('Se acredita la baja por solicitud posterior al inicio de ciclo.');
+    expect(payload.effectiveResolution).toEqual({ result: 'EVIDENCIA_INSUFICIENTE', source: 'HUMAN' });
+  });
+
+  it('CHANGE sin resolución, con la misma del asesor o inventada: 400 y nada se escribe', async () => {
+    for (const body of [
+      { decision: 'CHANGE' },
+      { decision: 'CHANGE', resolution: 'BAJA' },
+      { decision: 'CHANGE', resolution: 'RESULTADO_INVENTADO' },
+      { decision: 'APPROVE', resolution: 'BAJA' },
+    ]) {
+      resetStore();
+      mockedCall.mockClear();
+      seedAwaitingCoordinator('BAJA');
+
+      const res = await postReview(body, COORDINADOR);
+
+      expect(res.statusCode).toBe(400);
+      const row = listReviews()[0];
+      expect(row?.coordinator_decision).toBeNull();
+      expect(row?.coordinator_created_at).toBeNull();
+      expect(row?.result).toBe('BAJA');
+    }
+  });
+
+  it('una segunda finalización es 409 estable y NO pisa la decisión ya tomada', async () => {
+    seedAwaitingCoordinator('BAJA');
+    await postReview({ decision: 'APPROVE', comment: 'De acuerdo.' }, COORDINADOR);
+    const first = listReviews()[0];
+
+    const res = await postReview({ decision: 'CHANGE', resolution: 'TICKET_RECHAZADO' }, COORDINADOR);
+
+    expect(res.statusCode).toBe(409);
+    const after = listReviews()[0];
+    expect(after?.coordinator_decision).toBe('APPROVE');
+    expect(after?.coordinator_resolution).toBeNull();
+    expect(after?.coordinator_created_at).toBe(first?.coordinator_created_at);
+    expect(after?.result).toBe('BAJA');
+  });
+
+  it('sin revisión de asesor no hay nada que finalizar: 400', async () => {
+    seedAuditableCase();
+
+    const res = await postReview({ decision: 'APPROVE' }, COORDINADOR);
+
+    expect(res.statusCode).toBe(400);
+    expect(listReviews()).toHaveLength(0);
+  });
+
+  it('el coordinador no puede actuar como asesor: su body no vale para la etapa del asesor', async () => {
+    seedAuditableCase();
+
+    const res = await postReview({ result: 'BAJA', comment: HUMAN_COMMENT }, COORDINADOR);
+
+    expect(res.statusCode).toBe(400);
+    expect(listReviews()).toHaveLength(0);
+  });
+});
+
+describe('capacidades · quién puede hacer qué en esta pantalla', () => {
+  it('el coordinador finaliza el caso de un asesor (lectura global + finalización)', async () => {
+    seedAuditableCase({ auditId: 'audit-1' });
+    // El caso es del ASESOR; al coordinador no le hace falta ser dueño.
+    expect(getCase('case-1')?.created_by).toBe(FAKE_USER_SUB);
+
+    const res = await postReview({ decision: 'APPROVE' }, COORDINADOR);
+
+    expect(res.statusCode).toBe(400); // aún no hay revisión de asesor que finalizar
+    expect(listReviews()).toHaveLength(0);
+  });
+
+  it('el gerente LEE el flujo pero no lo muta: GET 200, POST 403, nada escrito', async () => {
+    seedAwaitingCoordinator('BAJA');
+
+    const read = await getReview(GERENTE);
+    expect(read.workflowState).toBe('PENDING_COORDINATOR');
+    expect(read.review?.result).toBe('BAJA');
+
+    for (const body of [{ decision: 'APPROVE' }, { decision: 'CHANGE', resolution: 'TICKET_RECHAZADO' }]) {
+      const res = await postReview(body, GERENTE);
+      expect(res.statusCode).toBe(403);
+      expect((JSON.parse(res.body) as { error: { category: string } }).error.category).toBe('AUTH_ERROR');
+    }
+    // Tampoco puede registrar la etapa del asesor.
+    resetStore();
+    mockedCall.mockClear();
+    seedAuditableCase();
+    const asAdvisor = await postReview({ result: 'BAJA' }, GERENTE);
+    expect(asAdvisor.statusCode).toBe(403);
+    expect(listReviews()).toHaveLength(0);
+    expect(mockedCall).not.toHaveBeenCalled();
+  });
+
+  it('el asesor sobre el caso de OTRO responde 404, nunca 403', async () => {
+    seedAuditableCase();
+    // El caso pasa a ser de otro Asesor; el rol sigue siendo `user`.
+    const row = getCase('case-1');
+    if (row) row.created_by = '00000000-0000-0000-0000-0000-0000000000ff';
+
+    const res = await postReview({ result: 'BAJA', comment: HUMAN_COMMENT }, ASESOR);
+
+    expect(res.statusCode).toBe(404);
+    // Ni 403 (que confirmaría que el caso existe) ni una fila escrita.
+    expect(listReviews()).toHaveLength(0);
+  });
+
+  it('el asesor tampoco LEE el caso de otro: 404 sin filtrar el workflow state', async () => {
+    seedAwaitingCoordinator('BAJA');
+    const row = getCase('case-1');
+    if (row) row.created_by = '00000000-0000-0000-0000-0000-0000000000ff';
+
+    const res = makeApiResponse();
+    await reviewHandler(makeApiRequest('GET', { caseId: 'case-1' }, undefined, ASESOR), res);
+
+    expect(res.statusCode).toBe(404);
+    expect(res.body).not.toContain('BAJA');
+  });
+});
+
+describe('atribución · nada de lo que dice el cuerpo se cree', () => {
+  it('actor, rol y nombre forjados en el body no se aceptan (strict) y no escriben nada', async () => {
+    const forgeries = [
+      { result: 'BAJA', comment: HUMAN_COMMENT, reviewerName: 'La jefa' },
+      { result: 'BAJA', comment: HUMAN_COMMENT, createdBy: 'otro-actor' },
+      { result: 'BAJA', comment: HUMAN_COMMENT, role: 'coordinator' },
+      { result: 'BAJA', comment: HUMAN_COMMENT, coordinatorDecision: 'APPROVE' },
+      { result: 'BAJA', comment: HUMAN_COMMENT, created_at: '1999-01-01T00:00:00.000Z' },
+    ];
+    for (const body of forgeries) {
+      resetStore();
+      mockedCall.mockClear();
+      seedAuditableCase();
+
+      const res = await postReview(body, ASESOR);
+
+      expect(res.statusCode).toBe(400);
+      expect(listReviews()).toHaveLength(0);
+      expect(mockedCall).not.toHaveBeenCalled();
+    }
+  });
+
+  it('un coordinator_created_at del cliente tampoco: la hora la pone el servidor', async () => {
+    seedAwaitingCoordinator('BAJA');
+    const before = Date.now();
+
+    const res = await postReview(
+      { decision: 'APPROVE', coordinatorCreatedAt: '1999-01-01T00:00:00.000Z', coordinatorCreatedBy: 'otro' },
+      COORDINADOR,
+    );
+
+    expect(res.statusCode).toBe(400);
+    const row = listReviews()[0];
+    expect(row?.coordinator_created_at).toBeNull();
+    expect(row?.coordinator_created_by).toBeNull();
+    expect(row?.coordinator_created_by).not.toBe('otro');
+    expect(before).toBeGreaterThan(0);
+  });
+
+  it('el servidor sella la hora y el actor de la finalización, no el cliente', async () => {
+    seedAwaitingCoordinator('BAJA');
+    const before = Date.now();
+
+    const res = await postReview({ decision: 'APPROVE', comment: 'De acuerdo.' }, COORDINADOR);
+    const after = Date.now();
+
+    expect(res.statusCode).toBe(200);
+    const row = listReviews()[0];
+    expect(row?.coordinator_created_by).toBe(FAKE_COORDINATOR_SUB);
+    const stamped = Date.parse(row?.coordinator_created_at ?? '');
+    expect(Number.isNaN(stamped)).toBe(false);
+    // La marca cae dentro de la llamada: no es un valor heredado ni del cliente.
+    expect(stamped).toBeGreaterThanOrEqual(before - 1000);
+    expect(stamped).toBeLessThanOrEqual(after + 1000);
+  });
+
+  it('la decisión del coordinador viaja separada y con su propio comentario', async () => {
+    seedAwaitingCoordinator('BAJA');
+
+    await postReview({ decision: 'APPROVE', comment: 'Se comparte la lectura del caso.' }, COORDINADOR);
+
+    const payload = await getReview(COORDINADOR);
+    expect(payload.review?.comment).toBe('Se acredita la baja por solicitud posterior al inicio de ciclo.');
+    expect(payload.review?.coordinatorComment).toBe('Se comparte la lectura del caso.');
   });
 });

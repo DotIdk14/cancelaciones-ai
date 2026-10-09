@@ -9,6 +9,7 @@
 
 import type { ReactNode } from 'react';
 import { Coins, FolderOpen, LayoutDashboard, ShieldCheck } from 'lucide-react';
+import type { AppRole } from '../lib/api';
 import { cx } from '../lib/cx';
 import { useHashRoute } from '../lib/useHashRoute';
 import type { AppRoute } from '../lib/useHashRoute';
@@ -50,11 +51,29 @@ const ENTRIES: readonly NavItem[] = [
 /** En el preview local solo tienen sentido las vistas de dashboard. */
 const PREVIEW_ROUTES = new Set<AppRoute['name']>(['dashboard', 'quality', 'ai-costs', 'cases', 'case']);
 
-export function AppNav({ previewOnly = false, horizontal = false }: { previewOnly?: boolean; horizontal?: boolean }): ReactNode {
+/**
+ * Vistas globales (agregados de todos los casos). El Asesor NO las ve: su alcance
+ * son sus propios casos. Es SOLO presentación; el servidor limita la lectura.
+ */
+const GLOBAL_ROUTES = new Set<AppRoute['name']>(['dashboard', 'quality', 'ai-costs']);
+
+export function AppNav({
+  previewOnly = false,
+  horizontal = false,
+  role = null,
+}: {
+  previewOnly?: boolean;
+  horizontal?: boolean;
+  role?: AppRole | null;
+}): ReactNode {
   const route = useHashRoute();
-  const entries = previewOnly
-    ? ENTRIES.filter((entry) => PREVIEW_ROUTES.has(entry.name))
-    : ENTRIES;
+  // `null`/desconocido se trata como Asesor (el alcance más acotado) por defecto.
+  const effectiveRole: AppRole = role ?? 'user';
+  const entries = ENTRIES.filter((entry) => {
+    if (previewOnly && !PREVIEW_ROUTES.has(entry.name)) return false;
+    if (effectiveRole === 'user' && GLOBAL_ROUTES.has(entry.name)) return false;
+    return true;
+  });
 
   return (
     <nav aria-label="Navegación principal" className={cx('app-nav', horizontal && 'app-nav-horizontal')}>

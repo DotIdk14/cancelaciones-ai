@@ -1,5 +1,6 @@
 import { handleRoute, ok, methodNotAllowed, readJsonBody, requiredUuid } from '../../../src/server/http.js';
 import { createServerClient } from '../../../src/server/insforge.js';
+import { assertCaseWriteCapability } from '../../../src/server/auth.js';
 import {
   assertCaseOwner,
   getCaseOr404,
@@ -45,6 +46,8 @@ export default handleRoute(async (req, res) => {
     // Un coordinador puede LEER cualquier caso (visibilidad global de auditoría),
     // así que el alcance de escritura no se resuelve solo al leer.
     const caseRow = await getScopedCaseOr404(client, caseId, req.auth!);
+    // Capacidad ANTES que propiedad: el gerente no muta NINGÚN caso, ni propio.
+    assertCaseWriteCapability(req.auth!);
     assertCaseOwner(caseRow, req.auth!);
 
     const input = parseCaseCycleStartDateInput(await readJsonBody(req));

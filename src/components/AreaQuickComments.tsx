@@ -38,6 +38,8 @@ export interface AreaQuickCommentsProps {
   onSaved?: () => void;
   /** Comentarios precargados por el padre; si se reciben no se vuelve a hacer GET. */
   initialComments?: AreaComment[];
+  /** Solo lectura: muestra las notas sin permitir editarlas (Gerente). */
+  readOnly?: boolean;
 }
 
 function commentsToState(comments: AreaComment[] | undefined): {
@@ -60,6 +62,7 @@ export function AreaQuickComments({
   autoFocus = 0,
   onSaved,
   initialComments,
+  readOnly = false,
 }: AreaQuickCommentsProps): ReactNode {
   const [saved, setSaved] = useState<Record<string, AreaComment>>(() => commentsToState(initialComments).saved);
   const [drafts, setDrafts] = useState<Record<string, string>>(() => commentsToState(initialComments).drafts);
@@ -149,6 +152,21 @@ export function AreaQuickComments({
         {notice}
       </p>
 
+      {readOnly ? (
+        <div className="mt-2 flex flex-col gap-3">
+          {QUICK_AREAS.map((area) => {
+            const existing = saved[area];
+            return (
+              <div key={area}>
+                <p className="text-sm font-semibold text-ink">{AREA_COMMENT_LABELS[area]}</p>
+                <p className="mt-1 whitespace-pre-wrap break-words text-sm text-ink">
+                  {existing ? existing.comment : 'Sin comentario registrado.'}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
       <div className="mt-2 flex flex-col gap-3">
         {QUICK_AREAS.map((area) => {
           const existing = saved[area];
@@ -204,6 +222,7 @@ export function AreaQuickComments({
           );
         })}
       </div>
+      )}
     </section>
   );
 }

@@ -23,6 +23,7 @@ import evidenceDeleteHandler from '../api/cases/[caseId]/evidence/[evidenceId]/i
 import downloadHandler from '../api/evidence/[evidenceId]/download';
 import dashboardHandler from '../api/dashboard/[view]';
 import { getScopedCaseOr404, assertCaseOwner } from '../src/server/cases';
+import { assertCaseWriteCapability } from '../src/server/auth';
 import type { InsForgeClient } from '../src/server/insforge';
 
 /** Nombre real de la cookie de acceso que escribe el SDK SSR de InsForge. */
@@ -279,9 +280,24 @@ describe('R6/R7 · ownership: un caso ajeno no existe para el usuario', () => {
     await expect(getScopedCaseOr404(client, 'c-ajeno', fakeAuthContext('coordinator'))).resolves.toBe(row);
   });
 
-  it('rol coordinator NO puede mutar un caso ajeno: 404, no 403', () => {
-    // 403 confirmaria que el caso existe. "No es tuyo" y "no existe" se
-    // responden igual a proposito (no enumeracion de existencia).
+  it('rol manager tambien lee un caso ajeno: la lectura global no es del coordinador', async () => {
+    const row = { id: 'c-ajeno', created_by: 'otro-usuario' };
+    const chain = {
+      select: () => chain,
+      eq: () => chain,
+      single: () => Promise.resolve({ data: row, error: null }),
+    };
+    const client = { database: { from: () => chain } } as unknown as InsForgeClient;
+    await expect(getScopedCaseOr404(client, 'c-ajeno', fakeAuthContext('manager'))).resolves.toBe(row);
+  });
+
+  it('rol coordinator no ESCRIBE un caso ajeno en las mutaciones de scope: 404, no 403', () => {
+    // El coordinador PUEDE finalizar cualquier caso (su capacidad es `canFinalizeAnyCase`,
+    // que NO pasa por `assertCaseOwner`). Lo que sigue siendo suyo es la escritura
+    // ordinary del caso —evidencias, auditoría, comentarios—: esa sigue siendo
+    // propiedad del dueño, y "no es tuyo" se responde 404 para no enumerar
+    // existencia. Finalizar es un endpoint aparte (`/review`), no una escritura de
+    // esta familia: ver `describe('matriz de capacidades sobre /review')` más abajo.
     const row = { id: 'c-ajeno', created_by: 'otro-usuario' } as never;
     let status: number | undefined;
     try {
@@ -295,6 +311,148 @@ describe('R6/R7 · ownership: un caso ajeno no existe para el usuario', () => {
   it('rol user si muta su propio caso', () => {
     const row = { id: 'c', created_by: FAKE_USER_SUB } as never;
     expect(() => assertCaseOwner(row, fakeAuthContext('user'))).not.toThrow();
+  });
+
+  it('gerente NO muta ni siquiera un caso PROPIO: la capacidad va antes que la propiedad', () => {
+    // `assertCaseOwner` solo mira `created_by`, asi que por si solo le abriria al
+    // gerente la escritura de los casos que el mismo certify. Lo cierra
+    // `assertCaseWriteCapability`, que es la razon de existir.
+    const row = { id: 'c', created_by: FAKE_USER_SUB } as never;
+    expect(() => assertCaseOwner(row, fakeAuthContext('manager'))).not.toThrow();
+    expect(() => assertCaseWriteCapability(fakeAuthContext('manager'))).toThrowError();
+    // Y un asesor/coordinador con capacidad de escritura no lo dispara.
+    expect(() => assertCaseWriteCapability(fakeAuthContext('user'))).not.toThrow();
+    expect(() => assertCaseWriteCapability(fakeAuthContext('coordinator'))).not.toThrow();
+  });
+});
+
+describe('matriz de capacidades sobre /review · el servidor resuelve la etapa', () => {
+  /**
+   * Cliente InsForge mínimo, POR TABLA, para poder observar qué se escribe sin
+   * sustituir la lógica: `src/server/cases` y `src/server/reviews` se ejecutan de
+   * verdad (solo se dobeja el transporte, igual que en el resto del archivo).
+   */
+  function reviewStore(options: { finalized?: Record<string, unknown> } = {}) {
+    const state: Record<string, unknown>[] = [];
+    const foreignCase = { id: 'c-ajeno', created_by: 'otro-usuario', status: 'DRAFT' };
+    const advisorReview = {
+      id: 'review-1',
+      case_id: 'c-ajeno',
+      audit_id: 'audit-1',
+      result: 'BAJA',
+      reviewer_name: 'asesor@utel.edu.mx',
+      comment: 'Se acredita la baja.',
+      created_at: '2026-02-02T09:00:00.000Z',
+      created_by: 'otro-usuario',
+      coordinator_decision: null,
+      coordinator_resolution: null,
+      coordinator_created_by: null,
+      coordinator_created_at: null,
+      coordinator_comment: null,
+      ...(options.finalized ?? {}),
+    };
+    const tables: Record<string, unknown> = {
+      cases: foreignCase,
+      case_reviews: advisorReview,
+      case_comparisons: null,
+      audits: null,
+    };
+    Object.assign(state, []);
+
+    const from = (table: string) => {
+      const row = () => tables[table];
+      const chain: Record<string, unknown> = {};
+      chain.select = () => chain;
+      chain.eq = () => chain;
+      chain.is = () => chain;
+      chain.order = () => chain;
+      chain.limit = () => chain;
+      chain.update = (patch: Record<string, unknown>) => {
+        Object.assign(advisorReview, patch);
+        return chain;
+      };
+      chain.single = async () => ({ data: row(), error: null });
+      chain.then = (onOk: (value: { data: unknown; error: null }) => unknown) =>
+        Promise.resolve({ data: row() === null ? [] : [row()], error: null }).then(onOk);
+      return chain;
+    };
+    return { client: { database: { from } }, advisorReview, writes: state };
+  }
+
+  async function callReview(
+    role: 'user' | 'coordinator' | 'manager',
+    method: 'GET' | 'POST',
+    body?: unknown,
+  ): Promise<{ res: ReturnType<typeof makeApiResponse>; store: ReturnType<typeof reviewStore> }> {
+    const store = reviewStore();
+    vi.resetModules();
+    vi.doMock('../src/server/insforge', () => ({ createServerClient: () => store.client }));
+    try {
+      const handler = (await import('../api/cases/[caseId]/review/index')).default;
+      const res = makeApiResponse();
+      await handler(
+        makeApiRequest({ method, query: { caseId: 'c-ajeno' }, body, auth: fakeAuthContext(role) }),
+        res,
+      );
+      return { res, store };
+    } finally {
+      vi.doUnmock('../src/server/insforge');
+      vi.resetModules();
+    }
+  }
+
+  it('el coordinador FINALIZA el caso de un asesor: 200 y la fila queda con su actor', async () => {
+    const { res, store } = await callReview('coordinator', 'POST', { decision: 'APPROVE' });
+
+    expect(res.statusCode).toBe(200);
+    const payload = JSON.parse(res.body) as { workflowState: string; review: { coordinatorDecision: string } };
+    expect(payload.workflowState).toBe('FINALIZED');
+    expect(payload.review.coordinatorDecision).toBe('APPROVE');
+    // `coordinator_created_by` es el uuid de la SESIÓN del coordinador, no un
+    // campo del body (el body ni siquiera admite uno).
+    expect(store.advisorReview.coordinator_created_by).toBe(FAKE_USER_SUB);
+    // Y la decisión del asesor sigue intacta.
+    expect(store.advisorReview.result).toBe('BAJA');
+  });
+
+  it('el gerente LEE el caso ajeno pero NO lo muta: GET 200, POST 403, nada escrito', async () => {
+    const read = await callReview('manager', 'GET');
+    expect(read.res.statusCode).toBe(200);
+
+    for (const body of [{ decision: 'APPROVE' }, { result: 'BAJA' }]) {
+      const { res, store } = await callReview('manager', 'POST', body);
+      expect(res.statusCode).toBe(403);
+      expect((JSON.parse(res.body) as { error: { category: string } }).error.category).toBe('AUTH_ERROR');
+      expect(store.advisorReview.coordinator_decision).toBeNull();
+      expect(store.advisorReview.coordinator_created_by).toBeNull();
+    }
+  });
+
+  it('el asesor sobre el caso de OTRO responde 404 en POST y en GET: no se enumera existencia', async () => {
+    const post = await callReview('user', 'POST', { result: 'BAJA' });
+    expect(post.res.statusCode).toBe(404);
+    expect(post.store.advisorReview.coordinator_created_by).toBeNull();
+
+    const get = await callReview('user', 'GET');
+    expect(get.res.statusCode).toBe(404);
+    // Ni la resolución del asesor ni la etapa del flujo se filtran en el 404.
+    expect(get.res.body).not.toContain('BAJA');
+  });
+
+  it('sin sesión / sin rol resuelto, /review nunca responde 200 con datos', async () => {
+    const store = reviewStore();
+    vi.resetModules();
+    vi.doMock('../src/server/insforge', () => ({ createServerClient: () => store.client }));
+    try {
+      const handler = (await import('../api/cases/[caseId]/review/index')).default;
+      const res = makeApiResponse();
+      await handler(makeApiRequest({ method: 'GET', query: { caseId: 'c-ajeno' }, headers: {} }), res);
+      expect([401, 403, 503]).toContain(res.statusCode);
+      expect(res.body).not.toContain('BAJA');
+    } finally {
+      vi.doUnmock('../src/server/insforge');
+      vi.resetModules();
+    }
   });
 });
 

@@ -30,6 +30,7 @@ import {
 } from '../src/server/dashboard';
 import type { InsForgeClient } from '../src/server/insforge';
 import { ApiError } from '../src/server/http';
+import { fakeAuthContext, FAKE_USER_SUB, FAKE_COORDINATOR_SUB } from './helpers/auth';
 
 const FILTERS: DashboardFilters = { from: '2026-09-01', to: '2026-09-30', result: null, status: null };
 const VIEW = 'case_comparisons_dashboard_metrics';
@@ -59,9 +60,14 @@ interface QueryResult {
 }
 
 interface FakeSeed {
-  comparisons?: Array<Partial<ComparisonMetricRow>>;
-  reviews?: Array<{ id: string; created_at: string }>;
-  metrics?: Array<Partial<DashboardMetricRow>>;
+  comparisons?: Array<Partial<ComparisonMetricRow> & { is_test?: boolean; created_by?: string | null }>;
+  reviews?: Array<{
+    id: string;
+    created_at: string;
+    'cases.is_test'?: boolean;
+    'cases.created_by'?: string | null;
+  }>;
+  metrics?: Array<Partial<DashboardMetricRow> & { is_test?: boolean; created_by?: string | null }>;
   /** Tablas que fallan, para comprobar que el error NO se come. */
   failing?: string[];
 }
@@ -87,9 +93,12 @@ function matches(row: Row, predicate: Predicate): boolean {
 function createFakeClient(seed: FakeSeed): FakeClient {
   const calls: RecordedCall[] = [];
   const tables: Record<string, Row[]> = {
-    [VIEW]: (seed.comparisons ?? []).map((row) => ({ ...row })),
-    [REVIEWS]: (seed.reviews ?? []).map((row) => ({ ...row })),
-    audit_dashboard_metrics: (seed.metrics ?? []).map((row) => ({ ...row })),
+    // Las filas sembradas llevan `is_test`/`created_by` (las columnas que la
+    // consulta filtra tras la migración). `is_test` por defecto `false`: es el
+    // default de la columna y el estado de un caso real.
+    [VIEW]: (seed.comparisons ?? []).map((row) => ({ is_test: false, ...row })),
+    [REVIEWS]: (seed.reviews ?? []).map((row) => ({ 'cases.is_test': false, ...row })),
+    audit_dashboard_metrics: (seed.metrics ?? []).map((row) => ({ is_test: false, ...row })),
   };
 
   function from(table: string) {
@@ -152,7 +161,9 @@ function createFakeClient(seed: FakeSeed): FakeClient {
 
 // ------------------------------------------------------------------- siembras
 
-function comparisonRow(overrides: Partial<ComparisonMetricRow> = {}): Partial<ComparisonMetricRow> {
+function comparisonRow(
+  overrides: Partial<ComparisonMetricRow> & { is_test?: boolean; created_by?: string | null } = {},
+): Partial<ComparisonMetricRow> & { is_test?: boolean; created_by?: string | null } {
   return {
     id: 'comparison-1',
     case_review_id: 'review-1',
@@ -167,7 +178,9 @@ function comparisonRow(overrides: Partial<ComparisonMetricRow> = {}): Partial<Co
   };
 }
 
-function metricRow(overrides: Partial<DashboardMetricRow> = {}): Partial<DashboardMetricRow> {
+function metricRow(
+  overrides: Partial<DashboardMetricRow> & { is_test?: boolean; created_by?: string | null } = {},
+): Partial<DashboardMetricRow> & { is_test?: boolean; created_by?: string | null } {
   return {
     id: 'audit-1',
     case_id: 'case-1',
@@ -221,6 +234,8 @@ describe('getHumanReviewInput — el corte por periodo', () => {
     expect(call?.predicates).toEqual([
       { op: 'gte', column: 'created_at', value: '2026-09-01T00:00:00.000Z' },
       { op: 'lte', column: 'created_at', value: '2026-09-30T23:59:59.999Z' },
+      // La exclusión de pruebas va SIEMPRE, ANTES del limit.
+      { op: 'eq', column: 'is_test', value: false },
     ]);
     expect(call?.limit).toBe(DASHBOARD_MAX_ROWS);
   });
@@ -240,11 +255,13 @@ describe('getHumanReviewInput — el corte por periodo', () => {
     // Sólo la de septiembre: ni la de agosto ni la de octubre.
     expect(input.reviewedCases).toBe(1);
     const call = fake.callFor(REVIEWS);
-    // `id,case_id` y no `*`: `case_reviews.comment` es texto escrito por una
-    // persona y puede contener PII, y aquí sólo hace falta contar. El `case_id`
-    // permite aplicar scope multi-tenant sin traer el comentario.
-    expect(call?.columns).toBe('id,case_id');
+    // El embed `cases!inner` trae `is_test`/`created_by` del caso: la tabla
+    // `case_reviews` no tiene esas columnas, y sin el embed no se podría excluir
+    // una revisión de prueba ni acotar por dueño EN SQL (un `.in` con todos los
+    // ids de casos no escala). El comentario humano (`comment`) NO se pide.
+    expect(call?.columns).toBe('id,case_id,cases!inner(is_test,created_by)');
     expect(call?.predicates).toEqual([
+      { op: 'eq', column: 'cases.is_test', value: false },
       { op: 'gte', column: 'created_at', value: '2026-09-01T00:00:00.000Z' },
       { op: 'lte', column: 'created_at', value: '2026-09-30T23:59:59.999Z' },
     ]);
@@ -309,6 +326,8 @@ describe('getHumanReviewInput — los mismos filtros que el resto del dashboard'
       { op: 'lte', column: 'created_at', value: '2026-09-30T23:59:59.999Z' },
       { op: 'eq', column: 'audit_result', value: 'CANCELACION_VENTA' },
       { op: 'eq', column: 'case_status', value: 'COMPLETED' },
+      // Las pruebas nunca cuentan como revisión humana operativa.
+      { op: 'eq', column: 'is_test', value: false },
     ]);
   });
 
@@ -318,7 +337,72 @@ describe('getHumanReviewInput — los mismos filtros que el resto del dashboard'
     await getHumanReviewInput(fake.client, FILTERS);
 
     const columnas = fake.callFor(VIEW)?.predicates.map((predicate) => predicate.column) ?? [];
-    expect(columnas).toEqual(['created_at', 'created_at']);
+    expect(columnas).toEqual(['created_at', 'created_at', 'is_test']);
+  });
+});
+
+describe('getHumanReviewInput — pruebas y alcance', () => {
+  it('excluye las comparaciones de un caso de prueba', async () => {
+    const fake = createFakeClient({
+      comparisons: [
+        comparisonRow({ id: 'real', case_review_id: 'r-real', is_test: false }),
+        comparisonRow({ id: 'prueba', case_review_id: 'r-prueba', is_test: true }),
+      ],
+      reviews: [
+        { id: 'r-real', created_at: '2026-09-10T09:00:00.000Z' },
+        { id: 'r-prueba', created_at: '2026-09-11T09:00:00.000Z' },
+      ],
+    });
+
+    const input = await getHumanReviewInput(fake.client, FILTERS);
+
+    expect(input.comparisons.map((c) => c.id)).toEqual(['real']);
+  });
+
+  it('excluye del conteo las revisiones de casos de prueba', async () => {
+    const fake = createFakeClient({
+      comparisons: [],
+      reviews: [
+        { id: 'r-real', created_at: '2026-09-10T09:00:00.000Z', 'cases.is_test': false },
+        { id: 'r-prueba', created_at: '2026-09-11T09:00:00.000Z', 'cases.is_test': true },
+      ],
+    });
+
+    const input = await getHumanReviewInput(fake.client, FILTERS);
+
+    expect(input.reviewedCases).toBe(1);
+  });
+
+  it('un Asesor solo ve lo propio; global ve todo lo real pero nunca las pruebas', async () => {
+    const seed = {
+      comparisons: [
+        comparisonRow({ id: 'mio', case_review_id: 'r-mio', created_by: FAKE_USER_SUB }),
+        comparisonRow({ id: 'ajeno', case_review_id: 'r-ajeno', created_by: FAKE_COORDINATOR_SUB }),
+      ],
+      reviews: [
+        { id: 'r-mio', created_at: '2026-09-10T09:00:00.000Z', 'cases.created_by': FAKE_USER_SUB },
+        { id: 'r-ajeno', created_at: '2026-09-11T09:00:00.000Z', 'cases.created_by': FAKE_COORDINATOR_SUB },
+      ],
+    };
+
+    const asesor = createFakeClient(seed);
+    const propio = await getHumanReviewInput(asesor.client, FILTERS, fakeAuthContext('user'));
+    expect(propio.comparisons.map((c) => c.id)).toEqual(['mio']);
+    expect(propio.reviewedCases).toBe(1);
+    expect(asesor.callFor(VIEW)?.predicates).toContainEqual({ op: 'eq', column: 'created_by', value: FAKE_USER_SUB });
+    expect(asesor.callFor(REVIEWS)?.predicates).toContainEqual({
+      op: 'eq',
+      column: 'cases.created_by',
+      value: FAKE_USER_SUB,
+    });
+
+    const gerente = createFakeClient(seed);
+    const global = await getHumanReviewInput(gerente.client, FILTERS, fakeAuthContext('manager'));
+    expect(global.comparisons.map((c) => c.id).sort()).toEqual(['ajeno', 'mio']);
+    expect(global.reviewedCases).toBe(2);
+    // El Gerente no acota por dueño, pero sigue excluyendo pruebas.
+    expect(gerente.callFor(VIEW)?.predicates.map((p) => p.column)).not.toContain('created_by');
+    expect(gerente.callFor(VIEW)?.predicates).toContainEqual({ op: 'eq', column: 'is_test', value: false });
   });
 });
 

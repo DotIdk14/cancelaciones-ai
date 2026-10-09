@@ -27,12 +27,12 @@
 import type { ChangeEvent, FormEvent, ReactNode } from 'react';
 import { useId, useRef, useState } from 'react';
 import { ArrowRight, FilePlus2, FolderOpen, ShieldCheck, Upload, FileText, Music2, MessageSquare, X } from 'lucide-react';
-import { createCase, saveAreaComment, toErrorState, type AreaCommentArea } from '../lib/api';
+import { createCase, saveAreaComment, toErrorState, type AppRole, type AreaCommentArea } from '../lib/api';
 import { isLocalDashboardPreview } from '../lib/local-dashboard-preview';
 import { getLocalPreviewCases, localPreviewCaseLabel } from '../lib/local-ui-preview';
 import { goToCase } from '../lib/useHashRoute';
 import { useEvidenceUpload, uploadItemKey } from '../lib/useEvidenceUpload';
-import { AREA_COMMENT_LABELS, CASE_STATUS_LABELS, CASE_STATUS_TONE, EVIDENCE_ACCEPT } from '../lib/labels';
+import { AREA_COMMENT_LABELS, CASE_KIND_LABELS, CASE_STATUS_LABELS, CASE_STATUS_TONE, EVIDENCE_ACCEPT } from '../lib/labels';
 import { formatBytes, formatDateTime } from '../lib/format';
 import { Badge, Button, ErrorCard, Panel } from './ui';
 
@@ -59,8 +59,29 @@ type NoteArea = (typeof NOTE_AREAS)[number];
  */
 const MAX_NOTE_LENGTH = 4000;
 
-export function NewCasePanel(): ReactNode {
-  return isLocalDashboardPreview() ? <NewCasePreview /> : <NewCaseForm />;
+export function NewCasePanel({ role = null }: { role?: AppRole | null }): ReactNode {
+  // El Gerente es solo lectura: no crea casos, NI siquiera en la vista previa
+  // local. El servidor lo rechaza igual (403); esto es presentación.
+  if (role === 'manager') return <NewCaseReadOnly />;
+  if (isLocalDashboardPreview()) return <NewCasePreview />;
+  return <NewCaseForm />;
+}
+
+/** Estado del alta cuando el rol no puede crear casos (Gerente). */
+function NewCaseReadOnly(): ReactNode {
+  return (
+    <div className="flex flex-col gap-5">
+      <header>
+        <h1 className="text-2xl font-semibold tracking-tight text-ink">Crear caso de cancelación</h1>
+      </header>
+      <Panel title="Solo lectura" description="Tu rol no puede crear casos.">
+        <p role="status" className="text-sm text-muted">
+          El Gerente consulta todos los casos, pero no los crea ni los modifica. Pide a un Asesor que
+          abra el expediente.
+        </p>
+      </Panel>
+    </div>
+  );
 }
 
 /**
@@ -132,6 +153,8 @@ function NewCaseForm(): ReactNode {
   const notesErrorId = `${formId}-notes-error`;
 
   const [studentIdentifier, setStudentIdentifier] = useState('');
+  /** Clasificación explícita del caso: `false` = real (default), `true` = prueba. */
+  const [isTest, setIsTest] = useState(false);
   /**
    * Archivos elegidos y AÚN NO SUBIDOS CON ÉXITO, cada uno con su estado.
    *
@@ -243,7 +266,7 @@ function NewCaseForm(): ReactNode {
     setCreating(true);
     setCreateError(null);
     try {
-      const created = await createCase(studentIdentifier.trim() === '' ? undefined : studentIdentifier.trim());
+      const created = await createCase(studentIdentifier.trim() === '' ? undefined : studentIdentifier.trim(), isTest);
       setCaseId(created.id);
       return created.id;
     } catch (cause) {
@@ -356,6 +379,49 @@ function NewCaseForm(): ReactNode {
                   Si todavía no tienes este dato, puedes continuar sin él.
                 </p>
               </div>
+
+              {/*
+                El `fieldset` + `legend` ya dan el nombre y la agrupación del
+                conjunto de radios. Un `role="radiogroup"` anidado quedaba sin
+                nombre accesible y duplicaba ese grupo, así que se eliminó: la
+                descripción se asocia al propio `fieldset`.
+              */}
+              <fieldset className="flex flex-col gap-2" aria-describedby={`${formId}-kind-hint`}>
+                <legend className="text-sm font-medium text-ink">Clasificación del caso</legend>
+                <p id={`${formId}-kind-hint`} className="text-xs text-muted">
+                  Marca «Prueba» para datos de demostración o pruebas. Los casos de prueba no cuentan en
+                  las métricas operativas.
+                </p>
+                <div className="flex flex-wrap gap-3">
+                  {([
+                    { value: false, label: CASE_KIND_LABELS.real },
+                    { value: true, label: CASE_KIND_LABELS.test },
+                  ] as const).map((option) => {
+                    const inputId = `${formId}-kind-${option.value ? 'test' : 'real'}`;
+                    const selected = isTest === option.value;
+                    return (
+                      <label
+                        key={inputId}
+                        htmlFor={inputId}
+                        className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                          selected ? 'border-brand/50 bg-brand/5 text-ink' : 'border-line bg-surface-2 text-muted'
+                        }`}
+                      >
+                        <input
+                          id={inputId}
+                          type="radio"
+                          name="caseKind"
+                          value={option.value ? 'test' : 'real'}
+                          checked={selected}
+                          onChange={() => setIsTest(option.value)}
+                          className="h-4 w-4 accent-brand"
+                        />
+                        {option.label}
+                      </label>
+                    );
+                  })}
+                </div>
+              </fieldset>
 
               {createError !== null && <ErrorCard message={createError} />}
 

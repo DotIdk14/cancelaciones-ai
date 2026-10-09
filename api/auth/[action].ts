@@ -23,7 +23,7 @@ import { getEnv } from '../../src/server/env.js';
 // dinámico `[action]`, de modo que las URLs públicas no cambian, el cliente no
 // se entera y el presupuesto de Functions no crece:
 //   DELETE /api/auth/session                    → 204
-//   POST   /api/auth/refresh                    → 200 { ok: true }
+//   POST   /api/auth/refresh                    → 200 { ok: true, role }
 //   GET    /api/auth/google                     → 302 a Google
 //   GET    /api/auth/google-callback            → 303 a la app
 // `POST /api/auth/session` no existe: el login es solo Google (GOOGLE_ONLY_LOGIN).
@@ -75,19 +75,23 @@ async function handleSession(req: ApiRequest, res: ApiResponse): Promise<void> {
 }
 
 /**
- * POST /api/auth/refresh → 200 { ok: true }
+ * POST /api/auth/refresh → 200 { ok: true, role }
  * Refresco EXPLÍCITO; nunca se rota token en GETs de polling o descargas.
+ * `role` es el identificador persistido (presentación: `user` = Asesor) y viaja
+ * solo para que la SPA decida qué pintar; la autorización real sigue en el
+ * servidor (`req.auth`). La respuesta es un superconjunto: `ok: true` se
+ * conserva para los llamadores que aún no leen `role`.
  */
 async function handleRefresh(req: ApiRequest, res: ApiResponse): Promise<void> {
   if (req.method !== 'POST') {
     methodNotAllowed(req, res, 'POST');
     return;
   }
-  await refreshSession(req, res);
+  const { role } = await refreshSession(req, res);
   res.statusCode = 200;
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.setHeader('Cache-Control', 'private, no-store');
-  res.end(JSON.stringify({ ok: true }));
+  res.end(JSON.stringify({ ok: true, role }));
 }
 
 /**

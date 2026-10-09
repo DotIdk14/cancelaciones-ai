@@ -46,12 +46,14 @@ cancelaciones-ai/
 │   ├── components/             # UI React
 │   ├── lib/                    # Cliente API, utilidades, hooks
 │   ├── server/                 # Helpers server-side (no tocan el navegador)
-│   │   ├── auth.ts             # Sesiones, requireAuth, app_memberships
+│   │   ├── capabilities.ts     # Roles y capacidades (módulo hoja)
+│   │   ├── auth.ts             # Sesiones, requireAuth, app_memberships, guards
 │   │   ├── insforge.ts         # Cliente admin server-side
 │   │   ├── http.ts             # handleRoute, CSRF, errores, cookies
 │   │   ├── cases.ts            # Persistencia de casos/evidencias/auditorías
 │   │   ├── reviews.ts          # Persistencia de revisiones/comparaciones
-│   │   ├── dto.ts              # DTOs y deriveEffectiveResolution
+│   │   ├── area-comments.ts    # Bitácora por área (UPSERT)
+│   │   ├── dto.ts              # DTOs, deriveWorkflowState, deriveEffectiveResolution
 │   │   ├── audit-service.ts    # Orquestación durable de auditoría
 │   │   ├── comparison-service.ts # Orquestación de revisión humana
 │   │   ├── evidence-prep.ts    # Hash, MIME, nombres, transcripción
@@ -178,24 +180,51 @@ sequenceDiagram
   A->>IF: auth.getCurrentUser()
   IF-->>A: user
   A->>M: SELECT role WHERE user_id = uid
-  M-->>A: 'user' | 'coordinator' | null
+  M-->>A: 'user' | 'coordinator' | 'manager' | null
 
-  alt Sin membership
+  alt Sin membership (o rol fuera del vocabulario)
     A-->>H: ApiError 403
     H-->>B: 403 AUTH_ERROR
   else Con membership
     A-->>H: AuthContext {sub, email, role}
-    H->>C: getScopedCaseOr404
-    C->>C: user: created_by = sub<br/>coordinator: cualquier caso
+    H->>C: getScopedCaseOr404 (usa capabilitiesForRole)
+    C->>C: canReadAllCases: cualquier caso<br/>si no: created_by = sub
     C-->>B: caso / 404
   end
 ```
 
 ## Límite de confianza
 
-El navegador envía cookies de sesión a `/api/*`, pero no recibe tokens de InsForge ni claves de proveedores. `handleRoute` (`src/server/http.ts`) valida CSRF en métodos mutantes y resuelve la sesión y el membership antes de ejecutar cada handler protegido. Las rutas usan un cliente administrativo server-side, por lo que aplican además alcance por propietario con `getScopedCaseOr404`; `coordinator` puede consultar cualquier caso y solo el propietario puede modificarlo.
+El navegador envía cookies de sesión a `/api/*`, pero no recibe tokens de InsForge ni claves de proveedores. `handleRoute` (`src/server/http.ts`) valida CSRF en métodos mutantes y resuelve la sesión y el membership antes de ejecutar cada handler protegido. Las rutas usan un cliente administrativo server-side, por lo que aplican además alcance por propietario con `getScopedCaseOr404`; quien tiene `canReadAllCases` (`coordinator`, `manager`) puede consultar cualquier caso, y solo el propietario puede modificarlo.
+
+**La autorización se decide por capacidad, no por nombre de rol.** `capabilitiesForRole` (`src/server/capabilities.ts`) deriva cuatro capacidades del rol verificado y los endpoints preguntan "¿TIENE la capacidad?", nunca "¿el rol es exactamente este?". Los guards son `assertCaseWriteCapability` (capacidad antes que propiedad) y `assertCaseOwner` (propiedad: un caso ajeno es `404`). Rol desconocido, `null` o `undefined` → todo negado (fail-closed). **La RLS no es la frontera**: el servidor escribe con `project_admin` (BYPASSRLS), así que las políticas no lo restringen; son defensa en profundidad ante una fuga de cookie.
 
 El backend separa transporte y criterio: `api/**` valida y delega; `src/server/**` coordina persistencia e integraciones; `src/skills/audit/**` es la única fuente de criterio asistido por IA. `cases.country` y `cases.channel` son proyecciones de `audits.result_json.origin`, no datos normativos independientes.
+
+## Roles, capacidades y revisión de dos etapas
+
+Tres roles persistidos en `app_memberships.role`; `user` se presenta como **Asesor** (no se renombra ni migra):
+
+| Rol | Presentación | `canReadAllCases` | `canReviewOwnCases` | `canFinalizeAnyCase` | `canWriteOwnedCases` |
+| --- | --- | --- | --- | --- | --- |
+| `user` | Asesor | no | sí | no | sí |
+| `coordinator` | Coordinador | sí | no | sí | sí |
+| `manager` | Gerente | sí | no | no | no |
+
+La revisión humana tiene dos etapas y el estado se **deriva en lectura** de `case_reviews` con `deriveWorkflowState` (no es una columna ni `cases.status`):
+
+```mermaid
+stateDiagram-v2
+  [*] --> PENDING_ADVISOR: sin fila
+  PENDING_ADVISOR --> PENDING_COORDINATOR: Asesor registra result (201)
+  PENDING_COORDINATOR --> FINALIZED: Coordinador decide APPROVE/CHANGE (200)
+```
+
+- **Asesor**: `POST /api/cases/:id/review { result, comment? }` sobre su caso → `201`, dispara la comparación IA; un segundo intento es `409`.
+- **Coordinador**: `POST ... { decision: 'APPROVE'|'CHANGE', resolution?, comment? }` sobre cualquier caso → `200`. `APPROVE` conserva `result`; `CHANGE` exige `resolution` distinta. La decisión del coordinador se guarda aparte y no pisa la del Asesor.
+- **Gerente**: lee, pero `POST /review` es `403`.
+
+`cases.is_test` (default `false`) marca pruebas y el **servidor** las excluye de las métricas operativas en SQL (`is_test = false`), no la base. La vista previa local `?preview=dashboard&role=…&workflow=…` (`src/lib/local-ui-preview.ts`) es SOLO presentación: no llama a la API ni resuelve sesión, así que cambiar el rol del preview no altera ninguna autorización real.
 
 ## Ciclo de una auditoría
 
@@ -211,7 +240,7 @@ La especificación detallada con estados y responsabilidades por archivo está e
 
 ## Persistencia y despliegue
 
-La base PostgreSQL contiene casos, evidencias, auditorías, memberships, revisiones, comparaciones, comentarios por área y admisiones de cuota. Las migraciones son forward-only y versionadas bajo `migrations/`; el procedimiento normativo se compila desde `policy/` con `npm run policy:generate`. La configuración de producción y el estado aplicado no se pueden inferir de estos archivos: véase [`DEPLOYMENT.md`](DEPLOYMENT.md) y las limitaciones `NO VERIFICADO` del informe de auditoría.
+La base PostgreSQL contiene casos, evidencias, auditorías, memberships, revisiones (de dos etapas), comparaciones, comentarios por área y admisiones de cuota. Las migraciones son forward-only y versionadas bajo `migrations/`; la feature de roles añade `membership-role-manager`, `case-test-flag`, `case-review-coordinator-decision` y `dashboard-view-test-owner-scope` (detalle en [`DATABASE.md`](DATABASE.md)). Cada migración nueva trae sus comprobaciones en `scripts/migration-checks/<archivo>.checks.json`. El procedimiento normativo se compila desde `policy/` con `npm run policy:generate`. La configuración de producción y el estado aplicado no se pueden inferir de estos archivos: véase [`DEPLOYMENT.md`](DEPLOYMENT.md) y las limitaciones `NO VERIFICADO` del informe de auditoría.
 
 ## Decisiones clave (ADRs)
 
@@ -232,7 +261,8 @@ Razón: prevenir XSS sobre tokens y mantener el control de autorización central
 ### ADR 4 — RLS como defensa en profundidad, no frontera primaria
 El backend usa `createAdminClient` (`INSFORGE_API_KEY`) para escribir/leer todo.
 Las políticas RLS aplican al rol `authenticated` en caso de que una cookie/token llegue directamente desde el navegador.
-Razón: la frontera real es "navegador solo llama /api"; la RLS es un segundo muro.
+Los permisos por rol NO se implementan en RLS: se resuelven en código con `capabilitiesForRole` + `assertCaseWriteCapability`/`assertCaseOwner`/`getScopedCaseOr404`, porque para `project_admin` las políticas no aplican.
+Razón: la frontera real es "navegador solo llama /api" + los guards de capacidad; la RLS es un segundo muro.
 
 ### ADR 5 — Auditoría durable sin cola
 `audit-service.ts` inserta una fila `audits` en `RUNNING` antes de llamar al modelo.
@@ -253,6 +283,15 @@ Razón: `POLICY_IS_IMMUTABLE` y `ONLY_OWNER_PROVIDED_POLICY_SOURCES`; no se busc
 `case_reviews` registra la decisión de la persona; `deriveEffectiveResolution` (lectura) decide si la resolución vigente es `HUMAN` o `AI`.
 La comparación (`case_comparisons`) solo evalúa si el modelo coincide/discrepa; no reemplaza la decisión humana.
 Razón: trazabilidad sin alterar el dictamen original.
+
+### ADR 9 — Revisión humana en dos etapas con estado derivado
+El Asesor propone (`case_reviews.result`) y el Coordinador finaliza (`coordinator_decision` + `coordinator_resolution`), guardados APARTE para no perder quién propuso qué.
+El estado del flujo (`PENDING_ADVISOR`/`PENDING_COORDINATOR`/`FINALIZED`) se DERIVA en lectura (`deriveWorkflowState`); no se añade una columna de estado ni se reutiliza `cases.status`.
+Razón: una columna de estado podría desincronizarse de la fila; derivarlo de la fila hace imposible el estado contradictorio.
+
+### ADR 10 — Casos de prueba (`is_test`) excluidos en SQL
+`cases.is_test` (default `false`) marca pruebas; el servidor filtra `is_test = false` en las consultas y las vistas de dashboard proyectan la columna para que el filtro viaje en SQL antes del `count`/`limit`.
+Razón: las pruebas no deben inflar las métricas operativas, y filtrarlas en memoria después del recorte contaba mal el total.
 
 ## Consideraciones de seguridad
 

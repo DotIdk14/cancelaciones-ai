@@ -1,9 +1,12 @@
 import type { ReactNode } from 'react';
 import { useState } from 'react';
 import { ArrowLeft, AudioLines, BookOpenCheck, Clock3, FileCheck2, FileText, MessageSquareText, Search, ShieldAlert, UserRound } from 'lucide-react';
+import type { AppRole, CaseReviewDto, CoordinatorDecision, WorkflowState } from '../lib/api';
+import type { AuditResultType } from '../skills/audit/types';
 import { formatDateTime } from '../lib/format';
 import { getLocalPreviewCases, localPreviewCaseLabel } from '../lib/local-ui-preview';
-import { CASE_STATUS_LABELS, CASE_STATUS_TONE, resolutionLabel } from '../lib/labels';
+import { CASE_STATUS_LABELS, CASE_STATUS_TONE, RESULT_LABELS, REVIEW_RESULT_OPTIONS, resolutionLabel } from '../lib/labels';
+import { CaseReviewRecord, CoordinatorDecisionRecord } from './CaseReviewPanel';
 import { Badge, Button, Panel } from './ui';
 
 const SAMPLE_FILES = [
@@ -13,7 +16,23 @@ const SAMPLE_FILES = [
   { name: 'conversacion_demo.txt', detail: 'Texto · muestra de interfaz', icon: MessageSquareText },
 ];
 
-export function CaseDetailPreview({ caseId }: { caseId: string }): ReactNode {
+/**
+ * Detalle de expediente en la vista previa local.
+ *
+ * Acepta el rol y el estado del flujo simulados para que cada rol vea SU
+ * superficie: el Asesor su etapa 1, el Coordinador la finalización y el Gerente
+ * el modo de solo lectura. Todo es presentación local: ningún control llama a la
+ * API (los formularios de demostración no envían nada).
+ */
+export function CaseDetailPreview({
+  caseId,
+  role = null,
+  workflowState = 'PENDING_COORDINATOR',
+}: {
+  caseId: string;
+  role?: AppRole | null;
+  workflowState?: WorkflowState;
+}): ReactNode {
   const [activeTab, setActiveTab] = useState<'transcript' | 'findings' | 'timeline' | 'verdict'>('transcript');
   const item = getLocalPreviewCases().find((candidate) => candidate.id === caseId) ?? getLocalPreviewCases()[0];
   if (!item) return null;
@@ -56,15 +75,178 @@ export function CaseDetailPreview({ caseId }: { caseId: string }): ReactNode {
         <aside className="case-detail-review preview-verdict-column">
           <Panel title={<span className="inline-flex items-center gap-2"><ShieldAlert size={18} /> Dictamen</span>} description="Las decisiones se generan solo al ejecutar la auditoría real.">
             {item.effectiveResolution ? <div className="preview-demo-result"><small>Resultado ficticio del listado</small><strong>{resolutionLabel(item.effectiveResolution.result)}</strong><Badge tone={item.effectiveResolution.source === 'HUMAN' ? 'success' : 'brand'}>Origen {item.effectiveResolution.source === 'HUMAN' ? 'humano' : 'IA'}</Badge><p>Este dato es ilustrativo y no proviene de una auditoría ni de una decisión humana real.</p></div> : <div className="preview-verdict-empty"><span>—</span><strong>Sin evaluación en esta vista</strong><p>No existe un resultado de auditoría vinculado a estos datos de demostración.</p></div>}
-            <Button disabled className="w-full">Ejecutar auditoría · requiere sesión</Button>
+            {role === 'manager' ? (
+              <p role="status" className="text-xs text-muted">
+                Solo lectura: el Gerente no ejecuta auditorías ni modifica el caso.
+              </p>
+            ) : (
+              <Button disabled className="w-full" title="Vista local: requiere una sesión productiva">
+                Ejecutar auditoría · requiere sesión
+              </Button>
+            )}
           </Panel>
-          <Panel title="Resolución final del caso" description="La resolución humana se registra sobre una auditoría real.">
-            <p className="text-sm text-muted">Las opciones de ratificación y reapertura aparecen al consultar un caso productivo.</p>
-            <div className="preview-disabled-options"><span>Resultado de IA</span><span>Decisión humana</span><span>Revisión de evidencia</span></div>
-            <Button disabled className="mt-3 w-full">Registrar resolución</Button>
-          </Panel>
+          <PreviewReviewFlow caseId={caseId} role={role} workflowState={workflowState} />
         </aside>
       </div>
     </div>
+  );
+}
+
+/**
+ * Superficie de revisión de la vista previa local, por rol y etapa simulada.
+ *
+ * Reutiliza los componentes de LECTURA reales (`CaseReviewRecord` y
+ * `CoordinatorDecisionRecord`) con datos ficticios, y para las ACCIONES muestra
+ * formularios de demostración con el botón de envío deshabilitado: la vista
+ * local nunca llama a la API.
+ */
+function PreviewReviewFlow({
+  caseId,
+  role,
+  workflowState,
+}: {
+  caseId: string;
+  role: AppRole | null;
+  workflowState: WorkflowState;
+}): ReactNode {
+  if (role === 'manager') {
+    return (
+      <Panel
+        title="Revisión humana"
+        description="Flujo de revisión en dos etapas: primero el Asesor, después el Coordinador."
+      >
+        <p role="status" className="text-sm text-muted">
+          Solo lectura: el Gerente no carga evidencia, no audita, no comenta áreas y no registra ni
+          la revisión del Asesor ni la decisión final del Coordinador.
+        </p>
+      </Panel>
+    );
+  }
+
+  if (workflowState === 'FINALIZED') {
+    return <CoordinatorDecisionRecord review={previewReviewDto(caseId, true)} />;
+  }
+
+  if (workflowState === 'PENDING_COORDINATOR') {
+    return (
+      <div className="flex flex-col gap-4">
+        <CaseReviewRecord caseId={caseId} review={previewReviewDto(caseId, false)} comparison={null} />
+        {role === 'coordinator' ? (
+          <PreviewCoordinatorFinalizeForm />
+        ) : (
+          <Panel title="Decisión del Coordinador" description="Finalización del flujo de revisión.">
+            <p role="status" className="text-sm text-muted">
+              Pendiente de la decisión del Coordinador. Tu decisión de Asesor quedó registrada y no
+              se puede modificar.
+            </p>
+          </Panel>
+        )}
+      </div>
+    );
+  }
+
+  // Etapa 1 pendiente: el Asesor ve su formulario; el Coordinador, solo la nota.
+  if (role === 'user') return <PreviewAdvisorForm />;
+  return (
+    <Panel
+      title="Revisión humana"
+      description="Flujo de revisión en dos etapas: primero el Asesor, después el Coordinador."
+    >
+      <p role="status" className="text-sm text-muted">
+        La etapa de Asesor la registra el Asesor dueño del caso. Todavía no hay una decisión que
+        finalizar.
+      </p>
+    </Panel>
+  );
+}
+
+/** Revisión ficticia del Asesor: la misma forma que sirve el servidor. */
+function previewReviewDto(caseId: string, finalized: boolean): CaseReviewDto {
+  const now = new Date().toISOString();
+  return {
+    id: 'preview-review',
+    caseId,
+    auditId: 'preview-audit',
+    result: 'BAJA',
+    reviewerName: 'Asesor de muestra',
+    comment: 'Resolución de demostración registrada por el Asesor en la vista previa local.',
+    createdAt: now,
+    coordinatorDecision: finalized ? 'APPROVE' : null,
+    coordinatorResolution: null,
+    coordinatorCreatedAt: finalized ? now : null,
+    coordinatorComment: finalized ? 'Aprobada en la vista previa local.' : null,
+  };
+}
+
+const PREVIEW_DECISION_OPTIONS: ReadonlyArray<{ value: CoordinatorDecision; label: string }> = [
+  { value: 'APPROVE', label: 'Aprobar la resolución del Asesor' },
+  { value: 'CHANGE', label: 'Cambiar la resolución' },
+];
+
+/** Formulario de demostración de la etapa 1. No envía nada. */
+function PreviewAdvisorForm(): ReactNode {
+  const [result, setResult] = useState<AuditResultType | ''>('');
+  return (
+    <Panel
+      title="Revisión humana"
+      description="Registra la resolución del Asesor sin modificar el dictamen original de la auditoría."
+    >
+      <fieldset className="flex flex-col gap-2">
+        <legend className="text-sm font-semibold text-ink">Resolución del Asesor</legend>
+        <p className="text-xs text-muted">
+          Vista local: formulario de demostración; no registra ninguna decisión.
+        </p>
+        {REVIEW_RESULT_OPTIONS.map((option) => (
+          <label key={option} className="flex items-center gap-2 text-sm text-ink">
+            <input
+              type="radio"
+              name="preview-advisor-result"
+              value={option}
+              checked={result === option}
+              onChange={() => setResult(option)}
+              className="h-4 w-4 accent-brand"
+            />
+            {RESULT_LABELS[option]}
+          </label>
+        ))}
+      </fieldset>
+      <Button disabled className="mt-3 w-full" title="Vista local: no se registra ninguna decisión">
+        Registrar la revisión · requiere sesión
+      </Button>
+    </Panel>
+  );
+}
+
+/** Formulario de demostración de la etapa 2. No envía nada. */
+function PreviewCoordinatorFinalizeForm(): ReactNode {
+  const [decision, setDecision] = useState<CoordinatorDecision | ''>('');
+  return (
+    <Panel
+      title="Decisión del Coordinador"
+      description="Aprueba la resolución del Asesor o cámbiala por otra distinta. No modifica la decisión del Asesor."
+    >
+      <fieldset className="flex flex-col gap-2">
+        <legend className="text-sm font-semibold text-ink">Decisión final</legend>
+        <p className="text-xs text-muted">
+          Vista local: formulario de demostración; no registra ninguna decisión.
+        </p>
+        {PREVIEW_DECISION_OPTIONS.map((option) => (
+          <label key={option.value} className="flex items-center gap-2 text-sm text-ink">
+            <input
+              type="radio"
+              name="preview-coordinator-decision"
+              value={option.value}
+              checked={decision === option.value}
+              onChange={() => setDecision(option.value)}
+              className="h-4 w-4 accent-brand"
+            />
+            {option.label}
+          </label>
+        ))}
+      </fieldset>
+      <Button disabled className="mt-3 w-full" title="Vista local: no se registra ninguna decisión">
+        Finalizar el caso · requiere sesión
+      </Button>
+    </Panel>
   );
 }

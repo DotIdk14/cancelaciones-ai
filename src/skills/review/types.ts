@@ -48,6 +48,32 @@ export const REVIEW_COMMENT_MIN = 0;
 export const REVIEW_COMMENT_MAX = 2000;
 
 // -----------------------------------------------------------------------------
+// Decisión final del coordinador y estado derivado del flujo de dos etapas
+// -----------------------------------------------------------------------------
+
+/**
+ * Decisión del coordinador sobre la resolución del asesor.
+ *
+ * Vocabulario cerrado de DOS valores, fijado además por un CHECK en la base
+ * (`case_reviews_coordinator_decision_check`): `APPROVE` conserva la resolución
+ * del asesor (`result`); `CHANGE` la sustituye por `coordinator_resolution`.
+ * No es una taxonomía viva en el código: es la bifurcación del flujo.
+ */
+export const COORDINATOR_DECISIONS = ['APPROVE', 'CHANGE'] as const;
+export type CoordinatorDecision = (typeof COORDINATOR_DECISIONS)[number];
+
+/**
+ * Estado derivado del flujo de revisión de dos etapas.
+ *
+ * No es una columna: se DERIVA de la fila de `case_reviews` en lectura (ver
+ * `deriveWorkflowState` en `src/server/dto.ts`). `cases.status` sigue
+ * significando "la auditoría de IA terminó" y no se reutiliza para el flujo
+ * humano.
+ */
+export const WORKFLOW_STATES = ['PENDING_ADVISOR', 'PENDING_COORDINATOR', 'FINALIZED'] as const;
+export type WorkflowState = (typeof WORKFLOW_STATES)[number];
+
+// -----------------------------------------------------------------------------
 // Estados de una comparación (mismo vocabulario técnico que `audits.status`:
 // RUNNING -> COMPLETED | ERROR, y es estado TÉCNICO, no veredicto).
 // -----------------------------------------------------------------------------
@@ -117,6 +143,14 @@ export interface CaseReviewRecord {
   comment: string;
   createdAt: string;
   createdBy: string | null;
+  /** Decisión del coordinador; `null` mientras el flujo esté en PENDING_COORDINATOR. */
+  coordinatorDecision?: CoordinatorDecision | null;
+  /** Resolución final solo cuando `coordinatorDecision === 'CHANGE'`. */
+  coordinatorResolution?: HumanResolution | null;
+  /** Autor real (uuid) que registró la decisión del coordinador. */
+  coordinatorCreatedBy?: string | null;
+  coordinatorCreatedAt?: string | null;
+  coordinatorComment?: string | null;
 }
 
 /** Row durable de `case_comparisons`. */

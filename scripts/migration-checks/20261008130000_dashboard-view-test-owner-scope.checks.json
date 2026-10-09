@@ -1,0 +1,57 @@
+[
+  [
+    "audit_dashboard_metrics existe y es una vista",
+    "SELECT count(*)::int AS total FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname='audit_dashboard_metrics' AND c.relkind='v'",
+    ["\"total\": 1"]
+  ],
+  [
+    "audit_dashboard_metrics expone 34 columnas (32 previas + created_by + is_test)",
+    "SELECT count(*)::int AS total FROM pg_attribute WHERE attrelid='public.audit_dashboard_metrics'::regclass AND attnum > 0 AND NOT attisdropped",
+    ["\"total\": 34"]
+  ],
+  [
+    "audit_dashboard_metrics proyecta created_by e is_test",
+    "SELECT count(*)::int AS total FROM pg_attribute WHERE attrelid='public.audit_dashboard_metrics'::regclass AND attnum > 0 AND NOT attisdropped AND attname IN ('created_by','is_test')",
+    ["\"total\": 2"]
+  ],
+  [
+    "is_test es la ultima columna de audit_dashboard_metrics",
+    "SELECT a.attname AS last_col FROM pg_attribute a WHERE a.attrelid='public.audit_dashboard_metrics'::regclass AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum DESC LIMIT 1",
+    ["\"last_col\": \"is_test\""]
+  ],
+  [
+    "las 7 dimensiones del caso siguen proyectadas en audit_dashboard_metrics",
+    "SELECT count(*)::int AS total FROM pg_attribute WHERE attrelid='public.audit_dashboard_metrics'::regclass AND attnum > 0 AND NOT attisdropped AND attname IN ('country','channel','campus','modality','project','responsible','guideline')",
+    ["\"total\": 7"]
+  ],
+  [
+    "case_comparisons_dashboard_metrics existe y es una vista",
+    "SELECT count(*)::int AS total FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname='case_comparisons_dashboard_metrics' AND c.relkind='v'",
+    ["\"total\": 1"]
+  ],
+  [
+    "case_comparisons_dashboard_metrics expone 11 columnas (9 previas + created_by + is_test)",
+    "SELECT count(*)::int AS total FROM pg_attribute WHERE attrelid='public.case_comparisons_dashboard_metrics'::regclass AND attnum > 0 AND NOT attisdropped",
+    ["\"total\": 11"]
+  ],
+  [
+    "case_comparisons_dashboard_metrics proyecta created_by e is_test",
+    "SELECT count(*)::int AS total FROM pg_attribute WHERE attrelid='public.case_comparisons_dashboard_metrics'::regclass AND attnum > 0 AND NOT attisdropped AND attname IN ('created_by','is_test')",
+    ["\"total\": 2"]
+  ],
+  [
+    "is_test es la ultima columna de case_comparisons_dashboard_metrics",
+    "SELECT a.attname AS last_col FROM pg_attribute a WHERE a.attrelid='public.case_comparisons_dashboard_metrics'::regclass AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum DESC LIMIT 1",
+    ["\"last_col\": \"is_test\""]
+  ],
+  [
+    "ninguna vista de dashboard es accesible por anon/authenticated",
+    "SELECT count(*)::int AS total FROM pg_class c CROSS JOIN LATERAL aclexplode(c.relacl) g WHERE c.oid IN ('public.audit_dashboard_metrics'::regclass, 'public.case_comparisons_dashboard_metrics'::regclass) AND g.grantee IN ((SELECT oid FROM pg_roles WHERE rolname='anon'), (SELECT oid FROM pg_roles WHERE rolname='authenticated'))",
+    ["\"total\": 0"]
+  ],
+  [
+    "project_admin tiene SELECT en ambas vistas de dashboard",
+    "SELECT count(*)::int AS total FROM pg_class c CROSS JOIN LATERAL aclexplode(c.relacl) g WHERE c.oid IN ('public.audit_dashboard_metrics'::regclass, 'public.case_comparisons_dashboard_metrics'::regclass) AND g.grantee='project_admin'::regrole AND g.privilege_type='SELECT'",
+    ["\"total\": 2"]
+  ]
+]

@@ -44,9 +44,9 @@ import {
   type ComparisonRow,
 } from './reviews.js';
 import { comparisonSkill } from '../skills/review/execute.js';
-import { caseReviewToDto, comparisonToDto, type CaseReviewDto, type ComparisonDto } from './dto.js';
+import { caseReviewToDto, comparisonToDto, deriveWorkflowState, type CaseReviewDto, type ComparisonDto } from './dto.js';
 import type { ErrorCategory } from '../skills/audit/types.js';
-import type { ComparisonSkillInput, HumanResolution } from '../skills/review/types.js';
+import type { ComparisonSkillInput, HumanResolution, WorkflowState } from '../skills/review/types.js';
 
 export type StartComparisonOutcome =
   | { phase: 'running'; comparison: ComparisonDto }
@@ -55,14 +55,22 @@ export type StartComparisonOutcome =
 
 export interface SubmitCaseReviewInput {
   result: HumanResolution;
-  reviewerName: string;
   comment: string;
   userId: string;
+  /** Correo de la sesión: la atribución DERIVADA del servidor, nunca un nombre del cliente. */
+  reviewerEmail: string;
 }
 
 export interface SubmitCaseReviewOutcome {
   review: CaseReviewDto;
   comparison: ComparisonDto;
+  /**
+   * Estado del flujo DERIVADO de la fila recién persistida: tras una revisión de
+   * asesor es `PENDING_COORDINATOR`. Se deriva aquí y no en el endpoint para que
+   * el 201 y el GET posterior no puedan discrepar (el estado es de la fila, no
+   * del camino de código que la escribió).
+   */
+  workflowState: WorkflowState;
 }
 
 interface ComparisonContext {
@@ -81,6 +89,11 @@ interface ComparisonContext {
  * Quien revisa señala el resultado y el motivo; a qué dictamen se compara lo
  * decide el sistema, que es lo único que garantiza que la comparación sea
  * siempre sobre el dictamen que el caso tiene encima.
+ *
+ * La atribución (`reviewer_name`) se deriva del correo de la sesión
+ * (`input.reviewerEmail`), nunca de un nombre que envíe el cliente. La
+ * comparación se dispara AQUÍ, en la etapa de asesor, y evalúa la resolución
+ * del ASESOR: un `CHANGE` posterior del coordinador no la vuelve a disparar.
  */
 export async function submitCaseReview(
   client: InsForgeClient,
@@ -102,13 +115,17 @@ export async function submitCaseReview(
     caseId,
     auditId: audit.id,
     result: input.result,
-    reviewerName: input.reviewerName,
+    reviewerName: input.reviewerEmail,
     comment: input.comment,
     userId: input.userId,
   });
 
   const outcome = await startComparison(client, caseId, { userId: input.userId });
-  return { review: caseReviewToDto(review), comparison: outcome.comparison };
+  return {
+    review: caseReviewToDto(review),
+    comparison: outcome.comparison,
+    workflowState: deriveWorkflowState(review),
+  };
 }
 
 /**

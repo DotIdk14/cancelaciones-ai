@@ -115,3 +115,25 @@ describe('CasesPanel — resolución efectiva', () => {
     expect(screen.getByRole('link', { name: /abrir expediente/i }).getAttribute('href')).toBe('#/casos/case-draft');
   });
 });
+
+describe('CasesPanel — clasificación prueba/real', () => {
+  it('muestra la etiqueta persistente de prueba frente a la de real', async () => {
+    await renderList([
+      makeCase({ id: 'case-test', isTest: true }),
+      makeCase({ id: 'case-real', isTest: false }),
+    ]);
+
+    // La etiqueta acompaña a CADA fila: la prueba y el caso real se distinguen.
+    const testRow = screen.getByRole('row', { name: new RegExp(shortId('case-test'), 'i') });
+    expect(testRow.textContent).toContain('Prueba');
+    const realRow = screen.getByRole('row', { name: new RegExp(shortId('case-real'), 'i') });
+    expect(realRow.textContent).toContain('Real');
+  });
+
+  it('un caso sin clasificación explícita del servidor se rotula como real', async () => {
+    await renderList([makeCase({ id: 'case-plain' })]);
+
+    const row = screen.getByRole('row', { name: new RegExp(shortId('case-plain'), 'i') });
+    expect(row.textContent).toContain('Real');
+  });
+});

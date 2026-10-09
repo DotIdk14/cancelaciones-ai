@@ -96,12 +96,13 @@ ocurre antes de la cuota y del upload, para no dejar objetos huérfanos.
 | Si tocas… | Prueba con… |
 |---|---|
 | `api/**`, auth, cuotas, ownership | `tests/security-regressions.test.ts`, `tests/paid-quota.test.ts` |
+| Roles y capacidades (`capabilities.ts`, guards) | `tests/role-capabilities.test.ts`, `tests/role-action-matrix.test.ts` |
 | Sanitización, schema, referencias | `tests/integrity-untrusted.test.ts` |
 | `src/server/quotas.ts` | `tests/quotas.test.ts` |
 | Subida y borrado de evidencia | `tests/evidence-upload-guard.test.ts`, `tests/evidence-status.test.ts` |
 | Ciclo de vida del dictamen | `tests/evidence-status.test.ts`, `tests/execute.test.ts`, `tests/instructions.test.ts` |
 | Inyección en comparaciones | `tests/comparison-injection.test.ts` |
-| Revisión humana y dashboard | `tests/human-review.test.ts`, `tests/reviews-persistence.test.ts`, `tests/dashboard*.test.ts` |
+| Revisión humana (dos etapas) y dashboard | `tests/human-review.test.ts`, `tests/reviews-persistence.test.ts`, `tests/CaseReviewPanel.test.ts`, `tests/dashboard*.test.ts` |
 | Prompts o contrato con el modelo | `tests/integrity-untrusted.test.ts` + `npm run test:ai-smoke` |
 
 ## Cómo escribir tests

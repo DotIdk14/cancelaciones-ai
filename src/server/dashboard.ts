@@ -47,6 +47,7 @@ import type {
   TimelinePoint,
 } from '../lib/dashboard.js';
 import type { AuthContext } from './auth.js';
+import { capabilitiesForRole } from './capabilities.js';
 import type { AuditStatus } from './cases.js';
 import { endOfDayUtc, startOfDayUtc } from './dashboard-filters.js';
 import { mapProviderError } from './http.js';
@@ -123,13 +124,62 @@ export function applyDimensionFilters<T extends { eq(column: string, value: unkn
 /** Tope de filas leídas de la vista. Si la vista trae más, `truncated` va en `true`. */
 export const DASHBOARD_MAX_ROWS = 5000;
 
-/** Valores presentes en la vista; los valores nulos o vacíos no crean opciones. */
-export async function getDashboardFilterOptions(client: InsForgeClient): Promise<DashboardFilterOptions> {
+/**
+ * Excluye los casos de PRUEBA de una métrica operativa.
+ *
+ * Se aplica EN SQL (`.eq('is_test', false)`) y ANTES del `count`/`limit`: filtrar
+ * en memoria después del recorte contaría las pruebas dentro del total y
+ * devolvería un número que no corresponde a ningún periodo real. La vista
+ * `audit_dashboard_metrics` (y la de comparaciones) proyectan `is_test` desde la
+ * migración `20261008130000_dashboard-view-test-owner-scope.sql`.
+ *
+ * No distingue de rol a propósito: una prueba NO es trabajo real para NADIE, ni
+ * para el Gerente que ve todo. La visibilidad global no convierte una prueba en
+ * una métrica operativa.
+ */
+export function applyTestScope<T extends { eq(column: string, value: unknown): T }>(query: T): T {
+  return query.eq('is_test', false);
+}
+
+/**
+ * Acota una lectura de dashboard a los casos del actor cuando su rol NO tiene
+ * capacidad de lectura global (Asesor).
+ *
+ * Se aplica EN SQL y ANTES del `count`/`limit`. Antes esto se hacía en memoria
+ * DESPUÉS del recorte (el TODO de `getOwnedCaseIds`): con más filas que
+ * `DASHBOARD_MAX_ROWS` el Asesor veía un total subcontado y, peor, el `truncated`
+ * y las opciones de dimensión describían filas ajenas. La vista proyecta
+ * `created_by` justo para que el scope viaje en la consulta.
+ */
+function applyOwnerScope<T extends { eq(column: string, value: unknown): T }>(
+  query: T,
+  auth?: AuthContext,
+): T {
+  if (auth && !capabilitiesForRole(auth.role).canReadAllCases) {
+    return query.eq('created_by', auth.sub);
+  }
+  return query;
+}
+
+/**
+ * Valores presentes en la vista; los valores nulos o vacíos no crean opciones.
+ *
+ * Recibe el alcance autenticado: un Asesor solo ve las dimensiones de SUS casos y
+ * ninguna opción debe provenir de un caso de prueba ni de un caso ajeno. Ofrecer
+ * una opción que el actor no podría consultar sería un callejón sin salida
+ * silencioso (elegirla devuelve cero filas).
+ */
+export async function getDashboardFilterOptions(
+  client: InsForgeClient,
+  auth?: AuthContext,
+): Promise<DashboardFilterOptions> {
   const columns = DASHBOARD_DIMENSIONS.join(',');
-  const { data, error } = await client.database
+  let query = client.database
     .from('audit_dashboard_metrics')
-    .select(columns)
-    .limit(DASHBOARD_MAX_ROWS);
+    .select(columns);
+  query = applyOwnerScope(query, auth);
+  query = applyTestScope(query);
+  const { data, error } = await query.limit(DASHBOARD_MAX_ROWS);
   if (error) throw mapProviderError(error);
 
   const options: DashboardFilterOptions = {
@@ -637,21 +687,6 @@ export function aggregateSummary(
 // -----------------------------------------------------------------------------
 
 /**
- * Conjunto de ids de casos creados por un usuario. Se usa para aplicar scope
- * multi-tenant en memoria cuando la vista subyacente no expone `created_by`.
- *
- * TODO: proyectar `created_by` en `public.audit_dashboard_metrics` (y en la
- * vista de comparaciones) para filtrar en SQL en lugar de traer filas ajenas
- * al servidor. Hasta entonces, este filtro en memoria limita la exposición
- * pero `truncated` sigue reflejando el recorte global previo al scope.
- */
-async function getOwnedCaseIds(client: InsForgeClient, userId: string): Promise<Set<string>> {
-  const { data, error } = await client.database.from('cases').select('id').eq('created_by', userId);
-  if (error) throw mapProviderError(error);
-  return new Set((data ?? []).map((r) => (r as { id: string }).id));
-}
-
-/**
  * Lee la vista de métricas y devuelve el resumen ya agregado.
  * Los límites del rango son el primer y el último milisegundo del día, en UTC,
  * y ambos inclusivos: un filtro por día no puede perder la auditoría de las
@@ -673,6 +708,9 @@ export async function getDashboardSummary(
   if (filters.result !== null) query = query.eq('result', filters.result);
   if (filters.status !== null) query = query.eq('case_status', filters.status);
   query = applyDimensionFilters(query, filters);
+  // Scope del actor y exclusión de pruebas, EN SQL y ANTES del count/limit.
+  query = applyOwnerScope(query, auth);
+  query = applyTestScope(query);
 
   // Orden DESCENDENTE. Con `ascending: true` + `limit(5000)` la ventana traía
   // las 5000 filas MÁS ANTIGUAS del rango, y como `recentCases` se construye
@@ -687,14 +725,7 @@ export async function getDashboardSummary(
   // traduce el error y sanea el mensaje (nada de tokens o URLs internas).
   if (error) throw mapProviderError(error);
 
-  let rows = (data ?? []) as unknown as DashboardMetricRow[];
-  // Scope multi-tenant: `coordinator` lee agregados globales; `user` solo ve
-  // filas de sus propios casos. La vista no expone `created_by`, así que el
-  // filtro ocurre en memoria después del fetch (ver TODO en `getOwnedCaseIds`).
-  if (auth?.role === 'user') {
-    const owned = await getOwnedCaseIds(client, auth.sub);
-    rows = rows.filter((row) => owned.has(row.case_id));
-  }
+  const rows = (data ?? []) as unknown as DashboardMetricRow[];
   return aggregateSummary(rows, filters, count ?? rows.length);
 }
 
@@ -1175,6 +1206,9 @@ export async function getAiCosts(
   // o que aún no termina también se pagó, y filtrar por dictamen lo ocultaría.
   if (filters.status !== null) query = query.eq('case_status', filters.status);
   query = applyDimensionFilters(query, filters);
+  // Scope del actor y exclusión de pruebas, EN SQL y ANTES del count/limit.
+  query = applyOwnerScope(query, auth);
+  query = applyTestScope(query);
 
   const { data, error, count } = await query
     .order('created_at', { ascending: true })
@@ -1184,11 +1218,7 @@ export async function getAiCosts(
   // traduce el error y sanea el mensaje (nada de tokens o URLs internas).
   if (error) throw mapProviderError(error);
 
-  let rows = (data ?? []) as unknown as DashboardMetricRow[];
-  if (auth?.role === 'user') {
-    const owned = await getOwnedCaseIds(client, auth.sub);
-    rows = rows.filter((row) => owned.has(row.case_id));
-  }
+  const rows = (data ?? []) as unknown as DashboardMetricRow[];
   return aggregateAiCosts(rows, filters, granularity, count ?? rows.length);
 }
 
@@ -1848,9 +1878,6 @@ export async function getHumanReviewInput(
   const fromIso = startOfDayUtc(filters.from);
   const toIso = endOfDayUtc(filters.to);
 
-  // Scope multi-tenant: se carga una sola vez por llamada de dashboard.
-  const owned = auth?.role === 'user' ? await getOwnedCaseIds(client, auth.sub) : null;
-
   // Fuente principal: comparaciones (qué se comparó y su estado).
   let compQuery = client.database
     .from('case_comparisons_dashboard_metrics')
@@ -1861,27 +1888,35 @@ export async function getHumanReviewInput(
   if (filters.result !== null) compQuery = compQuery.eq('audit_result', filters.result);
   if (filters.status !== null) compQuery = compQuery.eq('case_status', filters.status);
   compQuery = applyDimensionFilters(compQuery, filters);
+  // Scope del actor y exclusión de pruebas, EN SQL y ANTES del count/limit.
+  compQuery = applyOwnerScope(compQuery, auth);
+  compQuery = applyTestScope(compQuery);
 
   const { data: compsData, error: compsError, count: compsCount } = await compQuery.order('created_at', { ascending: true }).limit(DASHBOARD_MAX_ROWS);
   if (compsError) throw mapProviderError(compsError);
-  let comparisons = (compsData ?? []) as ComparisonMetricRow[];
-  if (owned !== null) {
-    comparisons = comparisons.filter((c) => owned.has(c.case_id));
-  }
+  const comparisons = (compsData ?? []) as ComparisonMetricRow[];
   const comparisonsAvailable = compsCount ?? comparisons.length;
 
   // Conteo de revisiones humanas dentro del periodo.
-  const { data: reviewsData, error: reviewsError } = await client.database
+  //
+  // El scope y la exclusión de pruebas NO se pueden aplicar en la tabla
+  // `case_reviews` directamente (no tiene `is_test`), así que se filtran por el
+  // CASO al que pertenecen con un embed `!inner` a `cases`: PostgREST resuelve
+  // `cases.is_test=eq.false` y `cases.created_by=eq.<sub>` en la MISMA consulta,
+  // sin traer los ids de todos los casos al servidor (un `.in` con miles de uuid
+  // reventaría la URL y no escala).
+  let reviewsQuery = client.database
     .from('case_reviews')
-    .select('id,case_id')
+    .select('id,case_id,cases!inner(is_test,created_by)')
+    .eq('cases.is_test', false)
     .gte('created_at', fromIso)
-    .lte('created_at', toIso)
-    .limit(DASHBOARD_MAX_ROWS);
-  if (reviewsError) throw mapProviderError(reviewsError);
-  let reviewsInRange = (reviewsData ?? []) as Array<{ id: string; case_id: string }>;
-  if (owned !== null) {
-    reviewsInRange = reviewsInRange.filter((r) => owned.has(r.case_id));
+    .lte('created_at', toIso);
+  if (auth && !capabilitiesForRole(auth.role).canReadAllCases) {
+    reviewsQuery = reviewsQuery.eq('cases.created_by', auth.sub);
   }
+  const { data: reviewsData, error: reviewsError } = await reviewsQuery.limit(DASHBOARD_MAX_ROWS);
+  if (reviewsError) throw mapProviderError(reviewsError);
+  const reviewsInRange = (reviewsData ?? []) as Array<{ id: string; case_id: string }>;
   const reviewIdsInRange = new Set(reviewsInRange.map((r) => r.id));
 
   // Las revisiones contadas son las del periodo MÁS las revisiones referenciadas
@@ -1960,6 +1995,9 @@ export async function getAiQuality(
   if (filters.result !== null) query = query.eq('result', filters.result);
   if (filters.status !== null) query = query.eq('case_status', filters.status);
   query = applyDimensionFilters(query, filters);
+  // Scope del actor y exclusión de pruebas, EN SQL y ANTES del count/limit.
+  query = applyOwnerScope(query, auth);
+  query = applyTestScope(query);
 
   const { data, error, count } = await query.order('created_at', { ascending: true }).limit(DASHBOARD_MAX_ROWS);
 
@@ -1967,11 +2005,7 @@ export async function getAiQuality(
   // traduce el error y sanea el mensaje (nada de tokens o URLs internas).
   if (error) throw mapProviderError(error);
 
-  let rows = (data ?? []) as unknown as DashboardMetricRow[];
-  if (auth?.role === 'user') {
-    const owned = await getOwnedCaseIds(client, auth.sub);
-    rows = rows.filter((row) => owned.has(row.case_id));
-  }
+  const rows = (data ?? []) as unknown as DashboardMetricRow[];
   // Obtener la entrada humana (comparisons + reviewedCases) recortada por periodo y filtros.
   const humanInput = await getHumanReviewInput(client, filters, auth);
   // `aggregateQuality` acepta un HumanReviewInput y lo transforma en el

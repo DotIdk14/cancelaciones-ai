@@ -10,6 +10,7 @@ import type { InsForgeClient } from './insforge.js';
 import type { CaseStatus, ErrorCategory, EvidenceStatus } from '../skills/audit/types.js';
 import type { CaseReviewRow } from './reviews.js';
 import type { AuthContext } from './auth.js';
+import { capabilitiesForRole } from './auth.js';
 import { ApiError, mapProviderError } from './http.js';
 
 export interface CaseRow {
@@ -36,6 +37,17 @@ export interface CaseRow {
   cycle_start_date_by?: string | null;
   cycle_start_date_at?: string | null;
   cycle_start_date_by_name?: string | null;
+  /**
+   * Clasificación explícita del caso (migración `20261008110000_case-test-flag.sql`):
+   * `false` = real, `true` = prueba.
+   *
+   * OPCIONAL a propósito, como los derivados: si la migración aún no está aplicada
+   * el `select('*')` sigue funcionando y el DTO expone `false` (el default de la
+   * columna) en vez de romperse. La exclusion de las pruebas de las métricas
+   * operativas NO la decide la base: la aplica el servidor en SQL
+   * (`applyTestScope`, dashboard.ts).
+   */
+  is_test?: boolean;
 }
 
 export interface CaseSummaryRow extends CaseRow {
@@ -92,10 +104,11 @@ export async function createCase(
   client: InsForgeClient,
   studentIdentifier: string | null,
   createdBy: string,
+  isTest = false,
 ): Promise<CaseRow> {
   const { data, error } = await client.database
     .from('cases')
-    .insert([{ status: 'DRAFT', student_identifier: studentIdentifier, created_by: createdBy }])
+    .insert([{ status: 'DRAFT', student_identifier: studentIdentifier, created_by: createdBy, is_test: isTest }])
     .select()
     .single();
   if (error || !data) dbError(error);
@@ -108,7 +121,10 @@ export async function listCaseSummaries(client: InsForgeClient, auth: AuthContex
     .select('*,evidence(count)')
     .order('created_at', { ascending: false })
     .limit(100);
-  if (auth.role === 'user') {
+  // Capacidad, no nombre de rol: "¿TIENE el rol capacidad de leer todos?", no
+  // "¿el rol es exactamente este?". Nombrar el rol aquí congelaría el vocabulario
+  // en cada guard, que es justo lo que `capabilitiesForRole` evita.
+  if (!capabilitiesForRole(auth.role).canReadAllCases) {
     query = query.eq('created_by', auth.sub);
   }
   const { data, error } = await query;
@@ -165,8 +181,12 @@ export async function getCaseOr404(client: InsForgeClient, caseId: string): Prom
  * Caso visible para el usuario autenticado.
  *
  * - El dueño siempre lo ve.
- * - Un coordinador puede LEER cualquier caso.
+ * - Un rol con `canReadAllCases` (coordinador, gerente) puede LEER cualquier caso.
  * - Ajeno o inexistente → el mismo 404 (sin enumerar existencia).
+ *
+ * La pregunta que se hace es "¿TIENE la capacidad de leer todos?", no "¿el rol
+ * es exactamente este?": nombrar el rol aquí congelaría el vocabulario de roles
+ * en cada guard, que es justo lo que `capabilitiesForRole` evita.
  */
 export async function getScopedCaseOr404(
   client: InsForgeClient,
@@ -174,7 +194,7 @@ export async function getScopedCaseOr404(
   auth: AuthContext,
 ): Promise<CaseRow> {
   const row = await getCaseOr404(client, caseId);
-  if (auth.role === 'user' && row.created_by !== auth.sub) {
+  if (!capabilitiesForRole(auth.role).canReadAllCases && row.created_by !== auth.sub) {
     throw new ApiError(404, 'NOT_FOUND', 'Caso no encontrado');
   }
   return row;

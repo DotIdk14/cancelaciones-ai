@@ -1,0 +1,32 @@
+[
+  [
+    "las 5 columnas del coordinador existen con su tipo y son NULL-able",
+    "SELECT count(*)::int AS total FROM information_schema.columns WHERE table_schema='public' AND table_name='case_reviews' AND ((column_name='coordinator_decision' AND data_type='text' AND is_nullable='YES') OR (column_name='coordinator_resolution' AND data_type='text' AND is_nullable='YES') OR (column_name='coordinator_created_by' AND data_type='uuid' AND is_nullable='YES') OR (column_name='coordinator_created_at' AND data_type='timestamp with time zone' AND is_nullable='YES') OR (column_name='coordinator_comment' AND data_type='text' AND is_nullable='YES'))",
+    ["\"total\": 5"]
+  ],
+  [
+    "el CHECK de vocabulario de la decision existe y admite APPROVE y CHANGE",
+    "SELECT count(*)::int AS total FROM pg_constraint WHERE conrelid='public.case_reviews'::regclass AND contype='c' AND conname='case_reviews_coordinator_decision_check' AND pg_get_constraintdef(oid) LIKE '%APPROVE%' AND pg_get_constraintdef(oid) LIKE '%CHANGE%'",
+    ["\"total\": 1"]
+  ],
+  [
+    "el CHECK de consistencia de tabla existe",
+    "SELECT count(*)::int AS total FROM pg_constraint WHERE conrelid='public.case_reviews'::regclass AND contype='c' AND conname='case_reviews_coordinator_consistency_check'",
+    ["\"total\": 1"]
+  ],
+  [
+    "el CHECK de consistencia exige que CHANGE produzca una resolucion DISTINTA de la del asesor (result)",
+    "SELECT count(*)::int AS total FROM pg_constraint WHERE conrelid='public.case_reviews'::regclass AND contype='c' AND conname='case_reviews_coordinator_consistency_check' AND pg_get_constraintdef(oid) LIKE '%DISTINCT%' AND pg_get_constraintdef(oid) LIKE '%result%'",
+    ["\"total\": 1"]
+  ],
+  [
+    "el actor del coordinador es una FK a auth.users (identidad real, no texto)",
+    "SELECT count(*)::int AS total FROM pg_constraint WHERE conrelid='public.case_reviews'::regclass AND contype='f' AND confrelid='auth.users'::regclass AND pg_get_constraintdef(oid) LIKE '%coordinator_created_by%'",
+    ["\"total\": 1"]
+  ],
+  [
+    "la resolucion del asesor (result) sigue siendo text NOT NULL: esta migracion no la toca",
+    "SELECT count(*)::int AS total FROM information_schema.columns WHERE table_schema='public' AND table_name='case_reviews' AND column_name='result' AND data_type='text' AND is_nullable='NO'",
+    ["\"total\": 1"]
+  ]
+]
