@@ -42,8 +42,15 @@ const MP3_ID3_BYTES = new Uint8Array([
 const MP3_FRAME_BYTES = new Uint8Array([0xff, 0xfb, 0x90, 0x00]);
 const GIF_BYTES = new Uint8Array([...new TextEncoder().encode('GIF89a')]);
 const WEBM_BYTES = new Uint8Array([0x1a, 0x45, 0xdf, 0xa3]);
-const OGG_BYTES = new Uint8Array([...new TextEncoder().encode('OggS')]);
+const OGG_BYTES = new Uint8Array([
+  ...new TextEncoder().encode('OggS'),
+  0x00,
+]);
 const UTF16LE_BOM_BYTES = new Uint8Array([0xff, 0xfe, 0x61, 0x00, 0x62, 0x00]);
+/** Texto que empieza por las 3 letras de ID3: no es audio. */
+const ID3_TEXT_BYTES = new TextEncoder().encode('ID3 tags son metadatos del archivo');
+/** Texto que empieza por las 4 letras de OggS: no es audio. */
+const OGG_TEXT_BYTES = new TextEncoder().encode('OggS no es un archivo de audio aqui');
 
 /** Muestra de cada formato que tiene firma reconocible. */
 const SAMPLES: Array<[mime: string, bytes: Uint8Array]> = [
@@ -140,12 +147,12 @@ describe('resolveEvidenceMime', () => {
     expect(resolveEvidenceMime(M4A_BYTES, 'audio/mp4')).toBe('audio/mp4');
   });
 
-  it('ISO-BMFF sin declaracion se resuelve como audio/mp4', () => {
-    expect(resolveEvidenceMime(M4A_BYTES, '')).toBe('audio/mp4');
-  });
-
-  it('ISO-BMFF declarado como application/octet-stream cae a audio/mp4', () => {
-    expect(resolveEvidenceMime(M4A_BYTES, 'application/octet-stream')).toBe('audio/mp4');
+  it('ISO-BMFF sin declaracion NO se resuelve por firma: devuelve null', () => {
+    // N-1: si decide la firma, un texto UTF-16LE sin extension entraba como
+    // audio/mpeg: cuota cobrada y PII enviada a AssemblyAI. Sin declaracion
+    // util y con firma ambigua, el cliente rechaza en local.
+    expect(resolveEvidenceMime(M4A_BYTES, '')).toBeNull();
+    expect(resolveEvidenceMime(M4A_BYTES, 'application/octet-stream')).toBeNull();
   });
 
   it('formato no ambiguo devuelve el detectado ignorando la declaracion', () => {
@@ -168,9 +175,35 @@ describe('resolveEvidenceMime', () => {
     expect(resolveEvidenceMime(MP3_FRAME_BYTES, 'audio/mpeg')).toBe('audio/mpeg');
   });
 
-  it('frame-sync MPEG sin declaración útil cae a audio/mpeg', () => {
-    expect(resolveEvidenceMime(MP3_FRAME_BYTES, '')).toBe('audio/mpeg');
-    expect(resolveEvidenceMime(MP3_FRAME_BYTES, 'application/octet-stream')).toBe('audio/mpeg');
+  it('frame-sync MPEG sin declaración útil devuelve null (no se cobra de más)', () => {
+    expect(resolveEvidenceMime(MP3_FRAME_BYTES, '')).toBeNull();
+    expect(resolveEvidenceMime(MP3_FRAME_BYTES, 'application/octet-stream')).toBeNull();
+  });
+
+  it('N-1 · texto UTF-16LE sin extensión devuelve null y no se sube', () => {
+    expect(resolveEvidenceMime(UTF16LE_BOM_BYTES, '')).toBeNull();
+  });
+
+  it('N-2 · texto que empieza por ID3 NO se promueve a audio/mpeg', () => {
+    // Tres bytes ASCII no prueban MPEG audio: una cabecera ID3v2 real trae
+    // versión, flags y tamaño syncsafe. Antes esto cobraba cuota.
+    expect(detectEvidenceMime(ID3_TEXT_BYTES)).not.toBe('audio/mpeg');
+    expect(resolveEvidenceMime(ID3_TEXT_BYTES, 'text/plain')).toBe('text/plain');
+  });
+
+  it('N-2 · texto que empieza por OggS NO se promueve a audio/ogg', () => {
+    expect(detectEvidenceMime(OGG_TEXT_BYTES)).not.toBe('audio/ogg');
+    expect(resolveEvidenceMime(OGG_TEXT_BYTES, 'text/plain')).toBe('text/plain');
+  });
+
+  it('una cabecera ID3v2 real sí se acepta como audio/mpeg', () => {
+    expect(detectEvidenceMime(MP3_ID3_BYTES)).toBe('audio/mpeg');
+    expect(resolveEvidenceMime(MP3_ID3_BYTES, 'audio/mpeg')).toBe('audio/mpeg');
+  });
+
+  it('un Ogg real (OggS + versión) sí se acepta como audio/ogg', () => {
+    expect(detectEvidenceMime(OGG_BYTES)).toBe('audio/ogg');
+    expect(resolveEvidenceMime(OGG_BYTES, 'audio/ogg')).toBe('audio/ogg');
   });
 
   it('EBML ambiguo: video/webm se respeta y se rechaza fuera de allowlist', () => {

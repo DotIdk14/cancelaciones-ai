@@ -107,24 +107,59 @@ export async function readEvidenceHead(file: File, byteCount = 16): Promise<Uint
 }
 
 /**
+ * Cabecera ID3v2 REAL, no el prefijo de 3 letras.
+ *
+ * `ID3` a secas son tres bytes ASCII que un archivo de texto puede empezar
+ * con ("ID3 tags son metadatos…"). Una cabecera de verdad trae versión
+ * mayor, flags válidos y un tamaño *syncsafe* (los cuatro bytes < 0x80).
+ */
+function hasId3v2Header(head: Uint8Array): boolean {
+  if (head.length < 10) return false;
+  if (head[0] !== ascii('I')[0] || head[1] !== ascii('D')[0] || head[2] !== ascii('3')[0]) {
+    return false;
+  }
+  const major = head[3]!;
+  if (major < 2 || major > 4) return false; // solo ID3v2.2 / 2.3 / 2.4
+  if ((head[5]! & 0xe0) !== 0) return false; // solo existen los 5 flags bajos
+  for (let i = 6; i < 10; i += 1) {
+    if (head[i]! >= 0x80) return false; // tamaño syncsafe
+  }
+  return true;
+}
+
+/**
+ * Frame header MPEG plausible: 11 bits de sync, versión y capa no reservadas,
+ * índice de bitrate y de sample rate no reservados.
+ *
+ * El sync por sí solo son 2 bytes y aparecen en binario y en texto (el BOM
+ * UTF-16LE `FF FE` los cumple), así que por sí solo NO prueba que sea audio.
+ */
+function hasMpegFrameHeader(head: Uint8Array): boolean {
+  if (head.length < 3) return false;
+  if (head[0] !== 0xff) return false;
+  const second = head[1]!;
+  if ((second & 0xe0) !== 0xe0) return false; // 11 bits de sync
+  if ((second & 0x18) === 0x08) return false; // versión reservada
+  if ((second & 0x06) === 0x00) return false; // capa reservada
+  const third = head[2]!;
+  if ((third & 0xf0) === 0xf0) return false; // índice de bitrate reservado
+  if ((third & 0x0c) === 0x0c) return false; // índice de sample rate reservado
+  return true;
+}
+
+/**
  * Firmas que por sí solas no distinguen el subtipo real del contenedor:
  * - ISO-BMFF (`ftyp`) es compartido por audio y video.
  * - EBML (`1A 45 DF A3`) es compartido por webm audio, webm video y mkv.
- * - MPEG frame-sync (`FF` + byte con los 3 bits altos a `111`) aparece en
- *   binario/texto (p. ej. el BOM UTF-16LE `FF FE`).
+ * - MPEG frame-sync: 2 bytes que el BOM UTF-16LE `FF FE` también cumple.
  */
 const AMBIGUOUS_SIGNATURE_MIMES = new Set(['audio/mp4', 'audio/webm']);
 
 function isAmbiguousMimeDetection(head: Uint8Array, detected: string): boolean {
   if (AMBIGUOUS_SIGNATURE_MIMES.has(detected)) return true;
   if (detected === 'audio/mpeg') {
-    // ID3 es inequívocamente MPEG audio; el frame sync de 2 bytes no lo es.
-    const hasId3 =
-      head.length >= 3 &&
-      head[0] === ascii('I')[0] &&
-      head[1] === ascii('D')[0] &&
-      head[2] === ascii('3')[0];
-    return !hasId3;
+    // Una cabecera ID3v2 completa sí prueba MPEG audio; el frame sync, no.
+    return !hasId3v2Header(head);
   }
   return false;
 }
@@ -139,8 +174,10 @@ function isAmbiguousMimeDetection(head: Uint8Array, detected: string): boolean {
  * - Firma ambigua (ISO-BMFF, EBML, frame-sync MPEG) → manda la DECLARACIÓN
  *   explícita: elegir la firma por defecto promovería en silencio un video a
  *   audio y dispararía una transcripción pagada, además de falsear el
- *   `mime_type` persistido. Si no hay declaración útil (`''` u
- *   `application/octet-stream`) decide la firma.
+ *   `mime_type` persistido. Sin declaración útil NO se decide: se devuelve
+ *   `null` y el cliente rechaza en local, porque en un contenedor ambiguo
+ *   cobrar por una transcripción equivocada es más caro que pedir una
+ *   extensión.
  * - Sin firma (texto plano) → manda la declaración.
  *
  * Limitación residual: un contenedor declarado explícitamente como audio
@@ -162,7 +199,7 @@ export function resolveEvidenceMime(head: Uint8Array, declaredMime: string): str
   if (normalized !== '' && normalized !== 'application/octet-stream') {
     return normalized;
   }
-  return detected;
+  return null;
 }
 
 /**
@@ -177,14 +214,8 @@ export function resolveEvidenceMime(head: Uint8Array, declaredMime: string): str
 export function detectEvidenceMime(head: Uint8Array): string | null {
   if (head.length === 0) return null;
 
-  // MP3: cabecera ID3 o frame sync de MPEG audio (11 bits de sync + versión).
-  const hasId3 =
-    head.length >= 3 &&
-    head[0] === ascii('I')[0] &&
-    head[1] === ascii('D')[0] &&
-    head[2] === ascii('3')[0];
-  const hasFrameSync = head.length >= 2 && head[0] === 0xff && (head[1]! & 0xe0) === 0xe0;
-  if (hasId3 || hasFrameSync) return 'audio/mpeg';
+  // MP3: cabecera ID3v2 completa o un frame header MPEG plausible.
+  if (hasId3v2Header(head) || hasMpegFrameHeader(head)) return 'audio/mpeg';
 
   for (const rule of EVIDENCE_SIGNATURES) {
     if (head.length < rule.minLength) continue;
@@ -198,7 +229,14 @@ export function detectEvidenceMime(head: Uint8Array): string | null {
       }
       if (!matched) break;
     }
-    if (matched) return rule.mime;
+    if (!matched) continue;
+    // `OggS` son 4 bytes ASCII que un texto puede empezar a tener. La versión
+    // de Ogg (offset 4, siempre 0x00) es lo que la hace una cabecera real. El
+    // detector es aquí MÁS estricto que `verifyFileSignature` a propósito: no
+    // queremos afirmar audio sobre texto. El servidor sigue siendo la
+    // autoridad y su validación no se modifica.
+    if (rule.mime === 'audio/ogg' && head[4] !== 0x00) continue;
+    return rule.mime;
   }
   return null;
 }
