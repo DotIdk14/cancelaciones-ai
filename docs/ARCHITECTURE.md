@@ -44,6 +44,8 @@ cancelaciones-ai/
 │   └── health/ai.ts            # healthcheck de configuración IA
 ├── src/
 │   ├── components/             # UI React
+│   │   ├── CaseReviewPanel.tsx # etapa del Asesor y ciclo de comparación IA
+│   │   └── CoordinatorReviewStage.tsx # finalización y registro del Coordinador
 │   ├── lib/                    # Cliente API, utilidades, hooks
 │   ├── server/                 # Helpers server-side (no tocan el navegador)
 │   │   ├── capabilities.ts     # Roles y capacidades (módulo hoja)
@@ -223,6 +225,11 @@ stateDiagram-v2
 - **Asesor**: `POST /api/cases/:id/review { result, comment? }` sobre su caso → `201`, dispara la comparación IA; un segundo intento es `409`.
 - **Coordinador**: `POST ... { decision: 'APPROVE'|'CHANGE', resolution?, comment? }` sobre cualquier caso → `200`. `APPROVE` conserva `result`; `CHANGE` exige `resolution` distinta. La decisión del coordinador se guarda aparte y no pisa la del Asesor.
 - **Gerente**: lee, pero `POST /review` es `403`.
+
+En la UI, `CaseReviewPanel` presenta la etapa del Asesor y el estado/reintento de
+la comparación; `CoordinatorReviewStage` presenta por separado la finalización
+del Coordinador y su decisión ya registrada. Este límite organiza componentes:
+la autorización efectiva sigue en los guards de la API.
 
 `cases.is_test` (default `false`) marca pruebas y el **servidor** las excluye de las métricas operativas en SQL (`is_test = false`), no la base. La vista previa local `?preview=dashboard&role=…&workflow=…` (`src/lib/local-ui-preview.ts`) es SOLO presentación: no llama a la API ni resuelve sesión, así que cambiar el rol del preview no altera ninguna autorización real.
 

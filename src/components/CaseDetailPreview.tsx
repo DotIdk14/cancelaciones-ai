@@ -6,7 +6,8 @@ import type { AuditResultType } from '../skills/audit/types';
 import { formatDateTime } from '../lib/format';
 import { getLocalPreviewCases, localPreviewCaseLabel } from '../lib/local-ui-preview';
 import { CASE_STATUS_LABELS, CASE_STATUS_TONE, RESULT_LABELS, REVIEW_RESULT_OPTIONS, resolutionLabel } from '../lib/labels';
-import { CaseReviewRecord, CoordinatorDecisionRecord } from './CaseReviewPanel';
+import { CaseReviewRecord } from './CaseReviewPanel';
+import { CoordinatorDecisionRecord } from './CoordinatorReviewStage';
 import { Badge, Button, Panel } from './ui';
 
 const SAMPLE_FILES = [

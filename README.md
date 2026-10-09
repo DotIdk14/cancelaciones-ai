@@ -126,7 +126,9 @@ src/
     ai/                    model-capabilities, provider-schema (contrato con el modelo)
   components/              LoginScreen, AppHeader, AppNav, CaseListPage,
                            CaseDetailPage, CasesPanel, NewCasePanel,
-                           CaseReviewPanel, EvidenceUploader, EvidenceList,
+                           CaseReviewPanel (etapa Asesor y comparación),
+                           CoordinatorReviewStage (etapa Coordinador),
+                           EvidenceUploader, EvidenceList,
                            EvidencePane, PdfCanvas, AuditResultPanel, AreaComments,
                            ErrorBoundary, ui,
                            dashboard/ (OverviewPage, QualityPage, AiCostsPage,
@@ -142,7 +144,7 @@ migrations/                baseline + 16 migraciones incrementales (orden por no
 scripts/                   generate-policy.mjs, dev-api.mjs,
                            check-no-public-secrets.mjs, run-ai-smoke.mjs,
                            verify-rls-grants.sql
-tests/                     Vitest (32 archivos, 435 tests)
+tests/                     Vitest (67 archivos, 999 tests registrados)
 docs/                      documentación del proyecto
 .github/                   CI (verify:release), Dependabot, plantillas de issue/PR
 vercel.json                framework vite, output dist, install npm ci
