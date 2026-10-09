@@ -37,7 +37,20 @@ function makeCase(overrides: Partial<CaseSummary> = {}): CaseSummary {
 async function renderList(cases: CaseSummary[]): Promise<void> {
   vi.stubGlobal(
     'fetch',
-    vi.fn(async () => fakeResponse(200, { cases })),
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), 'http://localhost');
+      const status = url.searchParams.get('status');
+      const filtered = status ? cases.filter((item) => item.status === status) : cases;
+      const statusCounts = {
+        ALL: cases.length,
+        READY: cases.filter((item) => item.status === 'READY').length,
+        AUDITING: cases.filter((item) => item.status === 'AUDITING').length,
+        COMPLETED: cases.filter((item) => item.status === 'COMPLETED').length,
+        DRAFT: cases.filter((item) => item.status === 'DRAFT').length,
+        ERROR: cases.filter((item) => item.status === 'ERROR').length,
+      };
+      return fakeResponse(200, { cases: filtered, nextCursor: null, statusCounts });
+    }),
   );
   const view = render(createElement(CasesPanel));
   // Espera a que la lista llegue del servidor.
@@ -110,9 +123,31 @@ describe('CasesPanel — resolución efectiva', () => {
     ]);
 
     fireEvent.click(screen.getByRole('button', { name: /borradores/i }));
-    expect(screen.getByRole('row', { name: /case-dra/i })).toBeTruthy();
+    await vi.waitFor(() => expect(screen.getByRole('row', { name: /case-dra/i })).toBeTruthy());
     expect(screen.queryByRole('row', { name: /case-compl/i })).toBeNull();
     expect(screen.getByRole('link', { name: /abrir expediente/i }).getAttribute('href')).toBe('#/casos/case-draft');
+  });
+
+  it('carga la siguiente página bajo demanda y conserva el contrato incremental', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(fakeResponse(200, {
+        cases: [makeCase({ id: 'case-page-one' })],
+        nextCursor: 'cursor-page-two',
+        statusCounts: { ALL: 2, READY: 0, AUDITING: 0, COMPLETED: 2, DRAFT: 0, ERROR: 0 },
+      }))
+      .mockResolvedValueOnce(fakeResponse(200, {
+        cases: [makeCase({ id: 'case-page-two', studentIdentifier: 'UTEL-2026-002' })],
+        nextCursor: null,
+      }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(createElement(CasesPanel));
+
+    await vi.waitFor(() => expect(screen.getByRole('row', { name: /case-pag/i })).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: /mostrar más/i }));
+    await vi.waitFor(() => expect(screen.getByRole('row', { name: /UTEL-2026-002/i })).toBeTruthy());
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain('cursor=cursor-page-two');
+    expect(screen.getByText('Mostrando 2 de 2 expedientes')).toBeTruthy();
   });
 });
 

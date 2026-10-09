@@ -82,6 +82,12 @@ export interface CaseDetail {
   canWrite?: boolean;
 }
 
+export interface CaseSummaryPage {
+  cases: CaseSummary[];
+  nextCursor: string | null;
+  statusCounts?: Record<CaseStatus | 'ALL', number>;
+}
+
 export interface Evidence {
   id: string;
   caseId: string;
@@ -473,6 +479,17 @@ function casePath(caseId: string, suffix = ''): string {
 export async function listCases(): Promise<CaseSummary[]> {
   const data = await request<{ cases: CaseSummary[] }>('/api/cases', {}, [200]);
   return data.cases ?? [];
+}
+
+export async function listCasePage(options: {
+  cursor?: string | null;
+  status?: CaseStatus | 'ALL';
+  limit?: number;
+} = {}): Promise<CaseSummaryPage> {
+  const params = new URLSearchParams({ limit: String(options.limit ?? 50) });
+  if (options.cursor) params.set('cursor', options.cursor);
+  if (options.status && options.status !== 'ALL') params.set('status', options.status);
+  return request<CaseSummaryPage>(`/api/cases?${params.toString()}`, {}, [200]);
 }
 
 export async function createCase(studentIdentifier?: string, isTest = false): Promise<CaseSummary> {

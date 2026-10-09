@@ -7,6 +7,7 @@ import {
   sendError,
   sendBinary,
   type ApiRequest,
+  type ApiResponse,
 } from '../src/server/http';
 
 describe('validación de inputs (rutas críticas)', () => {
@@ -124,7 +125,7 @@ describe('sendError', () => {
     const res = makeApiResponse();
     const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     try {
-      sendError(res as any, new Error('token=secret-value datos privados'));
+      sendError(res as unknown as ApiResponse, new Error('token=secret-value datos privados'));
       expect(log).toHaveBeenCalledWith('[api] error no controlado:', 'Error');
       expect(JSON.stringify(log.mock.calls)).not.toContain('secret-value');
       expect(res.statusCode).toBe(500);
@@ -175,5 +176,5 @@ function makeApiResponse() {
       fake.body = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk ?? ''));
     },
   };
-  return fake as any;
+  return fake as unknown as ApiResponse;
 }

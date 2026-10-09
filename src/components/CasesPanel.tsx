@@ -4,9 +4,9 @@
 // =============================================================================
 
 import type { KeyboardEvent, ReactNode } from 'react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowRight, CircleCheck, FileText, Files, Search, TriangleAlert } from 'lucide-react';
-import { listCases, toErrorState } from '../lib/api';
+import { listCasePage, toErrorState } from '../lib/api';
 import type { CaseSummary } from '../lib/api';
 import { formatDateTime, shortId } from '../lib/format';
 import { isLocalDashboardPreview } from '../lib/local-dashboard-preview';
@@ -70,29 +70,92 @@ export function CasesPanel(): ReactNode {
   const [cases, setCases] = useState<CaseSummary[] | null>(() => preview ? getLocalPreviewCases() : null);
   const [loading, setLoading] = useState(!preview);
   const [listError, setListError] = useState<string | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [statusCounts, setStatusCounts] = useState<Record<CaseStatus | 'ALL', number> | null>(null);
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<CaseStatus | 'ALL'>('ALL');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const requestId = useRef(0);
 
   const load = useCallback(async (): Promise<void> => {
     if (preview) {
       setCases(getLocalPreviewCases());
+      setNextCursor(null);
       setListError(null);
       setLoading(false);
       return;
     }
+    const currentRequest = ++requestId.current;
+    setLoading(true);
     try {
-      setCases(await listCases());
+      const page = await listCasePage({ status: statusFilter, limit: 50 });
+      if (currentRequest !== requestId.current) return;
+      setCases(page.cases);
+      setNextCursor(page.nextCursor);
+      if (page.statusCounts) setStatusCounts(page.statusCounts);
       setListError(null);
     } catch (err) {
+      if (currentRequest !== requestId.current) return;
       const state = toErrorState(err);
       setListError(state.category === 'AUTH_ERROR' ? AUTH_ERROR_MESSAGE : state.message);
     } finally {
-      setLoading(false);
+      if (currentRequest === requestId.current) setLoading(false);
     }
-  }, [preview]);
+  }, [preview, statusFilter]);
+
+  const loadAllForSearch = useCallback(async (): Promise<void> => {
+    if (preview) return;
+    const currentRequest = ++requestId.current;
+    setLoading(true);
+    try {
+      const first = await listCasePage({ status: statusFilter, limit: 50 });
+      const all = [...first.cases];
+      let cursor = first.nextCursor;
+      while (cursor) {
+        const page = await listCasePage({ status: statusFilter, cursor, limit: 50 });
+        all.push(...page.cases);
+        cursor = page.nextCursor;
+      }
+      if (currentRequest !== requestId.current) return;
+      setCases(all);
+      setNextCursor(null);
+      if (first.statusCounts) setStatusCounts(first.statusCounts);
+      setListError(null);
+    } catch (err) {
+      if (currentRequest !== requestId.current) return;
+      const state = toErrorState(err);
+      setListError(state.category === 'AUTH_ERROR' ? AUTH_ERROR_MESSAGE : state.message);
+    } finally {
+      if (currentRequest === requestId.current) setLoading(false);
+    }
+  }, [preview, statusFilter]);
+
+  const loadMore = useCallback(async (): Promise<void> => {
+    if (!nextCursor || preview) return;
+    const currentRequest = ++requestId.current;
+    setLoading(true);
+    try {
+      const page = await listCasePage({ status: statusFilter, cursor: nextCursor, limit: 50 });
+      if (currentRequest !== requestId.current) return;
+      setCases((current) => [...(current ?? []), ...page.cases]);
+      setNextCursor(page.nextCursor);
+      setListError(null);
+    } catch (err) {
+      if (currentRequest !== requestId.current) return;
+      const state = toErrorState(err);
+      setListError(state.category === 'AUTH_ERROR' ? AUTH_ERROR_MESSAGE : state.message);
+    } finally {
+      if (currentRequest === requestId.current) setLoading(false);
+    }
+  }, [nextCursor, preview, statusFilter]);
 
   useEffect(() => { if (!preview) void load(); }, [load, preview]);
+
+  useEffect(() => {
+    if (!query.trim() || preview) return;
+    const timer = window.setTimeout(() => { void loadAllForSearch(); }, 300);
+    return () => window.clearTimeout(timer);
+  }, [query, loadAllForSearch, preview]);
 
   const counts = useMemo(() => {
     const result: Record<CaseStatus | 'ALL', number> = {
@@ -104,8 +167,8 @@ export function CasesPanel(): ReactNode {
       ERROR: 0,
     };
     for (const item of cases ?? []) result[item.status] += 1;
-    return result;
-  }, [cases]);
+    return statusCounts ?? result;
+  }, [cases, statusCounts]);
 
   const filteredCases = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase('es');
@@ -150,7 +213,7 @@ export function CasesPanel(): ReactNode {
               label={item.label}
               count={counts[item.value]}
               active={statusFilter === item.value}
-              onClick={() => setStatusFilter(item.value)}
+              onClick={() => { setCases(null); setNextCursor(null); setStatusFilter(item.value); }}
             />
           ))}
         </div>
@@ -241,7 +304,8 @@ export function CasesPanel(): ReactNode {
           )}
         </div>
       )}
-      <p className="text-xs text-muted">Mostrando {filteredCases.length} de {cases?.length ?? 0} expedientes</p>
+      <p className="text-xs text-muted">Mostrando {filteredCases.length} de {counts[statusFilter]} expedientes</p>
+      {nextCursor && !query.trim() && <div className="flex justify-center"><Button onClick={() => void loadMore()} loading={loading} loadingLabel="Cargando expedientes">Mostrar más</Button></div>}
     </div>
   );
 }
