@@ -636,6 +636,36 @@ describe('NewCasePanel · notas de Back Office y HelpDesk', () => {
     expect(calls.filter((call) => call.url.endsWith('/area-comments') && call.method === 'POST')).toHaveLength(2);
   });
 
+  it('conserva el fallo anterior cuando se añade otro archivo con el mismo nombre y tamaño', async () => {
+    let evidenceAttempts = 0;
+    const calls = stubApp({
+      evidence: (name) => {
+        evidenceAttempts += 1;
+        return evidenceAttempts === 1
+          ? FILE_ERROR
+          : { status: 201, body: { evidence: evidenceDto('case-1', name) } };
+      },
+      comment: () => SERVER_ERROR,
+    });
+    render(<NewCasePanel />);
+
+    const input = screen.getByLabelText(/archivos de evidencia/i, { selector: 'input[type="file"]' });
+    await userEvent.upload(input, new File(['AAAA'], 'igual.pdf', { type: 'application/pdf' }));
+    await submitCase();
+    await screen.findByRole('button', { name: /reintentar carga/i });
+
+    // Mismo nombre y tamaño, pero otro archivo pendiente de subir.
+    await userEvent.upload(input, new File(['BBBB'], 'igual.pdf', { type: 'application/pdf' }));
+    await fillNote('BACK_OFFICE', 'nota para que el formulario siga abierto');
+    await submitCase();
+
+    expect(await screen.findByText(/no se pudieron guardar las notas/i)).toBeTruthy();
+    expect(calls.filter((call) => call.url.endsWith('/evidence'))).toHaveLength(2);
+    // El segundo archivo se subió; el primero sigue fallido y reintentable.
+    expect(screen.getByRole('button', { name: /reintentar carga/i })).toBeTruthy();
+    expect(screen.getAllByText('igual.pdf')).toHaveLength(1);
+  });
+
   // El servidor rechaza con 400 lo que pase de 4000 caracteres
   // (`AREA_COMMENT_MAX` en `src/server/area-comments.ts`). Sin esto, "Reintentar
   // notas" reenvía el mismo texto y el alta entra en bucle.

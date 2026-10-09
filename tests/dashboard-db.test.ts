@@ -18,12 +18,14 @@ import type { InsForgeClient } from '../src/server/insforge';
 import type { InsForgeClient as SdkClient } from '../src/server/insforge';
 import {
   DASHBOARD_MAX_ROWS,
+  type DashboardMetricRow,
+} from '../src/server/dashboard';
+import {
   getAiCosts,
   getAiQuality,
   getDashboardFilterOptions,
   getDashboardSummary,
-  type DashboardMetricRow,
-} from '../src/server/dashboard';
+} from '../src/server/dashboard-queries';
 import { fakeAuthContext, FAKE_USER_SUB } from './helpers/auth';
 
 const BASE: DashboardFilters = { from: '2026-09-01', to: '2026-09-30', result: null, status: null };

@@ -13,7 +13,7 @@ import {
   getAiQuality,
   getDashboardFilterOptions,
   getDashboardSummary,
-} from '../../src/server/dashboard.js';
+} from '../../src/server/dashboard-queries.js';
 
 // Vercel Hobby admite 12 Functions por deployment y, en un proyecto sin
 // framework, cada archivo de `api/` es una Function. Los cuatro GET del

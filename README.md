@@ -120,13 +120,18 @@ src/
     review/                skill de revisión humana (reusa skills/sanitize.ts)
   server/                  env, insforge, http, errors, auth, quotas, derived,
                            cases, dto, audit-service, comparison-service,
-                           reviews, area-comments, dashboard, dashboard.human,
+                           reviews, area-comments, dashboard-queries,
+                           dashboard-summary, dashboard-costs, dashboard-quality,
+                           dashboard-contracts, dashboard (barrel),
                            dashboard-filters, openrouter, assemblyai,
                            evidence-prep, pdf
     ai/                    model-capabilities, provider-schema (contrato con el modelo)
   components/              LoginScreen, AppHeader, AppNav, CaseListPage,
                            CaseDetailPage, CasesPanel, NewCasePanel,
-                           CaseReviewPanel, EvidenceUploader, EvidenceList,
+                           CaseReviewPanel (etapa Asesor y comparación),
+                           CoordinatorReviewStage (etapa Coordinador),
+                           useCaseAuditWorkflow (ejecución y polling de auditoría),
+                           EvidenceUploader, EvidenceList,
                            EvidencePane, PdfCanvas, AuditResultPanel, AreaComments,
                            ErrorBoundary, ui,
                            dashboard/ (OverviewPage, QualityPage, AiCostsPage,
@@ -142,7 +147,7 @@ migrations/                baseline + 16 migraciones incrementales (orden por no
 scripts/                   generate-policy.mjs, dev-api.mjs,
                            check-no-public-secrets.mjs, run-ai-smoke.mjs,
                            verify-rls-grants.sql
-tests/                     Vitest (32 archivos, 435 tests)
+tests/                     Vitest (67 archivos, 999 tests registrados)
 docs/                      documentación del proyecto
 .github/                   CI (verify:release), Dependabot, plantillas de issue/PR
 vercel.json                framework vite, output dist, install npm ci
@@ -728,10 +733,11 @@ Scripts disponibles:
 | `npm run build` | `tsc` + `vite build` → `dist` (`prebuild` regenera la policy) |
 | `npm run preview` | Sirve `dist` |
 | `npm run typecheck` | `tsc` sin emitir |
+| `npm run lint` | Secret scan, contraste WCAG y typecheck |
 | `npm test` / `npm run test:watch` | Vitest |
 | `npm run test:contract` | Contratos OpenRouter, capabilities, schema y referencias |
 | `npm run test:ai-smoke` | Auditoría sintética real contra OpenRouter; requiere credencial configurada |
-| `npm run verify:release` | Secret scan, typecheck, contracts, toda la suite y build |
+| `npm run verify:release` | Lint, contract tests, toda la suite y build |
 | `npm run verify:release:live` | Release gate local más smoke real facturable |
 | `npm run policy:generate` | Compila `policy/` → `src/skills/audit/policy-v5.generated.ts` |
 
