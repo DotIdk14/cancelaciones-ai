@@ -282,6 +282,20 @@ describe('Buscador del expediente', () => {
   });
 });
 
+describe('Disposición de evidencias en el detalle', () => {
+  it('mantiene la selección a la izquierda y muestra el archivo en el visor central', async () => {
+    await renderDetail(makeDetailWithAudit());
+
+    const navigation = screen.getByRole('navigation', { name: 'Seleccionar evidencia' });
+    expect(navigation.closest('aside.case-detail-evidence')).not.toBeNull();
+
+    fireEvent.click(within(navigation).getByRole('button', { name: /audio-asesor\.m4a/i }));
+
+    expect(screen.getByRole('tab', { name: /Evidencias/ }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByRole('heading', { name: 'audio-asesor.m4a' })).toBeTruthy();
+  });
+});
+
 describe('Transcripciones de evidencia', () => {
   it('muestra los fragmentos y permite abrir el archivo original desde el detalle', async () => {
     await renderDetail(makeDetail({

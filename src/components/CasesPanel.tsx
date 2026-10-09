@@ -5,7 +5,7 @@
 
 import type { KeyboardEvent, ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ArrowRight, CircleCheck, FileText, Files, Search, TriangleAlert } from 'lucide-react';
+import { AlertTriangle, ArrowRight, CircleCheck, FileText, Files, FlaskConical, Search, Trash2, TriangleAlert, Undo2, X } from 'lucide-react';
 import { deleteCaseAudit, deleteCaseDraft, listCasePage, setCaseTestFlag, toErrorState } from '../lib/api';
 import type { CaseSummary } from '../lib/api';
 import { formatDateTime, shortId } from '../lib/format';
@@ -75,6 +75,7 @@ export function CasesPanel(): ReactNode {
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<CaseStatus | 'ALL'>('ALL');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedCaseIds, setSelectedCaseIds] = useState<Set<string>>(() => new Set());
   const [adminPending, setAdminPending] = useState(false);
   const [adminError, setAdminError] = useState<string | null>(null);
   const requestId = useRef(0);
@@ -186,28 +187,75 @@ export function CasesPanel(): ReactNode {
   }, [cases, query, statusFilter]);
 
   const selectedCase = filteredCases.find((item) => item.id === selectedId) ?? filteredCases[0] ?? null;
+  const selectedCases = filteredCases.filter((item) => item.canManageCases === true && selectedCaseIds.has(item.id));
+  const visibleManageableCases = filteredCases.filter((item) => item.canManageCases === true);
+  const showManagementSelection = !preview && (cases?.some((item) => item.canManageCases === true) ?? false);
+  const allVisibleSelected = visibleManageableCases.length > 0 && visibleManageableCases.every((item) => selectedCaseIds.has(item.id));
+  const allSelectedAuditsDeletable = selectedCases.length > 0 && selectedCases.every(
+    (item) => item.auditId != null && item.status !== 'AUDITING' && item.auditHasHumanReview !== true,
+  );
 
-  async function runAdminAction(action: 'toggle-test' | 'delete-draft' | 'delete-audit'): Promise<void> {
+  async function runAdminAction(action: 'delete-draft'): Promise<void> {
     if (!selectedCase?.canManageCases || adminPending) return;
-    const question = action === 'delete-draft'
-      ? '¿Borrar este borrador sin evidencias?'
-      : action === 'delete-audit'
-        ? '¿Borrar este dictamen de forma permanente?'
-        : null;
-    if (question && !window.confirm(question)) return;
+    if (!window.confirm('¿Borrar este borrador sin evidencias?')) return;
     setAdminPending(true);
     setAdminError(null);
     try {
-      if (action === 'toggle-test') await setCaseTestFlag(selectedCase.id, !selectedCase.isTest);
       if (action === 'delete-draft') await deleteCaseDraft(selectedCase.id);
-      if (action === 'delete-audit' && selectedCase.auditId) await deleteCaseAudit(selectedCase.id, selectedCase.auditId);
-      if (action === 'delete-draft') setSelectedId(null);
+      setSelectedId(null);
       await load();
     } catch (error) {
       setAdminError(toErrorState(error).message);
     } finally {
       setAdminPending(false);
     }
+  }
+
+  async function runBulkAction(action: 'mark-test' | 'mark-real' | 'delete-audits'): Promise<void> {
+    if (adminPending || selectedCases.length === 0 || selectedCases.some((item) => item.canManageCases !== true)) return;
+    if (action === 'delete-audits' && !allSelectedAuditsDeletable) return;
+
+    const targets = action === 'mark-test'
+      ? selectedCases.filter((item) => item.isTest !== true)
+      : action === 'mark-real'
+        ? selectedCases.filter((item) => item.isTest === true)
+        : selectedCases;
+    if (targets.length === 0) return;
+
+    const actionLabel = action === 'mark-test' ? 'marcar como prueba'
+      : action === 'mark-real' ? 'marcar como reales'
+        : 'borrar de forma permanente los dictámenes';
+    const impact = action === 'mark-test'
+      ? ' Se excluirán de las métricas operativas.'
+      : action === 'mark-real'
+        ? ' Volverán a incluirse en las métricas operativas.'
+        : ' Esta acción no se puede deshacer.';
+    if (!window.confirm(`¿${actionLabel} ${targets.length} ${targets.length === 1 ? 'expediente seleccionado' : 'expedientes seleccionados'}?${impact}`)) return;
+
+    setAdminPending(true);
+    setAdminError(null);
+    const outcomes = await Promise.allSettled(targets.map((item) =>
+      action === 'mark-test'
+        ? setCaseTestFlag(item.id, true)
+        : action === 'mark-real'
+          ? setCaseTestFlag(item.id, false)
+          : deleteCaseAudit(item.id, item.auditId!),
+    ));
+    const succeededIds = targets.filter((_, index) => outcomes[index]?.status === 'fulfilled').map((item) => item.id);
+    const failedIndex = outcomes.findIndex((outcome) => outcome?.status === 'rejected');
+    const failedOutcome = outcomes[failedIndex];
+    setSelectedCaseIds((current) => {
+      const next = new Set(current);
+      succeededIds.forEach((id) => next.delete(id));
+      return next;
+    });
+    await load();
+    if (failedOutcome?.status === 'rejected') {
+      const failure = toErrorState(failedOutcome.reason);
+      const succeeded = succeededIds.length;
+      setAdminError(`${succeeded} de ${targets.length} acciones completadas. ${targets[failedIndex]?.studentIdentifier || shortId(targets[failedIndex]?.id ?? '')}: ${failure.message}`);
+    }
+    setAdminPending(false);
   }
 
   return (
@@ -238,7 +286,7 @@ export function CasesPanel(): ReactNode {
               label={item.label}
               count={counts[item.value]}
               active={statusFilter === item.value}
-              onClick={() => { setCases(null); setNextCursor(null); setStatusFilter(item.value); }}
+              onClick={() => { setSelectedCaseIds(new Set()); setCases(null); setNextCursor(null); setStatusFilter(item.value); }}
             />
           ))}
         </div>
@@ -248,7 +296,7 @@ export function CasesPanel(): ReactNode {
           <input
             type="search"
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => { setSelectedCaseIds(new Set()); setQuery(event.target.value); }}
             placeholder="Buscar folio, matrícula o resolución…"
           />
         </label>
@@ -263,9 +311,66 @@ export function CasesPanel(): ReactNode {
       ) : (
         <div className="case-list-layout">
           <div className="case-table-wrap">
+            {showManagementSelection && selectedCases.length > 0 && (
+              <div className="case-bulk-toolbar" role="group" aria-label="Acciones para expedientes seleccionados">
+                <div className="case-bulk-selection-copy">
+                  <strong>{selectedCases.length} seleccionados</strong>
+                  <button type="button" className="case-bulk-clear" onClick={() => setSelectedCaseIds(new Set())} disabled={adminPending}>
+                    <X size={13} aria-hidden="true" /> Quitar selección
+                  </button>
+                </div>
+                <div className="case-bulk-actions">
+                  {selectedCases.some((item) => item.isTest !== true) && (
+                    <button type="button" className="case-bulk-action" onClick={() => void runBulkAction('mark-test')} disabled={adminPending}>
+                      <FlaskConical size={14} aria-hidden="true" /> Marcar prueba
+                    </button>
+                  )}
+                  {selectedCases.some((item) => item.isTest === true) && (
+                    <button type="button" className="case-bulk-action" onClick={() => void runBulkAction('mark-real')} disabled={adminPending}>
+                      <Undo2 size={14} aria-hidden="true" /> Marcar real
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="case-bulk-action case-bulk-action-danger"
+                    onClick={() => void runBulkAction('delete-audits')}
+                    disabled={adminPending || !allSelectedAuditsDeletable}
+                    title={!allSelectedAuditsDeletable ? 'Selecciona únicamente casos con dictamen, sin revisión humana y que no estén auditándose.' : undefined}
+                  >
+                    <Trash2 size={14} aria-hidden="true" /> Borrar dictámenes
+                  </button>
+                </div>
+                {!allSelectedAuditsDeletable && (
+                  <p className="case-bulk-hint">Para borrar, todos los seleccionados deben tener un dictamen sin revisión humana ni auditoría en curso.</p>
+                )}
+                {adminPending && <span role="status" className="case-bulk-progress"><Spinner label="Procesando selección" className="h-3.5 w-3.5" /> Procesando selección…</span>}
+                {adminError && <p role="alert" className="case-bulk-error">{adminError}</p>}
+              </div>
+            )}
             <table className="case-table">
               <thead>
                 <tr>
+                  {showManagementSelection && (
+                    <th scope="col" className="case-select-cell">
+                      <input
+                        type="checkbox"
+                        checked={allVisibleSelected}
+                        disabled={adminPending || visibleManageableCases.length === 0}
+                        aria-label="Seleccionar todos los expedientes visibles"
+                        onClick={(event) => event.stopPropagation()}
+                        onChange={(event) => {
+                          setSelectedCaseIds((current) => {
+                            const next = new Set(current);
+                            for (const item of visibleManageableCases) {
+                              if (event.target.checked) next.add(item.id);
+                              else next.delete(item.id);
+                            }
+                            return next;
+                          });
+                        }}
+                      />
+                    </th>
+                  )}
                   <th scope="col">Caso</th>
                   <th scope="col">Evidencias</th>
                   <th scope="col">Dictamen vigente</th>
@@ -286,6 +391,28 @@ export function CasesPanel(): ReactNode {
                       onClick={() => setSelectedId(item.id)}
                       onKeyDown={(event) => selectOnKeyboard(event, () => setSelectedId(item.id))}
                     >
+                      {showManagementSelection && (
+                        <td className="case-select-cell">
+                          {item.canManageCases === true && (
+                            <input
+                              type="checkbox"
+                              checked={selectedCaseIds.has(item.id)}
+                              disabled={adminPending}
+                              aria-label={`Seleccionar expediente ${item.studentIdentifier || shortId(item.id)}`}
+                              onClick={(event) => event.stopPropagation()}
+                              onKeyDown={(event) => event.stopPropagation()}
+                              onChange={(event) => {
+                                setSelectedCaseIds((current) => {
+                                  const next = new Set(current);
+                                  if (event.target.checked) next.add(item.id);
+                                  else next.delete(item.id);
+                                  return next;
+                                });
+                              }}
+                            />
+                          )}
+                        </td>
+                      )}
                       <td>
                         <span className="text-sm font-semibold">{item.studentIdentifier || 'Sin matrícula'}{item.studentName ? ` · ${item.studentName}` : ''}</span>
                         <span className="case-cell-secondary">{item.studentName ? `Matrícula ${item.studentIdentifier || 'sin capturar'}` : 'Nombre pendiente'} · Creado {formatDateTime(item.createdAt)}</span>
@@ -323,25 +450,15 @@ export function CasesPanel(): ReactNode {
                 <div className="flex justify-between gap-3"><dt className="text-muted">Dictamen vigente</dt><dd className="max-w-[65%] text-right">{selectedCase.effectiveResolution ? resolutionLabel(selectedCase.effectiveResolution.result) : selectedCase.auditIsCurrent === false ? 'Dictamen IA desactualizado' : 'Sin dictamen'}</dd></div>
                 {selectedCase.effectiveResolution && <div className="flex justify-between gap-3"><dt className="text-muted">Origen</dt><dd title={RESOLUTION_SOURCE_DESCRIPTIONS[selectedCase.effectiveResolution.source]}>{RESOLUTION_SOURCE_LABELS[selectedCase.effectiveResolution.source]}</dd></div>}
               </dl>
-              {selectedCase.canManageCases && !preview && (
+              {selectedCase.canManageCases && !preview && selectedCase.status === 'DRAFT' && selectedCase.evidenceCount === 0 && (
                 <div className="mt-5 border-t border-line pt-4">
                   <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Administración</p>
                   <div className="flex flex-wrap gap-2">
-                    <Button variant="secondary" disabled={adminPending} onClick={() => void runAdminAction('toggle-test')}>
-                      {adminPending ? 'Guardando…' : selectedCase.isTest ? 'Marcar como real' : 'Marcar como prueba'}
+                    <Button variant="secondary" disabled={adminPending} onClick={() => void runAdminAction('delete-draft')}>
+                      Borrar borrador
                     </Button>
-                    {selectedCase.status === 'DRAFT' && selectedCase.evidenceCount === 0 && (
-                      <Button variant="secondary" disabled={adminPending} onClick={() => void runAdminAction('delete-draft')}>
-                        Borrar borrador
-                      </Button>
-                    )}
-                    {selectedCase.auditId && !selectedCase.auditHasHumanReview && (
-                      <Button variant="secondary" disabled={adminPending} onClick={() => void runAdminAction('delete-audit')}>
-                        Borrar dictamen
-                      </Button>
-                    )}
                   </div>
-                  {adminError && <p role="alert" className="mt-2 text-sm text-danger">{adminError}</p>}
+                  {adminError && selectedCases.length === 0 && <p role="alert" className="mt-2 text-sm text-danger">{adminError}</p>}
                 </div>
               )}
               <a className="case-open-link mt-5" href={`#/casos/${encodeURIComponent(selectedCase.id)}`}>

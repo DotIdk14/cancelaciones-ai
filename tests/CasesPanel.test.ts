@@ -34,23 +34,22 @@ function makeCase(overrides: Partial<CaseSummary> = {}): CaseSummary {
 }
 
 async function renderList(cases: CaseSummary[]): Promise<void> {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (input: RequestInfo | URL) => {
-      const url = new URL(String(input), 'http://localhost');
-      const status = url.searchParams.get('status');
-      const filtered = status ? cases.filter((item) => item.status === status) : cases;
-      const statusCounts = {
-        ALL: cases.length,
-        READY: cases.filter((item) => item.status === 'READY').length,
-        AUDITING: cases.filter((item) => item.status === 'AUDITING').length,
-        COMPLETED: cases.filter((item) => item.status === 'COMPLETED').length,
-        DRAFT: cases.filter((item) => item.status === 'DRAFT').length,
-        ERROR: cases.filter((item) => item.status === 'ERROR').length,
-      };
-      return fakeResponse(200, { cases: filtered, nextCursor: null, statusCounts });
-    }),
-  );
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input), 'http://localhost');
+    if (init?.method === 'PATCH') return fakeResponse(200, { case: {} });
+    if (init?.method === 'DELETE') return fakeResponse(200, { deleted: true });
+    const status = url.searchParams.get('status');
+    const filtered = status ? cases.filter((item) => item.status === status) : cases;
+    const statusCounts = {
+      ALL: cases.length,
+      READY: cases.filter((item) => item.status === 'READY').length,
+      AUDITING: cases.filter((item) => item.status === 'AUDITING').length,
+      COMPLETED: cases.filter((item) => item.status === 'COMPLETED').length,
+      DRAFT: cases.filter((item) => item.status === 'DRAFT').length,
+      ERROR: cases.filter((item) => item.status === 'ERROR').length,
+    };
+    return fakeResponse(200, { cases: filtered, nextCursor: null, statusCounts });
+  }));
   const view = render(createElement(CasesPanel));
   // Espera a que la lista llegue del servidor.
   await vi.waitFor(() => {
@@ -60,6 +59,7 @@ async function renderList(cases: CaseSummary[]): Promise<void> {
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -168,5 +168,55 @@ describe('CasesPanel — clasificación prueba/real', () => {
 
     const row = screen.getByRole('row', { name: /UTEL-2026-001/ });
     expect(row.textContent).toContain('Real');
+  });
+});
+
+describe('CasesPanel — acciones múltiples de administración', () => {
+  it('marca juntos los expedientes seleccionados como prueba', async () => {
+    await renderList([
+      makeCase({ id: 'case-1', canManageCases: true, isTest: false }),
+      makeCase({ id: 'case-2', studentIdentifier: 'UTEL-2026-002', canManageCases: true, isTest: false }),
+    ]);
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar expediente UTEL-2026-001' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar expediente UTEL-2026-002' }));
+    fireEvent.click(screen.getByRole('button', { name: /marcar prueba/i }));
+
+    await vi.waitFor(() => {
+      const updates = vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === 'PATCH');
+      expect(updates).toHaveLength(2);
+      expect(updates.map(([, init]) => JSON.parse(String(init?.body)))).toEqual([{ isTest: true }, { isTest: true }]);
+    });
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('2 expedientes seleccionados'));
+  });
+
+  it('borra varios dictámenes solo tras confirmación y no habilita los protegidos', async () => {
+    await renderList([
+      makeCase({ id: 'case-1', canManageCases: true, auditId: 'audit-1', auditHasHumanReview: false }),
+      makeCase({ id: 'case-2', studentIdentifier: 'UTEL-2026-002', canManageCases: true, auditId: 'audit-2', auditHasHumanReview: false }),
+    ]);
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar expediente UTEL-2026-001' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar expediente UTEL-2026-002' }));
+    fireEvent.click(screen.getByRole('button', { name: /borrar dictámenes/i }));
+
+    await vi.waitFor(() => {
+      const deletions = vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === 'DELETE');
+      expect(deletions).toHaveLength(2);
+      expect(deletions.map(([, init]) => JSON.parse(String(init?.body)))).toEqual([
+        { target: 'audit', auditId: 'audit-1' },
+        { target: 'audit', auditId: 'audit-2' },
+      ]);
+    });
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('2 expedientes seleccionados'));
+
+    cleanup();
+    await renderList([
+      makeCase({ id: 'case-reviewed', canManageCases: true, auditId: 'audit-reviewed', auditHasHumanReview: true }),
+    ]);
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar expediente UTEL-2026-001' }));
+    expect(screen.getByRole('button', { name: /borrar dictámenes/i })).toHaveProperty('disabled', true);
   });
 });

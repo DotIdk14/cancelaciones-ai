@@ -473,6 +473,22 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
 
       <div className="case-detail-layout">
         <aside className="case-detail-evidence">
+          <Panel title={`Evidencias (${evidences.length})`} description="Selecciona un archivo para revisarlo en el expediente.">
+            <EvidenceList
+              evidences={evidences}
+              activeId={viewingEvidenceId}
+              onSelect={(id) => {
+                setViewingEvidenceId(id);
+                setActiveTab('evidence');
+              }}
+              onDelete={(item) => setConfirmId(item.id)}
+              onConfirmDelete={(item) => void handleDelete(item)}
+              onCancelConfirm={() => setConfirmId(null)}
+              deletingId={deletingId}
+              confirmId={confirmId}
+              readOnly={readOnly}
+            />
+          </Panel>
           {!readOnly && (
             <details className="case-detail-upload">
               <summary><span aria-hidden="true">+</span> Adjuntar evidencias</summary>
@@ -696,24 +712,13 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
             )}
 
             {activeTab === 'evidence' && (
-              <Panel title={`Evidencias (${evidences.length})`} description="Selecciona un archivo para revisarlo en el expediente.">
-                <EvidenceList
-                  evidences={evidences}
-                  activeId={viewingEvidenceId}
-                  onSelect={setViewingEvidenceId}
-                  onDelete={(item) => setConfirmId(item.id)}
-                  onConfirmDelete={(item) => void handleDelete(item)}
-                  onCancelConfirm={() => setConfirmId(null)}
-                  deletingId={deletingId}
-                  confirmId={confirmId}
-                  readOnly={readOnly}
-                />
+              <div className="case-evidence-viewer-region">
                 {viewingEvidence !== null ? (
                   <EvidencePane evidence={viewingEvidence} studentName={detail.case.studentName} />
                 ) : (
                   <div className="case-workspace-empty"><Paperclip size={22} /><strong>Sin evidencias</strong><p>Adjunta una evidencia para verla aquí.</p></div>
                 )}
-              </Panel>
+              </div>
             )}
 
             {activeTab === 'evidence' && auditHint !== null && <p className="case-audit-hint">{auditHint}</p>}
