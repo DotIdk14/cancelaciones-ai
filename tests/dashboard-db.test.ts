@@ -17,7 +17,7 @@ import type { DashboardFilters } from '../src/lib/dashboard';
 import type { InsForgeClient } from '../src/server/insforge';
 import type { InsForgeClient as SdkClient } from '../src/server/insforge';
 import {
-  DASHBOARD_MAX_ROWS,
+  DASHBOARD_PAGE_SIZE,
   type DashboardMetricRow,
 } from '../src/server/dashboard';
 import {
@@ -68,6 +68,7 @@ interface RecordedQuery {
   lte: Array<[string, unknown]>;
   order: Array<[string, unknown]>;
   limit: number | null;
+  range: [number, number] | null;
 }
 
 interface FakeOptions {
@@ -96,6 +97,7 @@ function fakeClient(options: FakeOptions = {}): {
       lte: [],
       order: [],
       limit: null,
+      range: null,
     };
     queries.push(record);
     return record;
@@ -130,11 +132,21 @@ function fakeClient(options: FakeOptions = {}): {
       queries[queries.length - 1].limit = n;
       return chain;
     },
+    range(from: number, to: number) {
+      queries[queries.length - 1].range = [from, to];
+      return chain;
+    },
     then(resolve: (v: unknown) => unknown) {
+      const query = queries[queries.length - 1]!;
+      const range = query.range;
+      const rows = (options.rows ?? []).map((row) => ({ is_test: false, created_by: FAKE_USER_SUB, ...row }));
+      const filtered = rows.filter((row) => query.eqs.every(([column, value]) =>
+        (row as unknown as Record<string, unknown>)[column] === value,
+      ));
       return Promise.resolve({
-        data: options.rows ?? [],
+        data: range ? filtered.slice(range[0], range[1] + 1) : filtered,
         error: options.error ?? null,
-        count: options.count ?? options.rows?.length ?? 0,
+        count: options.count ?? filtered.length,
       }).then(resolve);
     },
   };
@@ -189,21 +201,57 @@ describe('capa de datos del dashboard — consulta construida', () => {
     ]);
   });
 
-  it('limita el número de filas trayendo el tope del dashboard', async () => {
+  it('lee por páginas menores que el límite REST y sigue hasta agotar el conjunto', async () => {
     const { client, queries } = fakeClient({ rows: [] });
     await getDashboardSummary(client, BASE);
-    expect(queries[0].limit).toBe(DASHBOARD_MAX_ROWS);
+    expect(queries[0].range).toEqual([0, DASHBOARD_PAGE_SIZE - 1]);
   });
 
-  it('marca `truncated` cuando el rango tiene más filas de las que se trayeron', async () => {
-    // Se trae el tope completo pero la base dice que hay más: los KPIs
-    // describen lo que se trajo, y `truncated` avisa de que la vista está
-    // incompleta en lugar de presentar un total falso.
-    const { client } = fakeClient({ rows: [metricRow()], count: DASHBOARD_MAX_ROWS + 1 });
+  it('calcula KPI completos con más de 10,000 auditorías y no reporta un total truncado', async () => {
+    const rows = Array.from({ length: 10_250 }, (_, index) => metricRow({
+      id: `audit-${index}`,
+      case_id: `case-${Math.floor(index / 2)}`,
+      created_at: new Date(Date.UTC(2026, 8, 1 + (index % 30), 12)).toISOString(),
+      is_test: false,
+    }));
+    const { client } = fakeClient({ rows, count: rows.length });
     const summary = await getDashboardSummary(client, BASE);
 
-    expect(summary.truncated).toBe(true);
-    expect(summary.kpi.auditedCases).toBe(1);
+    expect(summary.truncated).toBe(false);
+    expect(summary.kpi.auditedCases).toBe(5_125);
+  });
+
+  it('aplica owner scope y casos de prueba antes de paginar más de 10,000 auditorías mixtas', async () => {
+    const rows = Array.from({ length: 10_250 }, (_, index) => {
+      const auditStatus = index % 7 === 0 ? 'ERROR' : index % 7 === 1 ? 'RUNNING' : 'COMPLETED';
+      return metricRow({
+        id: `audit-${index}`,
+        case_id: `case-${Math.floor(index / 2)}`,
+        created_at: new Date(Date.UTC(2026, 8, 1) + index).toISOString(),
+        audit_status: auditStatus,
+        case_status: auditStatus === 'ERROR' ? 'ERROR' : auditStatus === 'RUNNING' ? 'AUDITING' : 'COMPLETED',
+        result: auditStatus === 'COMPLETED' ? 'CANCELACION_VENTA' : null,
+        confidence: auditStatus === 'COMPLETED' ? 0.8 : null,
+        is_test: index % 5 === 0,
+        created_by: index % 2 === 0 ? FAKE_USER_SUB : 'otro-usuario',
+        usage_cost_usd: index % 11 === 0 ? null : 0.01,
+      } as Partial<DashboardMetricRow>);
+    });
+    const eligible = rows.filter((row) => row.created_by === FAKE_USER_SUB && row.is_test === false);
+    const latestByCase = new Map<string, DashboardMetricRow>();
+    for (const row of eligible) latestByCase.set(row.case_id, row);
+    const expectedAuditedCases = [...latestByCase.values()].filter((row) => row.audit_status !== 'RUNNING').length;
+    const { client, queries } = fakeClient({ rows });
+
+    const summary = await getDashboardSummary(client, BASE, fakeAuthContext('user'));
+    const costs = await getAiCosts(client, BASE, 'day', fakeAuthContext('user'));
+
+    expect(summary.kpi.auditedCases).toBe(expectedAuditedCases);
+    expect(summary.truncated).toBe(false);
+    expect(costs.kpi.auditsCounted).toBe(eligible.length);
+    expect(costs.truncated).toBe(false);
+    expect(queries.every((query) => query.eqs.some(([column, value]) => column === 'created_by' && value === FAKE_USER_SUB))).toBe(true);
+    expect(queries.every((query) => query.eqs.some(([column, value]) => column === 'is_test' && value === false))).toBe(true);
   });
 
   it('no marca `truncated` cuando todo cabe en el tope', async () => {
@@ -213,11 +261,14 @@ describe('capa de datos del dashboard — consulta construida', () => {
   });
 
   it('ordena por created_at DESCENDENTE para que "Casos recientes" sean los recientes', async () => {
-    // Con `ascending: true` + `limit`, al superar `DASHBOARD_MAX_ROWS` la ventana
+    // Con `ascending: true` + `limit`, al superar `DASHBOARD_PAGE_SIZE` la ventana
     // traía las filas MÁS ANTIGUAS y la tabla "Casos recientes" mentía.
     const { client, queries } = fakeClient({ rows: [metricRow()] });
     await getDashboardSummary(client, BASE);
-    expect(queries[0].order).toEqual([['created_at', { ascending: false }]]);
+    expect(queries[0].order).toEqual([
+      ['created_at', { ascending: false }],
+      ['id', { ascending: false }],
+    ]);
   });
 });
 
@@ -435,7 +486,7 @@ describe('dashboard — scope de dueño y exclusión de pruebas, en SQL', () => 
     // veía un total subcontado. Aquí el fixture es un PostgREST en memoria que
     // aplica de verdad `eq`/`gte`/`lte` y `limit`, así que la única forma de ver
     // las 3 propias es que el scope viaje en la consulta.
-    const foreign: DashboardMetricRow[] = Array.from({ length: DASHBOARD_MAX_ROWS }, (_, i) =>
+    const foreign: DashboardMetricRow[] = Array.from({ length: DASHBOARD_PAGE_SIZE }, (_, i) =>
       metricRow({
         id: `foreign-${i}`,
         case_id: `foreign-case-${i}`,
@@ -450,7 +501,7 @@ describe('dashboard — scope de dueño y exclusión de pruebas, en SQL', () => 
     const raw: Array<Record<string, unknown>> = [...foreign, ...owned].map((row, index) => ({
       ...row,
       is_test: false,
-      created_by: index < DASHBOARD_MAX_ROWS ? 'otro-usuario' : FAKE_USER_SUB,
+      created_by: index < DASHBOARD_PAGE_SIZE ? 'otro-usuario' : FAKE_USER_SUB,
     }));
 
     const summary = await getDashboardSummary(scopedClient(raw), BASE, fakeAuthContext('user'));
@@ -467,6 +518,7 @@ function scopedClient(rows: Array<Record<string, unknown>>): SdkClient {
   function from(_table: string) {
     const predicates: Array<[string, string, unknown]> = [];
     let limitCount: number | null = null;
+    let range: [number, number] | null = null;
     const query = {
       select(): typeof query {
         return query;
@@ -490,6 +542,10 @@ function scopedClient(rows: Array<Record<string, unknown>>): SdkClient {
         limitCount = count;
         return query;
       },
+      range(from: number, to: number): typeof query {
+        range = [from, to];
+        return query;
+      },
       then(resolve: (value: unknown) => unknown): unknown {
         const matching = rows.filter((row) =>
           predicates.every(([column, op, value]) => {
@@ -499,7 +555,8 @@ function scopedClient(rows: Array<Record<string, unknown>>): SdkClient {
             return String(left) <= String(value);
           }),
         );
-        const data = limitCount === null ? matching : matching.slice(0, limitCount);
+        const limited = limitCount === null ? matching : matching.slice(0, limitCount);
+        const data = range === null ? limited : limited.slice(range[0], range[1] + 1);
         return Promise.resolve({ data, error: null, count: matching.length }).then(resolve);
       },
     };

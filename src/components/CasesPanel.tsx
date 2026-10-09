@@ -231,7 +231,7 @@ export function CasesPanel(): ReactNode {
               <dl className="mt-4 flex flex-col gap-3 text-sm">
                 <div className="flex justify-between gap-3"><dt className="text-muted">Evidencias</dt><dd>{selectedCase.evidenceCount}</dd></div>
                 <div className="flex justify-between gap-3"><dt className="text-muted">Clasificación</dt><dd><Badge tone={caseKindTone(selectedCase.isTest)}>{caseKindLabel(selectedCase.isTest)}</Badge></dd></div>
-                <div className="flex justify-between gap-3"><dt className="text-muted">Dictamen vigente</dt><dd className="max-w-[65%] text-right">{selectedCase.effectiveResolution ? resolutionLabel(selectedCase.effectiveResolution.result) : 'Sin dictamen'}</dd></div>
+                <div className="flex justify-between gap-3"><dt className="text-muted">Dictamen vigente</dt><dd className="max-w-[65%] text-right">{selectedCase.effectiveResolution ? resolutionLabel(selectedCase.effectiveResolution.result) : selectedCase.auditIsCurrent === false ? 'Dictamen IA desactualizado' : 'Sin dictamen'}</dd></div>
                 {selectedCase.effectiveResolution && <div className="flex justify-between gap-3"><dt className="text-muted">Origen</dt><dd title={RESOLUTION_SOURCE_DESCRIPTIONS[selectedCase.effectiveResolution.source]}>{RESOLUTION_SOURCE_LABELS[selectedCase.effectiveResolution.source]}</dd></div>}
               </dl>
               <a className="case-open-link mt-5" href={`#/casos/${encodeURIComponent(selectedCase.id)}`}>

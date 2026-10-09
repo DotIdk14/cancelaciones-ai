@@ -6,7 +6,7 @@
 // copiarla: una sola implementación de la secuencia, del mensaje de progreso y
 // del aislamiento de errores por archivo.
 //
-// DECISIÓN DE ARQUITECTURA (plan 2026-10-08, Fase 1 — Opción A)
+// DECISIÓN DE ARQUITECTURA
 //   El `caseId` viaja como argumento de `runUploads` porque en el alta se conoce
 //   justo después de `createCase`, dentro de la misma pulsación. No es una puerta
 //   a un caso ajeno: el alcance y la propiedad los resuelve el servidor (404).
@@ -176,7 +176,7 @@ export function useEvidenceUpload(): EvidenceUploadController {
 
       return { uploaded, failed, failedNames: failed.map((failure) => failure.file.name) };
     },
-    [patch],
+    [nextItemId, patch],
   );
 
   return { items, busy, announcement, runUploads, clearFinished };

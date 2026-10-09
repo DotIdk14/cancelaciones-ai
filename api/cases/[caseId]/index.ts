@@ -24,6 +24,8 @@ import {
 } from '../../../src/server/dto.js';
 import { refreshTranscriptions } from '../../../src/server/audit-service.js';
 import { healStaleComparison } from '../../../src/server/comparison-service.js';
+import { capabilitiesForRole } from '../../../src/server/capabilities.js';
+import { computeEvidenceFingerprint } from '../../../src/server/audit-fingerprint.js';
 
 // GET   /api/cases/:caseId → { case, evidences, audit, audits, review, comparison, effectiveResolution }
 // PATCH /api/cases/:caseId → 200 { case } | 400 | 404
@@ -61,7 +63,7 @@ export default handleRoute(async (req, res) => {
     // devuelve la fila (misma firma que el resto de escrituras de `cases`) y
     // responder con lo que el cliente ya tenía sería mentir sobre el guardado.
     // El alcance ya está resuelto sobre este mismo id, así que no se repite.
-    ok(res, { case: caseToDetail(await getCaseOr404(client, caseId)) });
+    ok(res, { case: caseToDetail(await getCaseOr404(client, caseId), true) });
     return;
   }
 
@@ -86,14 +88,21 @@ export default handleRoute(async (req, res) => {
   const review = await getCaseReview(client, caseId);
   const comparisons = await listComparisonsForCase(client, caseId);
   const completedAudit = await latestCompletedAudit(client, caseId);
+  const auditIsCurrent = completedAudit === null
+    ? null
+    : completedAudit.evidence_fingerprint === computeEvidenceFingerprint(evidences, caseRow.cycle_start_date ?? null);
 
   ok(res, {
-    case: caseToDetail(caseRow),
+    case: caseToDetail(
+      caseRow,
+      capabilitiesForRole(req.auth!.role).canWriteOwnedCases && caseRow.created_by === req.auth!.sub,
+    ),
     evidences: evidences.map(evidenceToDto),
     audit: audit ? auditToDto(audit) : null,
     audits: audits.map(auditHistoryItemToDto),
     review: review ? caseReviewToDto(review) : null,
     comparison: comparisons[0] ? comparisonToDto(comparisons[0]) : null,
-    effectiveResolution: deriveEffectiveResolution(review, completedAudit),
+    effectiveResolution: deriveEffectiveResolution(review, auditIsCurrent === false ? null : completedAudit),
+    auditIsCurrent,
   });
 });

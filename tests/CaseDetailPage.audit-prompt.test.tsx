@@ -26,6 +26,7 @@ function fakeResponse(status: number, body: unknown): Response {
 function buildCase(): CaseDetailResponse {
   return {
     case: {
+      canWrite: true,
       id: 'case-1',
       status: 'READY',
       studentIdentifier: 'A12345',

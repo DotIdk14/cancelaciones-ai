@@ -19,6 +19,8 @@ export interface CaseSummaryDto {
   createdAt: string;
   updatedAt: string;
   effectiveResolution: EffectiveResolution | null;
+  /** `false` identifica un dictamen histórico que no corresponde a los datos actuales. */
+  auditIsCurrent: boolean | null;
   /**
    * Clasificación explícita del caso: `true` = prueba, `false` = real. La UI la
    * usa para etiquetar; el backend la usa para excluir las pruebas de las
@@ -35,6 +37,8 @@ export interface CaseDetailDto {
   createdAt: string;
   updatedAt: string;
   isTest: boolean;
+  /** Capacidad efectiva para mutar este caso, resuelta por rol y propiedad. */
+  canWrite: boolean;
   /**
    * Fecha de inicio de clases aportada por una persona, con su procedencia.
    *
@@ -197,7 +201,11 @@ export function caseToSummary(row: CaseSummaryRow): CaseSummaryDto {
     evidenceCount: count,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    effectiveResolution: deriveEffectiveResolution(row.review ?? null, row.audit ?? null),
+    effectiveResolution: deriveEffectiveResolution(
+      row.review ?? null,
+      row.auditIsCurrent === false ? null : row.audit ?? null,
+    ),
+    auditIsCurrent: row.auditIsCurrent ?? (row.audit ? null : null),
     // `?? false` y no el valor directo: la columna es opcional en `CaseRow` para
     // que el listado siga funcionando si la migración aún no está aplicada, y el
     // default de la columna es `false` (real).
@@ -205,7 +213,7 @@ export function caseToSummary(row: CaseSummaryRow): CaseSummaryDto {
   };
 }
 
-export function caseToDetail(row: CaseRow): CaseDetailDto {
+export function caseToDetail(row: CaseRow, canWrite = false): CaseDetailDto {
   return {
     id: row.id,
     status: row.status,
@@ -213,6 +221,7 @@ export function caseToDetail(row: CaseRow): CaseDetailDto {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     isTest: row.is_test ?? false,
+    canWrite,
     // `?? null` y no el valor directo: las columnas son opcionales en `CaseRow`
     // para que el `select('*')` siga funcionando si la migración aún no está
     // aplicada, y una columna ausente no es lo mismo que un `NULL` explícito

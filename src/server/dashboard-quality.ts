@@ -4,7 +4,7 @@
 import { type AuditResultType, type CaseStatus } from '../skills/audit/types.js';
 import { type ConfidenceBand } from '../lib/labels.js';
 import type { DashboardFilters, MissingEvidenceBucket } from '../lib/dashboard.js';
-import { DASHBOARD_MAX_ROWS, type DashboardMetricRow } from './dashboard-contracts.js';
+import type { DashboardMetricRow } from './dashboard-contracts.js';
 import { confidenceBand } from './dashboard-summary.js';
 import { percentage, round3 } from './dashboard-utils.js';
 import type { ComparisonStatusRow } from './reviews.js';
@@ -504,7 +504,7 @@ export interface QualityReport {
 export function aggregateQuality(
   rows: DashboardMetricRow[],
   filters: DashboardFilters,
-  totalAvailable: number,
+  _totalAvailable: number,
   humanReview: HumanReviewInput,
 ): QualityReport {
   let confidenceSum = 0;
@@ -572,7 +572,7 @@ export function aggregateQuality(
     // CADA FUENTE AVISA DE SU PROPIO RECORTE. La parte humana tiene su propio
     // tope: si se recortó ÉSTA y no las auditorías, la tarjeta tiene que decirlo,
     // porque su tasa se calculó sobre menos comparaciones de las que existen.
-    truncated: totalAvailable > DASHBOARD_MAX_ROWS || humanReview.comparisonsAvailable > DASHBOARD_MAX_ROWS,
+    truncated: false,
     filters,
     humanReview: aggregateHumanReview(humanReview),
     confidence: {

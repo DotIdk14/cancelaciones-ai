@@ -38,6 +38,8 @@ export function sha256Hex(buffer: Buffer): string {
 export function sanitizeFilename(raw: string): string {
   const base = (raw.split(/[\\/]/).pop() ?? '').trim();
   const cleaned = base
+    // Eliminar caracteres de control del nombre antes de persistirlo o mostrarlo.
+    // eslint-disable-next-line no-control-regex
     .replace(/[\u0000-\u001f\u007f<>:"|?*]/g, '_')
     .replace(/\s+/g, '_')
     .slice(0, 120);

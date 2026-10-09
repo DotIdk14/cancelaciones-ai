@@ -214,7 +214,6 @@ async function loadMembershipRole(userId: string): Promise<AppRole | null> {
  */
 export async function requireAuth(
   req: { headers: { cookie?: string | string[] } },
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _res?: unknown,
 ): Promise<AuthContext> {
   const user = await getCurrentUserFromCookies(req);

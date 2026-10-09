@@ -47,6 +47,8 @@ export interface CaseSummary {
    * para el listado: no hay resolución que mostrar.
    */
   effectiveResolution?: EffectiveResolution | null;
+  /** `false` indica dictamen de IA histórico y desactualizado. */
+  auditIsCurrent?: boolean | null;
   /**
    * Clasificación del caso: `true` = prueba, `false` = real.
    *
@@ -76,6 +78,8 @@ export interface CaseDetail {
   cycleStartDateAt?: string | null;
   /** Clasificación del caso: `true` = prueba, `false` = real. */
   isTest?: boolean;
+  /** Capacidad efectiva para mutar este expediente, resuelta por el servidor. */
+  canWrite?: boolean;
 }
 
 export interface Evidence {
@@ -285,6 +289,8 @@ export interface CaseDetailResponse {
   review: CaseReviewDto | null;
   comparison: ComparisonDto | null;
   effectiveResolution: EffectiveResolution | null;
+  /** Si el último dictamen completado usa evidencias y datos actuales. */
+  auditIsCurrent?: boolean | null;
   /** Estado derivado del flujo humano; opcional por compatibilidad. */
   workflowState?: WorkflowState;
 }
@@ -495,6 +501,7 @@ export async function getCase(caseId: string): Promise<CaseDetailResponse> {
     review: data.review ?? null,
     comparison: data.comparison ?? null,
     effectiveResolution: data.effectiveResolution ?? null,
+    auditIsCurrent: data.auditIsCurrent ?? null,
     workflowState: data.workflowState,
   };
 }
@@ -760,6 +767,13 @@ export function isAppRole(value: unknown): value is AppRole {
 export interface SessionSnapshot {
   /** Rol resuelto por el servidor; `null` si no resolvió o no se reconoce. */
   role: AppRole | null;
+  /** Capacidades efectivas devueltas por el servidor; false ante respuesta inválida. */
+  capabilities: {
+    canReadAllCases: boolean;
+    canReviewOwnCases: boolean;
+    canFinalizeAnyCase: boolean;
+    canWriteOwnedCases: boolean;
+  };
 }
 
 export async function signOut(): Promise<void> {
@@ -785,10 +799,16 @@ export async function refreshSession(): Promise<SessionSnapshot | null> {
   });
   if (res.status !== 200) return null;
   try {
-    const data = (await res.json()) as { ok?: unknown; role?: unknown };
+    const data = (await res.json()) as { ok?: unknown; role?: unknown; capabilities?: Record<string, unknown> };
     const role = isAppRole(data.role) ? data.role : null;
-    return { role };
+    const caps = data.capabilities;
+    return { role, capabilities: {
+      canReadAllCases: caps?.canReadAllCases === true,
+      canReviewOwnCases: caps?.canReviewOwnCases === true,
+      canFinalizeAnyCase: caps?.canFinalizeAnyCase === true,
+      canWriteOwnedCases: caps?.canWriteOwnedCases === true,
+    } };
   } catch {
-    return { role: null };
+    return { role: null, capabilities: { canReadAllCases: false, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false } };
   }
 }

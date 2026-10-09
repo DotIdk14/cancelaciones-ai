@@ -2,7 +2,7 @@
 // Dashboard — métricas de costos
 // =============================================================================
 import type { DashboardFilters } from '../lib/dashboard.js';
-import { DASHBOARD_MAX_ROWS, type DashboardMetricRow } from './dashboard-contracts.js';
+import type { DashboardMetricRow } from './dashboard-contracts.js';
 import { utcDayBucket } from './dashboard-utils.js';
 
 
@@ -230,7 +230,7 @@ export function aggregateAiCosts(
   rows: DashboardMetricRow[],
   filters: DashboardFilters,
   granularity: CostGranularity,
-  totalAvailable: number,
+  _totalAvailable: number,
 ): AiCostsReport {
   let totalCostUsd = 0;
   let totalTokens = 0;
@@ -410,7 +410,7 @@ export function aggregateAiCosts(
 
   return {
     generatedAt: new Date().toISOString(),
-    truncated: totalAvailable > DASHBOARD_MAX_ROWS,
+    truncated: false,
     filters,
     granularity,
     kpi,

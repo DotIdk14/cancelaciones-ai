@@ -7,11 +7,11 @@ import { capabilitiesForRole } from './capabilities.js';
 import { endOfDayUtc, startOfDayUtc } from './dashboard-filters.js';
 import { mapProviderError } from './http.js';
 import type { InsForgeClient } from './insforge.js';
+import { DASHBOARD_PAGE_SIZE } from './dashboard-contracts.js';
 import {
   aggregateAiCosts,
   aggregateQuality,
   aggregateSummary,
-  DASHBOARD_MAX_ROWS,
 } from './dashboard.js';
 import type {
   AiCostsReport,
@@ -21,6 +21,23 @@ import type {
   HumanReviewInput,
   QualityReport,
 } from './dashboard.js';
+
+/** InsForge/PostgREST limita el tamaño de una respuesta aunque la consulta no lo haga. */
+const PAGE_SIZE = DASHBOARD_PAGE_SIZE;
+
+/** Lee todas las páginas de una consulta filtrada, antes de agregar KPI. */
+async function readAllPages<T>(query: {
+  range(from: number, to: number): PromiseLike<{ data: T[] | null; error: unknown }>;
+}): Promise<T[]> {
+  const rows: T[] = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await query.range(from, from + PAGE_SIZE - 1);
+    if (error) throw mapProviderError(error);
+    const page = data ?? [];
+    rows.push(...page);
+    if (page.length < PAGE_SIZE) return rows;
+  }
+}
 
 /** Proyección mínima para costes; no solicita identificadores personales. */
 const AI_COSTS_COLUMNS =
@@ -79,8 +96,8 @@ export function applyTestScope<T extends { eq(column: string, value: unknown): T
  * capacidad de lectura global (Asesor).
  *
  * Se aplica EN SQL y ANTES del `count`/`limit`. Antes esto se hacía en memoria
- * DESPUÉS del recorte (el TODO de `getOwnedCaseIds`): con más filas que
- * `DASHBOARD_MAX_ROWS` el Asesor veía un total subcontado y, peor, el `truncated`
+ * DESPUÉS del recorte: con más filas que
+ * el Asesor veía un total subcontado y, peor, el `truncated`
  * y las opciones de dimensión describían filas ajenas. La vista proyecta
  * `created_by` justo para que el scope viaje en la consulta.
  */
@@ -114,8 +131,8 @@ export async function getDashboardFilterOptions(
     .select(columns);
   query = applyOwnerScope(query, auth);
   query = applyTestScope(query);
-  const { data, error } = await query.limit(DASHBOARD_MAX_ROWS);
-  if (error) throw mapProviderError(error);
+  query = query.order('id', { ascending: true });
+  const data = await readAllPages<Record<DashboardDimension, unknown>>(query as never);
 
   const options: DashboardFilterOptions = {
     country: [],
@@ -130,7 +147,7 @@ export async function getDashboardFilterOptions(
     DashboardDimension,
     Set<string>
   >;
-  for (const row of (data ?? []) as unknown as Array<Record<DashboardDimension, unknown>>) {
+  for (const row of data) {
     for (const dimension of DASHBOARD_DIMENSIONS) {
       const value = row[dimension];
       if (typeof value === 'string' && value.trim() !== '') sets[dimension].add(value.trim());
@@ -174,21 +191,9 @@ export async function getDashboardSummary(
   query = applyOwnerScope(query, auth);
   query = applyTestScope(query);
 
-  // Orden DESCENDENTE. Con `ascending: true` + `limit(5000)` la ventana traía
-  // las 5000 filas MÁS ANTIGUAS del rango, y como `recentCases` se construye
-  // desde ellas, la tabla titulada "Casos recientes" mostraba los más viejos
-  // cuando el periodo superaba el tope. En una herramienta de auditoría eso es
-  // una lectura de datos incorrecta, no un detalle de presentación.
-  const { data, error, count } = await query
-    .order('created_at', { ascending: false })
-    .limit(DASHBOARD_MAX_ROWS);
-
-  // Ningún stack trace ni detalle del proveedor al cliente: mapProviderError
-  // traduce el error y sanea el mensaje (nada de tokens o URLs internas).
-  if (error) throw mapProviderError(error);
-
-  const rows = (data ?? []) as unknown as DashboardMetricRow[];
-  return aggregateSummary(rows, filters, count ?? rows.length);
+  query = query.order('created_at', { ascending: false }).order('id', { ascending: false });
+  const rows = await readAllPages<DashboardMetricRow>(query as never);
+  return aggregateSummary(rows, filters, rows.length);
 }
 
 
@@ -220,16 +225,9 @@ export async function getAiCosts(
   query = applyOwnerScope(query, auth);
   query = applyTestScope(query);
 
-  const { data, error, count } = await query
-    .order('created_at', { ascending: true })
-    .limit(DASHBOARD_MAX_ROWS);
-
-  // Ningún stack trace ni detalle del proveedor al cliente: mapProviderError
-  // traduce el error y sanea el mensaje (nada de tokens o URLs internas).
-  if (error) throw mapProviderError(error);
-
-  const rows = (data ?? []) as unknown as DashboardMetricRow[];
-  return aggregateAiCosts(rows, filters, granularity, count ?? rows.length);
+  query = query.order('created_at', { ascending: true }).order('id', { ascending: true });
+  const rows = await readAllPages<DashboardMetricRow>(query as never);
+  return aggregateAiCosts(rows, filters, granularity, rows.length);
 }
 
 
@@ -279,10 +277,9 @@ export async function getHumanReviewInput(
   compQuery = applyOwnerScope(compQuery, auth);
   compQuery = applyTestScope(compQuery);
 
-  const { data: compsData, error: compsError, count: compsCount } = await compQuery.order('created_at', { ascending: true }).limit(DASHBOARD_MAX_ROWS);
-  if (compsError) throw mapProviderError(compsError);
-  const comparisons = (compsData ?? []) as ComparisonMetricRow[];
-  const comparisonsAvailable = compsCount ?? comparisons.length;
+  compQuery = compQuery.order('created_at', { ascending: true }).order('id', { ascending: true });
+  const comparisons = await readAllPages<ComparisonMetricRow>(compQuery as never);
+  const comparisonsAvailable = comparisons.length;
 
   // Conteo de revisiones humanas dentro del periodo.
   //
@@ -297,13 +294,13 @@ export async function getHumanReviewInput(
     .select('id,case_id,cases!inner(is_test,created_by)')
     .eq('cases.is_test', false)
     .gte('created_at', fromIso)
-    .lte('created_at', toIso);
+    .lte('created_at', toIso)
+    .order('created_at', { ascending: true })
+    .order('id', { ascending: true });
   if (auth && !capabilitiesForRole(auth.role).canReadAllCases) {
     reviewsQuery = reviewsQuery.eq('cases.created_by', auth.sub);
   }
-  const { data: reviewsData, error: reviewsError } = await reviewsQuery.limit(DASHBOARD_MAX_ROWS);
-  if (reviewsError) throw mapProviderError(reviewsError);
-  const reviewsInRange = (reviewsData ?? []) as Array<{ id: string; case_id: string }>;
+  const reviewsInRange = await readAllPages<{ id: string; case_id: string }>(reviewsQuery as never);
   const reviewIdsInRange = new Set(reviewsInRange.map((r) => r.id));
 
   // Las revisiones contadas son las del periodo MÁS las revisiones referenciadas
@@ -341,16 +338,11 @@ export async function getAiQuality(
   query = applyOwnerScope(query, auth);
   query = applyTestScope(query);
 
-  const { data, error, count } = await query.order('created_at', { ascending: true }).limit(DASHBOARD_MAX_ROWS);
-
-  // Ningún stack trace ni detalle del proveedor al cliente: mapProviderError
-  // traduce el error y sanea el mensaje (nada de tokens o URLs internas).
-  if (error) throw mapProviderError(error);
-
-  const rows = (data ?? []) as unknown as DashboardMetricRow[];
+  query = query.order('created_at', { ascending: true }).order('id', { ascending: true });
+  const rows = await readAllPages<DashboardMetricRow>(query as never);
   // Obtener la entrada humana (comparisons + reviewedCases) recortada por periodo y filtros.
   const humanInput = await getHumanReviewInput(client, filters, auth);
   // `aggregateQuality` acepta un HumanReviewInput y lo transforma en el
   // bloque humano que viaja al navegador.
-  return aggregateQuality(rows, filters, count ?? rows.length, humanInput);
+  return aggregateQuality(rows, filters, rows.length, humanInput);
 }

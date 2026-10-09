@@ -13,7 +13,6 @@ import { setTestEnv } from './helpers/env';
 import { validAuditResult } from './fixtures/audit-result';
 import { fakeAuthContext, FAKE_USER_SUB, FAKE_COORDINATOR_SUB } from './helpers/auth';
 import {
-  fakeClient,
   resetStore,
   seedCase,
   seedAudit,
