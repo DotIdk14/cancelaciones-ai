@@ -61,7 +61,16 @@ export interface CaseSummary {
   canManageCases?: boolean;
   auditId?: string | null;
   auditHasHumanReview?: boolean;
-  creatorRole?: 'user' | 'coordinator' | null;
+  creatorRole?: 'user' | 'coordinator' | 'manager' | null;
+  /** UUID estable del usuario que creó el expediente; no hay nombre autoritativo disponible. */
+  creatorId?: string | null;
+}
+
+export type CaseCreatorRole = 'user' | 'coordinator' | 'manager';
+
+export interface CaseCreatorOption {
+  creatorId: string;
+  role: CaseCreatorRole;
 }
 
 export interface CaseDetail {
@@ -93,6 +102,7 @@ export interface CaseSummaryPage {
   cases: CaseSummary[];
   nextCursor: string | null;
   statusCounts?: Record<CaseStatus | 'ALL', number>;
+  creatorOptions?: CaseCreatorOption[];
 }
 
 export interface Evidence {
@@ -491,13 +501,15 @@ export async function listCases(): Promise<CaseSummary[]> {
 export async function listCasePage(options: {
   cursor?: string | null;
   status?: CaseStatus | 'ALL';
-  creatorRole?: 'user' | 'coordinator' | 'ALL';
+  creatorRole?: CaseCreatorRole | 'ALL';
+  creatorId?: string | 'ALL';
   limit?: number;
 } = {}): Promise<CaseSummaryPage> {
   const params = new URLSearchParams({ limit: String(options.limit ?? 50) });
   if (options.cursor) params.set('cursor', options.cursor);
   if (options.status && options.status !== 'ALL') params.set('status', options.status);
   if (options.creatorRole && options.creatorRole !== 'ALL') params.set('creatorRole', options.creatorRole);
+  if (options.creatorId && options.creatorId !== 'ALL') params.set('creatorId', options.creatorId);
   return request<CaseSummaryPage>(`/api/cases?${params.toString()}`, {}, [200]);
 }
 

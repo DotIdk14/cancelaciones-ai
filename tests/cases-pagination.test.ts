@@ -128,6 +128,32 @@ describe('listCaseSummaries — paginación segura y sin límite de 100', () => 
     expect(filters).toContainEqual(['created_by', 'in', ['coordinator-id']]);
   });
 
+  it('filtra por el identificador individual del creador antes de paginar', async () => {
+    const creatorId = 'advisor-id';
+    const rows = [
+      { ...caseRows(1)[0], id: 'selected-creator-case', created_by: creatorId },
+      { ...caseRows(1)[0], id: 'other-creator-case', created_by: 'another-advisor-id' },
+    ];
+    const { client, filters } = database(rows, {
+      app_memberships: [
+        { user_id: creatorId, role: 'user' },
+        { user_id: 'another-advisor-id', role: 'user' },
+      ],
+    });
+
+    const page = await listCaseSummaryPage(client, fakeAuthContext('manager'), {
+      offset: 0,
+      limit: 1,
+      snapshot: '2026-01-01T00:00:10.000Z',
+      creatorRole: 'user',
+      creatorId,
+    });
+
+    expect(page.map((row) => row.id)).toEqual(['selected-creator-case']);
+    expect(filters).toContainEqual(['created_by', 'eq', creatorId]);
+    expect(filters).toContainEqual(['created_by', 'in', [creatorId, 'another-advisor-id']]);
+  });
+
   it('no pierde la auditoría más reciente cuando un caso tiene más de 500 dictámenes', async () => {
     const cases = caseRows(2);
     const audits = Array.from({ length: 1_205 }, (_, index) => ({

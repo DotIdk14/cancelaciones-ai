@@ -7,7 +7,7 @@ import type { KeyboardEvent, ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowRight, CircleCheck, FileText, Files, FlaskConical, Search, Trash2, TriangleAlert, Undo2, X } from 'lucide-react';
 import { deleteCaseAudit, deleteCaseDraft, listCasePage, setCaseTestFlag, toErrorState } from '../lib/api';
-import type { CaseSummary } from '../lib/api';
+import type { CaseCreatorOption, CaseCreatorRole, CaseSummary } from '../lib/api';
 import { formatDateTime, shortId } from '../lib/format';
 import { isLocalDashboardPreview } from '../lib/local-dashboard-preview';
 import { getLocalPreviewCases } from '../lib/local-ui-preview';
@@ -65,6 +65,11 @@ function selectOnKeyboard(event: KeyboardEvent<HTMLTableRowElement>, select: () 
   }
 }
 
+/** Sufijo corto para distinguir UUID que comparten el prefijo estándar. */
+function creatorKey(id: string): string {
+  return id.length <= 16 ? id : `${id.slice(0, 6)}…${id.slice(-6)}`;
+}
+
 export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: boolean }): ReactNode {
   const preview = isLocalDashboardPreview();
   const [cases, setCases] = useState<CaseSummary[] | null>(() => preview ? getLocalPreviewCases() : null);
@@ -74,7 +79,16 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
   const [statusCounts, setStatusCounts] = useState<Record<CaseStatus | 'ALL', number> | null>(null);
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<CaseStatus | 'ALL'>('ALL');
-  const [creatorRole, setCreatorRole] = useState<'user' | 'coordinator' | 'ALL'>('ALL');
+  const [creatorRole, setCreatorRole] = useState<CaseCreatorRole | 'ALL'>('ALL');
+  const [creatorId, setCreatorId] = useState<string | 'ALL'>('ALL');
+  const [creatorOptions, setCreatorOptions] = useState<CaseCreatorOption[]>(() => {
+    if (!preview) return [];
+    const creators = new Map<string, CaseCreatorOption>();
+    for (const item of getLocalPreviewCases()) {
+      if (item.creatorId && item.creatorRole) creators.set(item.creatorId, { creatorId: item.creatorId, role: item.creatorRole });
+    }
+    return [...creators.values()];
+  });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedCaseIds, setSelectedCaseIds] = useState<Set<string>>(() => new Set());
   const [adminPending, setAdminPending] = useState(false);
@@ -92,9 +106,10 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
     const currentRequest = ++requestId.current;
     setLoading(true);
     try {
-      const page = await listCasePage({ status: statusFilter, creatorRole, limit: 50 });
+      const page = await listCasePage({ status: statusFilter, creatorRole, creatorId, limit: 50 });
       if (currentRequest !== requestId.current) return;
       setCases(page.cases);
+      if (page.creatorOptions) setCreatorOptions(page.creatorOptions);
       setNextCursor(page.nextCursor);
       if (page.statusCounts) setStatusCounts(page.statusCounts);
       setListError(null);
@@ -105,23 +120,24 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
     } finally {
       if (currentRequest === requestId.current) setLoading(false);
     }
-  }, [creatorRole, preview, statusFilter]);
+  }, [creatorId, creatorRole, preview, statusFilter]);
 
   const loadAllForSearch = useCallback(async (): Promise<void> => {
     if (preview) return;
     const currentRequest = ++requestId.current;
     setLoading(true);
     try {
-      const first = await listCasePage({ status: statusFilter, creatorRole, limit: 50 });
+      const first = await listCasePage({ status: statusFilter, creatorRole, creatorId, limit: 50 });
       const all = [...first.cases];
       let cursor = first.nextCursor;
       while (cursor) {
-        const page = await listCasePage({ status: statusFilter, creatorRole, cursor, limit: 50 });
+        const page = await listCasePage({ status: statusFilter, creatorRole, creatorId, cursor, limit: 50 });
         all.push(...page.cases);
         cursor = page.nextCursor;
       }
       if (currentRequest !== requestId.current) return;
       setCases(all);
+      if (first.creatorOptions) setCreatorOptions(first.creatorOptions);
       setNextCursor(null);
       if (first.statusCounts) setStatusCounts(first.statusCounts);
       setListError(null);
@@ -132,14 +148,14 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
     } finally {
       if (currentRequest === requestId.current) setLoading(false);
     }
-  }, [creatorRole, preview, statusFilter]);
+  }, [creatorId, creatorRole, preview, statusFilter]);
 
   const loadMore = useCallback(async (): Promise<void> => {
     if (!nextCursor || preview) return;
     const currentRequest = ++requestId.current;
     setLoading(true);
     try {
-      const page = await listCasePage({ status: statusFilter, creatorRole, cursor: nextCursor, limit: 50 });
+      const page = await listCasePage({ status: statusFilter, creatorRole, creatorId, cursor: nextCursor, limit: 50 });
       if (currentRequest !== requestId.current) return;
       setCases((current) => [...(current ?? []), ...page.cases]);
       setNextCursor(page.nextCursor);
@@ -151,7 +167,7 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
     } finally {
       if (currentRequest === requestId.current) setLoading(false);
     }
-  }, [creatorRole, nextCursor, preview, statusFilter]);
+  }, [creatorId, creatorRole, nextCursor, preview, statusFilter]);
 
   const loadAll = useCallback(async (): Promise<void> => {
     if (preview || !nextCursor) return;
@@ -161,7 +177,7 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
       const all = [...(cases ?? [])];
       let cursor: string | null = nextCursor;
       while (cursor) {
-        const page = await listCasePage({ status: statusFilter, creatorRole, cursor, limit: 50 });
+        const page = await listCasePage({ status: statusFilter, creatorRole, creatorId, cursor, limit: 50 });
         all.push(...page.cases);
         cursor = page.nextCursor;
       }
@@ -176,7 +192,7 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
     } finally {
       if (currentRequest === requestId.current) setLoading(false);
     }
-  }, [cases, creatorRole, nextCursor, preview, statusFilter]);
+  }, [cases, creatorId, creatorRole, nextCursor, preview, statusFilter]);
 
   useEffect(() => { if (!preview) void load(); }, [load, preview]);
 
@@ -187,8 +203,9 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
   }, [query, loadAllForSearch, preview]);
 
   const counts = useMemo(() => {
-    const countableCases = preview && creatorRole !== 'ALL'
-      ? (cases ?? []).filter((item) => item.creatorRole === creatorRole)
+    const countableCases = preview
+      ? (cases ?? []).filter((item) => (creatorRole === 'ALL' || item.creatorRole === creatorRole)
+        && (creatorId === 'ALL' || item.creatorId === creatorId))
       : cases ?? [];
     const result: Record<CaseStatus | 'ALL', number> = {
       ALL: countableCases.length,
@@ -200,21 +217,29 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
     };
     for (const item of countableCases) result[item.status] += 1;
     return statusCounts ?? result;
-  }, [cases, creatorRole, preview, statusCounts]);
+  }, [cases, creatorId, creatorRole, preview, statusCounts]);
 
   const filteredCases = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase('es');
     return (cases ?? []).filter((item) => {
       if (statusFilter !== 'ALL' && item.status !== statusFilter) return false;
       if (preview && creatorRole !== 'ALL' && item.creatorRole !== creatorRole) return false;
+      if (preview && creatorId !== 'ALL' && item.creatorId !== creatorId) return false;
       if (!normalized) return true;
       const result = item.effectiveResolution === null || item.effectiveResolution === undefined
         ? ''
         : resolutionLabel(item.effectiveResolution.result);
-      return [item.id, shortId(item.id), item.studentIdentifier ?? '', result]
+      return [item.id, shortId(item.id), item.creatorId ?? '', item.creatorId ? creatorKey(item.creatorId) : '', item.studentIdentifier ?? '', result]
         .some((value) => value.toLocaleLowerCase('es').includes(normalized));
     });
-  }, [cases, creatorRole, preview, query, statusFilter]);
+  }, [cases, creatorId, creatorRole, preview, query, statusFilter]);
+
+  const visibleCreatorOptions = creatorOptions
+    .filter((item) => creatorRole === 'ALL' || item.role === creatorRole)
+    .sort((a, b) => a.creatorId.localeCompare(b.creatorId));
+  const creatorRoleLabel = (role: CaseCreatorRole): string => role === 'coordinator'
+    ? 'Coordinador'
+    : role === 'manager' ? 'Gerente' : 'Asesor';
 
   const selectedCase = filteredCases.find((item) => item.id === selectedId) ?? filteredCases[0] ?? null;
   const selectedCases = filteredCases.filter((item) => item.canManageCases === true && selectedCaseIds.has(item.id));
@@ -316,26 +341,50 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
               label={item.label}
               count={counts[item.value]}
               active={statusFilter === item.value}
-              onClick={() => { setSelectedCaseIds(new Set()); setCases(null); setNextCursor(null); setStatusFilter(item.value); }}
+              onClick={() => { setSelectedCaseIds(new Set()); if (!preview) setCases(null); setNextCursor(null); setStatusFilter(item.value); }}
             />
           ))}
         </div>
           {canReadAllCases && (
             <label className="case-creator-filter">
-              <span>Creado por</span>
+              <span>Perfil</span>
               <select
-                aria-label="Filtrar por coordinadores y asesores"
+                aria-label="Filtrar por perfil del creador"
                 value={creatorRole}
                 onChange={(event) => {
                   setSelectedCaseIds(new Set());
-                  setCases(null);
+                  if (!preview) setCases(null);
                   setNextCursor(null);
-                  setCreatorRole(event.target.value as 'user' | 'coordinator' | 'ALL');
+                  setCreatorId('ALL');
+                  setCreatorRole(event.target.value as CaseCreatorRole | 'ALL');
                 }}
               >
                 <option value="ALL">Todos los perfiles</option>
                 <option value="coordinator">Coordinadores</option>
                 <option value="user">Asesores (agentes)</option>
+                <option value="manager">Gerentes</option>
+              </select>
+            </label>
+          )}
+          {canReadAllCases && (
+            <label className="case-creator-filter">
+              <span>Persona</span>
+              <select
+                aria-label="Filtrar por creador de caso"
+                value={creatorId}
+                onChange={(event) => {
+                  setSelectedCaseIds(new Set());
+                  if (!preview) setCases(null);
+                  setNextCursor(null);
+                  setCreatorId(event.target.value);
+                }}
+              >
+                <option value="ALL">Todos los creadores</option>
+                {visibleCreatorOptions.map((item) => (
+                  <option key={item.creatorId} value={item.creatorId} title={item.creatorId}>
+                    {creatorRoleLabel(item.role)} · {creatorKey(item.creatorId)}
+                  </option>
+                ))}
               </select>
             </label>
           )}
@@ -421,7 +470,7 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
                     </th>
                   )}
                   <th scope="col">Caso</th>
-                  {canReadAllCases && <th scope="col">Perfil</th>}
+                  {canReadAllCases && <th scope="col">Perfil · creador</th>}
                   <th scope="col">Evidencias</th>
                   <th scope="col">Dictamen vigente</th>
                   <th scope="col">Estado</th>
@@ -467,7 +516,18 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
                         <span className="text-sm font-semibold">{item.studentIdentifier || 'Sin matrícula'}{item.studentName ? ` · ${item.studentName}` : ''}</span>
                         <span className="case-cell-secondary">{item.studentName ? `Matrícula ${item.studentIdentifier || 'sin capturar'}` : 'Nombre pendiente'} · Creado {formatDateTime(item.createdAt)}</span>
                       </td>
-                      {canReadAllCases && <td>{item.creatorRole === 'coordinator' ? 'Coordinador' : item.creatorRole === 'user' ? 'Asesor' : <span className="text-muted">Sin perfil</span>}</td>}
+                      {canReadAllCases && (
+                        <td title={item.creatorId ?? undefined}>
+                          {item.creatorRole && item.creatorId ? (
+                            <>
+                              <span>{creatorRoleLabel(item.creatorRole)}</span>
+                              <span className="case-cell-secondary" aria-label={`Identificador de creador ${item.creatorId}`}>
+                                {creatorKey(item.creatorId)}
+                              </span>
+                            </>
+                          ) : <span className="text-muted">Creador sin identificar</span>}
+                        </td>
+                      )}
                       <td><span className="inline-flex items-center gap-1.5"><FileText size={15} aria-hidden="true" />{item.evidenceCount}</span></td>
                       <td>{resolution ? <><Badge tone={resolutionTone(resolution.result)}>{resolutionLabel(resolution.result)}</Badge><span className="case-cell-secondary">{RESOLUTION_SOURCE_LABELS[resolution.source]}</span></> : <span className="text-muted">Sin dictamen</span>}</td>
                       <td>

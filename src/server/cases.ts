@@ -52,7 +52,12 @@ export interface CaseRow {
   is_test?: boolean;
 }
 
-export type CaseCreatorRole = 'user' | 'coordinator';
+export type CaseCreatorRole = 'user' | 'coordinator' | 'manager';
+
+export interface CaseCreatorOption {
+  creatorId: string;
+  role: CaseCreatorRole;
+}
 
 export interface CaseSummaryRow extends CaseRow {
   evidence?: Array<{ count: number }> | null;
@@ -78,6 +83,25 @@ async function caseCreatorIdsForRole(client: InsForgeClient, role: CaseCreatorRo
     const page = data as Array<{ user_id: string }>;
     ids.push(...page.map((row) => row.user_id));
     if (page.length < 500) return ids;
+  }
+}
+
+export async function listCaseCreatorOptions(client: InsForgeClient): Promise<CaseCreatorOption[]> {
+  const creators: CaseCreatorOption[] = [];
+  for (let offset = 0; ; offset += 500) {
+    const { data, error } = await client.database
+      .from('app_memberships')
+      .select('user_id,role')
+      .order('user_id', { ascending: true })
+      .range(offset, offset + 499);
+    if (error || !data) dbError(error);
+    const page = data as Array<{ user_id: string; role: string }>;
+    creators.push(...page.flatMap((item) =>
+      item.role === 'user' || item.role === 'coordinator' || item.role === 'manager'
+        ? [{ creatorId: item.user_id, role: item.role as CaseCreatorRole }]
+        : [],
+    ));
+    if (page.length < 500) return creators;
   }
 }
 
@@ -260,7 +284,7 @@ async function enrichCaseSummaries(
       .in('user_id', ids);
     if (error || !data) dbError(error);
     for (const membership of data as Array<{ user_id: string; role: string }>) {
-      if (membership.role === 'user' || membership.role === 'coordinator') {
+      if (membership.role === 'user' || membership.role === 'coordinator' || membership.role === 'manager') {
         creatorRoleById.set(membership.user_id, membership.role);
       }
     }
@@ -286,7 +310,7 @@ async function enrichCaseSummaries(
 export async function listCaseSummaryPage(
   client: InsForgeClient,
   auth: AuthContext,
-  options: { offset: number; limit: number; snapshot: string; status?: CaseStatus; creatorRole?: CaseCreatorRole },
+  options: { offset: number; limit: number; snapshot: string; status?: CaseStatus; creatorRole?: CaseCreatorRole; creatorId?: string },
 ): Promise<CaseSummaryRow[]> {
   const creatorIds = options.creatorRole ? await caseCreatorIdsForRole(client, options.creatorRole) : null;
   if (creatorIds?.length === 0) return [];
@@ -298,6 +322,7 @@ export async function listCaseSummaryPage(
     .order('id', { ascending: false });
   if (!capabilitiesForRole(auth.role).canReadAllCases) query = query.eq('created_by', auth.sub);
   if (options.status) query = query.eq('status', options.status);
+  if (options.creatorId) query = query.eq('created_by', options.creatorId);
   if (creatorIds) query = query.in('created_by', creatorIds);
   const { data, error } = await query.range(options.offset, options.offset + options.limit - 1);
   if (error || !data) dbError(error);
@@ -308,6 +333,7 @@ export async function countCaseSummaryStatuses(
   client: InsForgeClient,
   auth: AuthContext,
   creatorRole?: CaseCreatorRole,
+  creatorId?: string,
 ): Promise<Record<CaseStatus | 'ALL', number>> {
   const statuses: CaseStatus[] = ['DRAFT', 'READY', 'AUDITING', 'COMPLETED', 'ERROR'];
   const creatorIds = creatorRole ? await caseCreatorIdsForRole(client, creatorRole) : null;
@@ -317,6 +343,7 @@ export async function countCaseSummaryStatuses(
   const count = async (status?: CaseStatus): Promise<number> => {
     let query = client.database.from('cases').select('id', { count: 'exact', head: true });
     if (!capabilitiesForRole(auth.role).canReadAllCases) query = query.eq('created_by', auth.sub);
+    if (creatorId) query = query.eq('created_by', creatorId);
     if (creatorIds) query = query.in('created_by', creatorIds);
     if (status) query = query.eq('status', status);
     const result = await query;

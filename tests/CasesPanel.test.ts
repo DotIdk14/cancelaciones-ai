@@ -40,9 +40,11 @@ async function renderList(cases: CaseSummary[], canReadAllCases = false): Promis
     if (init?.method === 'DELETE') return fakeResponse(200, { deleted: true });
     const status = url.searchParams.get('status');
     const creatorRole = url.searchParams.get('creatorRole');
+    const creatorId = url.searchParams.get('creatorId');
     const filtered = cases.filter((item) => (!status || item.status === status)
-      && (!creatorRole || item.creatorRole === creatorRole));
-    const scoped = creatorRole ? filtered : cases;
+      && (!creatorRole || item.creatorRole === creatorRole)
+      && (!creatorId || item.creatorId === creatorId));
+    const scoped = creatorRole || creatorId ? filtered : cases;
     const statusCounts = {
       ALL: scoped.length,
       READY: scoped.filter((item) => item.status === 'READY').length,
@@ -51,7 +53,10 @@ async function renderList(cases: CaseSummary[], canReadAllCases = false): Promis
       DRAFT: scoped.filter((item) => item.status === 'DRAFT').length,
       ERROR: scoped.filter((item) => item.status === 'ERROR').length,
     };
-    return fakeResponse(200, { cases: filtered, nextCursor: null, statusCounts });
+    const creatorOptions = [...new Map(cases.flatMap((item) => item.creatorId && item.creatorRole
+      ? [[item.creatorId, { creatorId: item.creatorId, role: item.creatorRole }]]
+      : [])).values()];
+    return fakeResponse(200, { cases: filtered, nextCursor: null, statusCounts, creatorOptions });
   }));
   const view = render(createElement(CasesPanel, { canReadAllCases }));
   // Espera a que la lista llegue del servidor.
@@ -135,12 +140,31 @@ describe('CasesPanel — resolución efectiva', () => {
       makeCase({ id: 'case-advisor', creatorRole: 'user', studentIdentifier: 'ASESOR-001' }),
     ], true);
 
-    fireEvent.change(screen.getByRole('combobox', { name: /filtrar por coordinadores y asesores/i }), {
+    fireEvent.change(screen.getByRole('combobox', { name: /filtrar por perfil del creador/i }), {
       target: { value: 'coordinator' },
     });
 
     await vi.waitFor(() => expect(screen.getByRole('row', { name: /COORD-001/ })).toBeTruthy());
     expect(screen.queryByRole('row', { name: /ASESOR-001/ })).toBeNull();
+  });
+
+  it('filtra por una persona creadora individual y muestra su identificador en la tabla', async () => {
+    const creatorOne = '10000000-0000-4000-8000-000000000001';
+    const creatorTwo = '10000000-0000-4000-8000-000000000002';
+    await renderList([
+      makeCase({ id: 'case-agent-one', creatorRole: 'user', creatorId: creatorOne, studentIdentifier: 'AGENTE-UNO' }),
+      makeCase({ id: 'case-agent-two', creatorRole: 'user', creatorId: creatorTwo, studentIdentifier: 'AGENTE-DOS' }),
+      makeCase({ id: 'case-coordinator', creatorRole: 'coordinator', creatorId: '20000000-0000-4000-8000-000000000001', studentIdentifier: 'COORD-001' }),
+    ], true);
+
+    expect(screen.getByRole('row', { name: /AGENTE-UNO/ }).textContent).toContain(creatorOne.slice(-6));
+    fireEvent.change(screen.getByRole('combobox', { name: /filtrar por creador de caso/i }), {
+      target: { value: creatorTwo },
+    });
+
+    await vi.waitFor(() => expect(screen.getByRole('row', { name: /AGENTE-DOS/ })).toBeTruthy());
+    expect(screen.queryByRole('row', { name: /AGENTE-UNO/ })).toBeNull();
+    expect(screen.queryByRole('row', { name: /COORD-001/ })).toBeNull();
   });
 
   it('carga la siguiente página bajo demanda y conserva el contrato incremental', async () => {
