@@ -1,0 +1,12 @@
+[
+  [
+    "cases_created_at_id_idx ordena el listado global de casos por fecha e id descendentes",
+    "SELECT count(*)::int AS total FROM pg_indexes WHERE schemaname='public' AND tablename='cases' AND indexname='cases_created_at_id_idx' AND indexdef LIKE '%(created_at DESC, id DESC)%'",
+    ["\"total\": 1"]
+  ],
+  [
+    "cases_status_created_at_id_idx cubre el filtro de estado y el orden paginado",
+    "SELECT count(*)::int AS total FROM pg_indexes WHERE schemaname='public' AND tablename='cases' AND indexname='cases_status_created_at_id_idx' AND indexdef LIKE '%(status, created_at DESC, id DESC)%'",
+    ["\"total\": 1"]
+  ]
+]
