@@ -60,6 +60,24 @@ La migración de índices
 `migrations/20261009100000_case-list-pagination-indexes.sql` está preparada,
 pero no aplicada ni verificada en producción. Ensáyala primero en staging.
 
+## Protección requerida para `main`
+
+La API de GitHub respondió `404 Branch not protected` para `main` el 9 de octubre
+de 2026. Para exigir revisión y el check de CI:
+
+1. Abre **Settings → Rules → Rulesets → New branch ruleset** en el repositorio.
+2. Nombra el ruleset, selecciona **Enforcement status: Active** y agrega el
+   patrón `main` en **Target branches**.
+3. Activa **Require a pull request before merging** y pide al menos una
+   aprobación.
+4. Activa **Require status checks to pass** y selecciona exactamente el check
+   `validate` (workflow **CI**). Activa **Require branches to be up to date
+   before merging**.
+5. Activa **Block force pushes** y **Restrict deletions**. No configures bypass
+   para administradores si la política debe aplicar también al owner.
+6. Guarda el ruleset y vuelve a consultar la protección de `main`; confirma que
+   el check obligatorio sea `validate` y que no haya bypass inesperado.
+
 ## Provisión de `app_memberships`
 
 **MANUAL**. El producto no tiene signup público; el owner designa usuarios.
