@@ -1,8 +1,8 @@
 # Fecha de inicio de ciclo aportada por una persona — Diseño
 
 **Fecha:** 2026-10-08
-**Estado:** propuesto, pendiente de revisión del owner
-**Relacionado:** incidente de producción (dictamen en ERROR) y `docs/plans/2026-10-08-nuevo-caso-evidencia-y-notas.md`
+**Estado:** implementado. Este documento conserva las decisiones de diseño; el comportamiento vigente está en `AGENTS.md` y `docs/ARCHITECTURE.md`.
+**Relacionado:** incidente de producción (dictamen en ERROR)
 
 ---
 

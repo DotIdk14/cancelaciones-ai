@@ -883,10 +883,5 @@ Ver `AGENTS.md` para la versión completa y de referencia.
 | `docs/PRODUCTION-RUNBOOK.md` | Qué hacer cuando algo falla en producción. |
 | `docs/TROUBLESHOOTING.md` | Errores frecuentes y su causa real. |
 | `docs/REPOSITORY_AUDIT.md` | Auditoría integral: hallazgos, correcciones y pendientes. |
-| `docs/MIGRATION-PLAN.md` | Estado de la migración a la arquitectura actual. |
 | `migrations/00000000000000_baseline.sql` | El esquema, comentado sección por sección. |
 | `policy/` | Procedimiento oficial `GDM_GAM_PRD_MLG_003` v5, indexado por sección. Inmutable. |
-
-`docs/migration-ai-native.md` es un documento histórico del diseño previo a la
-consolidación en un solo paquete: se conserva por trazabilidad, no es
-especificación vigente.

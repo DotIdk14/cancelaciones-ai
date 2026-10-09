@@ -2,7 +2,7 @@
 
 - **Fecha:** 2026-10-05
 - **Path:** ARCHITECTURAL
-- **Estado:** pendiente de revisión
+- **Estado:** implementado. Se conserva como registro de diseño; la arquitectura vigente está en `AGENTS.md` y `docs/ARCHITECTURE.md`.
 - **Alcance:** Assessment del Audit Skill → columnas de dimensión → filtros de Calidad → visualizaciones de Resumen
 
 ---

@@ -9,7 +9,7 @@
 // Se ejecuta en `prebuild` y `predev`. El archivo generado se commitea para
 // que el repositorio compile aunque el script no se haya ejecutado.
 // =============================================================================
-import { readFileSync, readdirSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
