@@ -25,7 +25,6 @@ import { fakeAuthContext, FAKE_COORDINATOR_EMAIL, FAKE_COORDINATOR_SUB, FAKE_USE
 import {
   fakeClient,
   getCase,
-  listAudits,
   listComparisons,
   listReviews,
   resetStore,

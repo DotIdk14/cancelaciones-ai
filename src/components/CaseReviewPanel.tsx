@@ -90,6 +90,8 @@ export interface CaseReviewPanelProps {
   workflowState?: WorkflowState;
   /** Rol para PRESENTACIÓN. `null`/desconocido no ve controles de mutación. */
   role?: AppRole | null;
+  canReviewOwnCase?: boolean;
+  canFinalizeAnyCase?: boolean;
   /** Se llama tras registrar la revisión o la decisión final, para refrescar el caso. */
   onSubmitted?: () => void;
 }
@@ -103,6 +105,8 @@ export function CaseReviewPanel({
   reviewAuditResult = null,
   workflowState,
   role = null,
+  canReviewOwnCase = false,
+  canFinalizeAnyCase = false,
   onSubmitted,
 }: CaseReviewPanelProps): ReactNode {
   const [result, setResult] = useState<AuditResultType | ''>('');
@@ -225,6 +229,7 @@ export function CaseReviewPanel({
           review={review}
           workflowState={workflowState}
           role={role}
+          canFinalize={canFinalizeAnyCase}
           onSubmitted={onSubmitted}
         />
       </div>
@@ -232,7 +237,7 @@ export function CaseReviewPanel({
   }
 
   // Etapa 1 pendiente, pero quien mira no puede registrarla (Coordinador/Gerente).
-  if (role !== 'user') {
+  if (!canReviewOwnCase) {
     return <AdvisorReadOnlyStage role={role} />;
   }
 
@@ -257,6 +262,7 @@ export function CaseReviewPanel({
           review={submitted.review}
           workflowState={workflowState}
           role={role}
+          canFinalize={canFinalizeAnyCase}
           onSubmitted={onSubmitted}
         />
       </div>

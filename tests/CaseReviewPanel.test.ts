@@ -138,6 +138,8 @@ function renderPanel(overrides: {
   review?: CaseReviewDto | null;
   role?: AppRole | null;
   workflowState?: WorkflowState;
+  canReviewOwnCase?: boolean;
+  canFinalizeAnyCase?: boolean;
   onSubmitted?: () => void;
 } = {}): HTMLElement {
   const view = render(
@@ -147,6 +149,8 @@ function renderPanel(overrides: {
       review: overrides.review === undefined ? null : overrides.review,
       // El formulario de Asesor sólo existe para el rol que puede registrarlo.
       role: overrides.role === undefined ? 'user' : overrides.role,
+      canReviewOwnCase: overrides.canReviewOwnCase ?? true,
+      canFinalizeAnyCase: overrides.canFinalizeAnyCase ?? false,
       workflowState: overrides.workflowState,
       onSubmitted: overrides.onSubmitted ?? noop,
     }),
@@ -231,12 +235,12 @@ describe('CaseReviewPanel — cuándo existe', () => {
     // ese remount declararía menos hooks y React abortaría la pantalla justo
     // cuando el usuario acaba de recibir su dictamen.
     const view = render(
-      createElement(CaseReviewPanel, { caseId: 'case-1', audit: makeAudit('RUNNING'), review: null, role: 'user', onSubmitted: noop }),
+      createElement(CaseReviewPanel, { caseId: 'case-1', audit: makeAudit('RUNNING'), review: null, role: 'user', canReviewOwnCase: true, onSubmitted: noop }),
     );
     expect(view.container.firstChild).toBeNull();
 
     view.rerender(
-      createElement(CaseReviewPanel, { caseId: 'case-1', audit: makeAudit('COMPLETED'), review: null, role: 'user', onSubmitted: noop }),
+      createElement(CaseReviewPanel, { caseId: 'case-1', audit: makeAudit('COMPLETED'), review: null, role: 'user', canReviewOwnCase: true, onSubmitted: noop }),
     );
 
     expect(view.container.querySelector('form')).not.toBeNull();
@@ -247,8 +251,8 @@ describe('CaseReviewPanel — cuándo existe', () => {
 
 // =============================================================================
 describe('CaseReviewPanel — gating por rol (solo presentación)', () => {
-  it('el Asesor ve su formulario cuando la etapa está pendiente', () => {
-    renderPanel({ role: 'user' });
+  it('la capacidad de revisión muestra el formulario cuando la etapa está pendiente', () => {
+    renderPanel({ role: 'manager', canReviewOwnCase: true });
 
     expect(screen.getByRole('button', { name: /registrar la revisión/i })).toBeTruthy();
   });
@@ -265,27 +269,27 @@ describe('CaseReviewPanel — gating por rol (solo presentación)', () => {
 
   it('el Coordinador NO puede registrar la etapa del Asesor', () => {
     // Sin revisión de Asesor todavía no hay nada que finalizar.
-    renderPanel({ role: 'coordinator', review: null });
+    renderPanel({ role: 'coordinator', canReviewOwnCase: false, review: null });
 
     expect(screen.queryByRole('button', { name: /registrar la revisión/i })).toBeNull();
     expect(screen.getByText(/la etapa de asesor la registra el asesor/i)).toBeTruthy();
   });
 
-  it('el Coordinador sí finaliza cuando la etapa está PENDING_COORDINATOR', () => {
-    renderPanel({ role: 'coordinator', review: makeReview(), workflowState: 'PENDING_COORDINATOR' });
+  it('la capacidad de finalización muestra el formulario cuando la etapa está PENDING_COORDINATOR', () => {
+    renderPanel({ role: 'user', canReviewOwnCase: false, canFinalizeAnyCase: true, review: makeReview(), workflowState: 'PENDING_COORDINATOR' });
 
     expect(screen.getByRole('button', { name: /finalizar el caso/i })).toBeTruthy();
   });
 
   it('el Gerente no ve ningún control de mutación, ni del Asesor ni del Coordinador', () => {
     // Etapa pendiente de Asesor: sin formulario de Asesor.
-    renderPanel({ role: 'manager', review: null });
+    renderPanel({ role: 'manager', canReviewOwnCase: false, review: null });
     expect(screen.queryByRole('button', { name: /registrar la revisión/i })).toBeNull();
     expect(screen.getByText(/solo lectura/i)).toBeTruthy();
     cleanup();
 
     // Etapa pendiente de Coordinador: sin formulario de Coordinador.
-    renderPanel({ role: 'manager', review: makeReview() });
+    renderPanel({ role: 'manager', canReviewOwnCase: false, review: makeReview() });
     expect(screen.queryByRole('button', { name: /finalizar el caso/i })).toBeNull();
     expect(screen.getByText(/solo lectura/i)).toBeTruthy();
   });

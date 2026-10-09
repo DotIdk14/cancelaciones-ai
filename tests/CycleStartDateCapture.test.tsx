@@ -64,6 +64,7 @@ function stubFetch(
         };
         return fakeResponse(200, {
           case: {
+            canWrite: true,
             ...caseResponse?.case,
             cycleStartDate: sent.cycleStartDate ?? null,
             cycleStartDateByName: sent.cycleStartDateByName ?? null,
@@ -115,7 +116,8 @@ function verdictWithoutCycleStart(): AuditResult {
 
 function readyCase(audit: CaseDetailResponse['audit']): CaseDetailResponse {
   return {
-    case: {
+  case: {
+    canWrite: true,
       id: 'case-1',
       status: 'READY',
       studentIdentifier: 'A12345',
@@ -182,6 +184,26 @@ afterEach(() => {
 });
 
 describe('CycleStartDateCapture · ventana de captura', () => {
+  it('en modo de solo lectura conserva el dato pero no ofrece captura ni corrección', () => {
+    stubFetch(null);
+    render(
+      <CycleStartDateCapture
+        caseId="case-1"
+        assessment={NO_DETERMINABLE}
+        cycleStartDate="2026-08-21"
+        cycleStartDateByName="Ana Ruiz"
+        cycleStartDateAt="2026-10-02T15:30:00.000Z"
+        onSaved={vi.fn()}
+        readOnly
+      />,
+    );
+
+    expect(screen.getByText(/Fecha de inicio de clases:/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Corregir' })).toBeNull();
+    expect(screen.queryByRole('textbox')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Volver a auditar' })).toBeNull();
+  });
+
   it('aparece cuando el dictamen no pudo determinar la fecha y nadie la ha capturado', () => {
     stubFetch(null);
     render(

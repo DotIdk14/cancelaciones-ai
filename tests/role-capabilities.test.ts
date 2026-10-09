@@ -14,8 +14,8 @@
 //   3. `coordinator` sí puede escribir un caso que sea PROPIO. Lo que abre la
 //      escritura es la propiedad del caso, no el rol
 //      (AREA_COMMENTS_ARE_WRITABLE_BY_OWNER_ONLY → `assertCaseOwner`).
-//   4. `manager` es solo lectura global: escritura, revisión y finalización
-//      todas en false.
+//   4. `manager` lee todo y tiene mantenimiento administrativo, pero no escribe
+//      casos propios, revisa ni finaliza.
 //   5. Rol desconocido, `null` o `undefined` → todas las capacidades en false.
 //      Nunca se escala privilegios por contenido de la fila.
 // =============================================================================
@@ -34,12 +34,13 @@ import { setTestEnv } from './helpers/env';
 // entorno; el bloque "se resuelve desde app_memberships" monta `requireAuth` real.
 beforeEach(() => setTestEnv());
 
-/** Las cuatro capacidades del contrato. Lista explícita: añadir una obliga a decidir. */
+/** Capacidades del contrato. Lista explícita: añadir una obliga a decidir. */
 const CAPABILITIES = [
   'canReadAllCases',
   'canReviewOwnCases',
   'canFinalizeAnyCase',
   'canWriteOwnedCases',
+  'canManageCases',
 ] as const;
 
 describe('mapeo rol -> capacidades (derivado en el servidor)', () => {
@@ -49,6 +50,7 @@ describe('mapeo rol -> capacidades (derivado en el servidor)', () => {
       canReviewOwnCases: true,
       canFinalizeAnyCase: false,
       canWriteOwnedCases: true,
+      canManageCases: false,
     });
   });
 
@@ -59,15 +61,17 @@ describe('mapeo rol -> capacidades (derivado en el servidor)', () => {
       canReviewOwnCases: false,
       // Default denegar: la revisión de un caso de Asesor no se le concede.
       canWriteOwnedCases: true,
+      canManageCases: false,
     });
   });
 
-  it('manager: SOLO lectura global', () => {
+  it('manager: lectura global y mantenimiento administrativo, sin permisos operativos', () => {
     expect(capabilitiesForRole('manager')).toEqual({
       canReadAllCases: true,
       canReviewOwnCases: false,
       canFinalizeAnyCase: false,
       canWriteOwnedCases: false,
+      canManageCases: true,
     });
   });
 
@@ -88,7 +92,7 @@ describe('mapeo rol -> capacidades (derivado en el servidor)', () => {
     }
   });
 
-  it('el vocabulario de capacidades es cerrado: son cuatro, ni una más ni una menos', () => {
+  it('el vocabulario de capacidades es cerrado', () => {
     for (const role of ['user', 'coordinator', 'manager'] as AppRole[]) {
       expect(Object.keys(capabilitiesForRole(role)).sort()).toEqual([...CAPABILITIES].sort());
     }

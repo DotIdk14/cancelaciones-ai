@@ -8,18 +8,20 @@ import {
   readJsonBody,
 } from '../../src/server/http.js';
 import { createServerClient } from '../../src/server/insforge.js';
-import { createCase, listCaseSummaries } from '../../src/server/cases.js';
+import { countCaseSummaryStatuses, createCase, listCaseSummaries, listCaseSummaryPage } from '../../src/server/cases.js';
 import { caseToSummary } from '../../src/server/dto.js';
 import { assertCaseWriteCapability } from '../../src/server/auth.js';
+import { CASE_STATUSES } from '../../src/skills/audit/types.js';
+import { capabilitiesForRole } from '../../src/server/capabilities.js';
 
 // GET  /api/cases            → { cases: CaseSummary[] }
-// POST /api/cases { studentIdentifier?, isTest? } → 201 { case: CaseSummary }
+// POST /api/cases { studentIdentifier?, studentName? } → 201 { case: CaseSummary }
 //
 // El alcance de la lectura lo aplica `listCaseSummaries` desde las capacidades
 // del rol (Asesor: solo propios; Coordinador/Gerente: todos).
 //
 // El cuerpo es ESTRICTO: rechaza cualquier campo que no sea `studentIdentifier` o
-// `isTest`, de modo que un `created_by`, `role` o `actor` inyectado por el cliente
+// `studentName`, de modo que un `created_by`, `role`, `actor` o `isTest` del cliente
 // no puede falsificar la propiedad ni el rol. El autor SIEMPRE es `req.auth`.
 //
 // `isTest` es un booleano de verdad: `z.boolean()` NO coacciona, así que `"true"`,
@@ -31,15 +33,70 @@ const CreateCaseBodySchema = z
     // previo (se trimea y se recorta a 200; un valor no-string se ignora), pero
     // la clave sigue estando permitida para que `.strict()` no la rechace.
     studentIdentifier: z.unknown().optional(),
-    isTest: z.boolean().optional(),
+    studentName: z.unknown().optional(),
   })
   .strict();
+
+const CaseCursorSchema = z.object({
+  offset: z.number().int().min(0).max(10_000_000),
+  snapshot: z.string().datetime(),
+  limit: z.number().int().min(1).max(100),
+  status: z.enum(CASE_STATUSES).optional(),
+}).strict();
+
+function decodeCursor(value: string): z.infer<typeof CaseCursorSchema> {
+  try {
+    const parsed = CaseCursorSchema.safeParse(JSON.parse(Buffer.from(value, 'base64url').toString('utf8')));
+    if (parsed.success) return parsed.data;
+  } catch { /* cursor inválido */ }
+  throw new ApiError(400, 'VALIDATION_ERROR', 'Cursor de paginación inválido');
+}
 
 export default handleRoute(async (req, res) => {
   if (req.method === 'GET') {
     const client = createServerClient();
+    const rawLimit = req.query.limit;
+    if (rawLimit !== undefined) {
+      const parsedLimit = z.coerce.number().int().min(1).max(100).safeParse(rawLimit);
+      if (!parsedLimit.success || Array.isArray(rawLimit)) {
+        throw new ApiError(400, 'VALIDATION_ERROR', 'limit debe ser un entero entre 1 y 100');
+      }
+      if (req.query.cursor !== undefined && typeof req.query.cursor !== 'string') {
+        throw new ApiError(400, 'VALIDATION_ERROR', 'cursor debe ser una cadena');
+      }
+      if (req.query.status !== undefined && typeof req.query.status !== 'string') {
+        throw new ApiError(400, 'VALIDATION_ERROR', 'status debe ser una cadena');
+      }
+      const cursor = typeof req.query.cursor === 'string' ? decodeCursor(req.query.cursor) : null;
+      const rawStatus = typeof req.query.status === 'string' ? req.query.status : undefined;
+      const statusParsed = rawStatus === undefined ? undefined : z.enum(CASE_STATUSES).safeParse(rawStatus);
+      if (statusParsed && !statusParsed.success) throw new ApiError(400, 'VALIDATION_ERROR', 'status no es válido');
+      if (cursor && (cursor.limit !== parsedLimit.data || cursor.status !== statusParsed?.data)) {
+        throw new ApiError(400, 'VALIDATION_ERROR', 'El cursor no corresponde a los filtros solicitados');
+      }
+      const limit = cursor?.limit ?? parsedLimit.data;
+      const snapshot = cursor?.snapshot ?? new Date().toISOString();
+      const status = cursor?.status ?? statusParsed?.data;
+      const offset = cursor?.offset ?? 0;
+      const rows = await listCaseSummaryPage(client, req.auth!, {
+        offset,
+        limit: limit + 1,
+        snapshot,
+        ...(status ? { status } : {}),
+      });
+      const hasMore = rows.length > limit;
+      const cases = rows.slice(0, limit);
+      const nextCursor = hasMore
+        ? Buffer.from(JSON.stringify({ offset: offset + limit, snapshot, limit, ...(status ? { status } : {}) })).toString('base64url')
+        : null;
+      const statusCounts = cursor ? undefined : await countCaseSummaryStatuses(client, req.auth!);
+      const canManageCases = capabilitiesForRole(req.auth!.role).canManageCases;
+      ok(res, { cases: cases.map((row) => caseToSummary(row, canManageCases)), nextCursor, statusCounts });
+      return;
+    }
     const rows = await listCaseSummaries(client, req.auth!);
-    ok(res, { cases: rows.map(caseToSummary) });
+    const canManageCases = capabilitiesForRole(req.auth!.role).canManageCases;
+    ok(res, { cases: rows.map((row) => caseToSummary(row, canManageCases)) });
     return;
   }
 
@@ -59,18 +116,19 @@ export default handleRoute(async (req, res) => {
     if (!parsed.success) {
       const detail = parsed.error.issues
         .slice(0, 3)
-        .map((issue) => `${issue.path.join('.') || 'isTest'}: ${issue.message}`)
+        .map((issue) => `${issue.path.join('.') || 'studentName'}: ${issue.message}`)
         .join(' | ');
       throw new ApiError(400, 'VALIDATION_ERROR', `VALIDATION_ERROR: ${detail}`);
     }
 
     const rawIdentifier = typeof parsed.data.studentIdentifier === 'string' ? parsed.data.studentIdentifier.trim() : '';
     const studentIdentifier = rawIdentifier.length > 0 ? rawIdentifier.slice(0, 200) : null;
-    const isTest = parsed.data.isTest ?? false;
+    const rawName = typeof parsed.data.studentName === 'string' ? parsed.data.studentName.trim() : '';
+    const studentName = rawName.length > 0 ? rawName.slice(0, 200) : null;
 
     const client = createServerClient();
-    const row = await createCase(client, studentIdentifier, req.auth!.sub, isTest);
-    created(res, { case: caseToSummary({ ...row, evidence: [] }) });
+    const row = await createCase(client, studentIdentifier, studentName, req.auth!.sub);
+    created(res, { case: caseToSummary({ ...row, evidence: [] }, capabilitiesForRole(req.auth!.role).canManageCases) });
     return;
   }
 

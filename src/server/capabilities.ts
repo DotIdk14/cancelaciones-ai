@@ -23,12 +23,13 @@ export type AppRole = 'user' | 'coordinator' | 'manager';
 
 const ROLES: AppRole[] = ['user', 'coordinator', 'manager'];
 
-/** Las cuatro capacidades del contrato. Vocabulario cerrado. */
+/** Capacidades del contrato. Vocabulario cerrado. */
 export interface AuthCapabilities {
   readonly canReadAllCases: boolean;
   readonly canReviewOwnCases: boolean;
   readonly canFinalizeAnyCase: boolean;
   readonly canWriteOwnedCases: boolean;
+  readonly canManageCases: boolean;
 }
 
 function freezeCapabilities(caps: AuthCapabilities): AuthCapabilities {
@@ -41,6 +42,7 @@ export const DENY_ALL_CAPABILITIES: AuthCapabilities = freezeCapabilities({
   canReviewOwnCases: false,
   canFinalizeAnyCase: false,
   canWriteOwnedCases: false,
+  canManageCases: false,
 });
 
 const CAPABILITIES_BY_ROLE: Record<AppRole, AuthCapabilities> = {
@@ -50,6 +52,7 @@ const CAPABILITIES_BY_ROLE: Record<AppRole, AuthCapabilities> = {
     canReviewOwnCases: true,
     canFinalizeAnyCase: false,
     canWriteOwnedCases: true,
+    canManageCases: false,
   }),
   // Coordinador: lectura global y finalización; la revisión de un caso de Asesor
   // NO se le concede (default denegar), solo escribe los propios.
@@ -58,13 +61,15 @@ const CAPABILITIES_BY_ROLE: Record<AppRole, AuthCapabilities> = {
     canReviewOwnCases: false,
     canFinalizeAnyCase: true,
     canWriteOwnedCases: true,
+    canManageCases: false,
   }),
-  // Gerente: SOLO lectura global. No muta, no revisa, no finaliza.
+  // Gerente: lectura global y mantenimiento administrativo acotado.
   manager: freezeCapabilities({
     canReadAllCases: true,
     canReviewOwnCases: false,
     canFinalizeAnyCase: false,
     canWriteOwnedCases: false,
+    canManageCases: true,
   }),
 };
 

@@ -16,6 +16,7 @@ import {
   type OAuthRejection,
 } from '../../src/server/auth.js';
 import { getEnv } from '../../src/server/env.js';
+import { capabilitiesForRole } from '../../src/server/capabilities.js';
 
 // Vercel Hobby admite 12 Functions por deployment y, en un proyecto sin
 // framework, cada archivo de `api/` es una Function. Login, logout, rotación y
@@ -88,10 +89,11 @@ async function handleRefresh(req: ApiRequest, res: ApiResponse): Promise<void> {
     return;
   }
   const { role } = await refreshSession(req, res);
+  const capabilities = capabilitiesForRole(role);
   res.statusCode = 200;
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.setHeader('Cache-Control', 'private, no-store');
-  res.end(JSON.stringify({ ok: true, role }));
+  res.end(JSON.stringify({ ok: true, role, capabilities }));
 }
 
 /**

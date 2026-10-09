@@ -3,9 +3,7 @@
 // El visor de evidencia se movió del modal a la columna central. Estos tests
 // cubren el comportamiento observable de esa decisión:
 //
-//   · pulsar "Ver" en la lista abre el archivo en una pestaña, no en un modal;
-//   · la pestaña "Evidencia" no existe mientras no haya nada abierto (sería un
-//     destino sin contenido);
+//   · seleccionar un archivo en la lista lo muestra en la pestaña Evidencias;
 //   · cada tipo de evidencia muestra lo que corresponde: la imagen, el audio con
 //     su transcripción, el texto plano, y un mensaje honesto para PDF —que aquí
 //     se sustituye, porque necesita un PDF real y un worker— y para los tipos sin
@@ -94,21 +92,19 @@ function renderPage(evidences: Evidence[]): void {
 }
 
 async function openEvidence(filename: string): Promise<void> {
-  const button = await screen.findByRole('button', { name: new RegExp(`Ver ${filename}`) });
+  const button = await screen.findByRole('button', { name: new RegExp(filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) });
   fireEvent.click(button);
 }
 
 describe('visor de evidencia en la columna central', () => {
-  it('abre la evidencia en una pestaña y no en un modal', async () => {
+  it('muestra la evidencia en la pestaña del expediente y no en un modal', async () => {
     renderPage([evidence({ filename: 'contrato.pdf', mimeType: 'application/pdf' })]);
 
-    // Antes de abrir, la pestaña no debe existir: sería un destino vacío.
-    expect(screen.queryByRole('tab', { name: /Evidencia/ })).toBeNull();
+    const tab = await screen.findByRole('tab', { name: /Evidencias/ });
+    expect(tab.getAttribute('aria-selected')).toBe('true');
 
     await openEvidence('contrato.pdf');
 
-    const tab = await screen.findByRole('tab', { name: /Evidencia/ });
-    expect(tab.getAttribute('aria-selected')).toBe('true');
     await waitFor(() => expect(screen.getByTestId('pdf-stub')).toBeTruthy());
     // Nada de modal: no debe quedar ningún diálogo en el árbol.
     expect(screen.queryByRole('dialog')).toBeNull();
@@ -118,7 +114,7 @@ describe('visor de evidencia en la columna central', () => {
     renderPage([evidence({ filename: 'contrato.pdf', mimeType: 'application/pdf' })]);
     await openEvidence('contrato.pdf');
 
-    for (const name of [/Transcripción/, /Hechos y checks/, /Cronología/, /Dictamen/]) {
+    for (const name of [/Evidencias/, /^Hechos/, /Cronología/, /Dictamen/]) {
       expect(screen.getByRole('tab', { name })).toBeTruthy();
     }
     await waitFor(() => expect(screen.getByTestId('pdf-stub')).toBeTruthy());

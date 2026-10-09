@@ -2,7 +2,7 @@
 
 ## Estado
 
-Diseño aprobado por el usuario; pendiente de revisión del documento antes de crear el plan de implementación.
+Implementado. Este documento conserva el diseño aprobado; los permisos vigentes están en `AGENTS.md` y `docs/ARCHITECTURE.md`.
 
 ## Objetivo
 

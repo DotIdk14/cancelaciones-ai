@@ -8,7 +8,6 @@
 // =============================================================================
 
 import type { InsForgeClient } from './insforge.js';
-import { createHash } from 'node:crypto';
 import { getEnv } from './env.js';
 import { auditSkill, PDF_MIN_TEXT_CHARS } from '../skills/audit/execute.js';
 import { OpenRouterAuditError } from './openrouter.js';
@@ -29,6 +28,8 @@ import { checkPaidQuota } from './quotas.js';
 import { derivedExtractionOf } from './derived.js';
 import { listAreaComments } from './area-comments.js';
 import { buildAuditFailureLog } from './audit-observability.js';
+import { computeEvidenceFingerprint } from './audit-fingerprint.js';
+export { AUDIT_PIPELINE_VERSION, computeEvidenceFingerprint, computeEvidenceFingerprintFor } from './audit-fingerprint.js';
 import {
   getCaseOr404,
   insertAudit,
@@ -314,18 +315,6 @@ function limitEvidenceText(text: string): { text: string; truncated: boolean; or
 }
 
 /**
- * Versión del pipeline que produce el expediente (preparación + prompt + schema).
- * Si cambia cómo se prepara o cómo se dictamina, el fingerprint cambia y los
- * dictámenes anteriores NO se reutilizan: es deliberado (DO_NOT_REPROCESS_AI_UNNECESSARILY
- * aplica a la MISMA evidencia con el MISMO pipeline, no a un pipeline distinto).
- *
- * El bump 2 corresponde a la incorporación del bloque `origin` (país y canal) al
- * contrato del assessment: un dictamen del contrato anterior no trae esos campos
- * y reutilizarlo dejaría el caso sin dimensiones de origen indefinidamente.
- */
-export const AUDIT_PIPELINE_VERSION = 'audit-v5-pipeline-2';
-
-/**
  * Versión del pipeline de EXTRACCIÓN (pdf.js / lectura de texto). Si cambia la
  * lógica de extracción, el caché de derivados se invalida por completo porque
  * la versión guardada deja de coincidir.
@@ -356,49 +345,6 @@ const EXTRACTION_PIPELINE_VERSION = 'extract-v1';
  * metiendo siempre `humanCycleStartDate: null`, todos los dictámenes existentes
  * se invalidan de golpe. Está fijado con test en `tests/audit-fingerprint.test.ts`.
  */
-export function computeEvidenceFingerprint(evidences: EvidenceRow[], humanCycleStartDate?: string | null): string {
-  return computeEvidenceFingerprintFor(AUDIT_PIPELINE_VERSION, evidences, humanCycleStartDate);
-}
-
-/**
- * Huella con una versión de pipeline explícita.
- *
- * Existe para poder fijar con un test que la versión forma parte de la huella: si
- * alguien la quitara del cálculo, dos pipelines distintos darían la misma huella y
- * un dictamen viejo se reutilizaría contra el contrato nuevo (el fallo exacto que
- * el bump existe para evitar). En producción siempre se usa la versión vigente.
- *
- * `humanCycleStartDate` es el tercer parámetro y es OPCIONAL a propósito: las
- * llamadas que no conocen el caso siguen funcionando sin tocar argumentos.
- */
-export function computeEvidenceFingerprintFor(
-  version: string,
-  evidences: EvidenceRow[],
-  humanCycleStartDate?: string | null,
-): string {
-  const canonical = evidences
-    .map((evidence) => {
-      const derived = evidence.transcript_json ? readTranscriptFromJson(evidence.transcript_json) : null;
-      const derivedText = derived?.transcript ?? '';
-      return {
-        id: evidence.id,
-        hash: evidence.hash,
-        derivedHash: derivedText ? createHash('sha256').update(derivedText).digest('hex') : null,
-      };
-    })
-    .sort((a, b) => a.id.localeCompare(b.id));
-  // El campo se agrega SOLO si hay fecha: con `null`, `undefined` o cadena vacía
-  // (que no puede existir — el endpoint valida ISO no vacío) el objeto
-  // serializado es idéntico al de siempre. La clave va AL FINAL para que el
-  // orden de `JSON.stringify` sea estable y el payload legado no se mueva.
-  const payload = humanCycleStartDate
-    ? { pipeline: version, evidence: canonical, humanCycleStartDate }
-    : { pipeline: version, evidence: canonical };
-  return createHash('sha256')
-    .update(JSON.stringify(payload))
-    .digest('hex');
-}
-
 /**
  * Ejecuta o reutiliza la auditoría del caso.
  * - No hay evidencias → 400.

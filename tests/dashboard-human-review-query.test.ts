@@ -21,7 +21,7 @@
 import { describe, expect, it } from 'vitest';
 import type { DashboardFilters } from '../src/lib/dashboard';
 import {
-  DASHBOARD_MAX_ROWS,
+  DASHBOARD_PAGE_SIZE,
   aggregateQuality,
   type ComparisonMetricRow,
   type DashboardMetricRow,
@@ -50,6 +50,7 @@ interface RecordedCall {
   columns: unknown;
   predicates: Predicate[];
   limit: number | null;
+  range: [number, number] | null;
 }
 
 interface QueryResult {
@@ -104,6 +105,7 @@ function createFakeClient(seed: FakeSeed): FakeClient {
     const predicates: Predicate[] = [];
     let columns: unknown = '*';
     let limit: number | null = null;
+    let range: [number, number] | null = null;
 
     function run(): QueryResult {
       if ((seed.failing ?? []).includes(table)) {
@@ -112,7 +114,8 @@ function createFakeClient(seed: FakeSeed): FakeClient {
       const matching = (tables[table] ?? []).filter((row) => predicates.every((p) => matches(row, p)));
       // `count: 'exact'` es el total ANTES del `limit`: es lo único que permite
       // avisar de una truncación, así que el fake lo respeta igual.
-      return { data: limit === null ? matching : matching.slice(0, limit), error: null, count: matching.length };
+      const limited = limit === null ? matching : matching.slice(0, limit);
+      return { data: range === null ? limited : limited.slice(range[0], range[1] + 1), error: null, count: matching.length };
     }
 
     const query = {
@@ -139,11 +142,15 @@ function createFakeClient(seed: FakeSeed): FakeClient {
         limit = count;
         return query;
       },
+      range(from: number, to: number): typeof query {
+        range = [from, to];
+        return query;
+      },
       then<TResult1 = QueryResult, TResult2 = never>(
         onfulfilled?: ((value: QueryResult) => TResult1 | PromiseLike<TResult1>) | null,
         onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
       ): PromiseLike<TResult1 | TResult2> {
-        calls.push({ table, columns, predicates: [...predicates], limit });
+        calls.push({ table, columns, predicates: [...predicates], limit, range });
         return Promise.resolve(run()).then(onfulfilled, onrejected);
       },
     };
@@ -236,7 +243,7 @@ describe('getHumanReviewInput — el corte por periodo', () => {
       // La exclusión de pruebas va SIEMPRE, ANTES del limit.
       { op: 'eq', column: 'is_test', value: false },
     ]);
-    expect(call?.limit).toBe(DASHBOARD_MAX_ROWS);
+    expect(call?.range).toEqual([0, DASHBOARD_PAGE_SIZE - 1]);
   });
 
   it('las revisiones se cuentan en el MISMO periodo, y sólo se pide su `id`', async () => {
@@ -517,7 +524,7 @@ describe('getAiQuality — la forma que viaja al navegador', () => {
     }
   });
 
-  it('el recorte de la parte humana avisa aunque las auditorías quepan enteras', async () => {
+  it('el agregado humano no marca truncado después de leer todas las páginas', async () => {
     // `truncated` es de las DOS fuentes. Si sólo mirara las auditorías, una
     // comparación truncada se publicaría como una tasa completa, que es un dato
     // medido sobre menos comparaciones de las que existen: la tarjeta parecía
@@ -531,9 +538,9 @@ describe('getAiQuality — la forma que viaja al navegador', () => {
 
     const informe = aggregateQuality([], FILTERS, 0, {
       ...recortada,
-      comparisonsAvailable: DASHBOARD_MAX_ROWS + 1,
+      comparisonsAvailable: DASHBOARD_PAGE_SIZE + 1,
     });
 
-    expect(informe.truncated).toBe(true);
+    expect(informe.truncated).toBe(false);
   });
 });

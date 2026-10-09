@@ -211,7 +211,7 @@ BEGIN
   END IF;
 
   -- 3.2 Proyecta created_by e is_test (lo que habilita el scope y la exclusion).
-  FOREACH v_col SLICE 1 IN ARRAY ARRAY['created_by','is_test'] LOOP
+  FOREACH v_col IN ARRAY ARRAY['created_by','is_test'] LOOP
     SELECT count(*) INTO v_count
     FROM pg_attribute
     WHERE attrelid='public.audit_dashboard_metrics'::regclass AND attnum > 0
@@ -232,7 +232,7 @@ BEGIN
   END IF;
 
   -- 3.4 Las 7 dimensiones del caso siguen proyectadas: ninguna se perdio al recrear.
-  FOREACH v_col SLICE 1 IN ARRAY ARRAY[
+  FOREACH v_col IN ARRAY ARRAY[
     'country','channel','campus','modality','project','responsible','guideline'
   ] LOOP
     SELECT count(*) INTO v_count
@@ -262,7 +262,7 @@ BEGIN
     RAISE EXCEPTION 'dashboard_view_scope: la vista de comparaciones deberia exponer 11 columnas y expone %', v_count;
   END IF;
 
-  FOREACH v_col SLICE 1 IN ARRAY ARRAY['created_by','is_test'] LOOP
+  FOREACH v_col IN ARRAY ARRAY['created_by','is_test'] LOOP
     SELECT count(*) INTO v_count
     FROM pg_attribute
     WHERE attrelid='public.case_comparisons_dashboard_metrics'::regclass AND attnum > 0
@@ -297,7 +297,7 @@ BEGIN
   END IF;
 
   -- 3.7 project_admin puede leer AMBAS vistas.
-  FOREACH v_col SLICE 1 IN ARRAY ARRAY['audit_dashboard_metrics','case_comparisons_dashboard_metrics'] LOOP
+  FOREACH v_col IN ARRAY ARRAY['audit_dashboard_metrics','case_comparisons_dashboard_metrics'] LOOP
     IF NOT EXISTS (
       SELECT 1 FROM pg_class c
       CROSS JOIN LATERAL aclexplode(c.relacl) g

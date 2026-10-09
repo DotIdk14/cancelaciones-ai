@@ -6,7 +6,7 @@ import { CONFIDENCE_HIGH_THRESHOLD, CONFIDENCE_MEDIUM_THRESHOLD, originLabel, RE
 import { EXECUTION_OUTCOMES } from '../lib/dashboard-shared.js';
 import type { DashboardFilters, DashboardKpi, DashboardSummary, ExecutionOutcome, ExecutionReport, HumanAgreementReport, HumanMismatchRow, OriginBreakdownPoint, OriginDistribution, RecentCaseRow, ResolutionSplitPoint, ResultBreakdownPoint, SummaryCostKpi, TimelinePoint } from '../lib/dashboard.js';
 import type { AuditStatus } from './cases.js';
-import { DASHBOARD_MAX_ROWS, type DashboardMetricRow } from './dashboard-contracts.js';
+import type { DashboardMetricRow } from './dashboard-contracts.js';
 import { COST_PER_ROW } from './dashboard-costs.js';
 import { millisOf, percentage, utcDayBucket } from './dashboard-utils.js';
 
@@ -336,7 +336,7 @@ export function aggregateOrigin(
 export function aggregateSummary(
   rows: DashboardMetricRow[],
   filters: DashboardFilters,
-  totalAvailable: number,
+  _totalAvailable: number,
 ): DashboardSummary {
   const current = currentAuditsByCase(rows);
 
@@ -442,7 +442,7 @@ export function aggregateSummary(
 
   return {
     generatedAt: new Date().toISOString(),
-    truncated: totalAvailable > DASHBOARD_MAX_ROWS,
+    truncated: false,
     filters,
     kpi,
     timeline: buildTimeline(rows),
