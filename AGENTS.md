@@ -146,3 +146,9 @@ Key patterns:
 - Reference users with `auth.users(id)`; use `auth.uid()` in RLS policies.
 - For storage uploads, persist both the returned `url` and `key`.
 <!-- INSFORGE:END -->
+
+## Frescura del Repo Map
+
+Al comenzar cada tarea en este repositorio, ejecuta `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\brain\update-repo-map.ps1 -Mode Check`, antes de consultar el mapa. El script no-op cuando su huella sigue vigente. Usa `docs/brain/repo-map.md` para ubicar los archivos relevantes, lee únicamente el contexto relacionado con la tarea y confirma siempre los detalles en el código real; el mapa es orientación, no fuente de verdad.
+
+Deja que el observador o la verificación de sesión actualicen el mapa al detectar cambios. No edites `docs/brain/repo-map.md` a mano ni fuerces actualizaciones redundantes desde subagentes concurrentes: el script coordina mediante huella y bloqueo. Consulta `docs/brain/repo-map-automation.md` para uso, inicio opcional de Windows y recuperación.\n

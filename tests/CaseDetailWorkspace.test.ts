@@ -175,39 +175,24 @@ afterEach(() => {
 
 // ----------------------------------------------------------------------- tests
 
-describe('EvidenceList — acciones en su propia fila', () => {
-  it('deja los tres controles juntos y separados de los datos del archivo', () => {
+describe('EvidenceList — navegación y acciones por evidencia', () => {
+  it('separa la navegación del archivo de sus controles de descarga y eliminación', () => {
     const evidence = makeEvidence({ filename: 'un-archivo-con-nombre-muy-largo.png' });
-    const { container } = render(
-      createElement(EvidenceList, { evidences: [evidence], onOpen: vi.fn(), onDelete: vi.fn() }),
-    );
-
-    const row = container.querySelector('li');
-    expect(row).not.toBeNull();
-
-    const view = screen.getByRole('button', { name: /^Ver/ });
-    const download = screen.getByRole('link', { name: /^Descargar/ });
-    const remove = screen.getByRole('button', { name: /^Eliminar/ });
-
-    // Las tres acciones comparten contenedor: es la fila propia de botones.
-    expect(view.parentElement).toBe(download.parentElement);
-    expect(download.parentElement).toBe(remove.parentElement);
-
-    // Y ese contenedor no es el bloque de datos. Si compartieran padre, los
-    // botones volverían a competir por el ancho de la columna angosta.
-    const name = screen.getByTitle(evidence.filename);
-    expect(name.parentElement).not.toBe(view.parentElement);
-    expect(view.parentElement?.parentElement).toBe(row);
+    const { container } = render(createElement(EvidenceList, {
+      evidences: [evidence], activeId: evidence.id, onSelect: vi.fn(), onDelete: vi.fn(),
+    }));
+    expect(container.querySelector('nav[aria-label="Seleccionar evidencia"]')).not.toBeNull();
+    expect(container.querySelector('nav[aria-label="Seleccionar evidencia"] button[aria-pressed="true"]'))
+      .not.toBeNull();
+    expect(screen.getByRole('link', { name: /descargar/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /eliminar un-archivo-con-nombre-muy-largo\.png/i })).toBeTruthy();
   });
 
-  it('mantiene los controles accesibles por nombre, no sólo por posición', () => {
+  it('nombra la navegación y la acción de eliminar con el nombre del archivo', () => {
     const evidence = makeEvidence({ filename: 'captura.png' });
-    render(createElement(EvidenceList, { evidences: [evidence], onOpen: vi.fn(), onDelete: vi.fn() }));
-
-    // El nombre legible del archivo va en `sr-only`: sin él, tres botones
-    // "Ver" en la misma vista no dicen a qué evidencia se refieren.
-    expect(screen.getByRole('button', { name: 'Ver captura.png' })).toBeTruthy();
-    expect(screen.getByRole('link', { name: 'Descargar captura.png' })).toBeTruthy();
+    const { container } = render(createElement(EvidenceList, { evidences: [evidence], activeId: evidence.id, onSelect: vi.fn(), onDelete: vi.fn() }));
+    expect(container.querySelector('nav[aria-label="Seleccionar evidencia"] button[aria-pressed="true"]'))
+      .not.toBeNull();
     expect(screen.getByRole('button', { name: 'Eliminar captura.png' })).toBeTruthy();
   });
 });
@@ -216,26 +201,26 @@ describe('Buscador del expediente', () => {
   it('existe un campo de búsqueda real, no un rótulo decorativo', async () => {
     await renderDetail(makeDetailWithAudit());
 
-    const input = screen.getByRole('searchbox', { name: 'Buscar en el expediente' });
+    const input = screen.getByRole('searchbox', { name: 'Buscar hechos o cronología' });
     expect(input).toBeTruthy();
     // El texto que anunciaba el rótulo viejo ahora es el placeholder, o sea
     // que el control existe y se puede escribir en él.
-    expect(input.getAttribute('placeholder')).toBe('Buscar en el expediente');
+    expect(input.getAttribute('placeholder')).toBe('Buscar hechos o cronología');
   });
 
   it('filtra los hechos de la pestaña activa y dice cuántas coincidencias hay', async () => {
     await renderDetail(makeDetailWithAudit());
-    await openTab(/Hechos y checks/);
+    await openTab(/^Hechos/);
 
     expect(screen.getByText('Apertura de matrícula')).toBeTruthy();
     expect(screen.getByText('Solicitud dentro del primer mes')).toBeTruthy();
 
-    fireEvent.change(screen.getByRole('searchbox', { name: 'Buscar en el expediente' }), {
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Buscar hechos o cronología' }), {
       target: { value: 'primer mes' },
     });
 
     await waitFor(() => {
-      expect(screen.getByText(/coincidencias en Hechos y checks/)).toBeTruthy();
+      expect(screen.getByText(/coincidencias en Hechos/)).toBeTruthy();
     });
     // El check coincide; el hecho queda fuera.
     expect(screen.getByText('Solicitud dentro del primer mes')).toBeTruthy();
@@ -246,7 +231,7 @@ describe('Buscador del expediente', () => {
     await renderDetail(makeDetailWithAudit());
     await openTab(/Cronología/);
 
-    fireEvent.change(screen.getByRole('searchbox', { name: 'Buscar en el expediente' }), {
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Buscar hechos o cronología' }), {
       target: { value: 'zzz-no-existe-zzz' },
     });
 
@@ -262,7 +247,7 @@ describe('Buscador del expediente', () => {
   it('ofrece saltar a la pestaña que sí tiene coincidencias', async () => {
     await renderDetail(makeDetailWithAudit());
 
-    fireEvent.change(screen.getByRole('searchbox', { name: 'Buscar en el expediente' }), {
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Buscar hechos o cronología' }), {
       target: { value: 'Solicitud de cancelación' },
     });
 
@@ -274,7 +259,7 @@ describe('Buscador del expediente', () => {
 
   it('se limpia con el botón y con la tecla Escape', async () => {
     await renderDetail(makeDetailWithAudit());
-    const input = screen.getByRole('searchbox', { name: 'Buscar en el expediente' }) as HTMLInputElement;
+    const input = screen.getByRole('searchbox', { name: 'Buscar hechos o cronología' }) as HTMLInputElement;
 
     fireEvent.change(input, { target: { value: 'matrícula' } });
     await waitFor(() => {
@@ -356,7 +341,7 @@ describe('CaseDetailPage — gating por rol (solo presentación)', () => {
     expect(screen.queryByText(/adjuntar evidencias/i)).toBeNull();
     // Sin borrar evidencia (la lectura sigue disponible).
     expect(screen.queryByRole('button', { name: /^eliminar/i })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Ver captura.png' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /captura\.png/ })).toBeTruthy();
     // Sin botón de auditar.
     expect(screen.queryByRole('button', { name: /auditar con ia/i })).toBeNull();
     // Sin guardar notas de área.
@@ -370,7 +355,7 @@ describe('CaseDetailPage — gating por rol (solo presentación)', () => {
     await renderDetailAs(makeDetailWithAudit(), 'user');
 
     expect(screen.getByText(/adjuntar evidencias/i)).toBeTruthy();
-    expect(screen.getAllByRole('button', { name: /^eliminar/i }).length).toBeGreaterThan(0);
+    expect(await screen.findByRole('button', { name: 'Eliminar captura.png' })).toBeTruthy();
     expect(screen.getByRole('button', { name: /auditar con ia/i })).toBeTruthy();
   });
 });

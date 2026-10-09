@@ -90,7 +90,7 @@ export interface UseSessionResult {
    * sesión o el rol no se reconoce; la autorización sigue en el servidor.
    */
   role: AppRole | null;
-  capabilities: { canReadAllCases: boolean; canReviewOwnCases: boolean; canFinalizeAnyCase: boolean; canWriteOwnedCases: boolean };
+  capabilities: { canReadAllCases: boolean; canReviewOwnCases: boolean; canFinalizeAnyCase: boolean; canWriteOwnedCases: boolean; canManageCases: boolean };
   signOut: () => Promise<void>;
 }
 
@@ -101,7 +101,7 @@ export function useSession(): UseSessionResult {
   const [status, setStatus] = useState<SessionStatus>('loading');
   const [sessionExpired, setSessionExpired] = useState(false);
   const [role, setRole] = useState<AppRole | null>(null);
-  const [capabilities, setCapabilities] = useState({ canReadAllCases: false, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false });
+  const [capabilities, setCapabilities] = useState({ canReadAllCases: false, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false, canManageCases: false });
   const [authError] = useState<string | null>(() => {
     const reason = takeAuthErrorFromUrl();
     return reason === null ? null : AUTH_ERROR_MESSAGES[reason];
@@ -114,14 +114,14 @@ export function useSession(): UseSessionResult {
     try {
       const snapshot = await refreshSession();
       setRole(snapshot?.role ?? null);
-      setCapabilities(snapshot?.capabilities ?? { canReadAllCases: false, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false });
+      setCapabilities(snapshot?.capabilities ?? { canReadAllCases: false, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false, canManageCases: false });
       setStatus(snapshot ? 'authed' : 'anon');
       if (!snapshot) {
         setSessionExpired(false);
       }
     } catch (error) {
       setRole(null);
-      setCapabilities({ canReadAllCases: false, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false });
+      setCapabilities({ canReadAllCases: false, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false, canManageCases: false });
       setStatus('anon');
       setSessionExpired(isSessionExpiredError(error));
     } finally {
@@ -140,7 +140,7 @@ export function useSession(): UseSessionResult {
       setStatus('anon');
       setSessionExpired(false);
       setRole(null);
-      setCapabilities({ canReadAllCases: false, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false });
+      setCapabilities({ canReadAllCases: false, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false, canManageCases: false });
     }
   }, []);
 

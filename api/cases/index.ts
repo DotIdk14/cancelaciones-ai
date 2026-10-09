@@ -12,15 +12,16 @@ import { countCaseSummaryStatuses, createCase, listCaseSummaries, listCaseSummar
 import { caseToSummary } from '../../src/server/dto.js';
 import { assertCaseWriteCapability } from '../../src/server/auth.js';
 import { CASE_STATUSES } from '../../src/skills/audit/types.js';
+import { capabilitiesForRole } from '../../src/server/capabilities.js';
 
 // GET  /api/cases            → { cases: CaseSummary[] }
-// POST /api/cases { studentIdentifier?, isTest? } → 201 { case: CaseSummary }
+// POST /api/cases { studentIdentifier?, studentName? } → 201 { case: CaseSummary }
 //
 // El alcance de la lectura lo aplica `listCaseSummaries` desde las capacidades
 // del rol (Asesor: solo propios; Coordinador/Gerente: todos).
 //
 // El cuerpo es ESTRICTO: rechaza cualquier campo que no sea `studentIdentifier` o
-// `isTest`, de modo que un `created_by`, `role` o `actor` inyectado por el cliente
+// `studentName`, de modo que un `created_by`, `role`, `actor` o `isTest` del cliente
 // no puede falsificar la propiedad ni el rol. El autor SIEMPRE es `req.auth`.
 //
 // `isTest` es un booleano de verdad: `z.boolean()` NO coacciona, así que `"true"`,
@@ -32,7 +33,7 @@ const CreateCaseBodySchema = z
     // previo (se trimea y se recorta a 200; un valor no-string se ignora), pero
     // la clave sigue estando permitida para que `.strict()` no la rechace.
     studentIdentifier: z.unknown().optional(),
-    isTest: z.boolean().optional(),
+    studentName: z.unknown().optional(),
   })
   .strict();
 
@@ -89,11 +90,13 @@ export default handleRoute(async (req, res) => {
         ? Buffer.from(JSON.stringify({ offset: offset + limit, snapshot, limit, ...(status ? { status } : {}) })).toString('base64url')
         : null;
       const statusCounts = cursor ? undefined : await countCaseSummaryStatuses(client, req.auth!);
-      ok(res, { cases: cases.map(caseToSummary), nextCursor, statusCounts });
+      const canManageCases = capabilitiesForRole(req.auth!.role).canManageCases;
+      ok(res, { cases: cases.map((row) => caseToSummary(row, canManageCases)), nextCursor, statusCounts });
       return;
     }
     const rows = await listCaseSummaries(client, req.auth!);
-    ok(res, { cases: rows.map(caseToSummary) });
+    const canManageCases = capabilitiesForRole(req.auth!.role).canManageCases;
+    ok(res, { cases: rows.map((row) => caseToSummary(row, canManageCases)) });
     return;
   }
 
@@ -113,18 +116,19 @@ export default handleRoute(async (req, res) => {
     if (!parsed.success) {
       const detail = parsed.error.issues
         .slice(0, 3)
-        .map((issue) => `${issue.path.join('.') || 'isTest'}: ${issue.message}`)
+        .map((issue) => `${issue.path.join('.') || 'studentName'}: ${issue.message}`)
         .join(' | ');
       throw new ApiError(400, 'VALIDATION_ERROR', `VALIDATION_ERROR: ${detail}`);
     }
 
     const rawIdentifier = typeof parsed.data.studentIdentifier === 'string' ? parsed.data.studentIdentifier.trim() : '';
     const studentIdentifier = rawIdentifier.length > 0 ? rawIdentifier.slice(0, 200) : null;
-    const isTest = parsed.data.isTest ?? false;
+    const rawName = typeof parsed.data.studentName === 'string' ? parsed.data.studentName.trim() : '';
+    const studentName = rawName.length > 0 ? rawName.slice(0, 200) : null;
 
     const client = createServerClient();
-    const row = await createCase(client, studentIdentifier, req.auth!.sub, isTest);
-    created(res, { case: caseToSummary({ ...row, evidence: [] }) });
+    const row = await createCase(client, studentIdentifier, studentName, req.auth!.sub);
+    created(res, { case: caseToSummary({ ...row, evidence: [] }, capabilitiesForRole(req.auth!.role).canManageCases) });
     return;
   }
 

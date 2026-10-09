@@ -18,6 +18,7 @@ export interface CaseRow {
   id: string;
   status: CaseStatus;
   student_identifier: string | null;
+  student_name?: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -106,16 +107,66 @@ function dbError(error: unknown, fallback: ErrorCategory = 'DATABASE_ERROR'): ne
 export async function createCase(
   client: InsForgeClient,
   studentIdentifier: string | null,
+  studentName: string | null,
   createdBy: string,
-  isTest = false,
 ): Promise<CaseRow> {
   const { data, error } = await client.database
     .from('cases')
-    .insert([{ status: 'DRAFT', student_identifier: studentIdentifier, created_by: createdBy, is_test: isTest }])
+    .insert([{ status: 'DRAFT', student_identifier: studentIdentifier, student_name: studentName, created_by: createdBy, is_test: false }])
     .select()
     .single();
   if (error || !data) dbError(error);
   return data as CaseRow;
+}
+
+/** Actualiza la clasificación operativa desde la capacidad administrativa. */
+export async function setCaseTestFlag(client: InsForgeClient, caseId: string, isTest: boolean): Promise<void> {
+  const { error } = await client.database.from('cases').update({ is_test: isTest }).eq('id', caseId);
+  if (error) dbError(error);
+}
+
+/** Borra un borrador solo cuando está realmente vacío y nunca fue auditado. */
+export async function deleteUnusedDraftCase(client: InsForgeClient, caseId: string): Promise<void> {
+  const [
+    { data: evidence, error: evidenceError },
+    { data: audits, error: auditsError },
+    { data: reviews, error: reviewsError },
+    { data: comments, error: commentsError },
+  ] = await Promise.all([
+    client.database.from('evidence').select('id').eq('case_id', caseId).limit(1),
+    client.database.from('audits').select('id').eq('case_id', caseId).limit(1),
+    client.database.from('case_reviews').select('id').eq('case_id', caseId).limit(1),
+    client.database.from('case_area_comments').select('id').eq('case_id', caseId).limit(1),
+  ]);
+  if (evidenceError || auditsError || reviewsError || commentsError) {
+    dbError(evidenceError ?? auditsError ?? reviewsError ?? commentsError);
+  }
+  if ((evidence?.length ?? 0) > 0 || (audits?.length ?? 0) > 0 || (reviews?.length ?? 0) > 0 || (comments?.length ?? 0) > 0) {
+    throw new ApiError(409, 'VALIDATION_ERROR', 'Solo se pueden borrar borradores sin actividad ni evidencias');
+  }
+  const { error } = await client.database.from('cases').delete().eq('id', caseId);
+  if (error) dbError(error);
+}
+
+/** Elimina un intento de auditoría sin revisión humana asociada. */
+export async function deleteUnreviewedAudit(client: InsForgeClient, caseId: string, auditId: string): Promise<void> {
+  const [
+    { data: audit, error: auditError },
+    { data: review, error: reviewError },
+    { data: comparison, error: comparisonError },
+  ] = await Promise.all([
+    client.database.from('audits').select('id,status').eq('id', auditId).eq('case_id', caseId).limit(1),
+    client.database.from('case_reviews').select('id').eq('audit_id', auditId).limit(1),
+    client.database.from('case_comparisons').select('id').eq('audit_id', auditId).limit(1),
+  ]);
+  if (auditError || reviewError || comparisonError) dbError(auditError ?? reviewError ?? comparisonError);
+  if (!audit || audit.length === 0) throw new ApiError(404, 'NOT_FOUND', 'Dictamen no encontrado');
+  if (audit[0]?.status === 'RUNNING') throw new ApiError(409, 'VALIDATION_ERROR', 'No se puede borrar una auditoría en curso');
+  if ((review?.length ?? 0) > 0 || (comparison?.length ?? 0) > 0) {
+    throw new ApiError(409, 'VALIDATION_ERROR', 'No se puede borrar un dictamen con revisión o comparación humana');
+  }
+  const { error } = await client.database.from('audits').delete().eq('id', auditId).eq('case_id', caseId);
+  if (error) dbError(error);
 }
 
 async function enrichCaseSummaries(

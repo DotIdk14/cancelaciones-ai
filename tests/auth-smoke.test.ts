@@ -72,7 +72,7 @@ describe('refreshSession devuelve el rol que resolvió el servidor', () => {
       vi.fn(async () => jsonResponse(200, { ok: true, role: 'user' })),
     );
 
-    await expect(refreshSession()).resolves.toEqual({ role: 'user', capabilities: { canReadAllCases: false, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false } } satisfies SessionSnapshot);
+    await expect(refreshSession()).resolves.toEqual({ role: 'user', capabilities: { canReadAllCases: false, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false, canManageCases: false } } satisfies SessionSnapshot);
   });
 
   it('200 con role=manager llega tal cual, sin traducción a etiqueta', async () => {
@@ -81,15 +81,15 @@ describe('refreshSession devuelve el rol que resolvió el servidor', () => {
       vi.fn(async () => jsonResponse(200, { ok: true, role: 'manager' })),
     );
 
-    await expect(refreshSession()).resolves.toEqual({ role: 'manager', capabilities: { canReadAllCases: false, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false } });
+    await expect(refreshSession()).resolves.toEqual({ role: 'manager', capabilities: { canReadAllCases: false, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false, canManageCases: false } });
   });
 
   it('200 sin rol (o con un rol desconocido) deja el rol en null, no crea capacidades', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(200, { ok: true })));
-    await expect(refreshSession()).resolves.toEqual({ role: null, capabilities: { canReadAllCases: false, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false } });
+    await expect(refreshSession()).resolves.toEqual({ role: null, capabilities: { canReadAllCases: false, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false, canManageCases: false } });
 
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(200, { ok: true, role: 'admin' })));
-    await expect(refreshSession()).resolves.toEqual({ role: null, capabilities: { canReadAllCases: false, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false } });
+    await expect(refreshSession()).resolves.toEqual({ role: null, capabilities: { canReadAllCases: false, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false, canManageCases: false } });
   });
 
   it('401 (sin sesión) devuelve null, igual que antes del contrato de roles', async () => {

@@ -315,15 +315,44 @@ export async function listCaseSummaries(
 export async function createCase(
   _client: unknown,
   studentIdentifier: string | null,
+  studentName: string | null,
   createdBy?: string,
-  isTest = false,
 ): Promise<CaseRow> {
   return seedCase({
     id: nextId('case'),
     created_by: createdBy ?? null,
     student_identifier: studentIdentifier,
-    is_test: isTest,
+    student_name: studentName,
+    is_test: false,
   });
+}
+
+export async function setCaseTestFlag(_client: unknown, caseId: string, isTest: boolean): Promise<void> {
+  const row = caseRows.find((item) => item.id === caseId);
+  if (!row) throw new ApiError(404, 'NOT_FOUND', 'Caso no encontrado');
+  row.is_test = isTest;
+}
+
+export async function deleteUnusedDraftCase(_client: unknown, caseId: string): Promise<void> {
+  const row = caseRows.find((item) => item.id === caseId);
+  if (!row) throw new ApiError(404, 'NOT_FOUND', 'Caso no encontrado');
+  if (
+    evidenceRows.some((item) => item.case_id === caseId) ||
+    auditRows.some((item) => item.case_id === caseId) ||
+    reviewRows.some((item) => item.case_id === caseId) ||
+    comparisonRows.some((item) => item.case_id === caseId)
+  ) {
+    throw new ApiError(409, 'VALIDATION_ERROR', 'Solo se pueden borrar borradores sin actividad ni evidencias');
+  }
+  caseRows.splice(caseRows.indexOf(row), 1);
+}
+
+export async function deleteUnreviewedAudit(_client: unknown, caseId: string, auditId: string): Promise<void> {
+  const row = auditRows.find((item) => item.id === auditId && item.case_id === caseId);
+  if (!row) throw new ApiError(404, 'NOT_FOUND', 'Dictamen no encontrado');
+  if (row.status === 'RUNNING') throw new ApiError(409, 'VALIDATION_ERROR', 'No se puede borrar una auditoría en curso');
+  if (reviewRows.some((review) => review.audit_id === auditId)) throw new ApiError(409, 'VALIDATION_ERROR', 'No se puede borrar un dictamen con revisión humana');
+  auditRows.splice(auditRows.indexOf(row), 1);
 }
 
 export async function listEvidenceRows(_client: unknown, caseId: string): Promise<EvidenceRow[]> {

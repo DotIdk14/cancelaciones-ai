@@ -15,6 +15,7 @@ export interface CaseSummaryDto {
   id: string;
   status: CaseRow['status'];
   studentIdentifier: string | null;
+  studentName: string | null;
   evidenceCount: number;
   createdAt: string;
   updatedAt: string;
@@ -28,17 +29,22 @@ export interface CaseSummaryDto {
    * el dictamen).
    */
   isTest: boolean;
+  canManageCases: boolean;
+  auditId: string | null;
+  auditHasHumanReview: boolean;
 }
 
 export interface CaseDetailDto {
   id: string;
   status: CaseRow['status'];
   studentIdentifier: string | null;
+  studentName: string | null;
   createdAt: string;
   updatedAt: string;
   isTest: boolean;
   /** Capacidad efectiva para mutar este caso, resuelta por rol y propiedad. */
   canWrite: boolean;
+  canManageCases: boolean;
   /**
    * Fecha de inicio de clases aportada por una persona, con su procedencia.
    *
@@ -192,12 +198,13 @@ export interface EffectiveResolution {
   source: 'HUMAN' | 'AI';
 }
 
-export function caseToSummary(row: CaseSummaryRow): CaseSummaryDto {
+export function caseToSummary(row: CaseSummaryRow, canManageCases = false): CaseSummaryDto {
   const count = row.evidence?.[0]?.count ?? 0;
   return {
     id: row.id,
     status: row.status,
     studentIdentifier: row.student_identifier,
+    studentName: row.student_name ?? null,
     evidenceCount: count,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -210,18 +217,23 @@ export function caseToSummary(row: CaseSummaryRow): CaseSummaryDto {
     // que el listado siga funcionando si la migración aún no está aplicada, y el
     // default de la columna es `false` (real).
     isTest: row.is_test ?? false,
+    canManageCases,
+    auditId: row.audit?.id ?? null,
+    auditHasHumanReview: row.audit !== undefined && row.audit !== null && row.review?.audit_id === row.audit.id,
   };
 }
 
-export function caseToDetail(row: CaseRow, canWrite = false): CaseDetailDto {
+export function caseToDetail(row: CaseRow, canWrite = false, canManageCases = false): CaseDetailDto {
   return {
     id: row.id,
     status: row.status,
     studentIdentifier: row.student_identifier,
+    studentName: row.student_name ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     isTest: row.is_test ?? false,
     canWrite,
+    canManageCases,
     // `?? null` y no el valor directo: las columnas son opcionales en `CaseRow`
     // para que el `select('*')` siga funcionando si la migración aún no está
     // aplicada, y una columna ausente no es lo mismo que un `NULL` explícito

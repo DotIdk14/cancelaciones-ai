@@ -71,3 +71,4 @@ migrations/20260930010000_human-resolution.sql
 .superpowers/
 windows-network-node-forensic-report.md
 .env*
+.aider*

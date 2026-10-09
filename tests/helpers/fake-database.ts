@@ -11,7 +11,7 @@
 import type { InsForgeClient } from '../../src/server/insforge';
 
 type Row = Record<string, unknown>;
-type Op = 'select' | 'insert' | 'update' | 'upsert';
+type Op = 'select' | 'insert' | 'update' | 'delete' | 'upsert';
 type QueryResult = { data: Row[] | Row | null; error: null };
 
 class FakeQuery implements PromiseLike<QueryResult> {
@@ -39,6 +39,10 @@ class FakeQuery implements PromiseLike<QueryResult> {
 
   update(patch: Row): FakeQuery {
     return new FakeQuery(this.db, this.table, 'update', null, patch);
+  }
+
+  delete(): FakeQuery {
+    return new FakeQuery(this.db, this.table, 'delete');
   }
 
   /**
@@ -146,6 +150,14 @@ class FakeQuery implements PromiseLike<QueryResult> {
 
     if (this.op === 'update') {
       for (const row of rows) Object.assign(row, this.patch ?? {});
+    }
+
+    if (this.op === 'delete') {
+      const tableRows = this.db.rows(this.table);
+      for (const row of rows) {
+        const index = tableRows.indexOf(row);
+        if (index >= 0) tableRows.splice(index, 1);
+      }
     }
 
     for (const [column, ascending] of [...this.orders].reverse()) {

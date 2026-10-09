@@ -32,7 +32,7 @@ import { isLocalDashboardPreview } from '../lib/local-dashboard-preview';
 import { getLocalPreviewCases, localPreviewCaseLabel } from '../lib/local-ui-preview';
 import { goToCase } from '../lib/useHashRoute';
 import { useEvidenceUpload } from '../lib/useEvidenceUpload';
-import { AREA_COMMENT_LABELS, CASE_KIND_LABELS, CASE_STATUS_LABELS, CASE_STATUS_TONE, EVIDENCE_ACCEPT } from '../lib/labels';
+import { AREA_COMMENT_LABELS, CASE_STATUS_LABELS, CASE_STATUS_TONE, EVIDENCE_ACCEPT } from '../lib/labels';
 import { formatBytes, formatDateTime } from '../lib/format';
 import { Badge, Button, ErrorCard, Panel } from './ui';
 
@@ -147,8 +147,7 @@ function NewCaseForm(): ReactNode {
   const notesErrorId = `${formId}-notes-error`;
 
   const [studentIdentifier, setStudentIdentifier] = useState('');
-  /** Clasificación explícita del caso: `false` = real (default), `true` = prueba. */
-  const [isTest, setIsTest] = useState(false);
+  const [studentName, setStudentName] = useState('');
   /**
    * Archivos elegidos y AÚN NO SUBIDOS CON ÉXITO, cada uno con su estado.
    *
@@ -261,7 +260,10 @@ function NewCaseForm(): ReactNode {
     setCreating(true);
     setCreateError(null);
     try {
-      const created = await createCase(studentIdentifier.trim() === '' ? undefined : studentIdentifier.trim(), isTest);
+      const created = await createCase(
+        studentIdentifier.trim() === '' ? undefined : studentIdentifier.trim(),
+        studentName.trim() === '' ? undefined : studentName.trim(),
+      );
       setCaseId(created.id);
       return created.id;
     } catch (cause) {
@@ -353,12 +355,12 @@ function NewCaseForm(): ReactNode {
         <div className="flex flex-col gap-4">
           <Panel
             title={<span className="inline-flex items-center gap-2"><FilePlus2 size={18} aria-hidden="true" />Información del caso</span>}
-            description="El identificador es opcional y puede añadirse después."
+            description="Captura matrícula y nombre para identificar el expediente."
           >
             <form onSubmit={(event) => void handleCreate(event)} className="flex flex-col gap-4" noValidate>
               <div>
                 <label htmlFor={identifierId} className="mb-1.5 block text-sm font-medium text-ink">
-                  Matrícula o identificador del estudiante
+                  Matrícula del estudiante
                 </label>
                 <input
                   id={identifierId}
@@ -371,52 +373,25 @@ function NewCaseForm(): ReactNode {
                   className="w-full rounded-lg border border-line bg-surface-2 px-3 py-2.5 text-sm text-ink placeholder:text-muted"
                 />
                 <p id={`${formId}-hint`} className="mt-1.5 text-xs text-muted">
-                  Si todavía no tienes este dato, puedes continuar sin él.
+                  La matrícula puede añadirse después si aún no la tienes.
                 </p>
               </div>
 
-              {/*
-                El `fieldset` + `legend` ya dan el nombre y la agrupación del
-                conjunto de radios. Un `role="radiogroup"` anidado quedaba sin
-                nombre accesible y duplicaba ese grupo, así que se eliminó: la
-                descripción se asocia al propio `fieldset`.
-              */}
-              <fieldset className="flex flex-col gap-2" aria-describedby={`${formId}-kind-hint`}>
-                <legend className="text-sm font-medium text-ink">Clasificación del caso</legend>
-                <p id={`${formId}-kind-hint`} className="text-xs text-muted">
-                  Marca «Prueba» para datos de demostración o pruebas. Los casos de prueba no cuentan en
-                  las métricas operativas.
-                </p>
-                <div className="flex flex-wrap gap-3">
-                  {([
-                    { value: false, label: CASE_KIND_LABELS.real },
-                    { value: true, label: CASE_KIND_LABELS.test },
-                  ] as const).map((option) => {
-                    const inputId = `${formId}-kind-${option.value ? 'test' : 'real'}`;
-                    const selected = isTest === option.value;
-                    return (
-                      <label
-                        key={inputId}
-                        htmlFor={inputId}
-                        className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
-                          selected ? 'border-brand/50 bg-brand/5 text-ink' : 'border-line bg-surface-2 text-muted'
-                        }`}
-                      >
-                        <input
-                          id={inputId}
-                          type="radio"
-                          name="caseKind"
-                          value={option.value ? 'test' : 'real'}
-                          checked={selected}
-                          onChange={() => setIsTest(option.value)}
-                          className="h-4 w-4 accent-brand"
-                        />
-                        {option.label}
-                      </label>
-                    );
-                  })}
-                </div>
-              </fieldset>
+              <div>
+                <label htmlFor={`${formId}-student-name`} className="mb-1.5 block text-sm font-medium text-ink">
+                  Nombre del estudiante
+                </label>
+                <input
+                  id={`${formId}-student-name`}
+                  name="studentName"
+                  type="text"
+                  value={studentName}
+                  onChange={(event) => setStudentName(event.target.value)}
+                  placeholder="Ej. Andrea López García"
+                  maxLength={200}
+                  className="w-full rounded-lg border border-line bg-surface-2 px-3 py-2.5 text-sm text-ink placeholder:text-muted"
+                />
+              </div>
 
               {createError !== null && <ErrorCard message={createError} />}
 

@@ -51,7 +51,7 @@ const ROLES: AppRole[] = ['user', 'coordinator', 'manager'];
 //
 // `user` es el identificador PERSISTIDO en `app_memberships` y se presenta como
 // "Asesor". El rol se resuelve una sola vez en el servidor y de él se derivan
-// las cuatro capacidades del contrato (`capabilitiesForRole`); ningún endpoint
+// las capacidades del contrato (`capabilitiesForRole`); ningún endpoint
 // decide con un `if (role === ...)` repartido. Un rol que no resuelve se trata
 // como DENEGADO, nunca como un rol con más privilegios.
 // -----------------------------------------------------------------------------

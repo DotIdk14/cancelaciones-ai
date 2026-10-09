@@ -6,11 +6,11 @@
 import type { KeyboardEvent, ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowRight, CircleCheck, FileText, Files, Search, TriangleAlert } from 'lucide-react';
-import { listCasePage, toErrorState } from '../lib/api';
+import { deleteCaseAudit, deleteCaseDraft, listCasePage, setCaseTestFlag, toErrorState } from '../lib/api';
 import type { CaseSummary } from '../lib/api';
 import { formatDateTime, shortId } from '../lib/format';
 import { isLocalDashboardPreview } from '../lib/local-dashboard-preview';
-import { getLocalPreviewCases, localPreviewCaseLabel } from '../lib/local-ui-preview';
+import { getLocalPreviewCases } from '../lib/local-ui-preview';
 import {
   CASE_STATUS_LABELS,
   CASE_STATUS_TONE,
@@ -75,6 +75,8 @@ export function CasesPanel(): ReactNode {
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<CaseStatus | 'ALL'>('ALL');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [adminPending, setAdminPending] = useState(false);
+  const [adminError, setAdminError] = useState<string | null>(null);
   const requestId = useRef(0);
 
   const load = useCallback(async (): Promise<void> => {
@@ -185,6 +187,29 @@ export function CasesPanel(): ReactNode {
 
   const selectedCase = filteredCases.find((item) => item.id === selectedId) ?? filteredCases[0] ?? null;
 
+  async function runAdminAction(action: 'toggle-test' | 'delete-draft' | 'delete-audit'): Promise<void> {
+    if (!selectedCase?.canManageCases || adminPending) return;
+    const question = action === 'delete-draft'
+      ? '¿Borrar este borrador sin evidencias?'
+      : action === 'delete-audit'
+        ? '¿Borrar este dictamen de forma permanente?'
+        : null;
+    if (question && !window.confirm(question)) return;
+    setAdminPending(true);
+    setAdminError(null);
+    try {
+      if (action === 'toggle-test') await setCaseTestFlag(selectedCase.id, !selectedCase.isTest);
+      if (action === 'delete-draft') await deleteCaseDraft(selectedCase.id);
+      if (action === 'delete-audit' && selectedCase.auditId) await deleteCaseAudit(selectedCase.id, selectedCase.auditId);
+      if (action === 'delete-draft') setSelectedId(null);
+      await load();
+    } catch (error) {
+      setAdminError(toErrorState(error).message);
+    } finally {
+      setAdminPending(false);
+    }
+  }
+
   return (
     <div className="case-list-page flex flex-col gap-5">
       <header className="flex flex-wrap items-end justify-between gap-3">
@@ -241,8 +266,7 @@ export function CasesPanel(): ReactNode {
             <table className="case-table">
               <thead>
                 <tr>
-                  <th scope="col">Expediente / caso</th>
-                  <th scope="col">Estudiante</th>
+                  <th scope="col">Caso</th>
                   <th scope="col">Evidencias</th>
                   <th scope="col">Dictamen vigente</th>
                   <th scope="col">Estado</th>
@@ -262,8 +286,10 @@ export function CasesPanel(): ReactNode {
                       onClick={() => setSelectedId(item.id)}
                       onKeyDown={(event) => selectOnKeyboard(event, () => setSelectedId(item.id))}
                     >
-                      <td><span className="font-mono text-sm font-semibold">{preview ? localPreviewCaseLabel(item.id) : shortId(item.id)}</span><span className="case-cell-secondary">Creado {formatDateTime(item.createdAt)}</span></td>
-                      <td>{item.studentIdentifier ? <><span>{item.studentIdentifier}</span><span className="case-cell-secondary">Identificador</span></> : <span className="text-muted">Sin identificar</span>}</td>
+                      <td>
+                        <span className="text-sm font-semibold">{item.studentIdentifier || 'Sin matrícula'}{item.studentName ? ` · ${item.studentName}` : ''}</span>
+                        <span className="case-cell-secondary">{item.studentName ? `Matrícula ${item.studentIdentifier || 'sin capturar'}` : 'Nombre pendiente'} · Creado {formatDateTime(item.createdAt)}</span>
+                      </td>
                       <td><span className="inline-flex items-center gap-1.5"><FileText size={15} aria-hidden="true" />{item.evidenceCount}</span></td>
                       <td>{resolution ? <><Badge tone={resolutionTone(resolution.result)}>{resolutionLabel(resolution.result)}</Badge><span className="case-cell-secondary">{RESOLUTION_SOURCE_LABELS[resolution.source]}</span></> : <span className="text-muted">Sin dictamen</span>}</td>
                       <td>
@@ -286,10 +312,10 @@ export function CasesPanel(): ReactNode {
                 <Badge tone={CASE_STATUS_TONE[selectedCase.status]}>{CASE_STATUS_LABELS[selectedCase.status]}</Badge>
                 <span className="text-xs text-muted">{formatDateTime(selectedCase.updatedAt)}</span>
               </div>
-              <h2 className="mt-3 font-mono text-lg font-semibold">{preview ? localPreviewCaseLabel(selectedCase.id) : shortId(selectedCase.id)}</h2>
+              <h2 className="mt-3 text-lg font-semibold">{selectedCase.studentIdentifier || 'Sin matrícula'}{selectedCase.studentName ? ` · ${selectedCase.studentName}` : ''}</h2>
               <div className="mt-4 border-y border-line py-3">
-                <p className="text-sm font-medium">{selectedCase.studentIdentifier || 'Estudiante sin identificar'}</p>
-                {selectedCase.studentIdentifier && <p className="mt-1 text-xs text-muted">Identificador</p>}
+                <p className="text-sm font-medium">{selectedCase.studentName || 'Nombre pendiente de capturar'}</p>
+                {selectedCase.studentIdentifier && <p className="mt-1 text-xs text-muted">Matrícula {selectedCase.studentIdentifier}</p>}
               </div>
               <dl className="mt-4 flex flex-col gap-3 text-sm">
                 <div className="flex justify-between gap-3"><dt className="text-muted">Evidencias</dt><dd>{selectedCase.evidenceCount}</dd></div>
@@ -297,6 +323,27 @@ export function CasesPanel(): ReactNode {
                 <div className="flex justify-between gap-3"><dt className="text-muted">Dictamen vigente</dt><dd className="max-w-[65%] text-right">{selectedCase.effectiveResolution ? resolutionLabel(selectedCase.effectiveResolution.result) : selectedCase.auditIsCurrent === false ? 'Dictamen IA desactualizado' : 'Sin dictamen'}</dd></div>
                 {selectedCase.effectiveResolution && <div className="flex justify-between gap-3"><dt className="text-muted">Origen</dt><dd title={RESOLUTION_SOURCE_DESCRIPTIONS[selectedCase.effectiveResolution.source]}>{RESOLUTION_SOURCE_LABELS[selectedCase.effectiveResolution.source]}</dd></div>}
               </dl>
+              {selectedCase.canManageCases && !preview && (
+                <div className="mt-5 border-t border-line pt-4">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Administración</p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button variant="secondary" disabled={adminPending} onClick={() => void runAdminAction('toggle-test')}>
+                      {adminPending ? 'Guardando…' : selectedCase.isTest ? 'Marcar como real' : 'Marcar como prueba'}
+                    </Button>
+                    {selectedCase.status === 'DRAFT' && selectedCase.evidenceCount === 0 && (
+                      <Button variant="secondary" disabled={adminPending} onClick={() => void runAdminAction('delete-draft')}>
+                        Borrar borrador
+                      </Button>
+                    )}
+                    {selectedCase.auditId && !selectedCase.auditHasHumanReview && (
+                      <Button variant="secondary" disabled={adminPending} onClick={() => void runAdminAction('delete-audit')}>
+                        Borrar dictamen
+                      </Button>
+                    )}
+                  </div>
+                  {adminError && <p role="alert" className="mt-2 text-sm text-danger">{adminError}</p>}
+                </div>
+              )}
               <a className="case-open-link mt-5" href={`#/casos/${encodeURIComponent(selectedCase.id)}`}>
                 Abrir expediente <ArrowRight size={16} aria-hidden="true" />
               </a>

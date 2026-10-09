@@ -35,6 +35,7 @@ export interface CaseSummary {
   id: string;
   status: CaseStatus;
   studentIdentifier: string | null;
+  studentName?: string | null;
   evidenceCount: number;
   createdAt: string;
   updatedAt: string;
@@ -57,12 +58,16 @@ export interface CaseSummary {
    * actual siempre la emite.
    */
   isTest?: boolean;
+  canManageCases?: boolean;
+  auditId?: string | null;
+  auditHasHumanReview?: boolean;
 }
 
 export interface CaseDetail {
   id: string;
   status: CaseStatus;
   studentIdentifier: string | null;
+  studentName?: string | null;
   createdAt: string;
   updatedAt: string;
   /**
@@ -80,6 +85,7 @@ export interface CaseDetail {
   isTest?: boolean;
   /** Capacidad efectiva para mutar este expediente, resuelta por el servidor. */
   canWrite?: boolean;
+  canManageCases?: boolean;
 }
 
 export interface CaseSummaryPage {
@@ -492,7 +498,7 @@ export async function listCasePage(options: {
   return request<CaseSummaryPage>(`/api/cases?${params.toString()}`, {}, [200]);
 }
 
-export async function createCase(studentIdentifier?: string, isTest = false): Promise<CaseSummary> {
+export async function createCase(studentIdentifier?: string, studentName?: string): Promise<CaseSummary> {
   const data = await request<{ case: CaseSummary }>(
     '/api/cases',
     {
@@ -500,12 +506,35 @@ export async function createCase(studentIdentifier?: string, isTest = false): Pr
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         ...(studentIdentifier ? { studentIdentifier } : {}),
-        isTest,
+        ...(studentName ? { studentName } : {}),
       }),
     },
     [200, 201],
   );
   return data.case;
+}
+
+export async function setCaseTestFlag(caseId: string, isTest: boolean): Promise<CaseDetail> {
+  const data = await request<{ case: CaseDetail }>(casePath(caseId), {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ isTest }),
+  }, [200]);
+  return data.case;
+}
+
+export async function deleteCaseDraft(caseId: string): Promise<void> {
+  await request<{ deleted: true }>(casePath(caseId), {
+    method: 'DELETE', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ target: 'draft' }),
+  }, [200]);
+}
+
+export async function deleteCaseAudit(caseId: string, auditId: string): Promise<void> {
+  await request<{ deleted: true }>(casePath(caseId), {
+    method: 'DELETE', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ target: 'audit', auditId }),
+  }, [200]);
 }
 
 export async function getCase(caseId: string): Promise<CaseDetailResponse> {
@@ -790,6 +819,7 @@ export interface SessionSnapshot {
     canReviewOwnCases: boolean;
     canFinalizeAnyCase: boolean;
     canWriteOwnedCases: boolean;
+    canManageCases: boolean;
   };
 }
 
@@ -824,8 +854,9 @@ export async function refreshSession(): Promise<SessionSnapshot | null> {
       canReviewOwnCases: caps?.canReviewOwnCases === true,
       canFinalizeAnyCase: caps?.canFinalizeAnyCase === true,
       canWriteOwnedCases: caps?.canWriteOwnedCases === true,
+      canManageCases: caps?.canManageCases === true,
     } };
   } catch {
-    return { role: null, capabilities: { canReadAllCases: false, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false } };
+    return { role: null, capabilities: { canReadAllCases: false, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false, canManageCases: false } };
   }
 }

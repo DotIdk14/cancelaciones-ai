@@ -157,17 +157,18 @@ async function listFor(role: 'user' | 'coordinator' | 'manager'): Promise<unknow
   return storeListCaseSummaries(undefined, fakeAuthContext(role));
 }
 
-describe('POST /api/cases — isTest estricto, alcance y capacidad', () => {
-  it('un isTest booleano se persiste y se expone en el summary', async () => {
+describe('POST /api/cases — nombre de estudiante y clasificación protegida', () => {
+  it('persiste matrícula y nombre; el caso nuevo siempre es real', async () => {
     const res = makeApiResponse();
-    await casesHandler(makeApiRequest('POST', {}, { isTest: true }), res);
+    await casesHandler(makeApiRequest('POST', {}, { studentIdentifier: '202312345', studentName: 'Andrea López' }), res);
 
     expect(res.statusCode).toBe(201);
-    expect((JSON.parse(res.body) as { case: { isTest: boolean } }).case.isTest).toBe(true);
+    expect((JSON.parse(res.body) as { case: { isTest: boolean; studentIdentifier: string; studentName: string } }).case)
+      .toMatchObject({ isTest: false, studentIdentifier: '202312345', studentName: 'Andrea López' });
 
     const rows = await listFor('manager');
     expect(rows).toHaveLength(1);
-    expect((rows[0] as { is_test: boolean }).is_test).toBe(true);
+    expect(rows[0] as { is_test: boolean; student_name: string }).toMatchObject({ is_test: false, student_name: 'Andrea López' });
   });
 
   it('omitir isTest crea un caso REAL (false)', async () => {
@@ -179,16 +180,16 @@ describe('POST /api/cases — isTest estricto, alcance y capacidad', () => {
     expect((await listFor('manager'))[0] as { is_test: boolean }).toMatchObject({ is_test: false });
   });
 
-  it('rechaza "true" (texto) con 400 y NO crea nada', async () => {
+  it('rechaza isTest enviado por cliente incluso cuando es booleano', async () => {
     const res = makeApiResponse();
-    await casesHandler(makeApiRequest('POST', {}, { isTest: 'true' }), res);
+    await casesHandler(makeApiRequest('POST', {}, { isTest: true }), res);
 
     expect(res.statusCode).toBe(400);
     expect((JSON.parse(res.body) as { error: { category: string } }).error.category).toBe('VALIDATION_ERROR');
     expect(await listFor('manager')).toHaveLength(0);
   });
 
-  it('rechaza 1 (número) con 400 y NO crea nada', async () => {
+  it('rechaza cualquier forma de isTest enviado por cliente', async () => {
     const res = makeApiResponse();
     await casesHandler(makeApiRequest('POST', {}, { isTest: 1 }), res);
 
@@ -205,7 +206,7 @@ describe('POST /api/cases — isTest estricto, alcance y capacidad', () => {
     expect(await listFor('manager')).toHaveLength(0);
   });
 
-  it('un Gerente recibe 403 y NO crea el caso (solo lectura global)', async () => {
+  it('un Gerente sigue sin poder crear casos', async () => {
     const res = makeApiResponse();
     await casesHandler(makeApiRequest('POST', {}, { isTest: false }, fakeAuthContext('manager')), res);
 

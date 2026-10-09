@@ -206,7 +206,7 @@ describe('NewCasePanel · alta con evidencia obligatoria', () => {
     const calls = stubApp();
     render(<NewCasePanel canWrite />);
 
-    await userEvent.type(screen.getByLabelText(/matrícula o identificador/i), '202312345');
+    await userEvent.type(screen.getByLabelText(/matrícula del estudiante/i), '202312345');
     await selectEvidence('convocatoria.pdf');
     await submitCase();
 
@@ -534,7 +534,7 @@ describe('NewCasePanel · subida de evidencias', () => {
     const calls = stubApp({ create: () => SERVER_ERROR });
     render(<NewCasePanel canWrite />);
 
-    await userEvent.type(screen.getByLabelText(/matrícula o identificador/i), '202312345');
+    await userEvent.type(screen.getByLabelText(/matrícula del estudiante/i), '202312345');
     await selectEvidence('convocatoria.pdf');
     await submitCase();
 
@@ -542,7 +542,7 @@ describe('NewCasePanel · subida de evidencias', () => {
     // Nada se navega, nada se subió y todo sigue en el formulario.
     expect(currentHash()).toBe('');
     expect(calls.filter((call) => call.url.endsWith('/evidence'))).toHaveLength(0);
-    expect((screen.getByLabelText(/matrícula o identificador/i) as HTMLInputElement).value).toBe('202312345');
+    expect((screen.getByLabelText(/matrícula del estudiante/i) as HTMLInputElement).value).toBe('202312345');
     expect(screen.getByText('convocatoria.pdf')).toBeTruthy();
     // Se puede reintentar el alta sin perder lo capturado.
     expect((screen.getByRole('button', { name: /crear y abrir expediente/i }) as HTMLButtonElement).disabled).toBe(false);
@@ -753,7 +753,7 @@ describe('NewCasePanel · accesibilidad del formulario', () => {
     render(<NewCasePanel canWrite />);
 
     // Cada control tiene su etiqueta y su descripción.
-    const identifier = screen.getByLabelText(/matrícula o identificador/i);
+    const identifier = screen.getByLabelText(/matrícula del estudiante/i);
     expect(identifier).toBeTruthy();
     expect(identifier.getAttribute('aria-describedby')).toBeTruthy();
 
@@ -805,38 +805,23 @@ describe('NewCasePanel · gating por rol (solo presentación)', () => {
   });
 });
 
-describe('NewCasePanel · selector prueba/real', () => {
-  function createPayload(calls: RecordedCall[]): { isTest?: boolean } {
+describe('NewCasePanel · clasificación reservada para administración', () => {
+  function createPayload(calls: RecordedCall[]): Record<string, unknown> {
     const create = calls.find((call) => call.url === '/api/cases' && call.method === 'POST');
-    return JSON.parse(create?.payload ?? '{}') as { isTest?: boolean };
+    return JSON.parse(create?.payload ?? '{}') as Record<string, unknown>;
   }
 
-  it('envía isTest=true cuando se elige la clasificación Prueba', async () => {
+  it('no ofrece clasificación ni envía isTest al crear un caso', async () => {
     const calls = stubApp();
     render(<NewCasePanel canWrite />);
 
-    await userEvent.click(screen.getByRole('radio', { name: /prueba/i }));
+    expect(screen.queryByRole('radio', { name: /prueba|real/i })).toBeNull();
     await selectEvidence('convocatoria.pdf');
     await submitCase();
 
     await waitFor(() => {
       expect(calls.some((call) => call.url === '/api/cases' && call.method === 'POST')).toBe(true);
     });
-    expect(createPayload(calls)).toMatchObject({ isTest: true });
-  });
-
-  it('envía isTest=false cuando se deja la clasificación Real por defecto', async () => {
-    const calls = stubApp();
-    render(<NewCasePanel canWrite />);
-
-    // Sin tocar el selector, «Real» es la opción por defecto.
-    expect((screen.getByRole('radio', { name: /^real$/i }) as HTMLInputElement).checked).toBe(true);
-    await selectEvidence('convocatoria.pdf');
-    await submitCase();
-
-    await waitFor(() => {
-      expect(calls.some((call) => call.url === '/api/cases' && call.method === 'POST')).toBe(true);
-    });
-    expect(createPayload(calls)).toMatchObject({ isTest: false });
+    expect(createPayload(calls)).not.toHaveProperty('isTest');
   });
 });

@@ -127,7 +127,7 @@ function Shell({
   previewOnly = false,
   role = null,
   previewWorkflow = 'PENDING_COORDINATOR',
-  capabilities = { canReadAllCases: false, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false },
+  capabilities = { canReadAllCases: false, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false, canManageCases: false },
 }: {
   onSignOut?: () => void;
   previewOnly?: boolean;

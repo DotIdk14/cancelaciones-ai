@@ -22,7 +22,7 @@
 //   4. La marca de tiempo y el autor los pone el SERVIDOR: el cuerpo solo lleva
 //      la fecha y el nombre.
 //   5. HOBBY_FUNCTION_BUDGET: esto no es un archivo nuevo en `api/`, es el método
-//      `PATCH` de `GET`. Por eso el `Allow` dice `GET, PATCH`.
+//      `PATCH` y `DELETE` comparten `GET`. Por eso el `Allow` incluye los tres.
 //
 // Sobre `updated_at`: lo mueve el disparador `cases_set_updated_at` del baseline,
 // igual que en cualquier otra escritura sobre `cases` (ver la migración). El
@@ -511,15 +511,15 @@ describe('PATCH /api/cases/:id · guardar la fecha con autor y hora', () => {
 
 // -------------------------------------------------------------------- métodos
 
-describe('PATCH /api/cases/:id · no gasta una Function', () => {
-  it('un método que no es GET ni PATCH responde 405 con el Allow correcto', async () => {
+describe('/api/cases/:id · métodos consolidados en una Function', () => {
+  it('un método no admitido responde 405 con el Allow correcto', async () => {
     seedCase();
 
     const res = makeApiResponse();
-    await caseHandler(makeApiRequest({ method: 'DELETE', body: {} }), res);
+    await caseHandler(makeApiRequest({ method: 'POST', body: {} }), res);
 
     expect(res.statusCode).toBe(405);
-    expect(res.headers.Allow).toBe('GET, PATCH');
+    expect(res.headers.Allow).toBe('GET, PATCH, DELETE');
   });
 
   it('GET sigue funcionando: la ruta no se rompió al añadir PATCH', async () => {
@@ -529,6 +529,58 @@ describe('PATCH /api/cases/:id · no gasta una Function', () => {
     await caseHandler(makeApiRequest({ method: 'GET' }), res);
 
     expect(res.statusCode).toBe(200);
+  });
+});
+
+describe('PATCH y DELETE administrativos en /api/cases/:id', () => {
+  it('solo la capacidad de Gerencia puede clasificar el caso como prueba', async () => {
+    seedCase({ status: 'DRAFT' });
+    const denied = await patchCase({ isTest: true });
+    expect(denied.res.statusCode).toBe(403);
+    expect(casesRows()[0]?.is_test).toBeUndefined();
+
+    const allowed = await patchCase({ isTest: true }, { auth: fakeAuthContext('manager') });
+    expect(allowed.res.statusCode).toBe(200);
+    expect(casesRows()[0]?.is_test).toBe(true);
+  });
+
+  it('borra borradores vacíos y bloquea los que ya tienen evidencia', async () => {
+    seedCase({ status: 'DRAFT' });
+    const emptyDraft = makeApiResponse();
+    await caseHandler(makeApiRequest({ method: 'DELETE', body: { target: 'draft' }, auth: fakeAuthContext('manager') }), emptyDraft);
+    expect(emptyDraft.statusCode).toBe(200);
+    expect(casesRows()).toHaveLength(0);
+
+    seedCase({ id: 'case-with-evidence', status: 'DRAFT' });
+    db.seed('evidence', { id: 'evidence-1', case_id: 'case-with-evidence' });
+    const protectedDraft = makeApiResponse();
+    await caseHandler(makeApiRequest({ method: 'DELETE', query: { caseId: 'case-with-evidence' }, body: { target: 'draft' }, auth: fakeAuthContext('manager') }), protectedDraft);
+    expect(protectedDraft.statusCode).toBe(409);
+    expect(casesRows()).toHaveLength(1);
+  });
+
+  it('borra un dictamen sin revisión y conserva los dictámenes revisados', async () => {
+    seedCase();
+    db.seed('audits', { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', case_id: 'case-1', status: 'COMPLETED' });
+    const deleted = makeApiResponse();
+    await caseHandler(makeApiRequest({ method: 'DELETE', body: { target: 'audit', auditId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }, auth: fakeAuthContext('manager') }), deleted);
+    expect(deleted.statusCode).toBe(200);
+    expect(db.rows('audits')).toHaveLength(0);
+
+    db.seed('audits', { id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', case_id: 'case-1', status: 'COMPLETED' });
+    db.seed('case_reviews', { id: 'review-1', audit_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' });
+    const protectedAudit = makeApiResponse();
+    await caseHandler(makeApiRequest({ method: 'DELETE', body: { target: 'audit', auditId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }, auth: fakeAuthContext('manager') }), protectedAudit);
+    expect(protectedAudit.statusCode).toBe(409);
+    expect(db.rows('audits')).toHaveLength(1);
+  });
+
+  it('Asesor no puede borrar aunque tenga el caso propio', async () => {
+    seedCase({ status: 'DRAFT' });
+    const res = makeApiResponse();
+    await caseHandler(makeApiRequest({ method: 'DELETE', body: { target: 'draft' }, auth: fakeAuthContext('user') }), res);
+    expect(res.statusCode).toBe(403);
+    expect(casesRows()).toHaveLength(1);
   });
 });
 

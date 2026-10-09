@@ -5,10 +5,10 @@
 
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useState } from 'react';
-import { AudioLines, BookOpenCheck, Clock3, FileCheck2, FileText, Paperclip, Search } from 'lucide-react';
+import { BookOpenCheck, Clock3, FileCheck2, FileText, Paperclip, Search } from 'lucide-react';
 import { deleteEvidence, getAreaComments, getCase, toErrorState, workflowStateOf } from '../lib/api';
 import type { AppRole, AreaComment, CaseDetailResponse, ErrorState, Evidence, SessionSnapshot } from '../lib/api';
-import { formatDateTime, formatDuration, formatPercent, formatFactValue, shortId, textOrDash } from '../lib/format';
+import { formatDateTime, formatDuration, formatPercent, formatFactValue, textOrDash } from '../lib/format';
 import {
   CASE_STATUS_LABELS,
   CASE_STATUS_TONE,
@@ -34,7 +34,7 @@ import { EvidencePane } from './EvidencePane';
 import { Badge, Button, ErrorCard, Panel, Spinner } from './ui';
 import { AUTH_ERROR_MESSAGE, useCaseAuditWorkflow } from './useCaseAuditWorkflow';
 
-type CaseDetailTab = 'transcript' | 'findings' | 'timeline' | 'verdict' | 'evidence';
+type CaseDetailTab = 'findings' | 'timeline' | 'verdict' | 'evidence';
 
 /**
  * Pestañas que el buscador puede filtrar. Fuera quedan dos, y por razones
@@ -45,14 +45,13 @@ type CaseDetailTab = 'transcript' | 'findings' | 'timeline' | 'verdict' | 'evide
  *     que el buscador pueda reducir, así que contarla entre las coincidencias
  *     daría un número que nunca refleja lo que el operador está viendo.
  */
-const SEARCHABLE_TABS = ['transcript', 'findings', 'timeline'] as const;
+const SEARCHABLE_TABS = ['findings', 'timeline'] as const;
 
 const TAB_LABELS: Record<CaseDetailTab, string> = {
-  transcript: 'Transcripción',
-  findings: 'Hechos y checks',
+  findings: 'Hechos',
   timeline: 'Cronología',
   verdict: 'Dictamen',
-  evidence: 'Evidencia',
+  evidence: 'Evidencias',
 };
 
 /**
@@ -139,7 +138,7 @@ export interface CaseDetailPageProps {
   capabilities?: SessionSnapshot['capabilities'];
 }
 
-export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases: false, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false } }: CaseDetailPageProps): ReactNode {
+export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases: false, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false, canManageCases: false } }: CaseDetailPageProps): ReactNode {
   const [detail, setDetail] = useState<CaseDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<ErrorState | null>(null);
@@ -157,7 +156,7 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<ErrorState | null>(null);
-  const [activeTab, setActiveTab] = useState<CaseDetailTab>('transcript');
+  const [activeTab, setActiveTab] = useState<CaseDetailTab>('evidence');
   const [search, setSearch] = useState('');
 
   const [quickComments, setQuickComments] = useState<AreaComment[] | null>(null);
@@ -199,7 +198,7 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
     setActionError(null);
     setConfirmId(null);
     setViewingEvidenceId(null);
-    setActiveTab('transcript');
+    setActiveTab('evidence');
     setSearch('');
     setQuickComments(null);
     setShowNotesPrompt(false);
@@ -251,6 +250,12 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
     viewingEvidenceId === null
       ? null
       : (evidences.find((item) => item.id === viewingEvidenceId) ?? null);
+
+  useEffect(() => {
+    if (viewingEvidenceId === null || !evidences.some((item) => item.id === viewingEvidenceId)) {
+      setViewingEvidenceId(evidences[0]?.id ?? null);
+    }
+  }, [evidences, viewingEvidenceId]);
 
   const hasTranscribing = evidences.some((item) => item.processingStatus === 'TRANSCRIBING');
   const allReady = evidences.length > 0 && evidences.every((item) => item.processingStatus === 'READY');
@@ -319,7 +324,6 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
   // si no, se muestra el error que dejó registrado el servidor.
   const displayError = auditError ?? (auditBusy ? null : serverError);
   const result = audit?.status === 'COMPLETED' ? audit.resultJson : null;
-  const transcriptCount = evidences.filter((item) => item.transcript !== null).length;
   const findingCount = (result?.facts.length ?? 0) + (result?.audit.procedureChecks.length ?? 0);
   // ---------------------------------------------------------------- cronología
   // Se arman dos listas separadas porque no son lo mismo: los eventos de la
@@ -328,7 +332,7 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
   // va desde la apertura de la matrícula hasta la cancelación de venta. Las
   // subidas dejan de ser un evento por archivo: ahora son una sola entrada.
   const systemEvents: TimelineEntry[] = [
-    { id: 'case-created', time: formatDateTime(detail.case.createdAt), title: 'Expediente creado', body: `Se abrió el caso ${shortId(detail.case.id)}.` },
+    { id: 'case-created', time: formatDateTime(detail.case.createdAt), title: 'Expediente creado', body: `Se abrió el caso ${detail.case.studentIdentifier ?? 'sin matrícula'}${detail.case.studentName ? ` · ${detail.case.studentName}` : ''}.` },
   ];
 
   const [firstEvidence] = evidences;
@@ -384,36 +388,28 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
   const hit = (text: string): boolean => needle === '' || text.toLowerCase().includes(needle);
   const searching = needle !== '';
 
-  /** Lo buscable de un archivo de audio: su nombre y toda su transcripción. */
-  const transcriptHaystack = (evidence: Evidence): string => {
-    const segments = evidence.transcript?.speakers.map((segment) => `${segment.speaker} ${segment.text}`).join(' ') ?? '';
-    return `${evidence.filename} ${segments} ${evidence.transcript?.transcript ?? ''}`;
-  };
-
-  const transcribedEvidences = evidences.filter((item) => item.transcript !== null);
-  const visibleTranscripts = searching ? transcribedEvidences.filter((item) => hit(transcriptHaystack(item))) : transcribedEvidences;
   const visibleFacts = result === null ? [] : result.facts.filter((fact) => hit(`${fact.key} ${fact.label} ${formatFactValue(fact.value)} ${fact.evidenceText ?? ''}`));
   const visibleChecks = result === null ? [] : result.audit.procedureChecks.filter((check) => hit(`${check.procedureSection} ${check.status} ${check.criterion} ${check.reasoning}`));
   const visibleClientEvents = searching ? clientEvents.filter((event) => hit(`${event.time} ${event.title} ${event.body}`)) : clientEvents;
   const visibleSystemEvents = searching ? systemEvents.filter((event) => hit(`${event.time} ${event.title} ${event.body}`)) : systemEvents;
 
   const matchesFor = (tab: CaseDetailTab): number =>
-    tab === 'transcript'
-      ? visibleTranscripts.length
-      : tab === 'findings'
-        ? visibleFacts.length + visibleChecks.length
-        : tab === 'timeline'
-          ? visibleClientEvents.length + visibleSystemEvents.length
-          : 0;
+    tab === 'findings'
+      ? visibleFacts.length + visibleChecks.length
+      : tab === 'timeline'
+        ? visibleClientEvents.length + visibleSystemEvents.length
+        : 0;
 
   const totalFor = (tab: CaseDetailTab): number =>
-    tab === 'transcript' ? transcriptCount : tab === 'findings' ? findingCount : tab === 'timeline' ? timelineCount : 0;
+    tab === 'findings' ? findingCount : tab === 'timeline' ? timelineCount : 0;
 
   const visibleCount = matchesFor(activeTab);
   const otherMatches = SEARCHABLE_TABS.filter((tab) => tab !== activeTab && matchesFor(tab) > 0);
 
   const searchStatus = !searching
     ? ''
+    : activeTab === 'evidence' || activeTab === 'verdict'
+      ? 'La búsqueda filtra Hechos y Cronología.'
     : visibleCount === 0
       ? `Sin coincidencias para "${search.trim()}".`
       : `${visibleCount} de ${totalFor(activeTab)} coincidencias en ${TAB_LABELS[activeTab]}.`;
@@ -438,7 +434,7 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
           </button>
           <div className="mt-1 flex flex-wrap items-center gap-3">
             <h1 className="text-lg font-semibold text-ink">
-              Caso <span className="font-mono">{shortId(detail.case.id)}</span>
+              {detail.case.studentIdentifier || 'Sin matrícula'}{detail.case.studentName ? ` · ${detail.case.studentName}` : ''}
             </h1>
             <Badge tone={CASE_STATUS_TONE[detail.case.status]}>
               {CASE_STATUS_LABELS[detail.case.status]}
@@ -490,34 +486,15 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
             readOnly={readOnly}
             onSaved={() => void load()}
           />
-          <Panel
-            title={`Evidencias (${evidences.length})`}
-            description="Archivos originales y su estado de procesamiento."
-            labelledBy="evidencias-caso"
-          >
-            <EvidenceList
-              evidences={evidences}
-              onOpen={(item) => {
-                setViewingEvidenceId(item.id);
-                setActiveTab('evidence');
-              }}
-              onDelete={(item) => setConfirmId(item.id)}
-              onConfirmDelete={(item) => void handleDelete(item)}
-              onCancelConfirm={() => setConfirmId(null)}
-              deletingId={deletingId}
-              confirmId={confirmId}
-              readOnly={readOnly}
-            />
-          </Panel>
         </aside>
 
         <section className="case-detail-assessment">
           <nav className="case-detail-tabs" role="tablist" aria-label="Contenido del expediente">
-            <button type="button" role="tab" aria-selected={activeTab === 'transcript'} onClick={() => setActiveTab('transcript')}>
-              <AudioLines size={16} /> Transcripción <span>{searching ? `${visibleTranscripts.length}/${transcriptCount}` : transcriptCount}</span>
+            <button type="button" role="tab" aria-selected={activeTab === 'evidence'} onClick={() => setActiveTab('evidence')}>
+              <Paperclip size={16} /> Evidencias <span>{evidences.length}</span>
             </button>
             <button type="button" role="tab" aria-selected={activeTab === 'findings'} onClick={() => setActiveTab('findings')}>
-              <BookOpenCheck size={16} /> Hechos y checks <span>{searching ? `${visibleFacts.length + visibleChecks.length}/${findingCount}` : findingCount}</span>
+              <BookOpenCheck size={16} /> Hechos <span>{searching ? `${visibleFacts.length + visibleChecks.length}/${findingCount}` : findingCount}</span>
             </button>
             <button type="button" role="tab" aria-selected={activeTab === 'timeline'} onClick={() => setActiveTab('timeline')}>
               <Clock3 size={16} /> Cronología <span>{searching ? `${visibleClientEvents.length + visibleSystemEvents.length}/${timelineCount}` : timelineCount}</span>
@@ -525,20 +502,13 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
             <button type="button" role="tab" aria-selected={activeTab === 'verdict'} onClick={() => setActiveTab('verdict')}>
               <FileText size={16} /> Dictamen
             </button>
-            {/* Solo existe mientras hay algo que ver: una pestaña de evidencia
-                vacía sería un destino sin contenido detrás. */}
-            {viewingEvidence !== null && (
-              <button type="button" role="tab" aria-selected={activeTab === 'evidence'} onClick={() => setActiveTab('evidence')}>
-                <Paperclip size={16} /> Evidencia <span>{viewingEvidence.filename}</span>
-              </button>
-            )}
             <div className="case-detail-search">
               <Search size={15} aria-hidden="true" />
               <input
                 type="search"
                 value={search}
-                placeholder="Buscar en el expediente"
-                aria-label="Buscar en el expediente"
+                placeholder="Buscar hechos o cronología"
+                aria-label="Buscar hechos o cronología"
                 onChange={(event) => setSearch(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key === 'Escape') setSearch('');
@@ -572,51 +542,6 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
           </div>
 
           <div className="case-detail-tab-content" role="tabpanel">
-            {activeTab === 'transcript' && (
-              <Panel title="Transcripción" description="Fragmentos extraídos del audio, con vínculo al archivo original.">
-                {transcribedEvidences.length === 0 ? (
-                  <div className="case-workspace-empty">
-                    <AudioLines size={22} />
-                    <strong>No hay transcripciones disponibles</strong>
-                    <p>Cuando termine el procesamiento de un audio, su transcripción aparecerá aquí.</p>
-                    {evidences.filter((item) => item.mimeType.startsWith('audio/')).length > 0 && <span>El audio todavía puede estar procesándose; revisa el estado en Evidencias.</span>}
-                  </div>
-                ) : visibleTranscripts.length === 0 ? (
-                  <div className="case-workspace-empty">
-                    <Search size={22} />
-                    <strong>Ninguna transcripción coincide con la búsqueda</strong>
-                    <p>Hay {transcriptCount} {transcriptCount === 1 ? 'archivo transcrito' : 'archivos transcritos'} en el expediente. La búsqueda sólo revisa el texto ya transcrito.</p>
-                  </div>
-                ) : visibleTranscripts.map((evidence) => (
-                  <section className="case-transcript-file" key={evidence.id}>
-                    <header>
-                      <span><AudioLines size={16} /> {evidence.filename}</span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setViewingEvidenceId(evidence.id);
-                          setActiveTab('evidence');
-                        }}
-                      >
-                        Abrir evidencia
-                      </button>
-                    </header>
-                    {evidence.transcript?.speakers.length ? evidence.transcript.speakers.map((segment, index) => (
-                      <article className="case-transcript-segment" key={`${evidence.id}-${index}`}>
-                        <span className="case-transcript-avatar" aria-hidden="true">{segment.speaker.slice(0, 2)}</span>
-                        <div>
-                          <div><strong>{segment.speaker}</strong><time>{formatDuration(segment.start)}</time></div>
-                          <p>{segment.text}</p>
-                        </div>
-                      </article>
-                    )) : (
-                      <p className="case-transcript-plain">{evidence.transcript?.transcript || 'La transcripción no contiene texto.'}</p>
-                    )}
-                  </section>
-                ))}
-              </Panel>
-            )}
-
             {activeTab === 'findings' && (
               <Panel title="Hechos y checks" description="Datos que el dictamen enlaza con evidencias y secciones del procedimiento.">
                 {result === null ? <div className="case-workspace-empty"><FileCheck2 size={22} /><strong>Sin hallazgos de auditoría</strong><p>Los hechos y checks aparecerán cuando exista un dictamen completado.</p></div> : <div className="case-findings-content">
@@ -702,7 +627,7 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
 
             {activeTab === 'verdict' && searching && (
               <p className="case-search-note">
-                La búsqueda no filtra el dictamen completo: es un bloque único y recortarlo lo dejaría incompleto sin avisar. Usa las pestañas de transcripción, hechos o cronología.
+                La búsqueda no filtra el dictamen completo: es un bloque único y recortarlo lo dejaría incompleto sin avisar. Usa las pestañas de hechos o cronología.
               </p>
             )}
 
@@ -711,18 +636,27 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
             )}
 
             {activeTab === 'evidence' && (
-              viewingEvidence === null ? (
-                <div className="case-workspace-empty">
-                  <Paperclip size={22} />
-                  <strong>Elige una evidencia para verla aquí</strong>
-                  <p>En la lista de la izquierda, pulsá "Ver" sobre un archivo para abrirlo en esta pestaña.</p>
-                </div>
-              ) : (
-                <EvidencePane evidence={viewingEvidence} />
-              )
+              <Panel title={`Evidencias (${evidences.length})`} description="Selecciona un archivo para revisarlo en el expediente.">
+                <EvidenceList
+                  evidences={evidences}
+                  activeId={viewingEvidenceId}
+                  onSelect={setViewingEvidenceId}
+                  onDelete={(item) => setConfirmId(item.id)}
+                  onConfirmDelete={(item) => void handleDelete(item)}
+                  onCancelConfirm={() => setConfirmId(null)}
+                  deletingId={deletingId}
+                  confirmId={confirmId}
+                  readOnly={readOnly}
+                />
+                {viewingEvidence !== null ? (
+                  <EvidencePane evidence={viewingEvidence} studentName={detail.case.studentName} />
+                ) : (
+                  <div className="case-workspace-empty"><Paperclip size={22} /><strong>Sin evidencias</strong><p>Adjunta una evidencia para verla aquí.</p></div>
+                )}
+              </Panel>
             )}
 
-            {activeTab === 'transcript' && auditHint !== null && <p className="case-audit-hint">{auditHint}</p>}
+            {activeTab === 'evidence' && auditHint !== null && <p className="case-audit-hint">{auditHint}</p>}
             {caseIsError && (
               <p className="mt-3 text-sm text-danger">
                 {hasFailedEvidence
