@@ -1,6 +1,5 @@
 // Queries for dashboard views. Pure aggregation stays in dashboard.ts.
 import { DASHBOARD_DIMENSIONS } from '../lib/dashboard-shared.js';
-import type { AuditResultType } from '../skills/audit/types.js';
 import type { DashboardDimension, DashboardFilters } from '../lib/dashboard-shared.js';
 import type { DashboardFilterOptions, DashboardSummary } from '../lib/dashboard.js';
 import type { AuthContext } from './auth.js';
@@ -19,7 +18,6 @@ import type {
   ComparisonMetricRow,
   CostGranularity,
   DashboardMetricRow,
-  ExactHumanReviewInput,
   HumanReviewInput,
   QualityReport,
 } from './dashboard.js';
@@ -310,7 +308,9 @@ export async function getHumanReviewInput(
 
   // Las revisiones contadas son las del periodo MÁS las revisiones referenciadas
   // por comparaciones que cayeron en el periodo aunque la revisión esté fuera.
-  const comparisonReviewIds = new Set(comparisons.map((c) => c.case_review_id).filter(Boolean as any));
+  const comparisonReviewIds = new Set(
+    comparisons.map((comparison) => comparison.case_review_id).filter((id): id is string => id !== null),
+  );
   let reviewedCases = reviewIdsInRange.size;
   for (const id of comparisonReviewIds) {
     if (!reviewIdsInRange.has(id)) reviewedCases += 1;
@@ -319,28 +319,6 @@ export async function getHumanReviewInput(
   return { reviewedCases, comparisons, comparisonsAvailable };
 }
 
-
-
-export async function getExactHumanReviewInput(
-  client: InsForgeClient,
-  audits: DashboardMetricRow[],
-): Promise<ExactHumanReviewInput> {
-  const auditsById = new Map(audits.map((audit) => [audit.id, audit]));
-  const auditIds = [...auditsById.keys()];
-  if (auditIds.length === 0) {
-    return { reviews: [], reviewsAvailable: 0, auditsById };
-  }
-  const { data, error, count } = await client.database
-    .from('case_reviews')
-    .select('id,audit_id,result', { count: 'exact' })
-    .in('audit_id', auditIds)
-    .limit(DASHBOARD_MAX_ROWS);
-  if (error) throw mapProviderError(error);
-
-  const reviews = ((data ?? []) as Array<{ id: string; audit_id: string; result: AuditResultType }>)
-    .filter((review) => auditsById.has(review.audit_id));
-  return { reviews, reviewsAvailable: count ?? reviews.length, auditsById };
-}
 
 
 export async function getAiQuality(

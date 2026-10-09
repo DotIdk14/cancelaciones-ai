@@ -32,20 +32,23 @@ La interfaz es una SPA React + Vite con hash routing manual; el backend son Verc
 ```text
 cancelaciones-ai/
 ├── api/                        # Vercel Functions (un handler por archivo)
-│   ├── auth/[action].ts        # google, google-callback, session (DELETE), refresh
+│   ├── auth/[action].ts        # Google OAuth, sesión y refresh
 │   ├── cases/index.ts          # GET listar / POST crear caso
-│   ├── cases/[caseId]/index.ts # GET detalle del caso
+│   ├── cases/[caseId]/index.ts # GET detalle / PATCH fecha de inicio
 │   ├── cases/[caseId]/evidence/index.ts        # POST subir evidencia
-│   ├── cases/[caseId]/evidence/[evidenceId]/   # DELETE borrar evidencia
+│   ├── cases/[caseId]/evidence/[evidenceId]/index.ts # DELETE borrar
 │   ├── cases/[caseId]/audit/index.ts           # GET poll / POST auditar
 │   ├── cases/[caseId]/review/index.ts          # GET/POST revisión humana
 │   ├── cases/[caseId]/comparison/index.ts      # POST reintentar comparación
+│   ├── cases/[caseId]/area-comments/index.ts   # GET/PUT bitácora por área
+│   ├── dashboard/[view].ts     # summary, ai-costs, quality, options
 │   ├── evidence/[evidenceId]/download.ts       # GET descargar/preview
 │   └── health/ai.ts            # healthcheck de configuración IA
 ├── src/
 │   ├── components/             # UI React
 │   │   ├── CaseReviewPanel.tsx # etapa del Asesor y ciclo de comparación IA
-│   │   └── CoordinatorReviewStage.tsx # finalización y registro del Coordinador
+│   │   ├── CoordinatorReviewStage.tsx # finalización y registro del Coordinador
+│   │   └── useCaseAuditWorkflow.ts # ejecución, recuperación y polling de auditoría
 │   ├── lib/                    # Cliente API, utilidades, hooks
 │   ├── server/                 # Helpers server-side (no tocan el navegador)
 │   │   ├── capabilities.ts     # Roles y capacidades (módulo hoja)
@@ -55,6 +58,8 @@ cancelaciones-ai/
 │   │   ├── cases.ts            # Persistencia de casos/evidencias/auditorías
 │   │   ├── reviews.ts          # Persistencia de revisiones/comparaciones
 │   │   ├── area-comments.ts    # Bitácora por área (UPSERT)
+│   │   ├── dashboard-queries.ts # Consultas PostgREST, alcance de rol y filtros
+│   │   ├── dashboard.ts        # Agregaciones puras de métricas
 │   │   ├── dto.ts              # DTOs, deriveWorkflowState, deriveEffectiveResolution
 │   │   ├── audit-service.ts    # Orquestación durable de auditoría
 │   │   ├── comparison-service.ts # Orquestación de revisión humana
@@ -317,6 +322,8 @@ Razón: las pruebas no deben inflar las métricas operativas, y filtrarlas en me
 - **Límites de evidencia**: `MAX_EVIDENCE_BYTES`, `MAX_EVIDENCE_COUNT`, `MAX_AUDIT_TEXT_CHARS`, `MAX_AUDIT_MULTIMODAL_BYTES` protegen presupuesto y latencia.
 - **Idempotencia**: fingerprint canónico evita re-auditar un expediente idéntico; un solo `RUNNING` por `(case_id, fingerprint)`.
 - **Dashboard**: las vistas `audit_dashboard_metrics` y `case_comparisons_dashboard_metrics` proyectan escalares para no traer jsonb completos al servidor.
+- **Consultas del dashboard**: `dashboard-queries.ts` aplica filtros de rol y exclusión de pruebas en SQL antes de contar o limitar filas; `dashboard.ts` transforma esas filas en métricas puras.
+- **Expediente**: `CaseDetailPage` conserva la composición y presentación; `useCaseAuditWorkflow` concentra el POST de auditoría, la recuperación al abrir un caso y el polling acotado de transcripción y ejecución.
 - **Vercel Functions**: `maxDuration = 300` en handlers de auditoría/comparación para acomodar llamadas largas a OpenRouter.
 
 ## Despliegue

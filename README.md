@@ -120,14 +120,16 @@ src/
     review/                skill de revisión humana (reusa skills/sanitize.ts)
   server/                  env, insforge, http, errors, auth, quotas, derived,
                            cases, dto, audit-service, comparison-service,
-                           reviews, area-comments, dashboard, dashboard.human,
-                           dashboard-filters, openrouter, assemblyai,
+                           reviews, area-comments, dashboard-queries,
+                           dashboard (agregaciones), dashboard-filters,
+                           openrouter, assemblyai,
                            evidence-prep, pdf
     ai/                    model-capabilities, provider-schema (contrato con el modelo)
   components/              LoginScreen, AppHeader, AppNav, CaseListPage,
                            CaseDetailPage, CasesPanel, NewCasePanel,
                            CaseReviewPanel (etapa Asesor y comparación),
                            CoordinatorReviewStage (etapa Coordinador),
+                           useCaseAuditWorkflow (ejecución y polling de auditoría),
                            EvidenceUploader, EvidenceList,
                            EvidencePane, PdfCanvas, AuditResultPanel, AreaComments,
                            ErrorBoundary, ui,

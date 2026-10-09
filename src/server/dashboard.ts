@@ -1138,7 +1138,7 @@ export interface HumanReviewReport {
   /**
    * Revisiones con resultado humano y de auditoría disponibles: en el flujo de
    * comparaciones son las `COMPLETED`, las únicas con veredicto y el
-   * denominador de `agreementRate`. Exigida por `ExactHumanReviewReport`.
+   * denominador de `agreementRate`.
    */
   comparableReviews: number;
   /** Comparaciones `COMPLETED`: las únicas con veredicto. */
@@ -1447,37 +1447,6 @@ function round3(value: number): number {
   return Math.round(value * 1000) / 1000;
 }
 
-export function aggregateExactHumanReview(input: ExactHumanReviewInput): ExactHumanReviewReport {
-  let comparableReviews = 0;
-  let agreements = 0;
-  let disagreements = 0;
-  for (const review of input.reviews) {
-    const audit = input.auditsById.get(review.audit_id);
-    if (audit?.audit_status !== 'COMPLETED' || audit.result === null) continue;
-    comparableReviews += 1;
-    if (audit.result === review.result) agreements += 1;
-    else disagreements += 1;
-  }
-
-  const available = input.reviews.length > 0;
-  const agreementRate = comparableReviews === 0 ? null : round3(agreements / comparableReviews);
-  const message = !available
-    ? 'No hay revisiones humanas registradas para las auditorías de este periodo; la coincidencia no se puede calcular.'
-    : comparableReviews === 0
-      ? `Hay ${input.reviews.length} revisión(es), pero no hay un resultado disponible en su auditoría exacta para calcular coincidencia.`
-      : `Coincidencia exacta entre el resultado humano y el de la auditoría referenciada: ${agreements} de ${comparableReviews} revisiones comparables.`;
-
-  return {
-    available,
-    message,
-    reviewedCases: input.reviews.length,
-    comparableReviews,
-    agreements,
-    disagreements,
-    agreementRate,
-  };
-}
-
 /**
  * Confianza declarada por el modelo, agrupada.
  *
@@ -1502,22 +1471,6 @@ export interface ConfidenceReport {
     count: number;
     avgConfidence: number | null;
   }>;
-}
-
-export interface ExactHumanReviewInput {
-  reviews: Array<{ id: string; audit_id: string; result: AuditResultType }>;
-  reviewsAvailable: number;
-  auditsById: Map<string, DashboardMetricRow>;
-}
-
-export interface ExactHumanReviewReport {
-  available: boolean;
-  message: string;
-  reviewedCases: number;
-  comparableReviews: number;
-  agreements: number;
-  disagreements: number;
-  agreementRate: number | null;
 }
 
 
