@@ -4,10 +4,10 @@
 // =============================================================================
 
 import type { ReactNode } from 'react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { AudioLines, BookOpenCheck, Clock3, FileCheck2, FileText, Paperclip, Search } from 'lucide-react';
-import { deleteEvidence, getAreaComments, getAudit, getCase, startAudit, toErrorState, workflowStateOf } from '../lib/api';
-import type { AppRole, AreaComment, AuditDetail, CaseDetailResponse, ErrorState, Evidence } from '../lib/api';
+import { deleteEvidence, getAreaComments, getCase, toErrorState, workflowStateOf } from '../lib/api';
+import type { AppRole, AreaComment, CaseDetailResponse, ErrorState, Evidence } from '../lib/api';
 import { formatDateTime, formatDuration, formatPercent, formatFactValue, shortId, textOrDash } from '../lib/format';
 import {
   CASE_STATUS_LABELS,
@@ -32,16 +32,7 @@ import { AreaQuickComments } from './AreaQuickComments';
 import { AUDIT_TRIGGER_ID, CycleStartDateCapture } from './CycleStartDateCapture';
 import { EvidencePane } from './EvidencePane';
 import { Badge, Button, ErrorCard, Panel, Spinner } from './ui';
-
-/** Mensaje amigable cuando el servidor devuelve 401 (sesión requerida). */
-const AUTH_ERROR_MESSAGE = 'El servidor requiere autenticación. La interfaz está en modo demo: los datos no se cargarán hasta que configure una sesión válida.';
-
-const TRANSCRIPTION_POLL_MS = 3000;
-const AUDIT_POLL_MS = 4000;
-/** Reintentos de POST mientras la transcripción no termina (≈3 min). */
-const MAX_WAIT_RETRIES = 60;
-/** Consultas de estado de una auditoría en curso (≈6 min). */
-const MAX_RUNNING_POLLS = 90;
+import { AUTH_ERROR_MESSAGE, useCaseAuditWorkflow } from './useCaseAuditWorkflow';
 
 type CaseDetailTab = 'transcript' | 'findings' | 'timeline' | 'verdict' | 'evidence';
 
@@ -75,8 +66,6 @@ interface TimelineEntry {
   title: string;
   body: string;
 }
-
-type AuditPhase = 'idle' | 'starting' | 'waiting' | 'running';
 
 /**
  * Detalle técnico del fallo, tal como lo sanitiza `audit-observability.ts`.
@@ -154,9 +143,8 @@ export function CaseDetailPage({ caseId, role }: CaseDetailPageProps): ReactNode
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<ErrorState | null>(null);
 
-  const [auditPhase, setAuditPhase] = useState<AuditPhase>('idle');
-  const [auditError, setAuditError] = useState<ErrorState | null>(null);
-  const [pendingEvidence, setPendingEvidence] = useState<string[]>([]);
+  const auditWorkflow = useCaseAuditWorkflow({ caseId, setDetail });
+  const { auditPhase, auditError, pendingEvidence, runAudit, tickWaiting, tickRunning, observeLoadedCase } = auditWorkflow;
 
   /**
    * Id de la evidencia abierta en la pestaña central, no el objeto entero: si
@@ -176,11 +164,6 @@ export function CaseDetailPage({ caseId, role }: CaseDetailPageProps): ReactNode
   const [skipNotesPrompt, setSkipNotesPrompt] = useState(false);
   const [focusNotesRequest, setFocusNotesRequest] = useState(0);
 
-  const waitRetriesRef = useRef(0);
-  const runningPollsRef = useRef(0);
-  /** Evita retomar el poll en refrescos posteriores del caso. */
-  const bootstrappedRef = useRef(false);
-
   // ---------------------------------------------------------------- carga
 
   const load = useCallback(async (): Promise<void> => {
@@ -188,14 +171,7 @@ export function CaseDetailPage({ caseId, role }: CaseDetailPageProps): ReactNode
       const data = await getCase(caseId);
       setDetail(data);
       setLoadError(null);
-      // Si al abrir el caso ya hay una auditoría en curso, se retoma el poll.
-      if (!bootstrappedRef.current) {
-        bootstrappedRef.current = true;
-        if (data.audit !== null && data.audit.status === 'RUNNING') {
-          runningPollsRef.current = 0;
-          setAuditPhase('running');
-        }
-      }
+      observeLoadedCase(data);
     } catch (err) {
       const state = toErrorState(err);
       // Si el servidor devuelve 401, mostrar mensaje amigable en modo demo.
@@ -204,7 +180,7 @@ export function CaseDetailPage({ caseId, role }: CaseDetailPageProps): ReactNode
     } finally {
       setLoading(false);
     }
-  }, [caseId]);
+  }, [caseId, observeLoadedCase]);
 
   const loadQuickComments = useCallback(async (): Promise<void> => {
     try {
@@ -219,9 +195,6 @@ export function CaseDetailPage({ caseId, role }: CaseDetailPageProps): ReactNode
   useEffect(() => {
     setLoading(true);
     setDetail(null);
-    setAuditPhase('idle');
-    setAuditError(null);
-    setPendingEvidence([]);
     setActionError(null);
     setConfirmId(null);
     setViewingEvidenceId(null);
@@ -231,56 +204,11 @@ export function CaseDetailPage({ caseId, role }: CaseDetailPageProps): ReactNode
     setShowNotesPrompt(false);
     setSkipNotesPrompt(false);
     setFocusNotesRequest(0);
-    waitRetriesRef.current = 0;
-    runningPollsRef.current = 0;
-    bootstrappedRef.current = false;
     void load();
     void loadQuickComments();
   }, [load, loadQuickComments]);
 
   // --------------------------------------------------------------- auditoría
-
-  const applyAudit = useCallback((next: AuditDetail): void => {
-    setDetail((prev) => (prev ? { ...prev, audit: next } : prev));
-    if (next.status === 'RUNNING') {
-      runningPollsRef.current = 0;
-      setAuditPhase('running');
-      setAuditError(null);
-      return;
-    }
-    setAuditPhase('idle');
-    if (next.status === 'ERROR') {
-      setAuditError({
-        category: next.errorCategory ?? 'UNKNOWN',
-        message: errorCategoryMessage(next.errorCategory),
-      });
-    } else {
-      setAuditError(null);
-    }
-  }, []);
-
-  const runAudit = useCallback(async (): Promise<void> => {
-    setAuditPhase('starting');
-    setShowNotesPrompt(false);
-    setAuditError(null);
-    setPendingEvidence([]);
-    waitRetriesRef.current = 0;
-    try {
-      const response = await startAudit(caseId);
-      if (response.kind === 'pending') {
-        setPendingEvidence(response.pendingEvidence);
-        setAuditPhase('waiting');
-        return;
-      }
-      applyAudit(response.audit);
-    } catch (err) {
-      setAuditPhase('idle');
-      const state = toErrorState(err);
-      const message = state.category === 'AUTH_ERROR' ? AUTH_ERROR_MESSAGE : state.message;
-      setAuditError({ category: state.category, message });
-    }
-  }, [caseId, applyAudit]);
-
   const maybeRunAudit = useCallback((): void => {
     if (showNotesPrompt) return;
     const hasQuickComments =
@@ -294,51 +222,9 @@ export function CaseDetailPage({ caseId, role }: CaseDetailPageProps): ReactNode
       setShowNotesPrompt(true);
       return;
     }
+    setShowNotesPrompt(false);
     void runAudit();
   }, [quickComments, showNotesPrompt, skipNotesPrompt, runAudit]);
-
-  // Poll mientras la auditoría espera transcripción: refresca el caso (evidencias
-  // + audit en la misma respuesta) y reintenta el POST cuando todo está READY.
-  const tickWaiting = useCallback(async (): Promise<void> => {
-    waitRetriesRef.current += 1;
-    if (waitRetriesRef.current > MAX_WAIT_RETRIES) {
-      setAuditPhase('idle');
-      setAuditError({
-        category: 'TRANSCRIPTION_ERROR',
-        message:
-          'La transcripción de las evidencias de audio no terminó a tiempo. Intenta auditar de nuevo en unos minutos.',
-      });
-      return;
-    }
-    const data = await getCase(caseId);
-    setDetail(data);
-    if (data.audit !== null && data.audit.status !== 'RUNNING') {
-      applyAudit(data.audit);
-      return;
-    }
-    const ready =
-      data.evidences.length > 0 && data.evidences.every((item) => item.processingStatus === 'READY');
-    if (ready) await runAudit();
-  }, [caseId, applyAudit, runAudit]);
-
-  // Poll de una auditoría en curso. El servidor marca ERROR a los 4 minutos.
-  const tickRunning = useCallback(async (): Promise<void> => {
-    runningPollsRef.current += 1;
-    if (runningPollsRef.current > MAX_RUNNING_POLLS) {
-      setAuditPhase('idle');
-      setAuditError({
-        category: 'AI_PROVIDER_ERROR',
-        message:
-          'La auditoría está tardando demasiado. Actualiza el caso para consultar el estado real antes de reintentar.',
-      });
-      return;
-    }
-    const next = await getAudit(caseId);
-    if (next !== null) {
-      setDetail((prev) => (prev ? { ...prev, audit: next } : prev));
-      if (next.status === 'COMPLETED' || next.status === 'ERROR') applyAudit(next);
-    }
-  }, [caseId, applyAudit]);
 
   const evidences = detail?.evidences ?? [];
   const audit = detail?.audit ?? null;
@@ -377,9 +263,9 @@ export function CaseDetailPage({ caseId, role }: CaseDetailPageProps): ReactNode
   // Mientras hay transcripciones en curso se refresca el caso cada 3 s.
   // En fase `waiting` el poll de auditoría ya trae los mismos datos, así que
   // se evita duplicar peticiones.
-  usePolling(load, hasTranscribing && auditPhase !== 'waiting' ? TRANSCRIPTION_POLL_MS : null);
-  usePolling(tickWaiting, auditPhase === 'waiting' ? TRANSCRIPTION_POLL_MS : null);
-  usePolling(tickRunning, auditPhase === 'running' ? AUDIT_POLL_MS : null);
+  usePolling(load, hasTranscribing && auditPhase !== 'waiting' ? auditWorkflow.transcriptionPollMs : null);
+  usePolling(tickWaiting, auditPhase === 'waiting' ? auditWorkflow.transcriptionPollMs : null);
+  usePolling(tickRunning, auditPhase === 'running' ? auditWorkflow.auditPollMs : null);
 
   // --------------------------------------------------------------- acciones
 
