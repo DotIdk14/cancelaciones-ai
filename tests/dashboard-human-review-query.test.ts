@@ -23,11 +23,10 @@ import type { DashboardFilters } from '../src/lib/dashboard';
 import {
   DASHBOARD_MAX_ROWS,
   aggregateQuality,
-  getAiQuality,
-  getHumanReviewInput,
   type ComparisonMetricRow,
   type DashboardMetricRow,
 } from '../src/server/dashboard';
+import { getAiQuality, getHumanReviewInput } from '../src/server/dashboard-queries';
 import type { InsForgeClient } from '../src/server/insforge';
 import { ApiError } from '../src/server/http';
 import { fakeAuthContext, FAKE_USER_SUB, FAKE_COORDINATOR_SUB } from './helpers/auth';

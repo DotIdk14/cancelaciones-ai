@@ -45,7 +45,7 @@ export interface CaseRow {
    * el `select('*')` sigue funcionando y el DTO expone `false` (el default de la
    * columna) en vez de romperse. La exclusion de las pruebas de las métricas
    * operativas NO la decide la base: la aplica el servidor en SQL
-   * (`applyTestScope`, dashboard.ts).
+   * (`applyTestScope`, dashboard-queries.ts).
    */
   is_test?: boolean;
 }
