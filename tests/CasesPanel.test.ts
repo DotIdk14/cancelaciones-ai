@@ -33,24 +33,27 @@ function makeCase(overrides: Partial<CaseSummary> = {}): CaseSummary {
   };
 }
 
-async function renderList(cases: CaseSummary[]): Promise<void> {
+async function renderList(cases: CaseSummary[], canReadAllCases = false): Promise<void> {
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), 'http://localhost');
     if (init?.method === 'PATCH') return fakeResponse(200, { case: {} });
     if (init?.method === 'DELETE') return fakeResponse(200, { deleted: true });
     const status = url.searchParams.get('status');
-    const filtered = status ? cases.filter((item) => item.status === status) : cases;
+    const creatorRole = url.searchParams.get('creatorRole');
+    const filtered = cases.filter((item) => (!status || item.status === status)
+      && (!creatorRole || item.creatorRole === creatorRole));
+    const scoped = creatorRole ? filtered : cases;
     const statusCounts = {
-      ALL: cases.length,
-      READY: cases.filter((item) => item.status === 'READY').length,
-      AUDITING: cases.filter((item) => item.status === 'AUDITING').length,
-      COMPLETED: cases.filter((item) => item.status === 'COMPLETED').length,
-      DRAFT: cases.filter((item) => item.status === 'DRAFT').length,
-      ERROR: cases.filter((item) => item.status === 'ERROR').length,
+      ALL: scoped.length,
+      READY: scoped.filter((item) => item.status === 'READY').length,
+      AUDITING: scoped.filter((item) => item.status === 'AUDITING').length,
+      COMPLETED: scoped.filter((item) => item.status === 'COMPLETED').length,
+      DRAFT: scoped.filter((item) => item.status === 'DRAFT').length,
+      ERROR: scoped.filter((item) => item.status === 'ERROR').length,
     };
     return fakeResponse(200, { cases: filtered, nextCursor: null, statusCounts });
   }));
-  const view = render(createElement(CasesPanel));
+  const view = render(createElement(CasesPanel, { canReadAllCases }));
   // Espera a que la lista llegue del servidor.
   await vi.waitFor(() => {
     if (cases.length > 0) expect(view.container.querySelector('tbody tr')).not.toBeNull();
@@ -124,6 +127,20 @@ describe('CasesPanel — resolución efectiva', () => {
     fireEvent.click(screen.getByRole('button', { name: /borradores/i }));
     await vi.waitFor(() => expect(screen.getByRole('row', { name: /UTEL-2026-001/ })).toBeTruthy());
     expect(screen.getByRole('link', { name: /abrir expediente/i }).getAttribute('href')).toBe('#/casos/case-draft');
+  });
+
+  it('permite filtrar los expedientes globales por Coordinador o Asesor', async () => {
+    await renderList([
+      makeCase({ id: 'case-coordinator', creatorRole: 'coordinator', studentIdentifier: 'COORD-001' }),
+      makeCase({ id: 'case-advisor', creatorRole: 'user', studentIdentifier: 'ASESOR-001' }),
+    ], true);
+
+    fireEvent.change(screen.getByRole('combobox', { name: /filtrar por coordinadores y asesores/i }), {
+      target: { value: 'coordinator' },
+    });
+
+    await vi.waitFor(() => expect(screen.getByRole('row', { name: /COORD-001/ })).toBeTruthy());
+    expect(screen.queryByRole('row', { name: /ASESOR-001/ })).toBeNull();
   });
 
   it('carga la siguiente página bajo demanda y conserva el contrato incremental', async () => {

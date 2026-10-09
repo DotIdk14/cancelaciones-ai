@@ -8,7 +8,7 @@ import {
   readJsonBody,
 } from '../../src/server/http.js';
 import { createServerClient } from '../../src/server/insforge.js';
-import { countCaseSummaryStatuses, createCase, listCaseSummaries, listCaseSummaryPage } from '../../src/server/cases.js';
+import { countCaseSummaryStatuses, createCase, listCaseSummaries, listCaseSummaryPage, type CaseCreatorRole } from '../../src/server/cases.js';
 import { caseToSummary } from '../../src/server/dto.js';
 import { assertCaseWriteCapability } from '../../src/server/auth.js';
 import { CASE_STATUSES } from '../../src/skills/audit/types.js';
@@ -42,6 +42,7 @@ const CaseCursorSchema = z.object({
   snapshot: z.string().datetime(),
   limit: z.number().int().min(1).max(100),
   status: z.enum(CASE_STATUSES).optional(),
+  creatorRole: z.enum(['user', 'coordinator']).optional(),
 }).strict();
 
 function decodeCursor(value: string): z.infer<typeof CaseCursorSchema> {
@@ -67,29 +68,37 @@ export default handleRoute(async (req, res) => {
       if (req.query.status !== undefined && typeof req.query.status !== 'string') {
         throw new ApiError(400, 'VALIDATION_ERROR', 'status debe ser una cadena');
       }
+      if (req.query.creatorRole !== undefined && typeof req.query.creatorRole !== 'string') {
+        throw new ApiError(400, 'VALIDATION_ERROR', 'creatorRole debe ser una cadena');
+      }
       const cursor = typeof req.query.cursor === 'string' ? decodeCursor(req.query.cursor) : null;
       const rawStatus = typeof req.query.status === 'string' ? req.query.status : undefined;
       const statusParsed = rawStatus === undefined ? undefined : z.enum(CASE_STATUSES).safeParse(rawStatus);
       if (statusParsed && !statusParsed.success) throw new ApiError(400, 'VALIDATION_ERROR', 'status no es válido');
-      if (cursor && (cursor.limit !== parsedLimit.data || cursor.status !== statusParsed?.data)) {
+      const rawCreatorRole = typeof req.query.creatorRole === 'string' ? req.query.creatorRole : undefined;
+      const creatorRoleParsed = rawCreatorRole === undefined ? undefined : z.enum(['user', 'coordinator']).safeParse(rawCreatorRole);
+      if (creatorRoleParsed && !creatorRoleParsed.success) throw new ApiError(400, 'VALIDATION_ERROR', 'creatorRole no es válido');
+      if (cursor && (cursor.limit !== parsedLimit.data || cursor.status !== statusParsed?.data || cursor.creatorRole !== creatorRoleParsed?.data)) {
         throw new ApiError(400, 'VALIDATION_ERROR', 'El cursor no corresponde a los filtros solicitados');
       }
       const limit = cursor?.limit ?? parsedLimit.data;
       const snapshot = cursor?.snapshot ?? new Date().toISOString();
       const status = cursor?.status ?? statusParsed?.data;
+      const creatorRole = cursor?.creatorRole ?? creatorRoleParsed?.data;
       const offset = cursor?.offset ?? 0;
       const rows = await listCaseSummaryPage(client, req.auth!, {
         offset,
         limit: limit + 1,
         snapshot,
         ...(status ? { status } : {}),
+        ...(creatorRole ? { creatorRole: creatorRole as CaseCreatorRole } : {}),
       });
       const hasMore = rows.length > limit;
       const cases = rows.slice(0, limit);
       const nextCursor = hasMore
-        ? Buffer.from(JSON.stringify({ offset: offset + limit, snapshot, limit, ...(status ? { status } : {}) })).toString('base64url')
+        ? Buffer.from(JSON.stringify({ offset: offset + limit, snapshot, limit, ...(status ? { status } : {}), ...(creatorRole ? { creatorRole } : {}) })).toString('base64url')
         : null;
-      const statusCounts = cursor ? undefined : await countCaseSummaryStatuses(client, req.auth!);
+      const statusCounts = cursor ? undefined : await countCaseSummaryStatuses(client, req.auth!, creatorRole as CaseCreatorRole | undefined);
       const canManageCases = capabilitiesForRole(req.auth!.role).canManageCases;
       ok(res, { cases: cases.map((row) => caseToSummary(row, canManageCases)), nextCursor, statusCounts });
       return;

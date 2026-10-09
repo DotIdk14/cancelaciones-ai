@@ -32,6 +32,7 @@ export interface CaseSummaryDto {
   canManageCases: boolean;
   auditId: string | null;
   auditHasHumanReview: boolean;
+  creatorRole?: 'user' | 'coordinator' | null;
 }
 
 export interface CaseDetailDto {
@@ -220,6 +221,7 @@ export function caseToSummary(row: CaseSummaryRow, canManageCases = false): Case
     canManageCases,
     auditId: row.audit?.id ?? null,
     auditHasHumanReview: row.audit !== undefined && row.audit !== null && row.review?.audit_id === row.audit.id,
+    creatorRole: row.creator_role ?? null,
   };
 }
 

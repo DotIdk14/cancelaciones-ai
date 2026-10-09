@@ -171,6 +171,11 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
   const load = useCallback(async (): Promise<void> => {
     try {
       const data = await getCase(caseId);
+      setViewingEvidenceId((currentId) =>
+        currentId !== null && data.evidences.some((item) => item.id === currentId)
+          ? currentId
+          : data.evidences[0]?.id ?? null,
+      );
       setDetail(data);
       setLoadError(null);
       observeLoadedCase(data);
@@ -252,12 +257,6 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
     viewingEvidenceId === null
       ? null
       : (evidences.find((item) => item.id === viewingEvidenceId) ?? null);
-
-  useEffect(() => {
-    if (viewingEvidenceId === null || !evidences.some((item) => item.id === viewingEvidenceId)) {
-      setViewingEvidenceId(evidences[0]?.id ?? null);
-    }
-  }, [evidences, viewingEvidenceId]);
 
   const hasTranscribing = evidences.some((item) => item.processingStatus === 'TRANSCRIBING');
   const allReady = evidences.length > 0 && evidences.every((item) => item.processingStatus === 'READY');

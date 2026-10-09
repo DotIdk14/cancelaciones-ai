@@ -65,7 +65,7 @@ function selectOnKeyboard(event: KeyboardEvent<HTMLTableRowElement>, select: () 
   }
 }
 
-export function CasesPanel(): ReactNode {
+export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: boolean }): ReactNode {
   const preview = isLocalDashboardPreview();
   const [cases, setCases] = useState<CaseSummary[] | null>(() => preview ? getLocalPreviewCases() : null);
   const [loading, setLoading] = useState(!preview);
@@ -74,6 +74,7 @@ export function CasesPanel(): ReactNode {
   const [statusCounts, setStatusCounts] = useState<Record<CaseStatus | 'ALL', number> | null>(null);
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<CaseStatus | 'ALL'>('ALL');
+  const [creatorRole, setCreatorRole] = useState<'user' | 'coordinator' | 'ALL'>('ALL');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedCaseIds, setSelectedCaseIds] = useState<Set<string>>(() => new Set());
   const [adminPending, setAdminPending] = useState(false);
@@ -91,7 +92,7 @@ export function CasesPanel(): ReactNode {
     const currentRequest = ++requestId.current;
     setLoading(true);
     try {
-      const page = await listCasePage({ status: statusFilter, limit: 50 });
+      const page = await listCasePage({ status: statusFilter, creatorRole, limit: 50 });
       if (currentRequest !== requestId.current) return;
       setCases(page.cases);
       setNextCursor(page.nextCursor);
@@ -104,18 +105,18 @@ export function CasesPanel(): ReactNode {
     } finally {
       if (currentRequest === requestId.current) setLoading(false);
     }
-  }, [preview, statusFilter]);
+  }, [creatorRole, preview, statusFilter]);
 
   const loadAllForSearch = useCallback(async (): Promise<void> => {
     if (preview) return;
     const currentRequest = ++requestId.current;
     setLoading(true);
     try {
-      const first = await listCasePage({ status: statusFilter, limit: 50 });
+      const first = await listCasePage({ status: statusFilter, creatorRole, limit: 50 });
       const all = [...first.cases];
       let cursor = first.nextCursor;
       while (cursor) {
-        const page = await listCasePage({ status: statusFilter, cursor, limit: 50 });
+        const page = await listCasePage({ status: statusFilter, creatorRole, cursor, limit: 50 });
         all.push(...page.cases);
         cursor = page.nextCursor;
       }
@@ -131,14 +132,14 @@ export function CasesPanel(): ReactNode {
     } finally {
       if (currentRequest === requestId.current) setLoading(false);
     }
-  }, [preview, statusFilter]);
+  }, [creatorRole, preview, statusFilter]);
 
   const loadMore = useCallback(async (): Promise<void> => {
     if (!nextCursor || preview) return;
     const currentRequest = ++requestId.current;
     setLoading(true);
     try {
-      const page = await listCasePage({ status: statusFilter, cursor: nextCursor, limit: 50 });
+      const page = await listCasePage({ status: statusFilter, creatorRole, cursor: nextCursor, limit: 50 });
       if (currentRequest !== requestId.current) return;
       setCases((current) => [...(current ?? []), ...page.cases]);
       setNextCursor(page.nextCursor);
@@ -150,7 +151,32 @@ export function CasesPanel(): ReactNode {
     } finally {
       if (currentRequest === requestId.current) setLoading(false);
     }
-  }, [nextCursor, preview, statusFilter]);
+  }, [creatorRole, nextCursor, preview, statusFilter]);
+
+  const loadAll = useCallback(async (): Promise<void> => {
+    if (preview || !nextCursor) return;
+    const currentRequest = ++requestId.current;
+    setLoading(true);
+    try {
+      const all = [...(cases ?? [])];
+      let cursor: string | null = nextCursor;
+      while (cursor) {
+        const page = await listCasePage({ status: statusFilter, creatorRole, cursor, limit: 50 });
+        all.push(...page.cases);
+        cursor = page.nextCursor;
+      }
+      if (currentRequest !== requestId.current) return;
+      setCases(all);
+      setNextCursor(null);
+      setListError(null);
+    } catch (err) {
+      if (currentRequest !== requestId.current) return;
+      const state = toErrorState(err);
+      setListError(state.category === 'AUTH_ERROR' ? AUTH_ERROR_MESSAGE : state.message);
+    } finally {
+      if (currentRequest === requestId.current) setLoading(false);
+    }
+  }, [cases, creatorRole, nextCursor, preview, statusFilter]);
 
   useEffect(() => { if (!preview) void load(); }, [load, preview]);
 
@@ -161,22 +187,26 @@ export function CasesPanel(): ReactNode {
   }, [query, loadAllForSearch, preview]);
 
   const counts = useMemo(() => {
+    const countableCases = preview && creatorRole !== 'ALL'
+      ? (cases ?? []).filter((item) => item.creatorRole === creatorRole)
+      : cases ?? [];
     const result: Record<CaseStatus | 'ALL', number> = {
-      ALL: cases?.length ?? 0,
+      ALL: countableCases.length,
       READY: 0,
       AUDITING: 0,
       COMPLETED: 0,
       DRAFT: 0,
       ERROR: 0,
     };
-    for (const item of cases ?? []) result[item.status] += 1;
+    for (const item of countableCases) result[item.status] += 1;
     return statusCounts ?? result;
-  }, [cases, statusCounts]);
+  }, [cases, creatorRole, preview, statusCounts]);
 
   const filteredCases = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase('es');
     return (cases ?? []).filter((item) => {
       if (statusFilter !== 'ALL' && item.status !== statusFilter) return false;
+      if (preview && creatorRole !== 'ALL' && item.creatorRole !== creatorRole) return false;
       if (!normalized) return true;
       const result = item.effectiveResolution === null || item.effectiveResolution === undefined
         ? ''
@@ -184,7 +214,7 @@ export function CasesPanel(): ReactNode {
       return [item.id, shortId(item.id), item.studentIdentifier ?? '', result]
         .some((value) => value.toLocaleLowerCase('es').includes(normalized));
     });
-  }, [cases, query, statusFilter]);
+  }, [cases, creatorRole, preview, query, statusFilter]);
 
   const selectedCase = filteredCases.find((item) => item.id === selectedId) ?? filteredCases[0] ?? null;
   const selectedCases = filteredCases.filter((item) => item.canManageCases === true && selectedCaseIds.has(item.id));
@@ -290,7 +320,26 @@ export function CasesPanel(): ReactNode {
             />
           ))}
         </div>
-        <label className="case-search">
+          {canReadAllCases && (
+            <label className="case-creator-filter">
+              <span>Creado por</span>
+              <select
+                aria-label="Filtrar por coordinadores y asesores"
+                value={creatorRole}
+                onChange={(event) => {
+                  setSelectedCaseIds(new Set());
+                  setCases(null);
+                  setNextCursor(null);
+                  setCreatorRole(event.target.value as 'user' | 'coordinator' | 'ALL');
+                }}
+              >
+                <option value="ALL">Todos los perfiles</option>
+                <option value="coordinator">Coordinadores</option>
+                <option value="user">Asesores (agentes)</option>
+              </select>
+            </label>
+          )}
+          <label className="case-search">
           <Search size={16} aria-hidden="true" />
           <span className="sr-only">Buscar por folio, matrícula o resolución</span>
           <input
@@ -372,6 +421,7 @@ export function CasesPanel(): ReactNode {
                     </th>
                   )}
                   <th scope="col">Caso</th>
+                  {canReadAllCases && <th scope="col">Perfil</th>}
                   <th scope="col">Evidencias</th>
                   <th scope="col">Dictamen vigente</th>
                   <th scope="col">Estado</th>
@@ -417,6 +467,7 @@ export function CasesPanel(): ReactNode {
                         <span className="text-sm font-semibold">{item.studentIdentifier || 'Sin matrícula'}{item.studentName ? ` · ${item.studentName}` : ''}</span>
                         <span className="case-cell-secondary">{item.studentName ? `Matrícula ${item.studentIdentifier || 'sin capturar'}` : 'Nombre pendiente'} · Creado {formatDateTime(item.createdAt)}</span>
                       </td>
+                      {canReadAllCases && <td>{item.creatorRole === 'coordinator' ? 'Coordinador' : item.creatorRole === 'user' ? 'Asesor' : <span className="text-muted">Sin perfil</span>}</td>}
                       <td><span className="inline-flex items-center gap-1.5"><FileText size={15} aria-hidden="true" />{item.evidenceCount}</span></td>
                       <td>{resolution ? <><Badge tone={resolutionTone(resolution.result)}>{resolutionLabel(resolution.result)}</Badge><span className="case-cell-secondary">{RESOLUTION_SOURCE_LABELS[resolution.source]}</span></> : <span className="text-muted">Sin dictamen</span>}</td>
                       <td>
@@ -469,7 +520,12 @@ export function CasesPanel(): ReactNode {
         </div>
       )}
       <p className="text-xs text-muted">Mostrando {filteredCases.length} de {counts[statusFilter]} expedientes</p>
-      {nextCursor && !query.trim() && <div className="flex justify-center"><Button onClick={() => void loadMore()} loading={loading} loadingLabel="Cargando expedientes">Mostrar más</Button></div>}
+      {nextCursor && !query.trim() && (
+        <div className="flex flex-wrap justify-center gap-2">
+          <Button variant="secondary" onClick={() => void loadMore()} loading={loading} loadingLabel="Cargando expedientes">Mostrar más</Button>
+          {canReadAllCases && <Button onClick={() => void loadAll()} loading={loading} loadingLabel="Cargando todos los expedientes">Cargar todos los expedientes</Button>}
+        </div>
+      )}
     </div>
   );
 }

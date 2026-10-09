@@ -61,6 +61,7 @@ export interface CaseSummary {
   canManageCases?: boolean;
   auditId?: string | null;
   auditHasHumanReview?: boolean;
+  creatorRole?: 'user' | 'coordinator' | null;
 }
 
 export interface CaseDetail {
@@ -490,11 +491,13 @@ export async function listCases(): Promise<CaseSummary[]> {
 export async function listCasePage(options: {
   cursor?: string | null;
   status?: CaseStatus | 'ALL';
+  creatorRole?: 'user' | 'coordinator' | 'ALL';
   limit?: number;
 } = {}): Promise<CaseSummaryPage> {
   const params = new URLSearchParams({ limit: String(options.limit ?? 50) });
   if (options.cursor) params.set('cursor', options.cursor);
   if (options.status && options.status !== 'ALL') params.set('status', options.status);
+  if (options.creatorRole && options.creatorRole !== 'ALL') params.set('creatorRole', options.creatorRole);
   return request<CaseSummaryPage>(`/api/cases?${params.toString()}`, {}, [200]);
 }
 
