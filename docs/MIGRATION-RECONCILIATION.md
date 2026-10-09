@@ -1,26 +1,43 @@
 # Auditoría y conciliación de migraciones
 
-Snapshot inicial observado el 9 de octubre de 2026. Consultas a InsForge en modo lectura;
-no se ejecutó SQL de producción, no se aplicaron migraciones y no se modificó el
-historial remoto.
+Snapshot inicial observado el 9 de octubre de 2026. Las lecturas iniciales y la
+conciliación histórica se conservan abajo; el cierre de producción del mismo día
+se registra en la sección actualizada.
 
-## Relectura de producción · 9 de octubre de 2026
+## Relectura y cierre de producción · 9 de octubre de 2026
 
-Esta relectura sustituye los estados anteriores de `20261009100000` y
-`20261009110000`. Se usó `npx -y @insforge/cli db migrations list --json` y
-consultas `SELECT` de catálogos; no se escribieron datos ni esquema.
+La lectura inicial devolvió 54 migraciones remotas y 20 archivos locales. Después
+de probar en la rama aislada `cancelaciones-predeploy-20261009`, se aplicaron a
+producción con el runner oficial de InsForge los archivos
+`20261009120000_case-student-name.sql` y
+`20261009212142_restrict-security-definer-rpc-execution.sql`. El ledger remoto
+ahora contiene **56 migraciones** y el checkout **21 archivos SQL**.
 
-- El ledger remoto devuelve **54 migraciones**; el checkout contiene **20 archivos
-  SQL**. `20261009100000_case-list-pagination-indexes` y
-  `20261009110000_case-area-comments-authenticated-policy` ya están registrados.
-- `pg_indexes` confirma ambos índices de paginación en `public.cases`.
-  `pg_policies` confirma que las tres políticas de comentarios usan solo el rol
-  `authenticated`.
-- `20261009120000_case-student-name` existe localmente, no está registrada en el
-  ledger remoto y `public.cases.student_name` **no existe** en producción. El
-  `POST /api/cases` local inserta esa columna (`src/server/cases.ts`); desplegar
-  este código antes de conciliar/aplicar esa migración rompería la creación de
-  expedientes nuevos. Es un bloqueo de release.
+- `20261009100000_case-list-pagination-indexes` y
+  `20261009110000_case-area-comments-authenticated-policy` ya estaban registrados;
+  `pg_indexes` y `pg_policies` confirmaron su estado.
+- `20261009120000_case-student-name` fue aplicada y registrada. La columna
+  `public.cases.student_name` existe como `text`; `ALTER TABLE` no tocó filas y
+  la producción permaneció en 29 expedientes.
+- `20261009212142_restrict-security-definer-rpc-execution` revocó el acceso
+  directo a las funciones privilegiadas del esquema `public`, conservando
+  `authenticated` en los seis helpers usados por políticas RLS. La verificación
+  posterior encontró 0 funciones `SECURITY DEFINER` ejecutables por `anon`, 0
+  ejecutables por `authenticated` fuera de esos helpers y los seis helpers de
+  política habilitados. La cuota continúa reservada a `project_admin`.
+- El intento inicial de `db migrations up --to ...` fue rechazado sin escritura
+  porque el baseline local es anterior al head remoto. InsForge aplicó ambos
+  archivos correctamente al invocarlos en orden como destinos explícitos
+  (`db migrations up <archivo>`). No se editaron `system.custom_migrations` ni
+  `system.migrations` manualmente.
+- InsForge no permitió un backup manual adicional (cuota `1/1`). Se conservó el
+  backup `completed` de las 16:58 UTC y no se borró. La rama de staging era full,
+  pero no se ejecutó una restauración de ese backup; en la lectura posterior
+  había dos expedientes más en producción que en la copia.
+- El CLI confirmó que la app no usa los RPC heredados como cliente: su única
+  invocación directa es `admit_or_reject_quota`, que mantiene el permiso solo
+  para `project_admin`. La rama de staging no tenía trabajos activos en la tabla
+  legacy `jobs`.
 - `20260930120000` tampoco figura en el ledger; sus efectos se observaron en
   inspecciones anteriores. El ledger contiene 37 versiones remotas sin archivo
   en el checkout, pertenecientes a la arquitectura anterior. No descargar,
@@ -84,7 +101,8 @@ remoto, pero el archivo no consta en el historial oficial.
 | `20261008130000_dashboard-view-test-owner-scope.sql` | B | Registrada en la relectura | Vistas con `created_by` e `is_test`, restricciones de acceso y 34/11 columnas. |
 | `20261009100000_case-list-pagination-indexes.sql` | B | Registrada en la relectura | Los dos índices de paginación constan tanto en el ledger como en `pg_indexes`. |
 | `20261009110000_case-area-comments-authenticated-policy.sql` | B | Registrada en la relectura | Las tres políticas aparecen con `roles = {authenticated}` en `pg_policies`. |
-| `20261009120000_case-student-name.sql` | E | No registrada; columna ausente | El código actual inserta `cases.student_name`; falta conciliar y aplicar esta migración antes de desplegar el código que la usa. |
+| `20261009120000_case-student-name.sql` | B | Aplicada y registrada en el cierre del 9 oct 2026 | `cases.student_name` nullable para presentar nombre e identificador; requerida por `POST /api/cases`. |
+| `20261009212142_restrict-security-definer-rpc-execution.sql` | B | Aplicada y registrada en el cierre del 9 oct 2026 | Revoca llamadas directas de cliente a funciones `SECURITY DEFINER`; mantiene seis helpers requeridos por RLS. |
 
 No se asigna clase D: no se demostró que retirar un SQL sea seguro para todas
 las rutas de actualización. Los archivos A-F no se clasifican por edad, sino
@@ -138,7 +156,11 @@ datos de la aplicación.
   comentarios parecían pendientes. La relectura actual confirma que ambos
   cambios están registrados y sus efectos coinciden con el SQL local.
 
-## Plan reproducible antes de cualquier escritura
+## Procedimiento aplicable a futuras reconciliaciones
+
+El cierre descrito arriba ya se aplicó con los dos archivos explícitos. Este
+procedimiento queda como guía para cualquier otra escritura; la restauración
+del backup no se ensayó y debe cubrirse antes de una operación de recuperación.
 
 ## Dependencias y orden
 

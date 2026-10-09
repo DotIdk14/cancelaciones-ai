@@ -1,109 +1,79 @@
 # Revisión de preparación para producción
 
-Fecha: 9 de octubre de 2026. Revisión de `main` y del backend InsForge vinculado,
-con lecturas no mutantes a través de Vercel CLI e InsForge CLI. No se hizo deploy,
-push, escritura de datos ni cambio remoto de configuración o esquema.
+Fecha: 9 de octubre de 2026. Se revisó `main`, el backend de producción y una
+rama full de InsForge. No se hicieron escrituras de datos de expedientes ni
+pruebas visuales con información real.
 
-## Dictamen
+## Estado
 
-**No desplegar todavía.** La verificación local está verde, pero hay un bloqueo
-funcional de esquema, permisos RPC amplios en el backend y configuración de
-autenticación que no coincide con las invariantes del producto. La producción
-actual continúa sirviendo el deployment anterior.
+El código local pasó `npm run verify:release`. InsForge ya tiene aplicadas las
+migraciones `20261009120000_case-student-name` y
+`20261009212142_restrict-security-definer-rpc-execution`; `disable_signup` está
+configurado en `true`. El commit todavía no se ha subido a `main` ni el frontend
+se ha desplegado en Vercel en esta revisión.
 
-## Bloqueos de release
+## Cambios de preparación aplicados
 
-### 1. Código actual requiere una columna que producción no tiene
+- `cases.student_name` fue añadida como columna `text` nullable. La migración no
+  actualiza filas existentes; se verificó que los 29 expedientes permanecieran.
+- Se revocó `EXECUTE` para `PUBLIC`, `anon` y `authenticated` en las funciones
+  públicas `SECURITY DEFINER`. Solo seis helpers invocados desde políticas RLS
+  conservan permiso para `authenticated`. Producción reporta 0 ejecutables por
+  `anon`, 0 helpers ajenos a RLS para `authenticated` y los 6 helpers de política
+  disponibles. `admit_or_reject_quota` sigue reservado a `project_admin`.
+- `disable_signup=true` coincide con el alta administrativa en InsForge.
+- `.vercelignore` evita enviar al deployment el historial local de Aider, las
+  capturas de revisión, las pruebas, migraciones y documentos internos. El dry
+  run de Vercel ya no incluye esos archivos.
 
-El catálogo de producción no contiene `public.cases.student_name`, pero
-`POST /api/cases` escribe esa columna desde `src/server/cases.ts`. La migración
-`20261009120000_case-student-name.sql` está en el checkout pero no figura en el
-ledger remoto. Un despliegue previo a una conciliación y aplicación aprobada
-rompería la creación de expedientes nuevos. La sección de relectura en
-[`MIGRATION-RECONCILIATION.md`](MIGRATION-RECONCILIATION.md) contiene el estado de
-migraciones observado y el plan vigente.
+Las dos migraciones se aplicaron primero en la rama aislada
+`cancelaciones-predeploy-20261009`; el esquema, la columna, las políticas/grants
+y los permisos efectivos se comprobaron allí. La copia contenía 27 expedientes;
+producción tenía 29 en la aplicación, por lo que el staging no se usó para
+validar datos de negocio ni para la revisión visual. Las migraciones no escriben
+ni reclasifican expedientes.
 
-### 2. Funciones `SECURITY DEFINER` ejecutables por roles cliente
+## Verificaciones
 
-El catálogo contiene 49 funciones públicas `SECURITY DEFINER` ejecutables por
-`anon` o `authenticated`: 41 ejecutables por `anon` y 49 por `authenticated`.
-El asesor de InsForge reportó 48 hallazgos críticos `dangerous-function` y dos
-`rls-no-policy`; además, el chequeo `slow-query` no terminó. La consulta de
-catálogo confirmó que funciones de jobs como `enqueue_job`, `claim_next_job`,
-`claim_next_audit_job`, `record_job_artifact`, `complete_job` y
-`renew_job_lease` aceptan ejecución de `anon` y `authenticated`. Algunas
-operaciones usan un `worker_id` que aporta el cliente y no autentican la
-identidad del llamador. Esto requiere inventariar consumidores externos y
-ensayar en staging un cierre granular de grants; revocarlos en bloque podría
-romper consumidores legacy.
+- `npm run verify:release`: lint y typecheck, 101 pruebas de contrato, 1,015
+  pruebas aprobadas y 3 omitidas, y build Vite correcto. ESLint conserva dos
+  warnings de dependencias de hooks en `CaseDetailPage.tsx` y `EvidencePane.tsx`.
+- `npm run lint:contrast`: todos los pares de texto y series de gráficas
+  revisados cumplen WCAG 2.2 AA.
+- Producción respondió HTTP 200 en `/api/health/ai` (`status: ok`). El healthcheck
+  sin sesión valida configuración, no una generación real del proveedor.
+- `vercel deploy --dry` identificó Vite, 12 funciones y el paquete después de
+  aplicar `.vercelignore`.
+- El asesor de InsForge reportó antes 296 hallazgos (80 críticos, 173 warnings,
+  43 informativos); su chequeo `slow-query` no concluyó. Los RPC expuestos por
+  grants quedaron cerrados con la migración comprobada en staging y producción.
 
-Los dos resultados `rls-no-policy` afectan `request_admissions` y
-`app_memberships`. RLS está habilitada y los roles cliente no tienen privilegio
-de `SELECT` en esas tablas; ese hallazgo está actualmente contenido por la
-denegación directa. No apliqué las políticas genéricas que propone el asesor.
+## Riesgos y comprobaciones pendientes
 
-### 3. Autenticación de InsForge no refleja Google-only / sin signup
+- InsForge aún enumera `github` junto con `google` como proveedor OAuth. La app
+  solo presenta e inicia Google OAuth, exige membresía en el servidor y tiene el
+  signup desactivado; la eliminación del proveedor GitHub requiere el panel de
+  proveedores de InsForge y no se administra con `insforge.toml` ni con el CLI
+  disponible.
+- El rol `user` (Asesor) tiene 0 membresías en el snapshot leído; había 2
+  `coordinator` y 1 `manager`. No se consultaron identidades ni se inventó un
+  usuario para el smoke.
+- No se ejecutó `npm run test:ai-smoke`: llama al proveedor de pago. Tampoco se
+  pudieron ejecutar flujos autenticados contra la cuenta productiva sin usar
+  una identidad/caso real.
+- InsForge permite un único backup manual y la cuota ya estaba ocupada por un
+  backup `completed` de las 16:58 UTC. No se borró ese punto de recuperación. La
+  rama full proporcionó staging aislado, pero una restauración del backup no se
+  ensayó; el backup es anterior a los dos casos que hoy elevan producción de 27
+  a 29 expedientes.
+- El ledger remoto tenía 54 migraciones antes del cambio y ahora tiene 56; el
+  checkout contiene 21 archivos SQL. El baseline local no representa la base
+  existente, así que `up --to` fue rechazado por InsForge sin escribir. Los dos
+  destinos se aplicaron en orden con `db migrations up <archivo>` y aparecen en
+  el ledger. No se tocaron manualmente tablas `system.*`.
+- El límite Hobby sigue en 12 funciones (12 archivos en `api/`); no hay margen
+  para añadir un endpoint como archivo nuevo sin consolidar rutas.
 
-La metadata remota informa `disableSignup: false` y proveedores OAuth `github` y
-`google`. La app solo implementa Google OAuth y no ofrece signup. Aunque la
-autorización de la aplicación exige una fila en `app_memberships`, esta
-configuración permite superficies de autenticación que el producto no usa y
-debe reconciliarse en InsForge antes del lanzamiento.
-
-En la tabla `app_memberships` hay 2 filas `coordinator` y 1 `manager`, sin rol
-`user` (Asesor) en el snapshot de esta revisión. No se consultaron identidades.
-Si se espera operación de Asesores, hay que habilitar el alta por el proceso
-administrativo autorizado y probar ese flujo antes de lanzar.
-
-## Estado verificado
-
-- `npm run verify:release`: completó correctamente: lint, typecheck, contratos
-  (101), suite completa (1,015 aprobadas, 3 omitidas) y build Vite. Lint conserva
-  dos warnings de dependencias de hooks en `CaseDetailPage.tsx` y
-  `EvidencePane.tsx`.
-- La comprobación de contraste confirma WCAG 2.2 AA para los pares de texto y
-  series de gráficas revisados.
-- La raíz de producción respondió HTTP 200 y entregó HSTS, CSP,
-  `X-Content-Type-Options: nosniff` y `X-Frame-Options: DENY`. El endpoint público
-  `/api/health/ai` respondió `status: ok`; sin sesión, esta respuesta solo
-  confirma que la clave y el modelo principal están configurados, no prueba una
-  generación ni la compatibilidad completa del proveedor.
-- Vercel muestra un deployment de producción `Ready` creado hace unas cuatro
-  horas. Su metadata no incluye `gitSource`; no es evidencia de que contenga el
-  `main` local actual. El checkout tiene cambios locales sin publicar y no hay
-  una correlación verificable entre este checkout y ese deployment.
-- `api/` tiene 12 archivos de función, el límite Hobby documentado para este
-  proyecto. No queda margen para añadir otro archivo sin consolidar rutas.
-- La lista de variables de producción contiene las claves server-side
-  requeridas (`INSFORGE_*`, `OPENROUTER_*`, `ASSEMBLYAI_API_KEY`, `APP_URL`) y no
-  mostró nombres `VITE_*` o `NEXT_PUBLIC_*`. No se leyeron ni copiaron valores.
-- Los buckets de evidencia observados están privados. Las tablas core tienen
-  RLS habilitada; `cases.created_by` sigue nullable por compatibilidad histórica,
-  aunque los 29 casos actuales no tienen `created_by` nulo.
-- El scan del asesor de InsForge contó 296 resultados (80 críticos, 173 warnings
-  y 43 informativos); el detalle recuperado contenía 50 hallazgos, incluidos los
-  críticos de funciones. El asesor incluye objetos legacy que no usa la app,
-  pero los grants públicos en funciones de escritura no se pueden descartar sin
-  identificar sus consumidores.
-
-## Antes de autorizar un deploy
-
-1. Conciliar y ensayar en staging la migración `20261009120000` con respaldo
-   restaurable; confirmar la creación de caso y el flujo de lista/detalle contra
-   el esquema resultante.
-2. Inventariar workers o consumidores externos de los 49 RPC, revisar cada
-   `SECURITY DEFINER` y sus grants, y ensayar las revocaciones precisas sin
-   retirar permisos que necesiten funciones RLS, triggers o workers vigentes.
-3. Alinear `disableSignup`, proveedores OAuth y redirects con Google-only; probar
-   el rechazo de usuarios sin membership y confirmar el alta del rol Asesor por
-   el proceso administrativo.
-4. Reconciliar el ledger de 54 migraciones remotas con los 20 archivos locales.
-   No descargar ni reejecutar en lote las migraciones legacy y no tocar
-   `system.custom_migrations` manualmente.
-5. Tras esos cambios aprobados, volver a ejecutar el asesor de InsForge y
-   `npm run verify:release`; desplegar primero a Preview y verificar sesión,
-   creación de caso, carga de evidencias, auditoría, revisión humana y dashboards
-   antes de promover a producción.
-
-No se ejecutó `test:ai-smoke` porque llama al proveedor externo y puede generar
-costo; la revisión del healthcheck no sustituye esa prueba pagada.
+El deploy de Vercel debe seguirse observando después del push a `main`; la
+configuración y los checks de este documento no sustituyen la prueba posterior
+del deployment.

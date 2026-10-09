@@ -11,6 +11,8 @@
 # =============================================================================
 
 [auth]
+# El alta de usuarios se administra en InsForge; la app solo inicia Google OAuth.
+disable_signup = true
 # Destinos a los que InsForge puede devolver al usuario tras el OAuth.
 # Debe coincidir EXACTO con `oauthCallbackUrl()` de `src/server/auth.ts`, que lo
 # compone como `${APP_URL}/api/auth/google-callback`:

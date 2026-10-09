@@ -1,0 +1,17 @@
+# Material local de agentes y revisiones visuales; nunca forma parte del sitio.
+.aider*
+.impeccable/
+.serena/
+.superpowers/
+.worktrees/
+
+# Fuentes de operación y verificaciones que no se sirven en producción.
+docs/
+tests/
+migrations/
+coverage/
+
+# Datos privados excluidos del repositorio y de los despliegues.
+private-historical/
+references/private-historical/
+normative/
