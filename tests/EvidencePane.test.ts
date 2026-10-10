@@ -128,6 +128,28 @@ describe('visor de evidencia en la columna central', () => {
     expect(image.getAttribute('src')).toBe('/api/evidence/ev-1/download?preview=1');
   });
 
+  it('cambia la evidencia dentro del mismo panel y no abre una ventana aparte', async () => {
+    renderPage([
+      evidence({ id: 'ev-1', filename: 'frente.png', mimeType: 'image/png' }),
+      evidence({ id: 'ev-2', filename: 'reverso.png', mimeType: 'image/png' }),
+    ]);
+    fireEvent.click(await screen.findByRole('tab', { name: /Evidencias/ }));
+    const panel = document.querySelector('.case-evidence-viewer-region');
+    expect(panel).not.toBeNull();
+
+    await openEvidence('frente.png');
+    expect(await screen.findByRole('img', { name: /frente\.png/ })).toBeTruthy();
+    const originalUrl = window.location.href;
+
+    await openEvidence('reverso.png');
+
+    expect(document.querySelector('.case-evidence-viewer-region')).toBe(panel);
+    expect(await screen.findByRole('img', { name: /reverso\.png/ })).toBeTruthy();
+    expect(screen.queryByRole('img', { name: /frente\.png/ })).toBeNull();
+    expect(window.location.href).toBe(originalUrl);
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
   it('muestra el audio junto a su transcripción', async () => {
     renderPage([
       evidence({
