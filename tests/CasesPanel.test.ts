@@ -256,7 +256,7 @@ describe('CasesPanel — acciones múltiples de administración', () => {
         { target: 'audit', auditId: 'audit-2' },
       ]);
     });
-    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('2 expedientes seleccionados'));
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('2 dictámenes seleccionados'));
 
     cleanup();
     await renderList([
@@ -264,5 +264,27 @@ describe('CasesPanel — acciones múltiples de administración', () => {
     ]);
     fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar expediente UTEL-2026-001' }));
     expect(screen.getByRole('button', { name: /borrar dictámenes/i })).toHaveProperty('disabled', true);
+  });
+
+  it('permite borrar los dictámenes elegibles y omite los que tienen revisión humana', async () => {
+    await renderList([
+      makeCase({ id: 'case-eligible', canManageCases: true, auditId: 'audit-eligible', auditHasHumanReview: false }),
+      makeCase({ id: 'case-reviewed', studentIdentifier: 'UTEL-2026-002', canManageCases: true, auditId: 'audit-reviewed', auditHasHumanReview: true }),
+    ]);
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar expediente UTEL-2026-001' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar expediente UTEL-2026-002' }));
+    expect(screen.getByRole('button', { name: /borrar dictámenes/i })).toHaveProperty('disabled', false);
+    expect(screen.getByText(/se pueden borrar 1 de 2 dictámenes seleccionados/i)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /borrar dictámenes/i }));
+
+    await vi.waitFor(() => {
+      const deletions = vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === 'DELETE');
+      expect(deletions).toHaveLength(1);
+      expect(JSON.parse(String(deletions[0]?.[1]?.body))).toEqual({ target: 'audit', auditId: 'audit-eligible' });
+    });
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('se omitirá 1 caso'));
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('Las evidencias originales se conservarán'));
   });
 });

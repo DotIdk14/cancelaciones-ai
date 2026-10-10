@@ -243,12 +243,12 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
     .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '', 'es'));
   const selectedCase = filteredCases.find((item) => item.id === selectedId) ?? filteredCases[0] ?? null;
   const selectedCases = filteredCases.filter((item) => item.canManageCases === true && selectedCaseIds.has(item.id));
+  const deletableAuditCases = selectedCases.filter(
+    (item) => item.auditId != null && item.status !== 'AUDITING' && item.auditHasHumanReview !== true,
+  );
   const visibleManageableCases = filteredCases.filter((item) => item.canManageCases === true);
   const showManagementSelection = !preview && (cases?.some((item) => item.canManageCases === true) ?? false);
   const allVisibleSelected = visibleManageableCases.length > 0 && visibleManageableCases.every((item) => selectedCaseIds.has(item.id));
-  const allSelectedAuditsDeletable = selectedCases.length > 0 && selectedCases.every(
-    (item) => item.auditId != null && item.status !== 'AUDITING' && item.auditHasHumanReview !== true,
-  );
 
   async function runAdminAction(action: 'delete-draft'): Promise<void> {
     if (!selectedCase?.canManageCases || adminPending) return;
@@ -268,24 +268,27 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
 
   async function runBulkAction(action: 'mark-test' | 'mark-real' | 'delete-audits'): Promise<void> {
     if (adminPending || selectedCases.length === 0 || selectedCases.some((item) => item.canManageCases !== true)) return;
-    if (action === 'delete-audits' && !allSelectedAuditsDeletable) return;
+    if (action === 'delete-audits' && deletableAuditCases.length === 0) return;
 
     const targets = action === 'mark-test'
       ? selectedCases.filter((item) => item.isTest !== true)
       : action === 'mark-real'
         ? selectedCases.filter((item) => item.isTest === true)
-        : selectedCases;
+        : deletableAuditCases;
     if (targets.length === 0) return;
 
     const actionLabel = action === 'mark-test' ? 'marcar como prueba'
       : action === 'mark-real' ? 'marcar como reales'
-        : 'borrar de forma permanente los dictámenes';
+        : 'borrar de forma permanente';
     const impact = action === 'mark-test'
       ? ' Se excluirán de las métricas operativas.'
       : action === 'mark-real'
         ? ' Volverán a incluirse en las métricas operativas.'
-        : ' Esta acción no se puede deshacer.';
-    if (!window.confirm(`¿${actionLabel} ${targets.length} ${targets.length === 1 ? 'expediente seleccionado' : 'expedientes seleccionados'}?${impact}`)) return;
+        : ` Esta acción no se puede deshacer. Las evidencias originales se conservarán${targets.length < selectedCases.length ? `; se omitirá${selectedCases.length - targets.length === 1 ? '' : 'n'} ${selectedCases.length - targets.length} ${selectedCases.length - targets.length === 1 ? 'caso' : 'casos'} sin dictamen elegible, con revisión humana o con auditoría en curso` : ''}.`;
+    const targetDescription = action === 'delete-audits'
+      ? `${targets.length} ${targets.length === 1 ? 'dictamen seleccionado' : 'dictámenes seleccionados'}`
+      : `${targets.length} ${targets.length === 1 ? 'expediente seleccionado' : 'expedientes seleccionados'}`;
+    if (!window.confirm(`¿${actionLabel} ${targetDescription}?${impact}`)) return;
 
     setAdminPending(true);
     setAdminError(null);
@@ -430,14 +433,16 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
                     type="button"
                     className="case-bulk-action case-bulk-action-danger"
                     onClick={() => void runBulkAction('delete-audits')}
-                    disabled={adminPending || !allSelectedAuditsDeletable}
-                    title={!allSelectedAuditsDeletable ? 'Selecciona únicamente casos con dictamen, sin revisión humana y que no estén auditándose.' : undefined}
+                    disabled={adminPending || deletableAuditCases.length === 0}
+                    title={deletableAuditCases.length === 0 ? 'Selecciona al menos un caso con dictamen sin revisión humana ni auditoría en curso.' : undefined}
                   >
                     <Trash2 size={14} aria-hidden="true" /> Borrar dictámenes
                   </button>
                 </div>
-                {!allSelectedAuditsDeletable && (
-                  <p className="case-bulk-hint">Para borrar, todos los seleccionados deben tener un dictamen sin revisión humana ni auditoría en curso.</p>
+                {deletableAuditCases.length < selectedCases.length && (
+                  <p className="case-bulk-hint">
+                    Se pueden borrar {deletableAuditCases.length} de {selectedCases.length} dictámenes seleccionados. Los demás no tienen dictamen elegible, cuentan con revisión humana o tienen una auditoría en curso. Las evidencias originales se conservan.
+                  </p>
                 )}
                 {adminPending && <span role="status" className="case-bulk-progress"><Spinner label="Procesando selección" className="h-3.5 w-3.5" /> Procesando selección…</span>}
                 {adminError && <p role="alert" className="case-bulk-error">{adminError}</p>}
