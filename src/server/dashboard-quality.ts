@@ -86,6 +86,8 @@ export interface ComparisonMetricRow {
   created_at: string;
   agrees: boolean | null;
   confidence: number | null;
+  /** Resolución humana final, obtenida de case_reviews por case_review_id. */
+  human_result?: string | null;
 }
 
 /**
@@ -112,6 +114,13 @@ export interface HumanReviewInput {
   comparisons: ComparisonMetricRow[];
   /** Total exacto del periodo, para poder avisar de una truncación. */
   comparisonsAvailable: number;
+}
+
+export interface HumanDiscrepancy {
+  caseId: string;
+  aiResolution: string;
+  humanResolution: string;
+  createdAt: string;
 }
 
 /**
@@ -165,6 +174,9 @@ export interface HumanReviewReport {
   agreementRate: number | null;
   /** Media de `confidence` de las COMPLETED que lo declararon, o `null` si ninguna. */
   avgComparisonConfidence: number | null;
+  /** Discrepancias recientes con resoluciones cerradas; sin comentario ni texto del modelo. */
+  discrepancies: HumanDiscrepancy[];
+  discrepanciesTruncated: boolean;
 }
 
 /**
@@ -400,6 +412,8 @@ export function aggregateHumanReview(input: HumanReviewInput): HumanReviewReport
     counts.completed === 0 ? null : round3(counts.agreements / counts.completed);
   const avgComparisonConfidence =
     counts.confidenceReported === 0 ? null : round3(counts.confidenceSum / counts.confidenceReported);
+  const discrepancyRows = input.comparisons.filter((row) => row.status === 'COMPLETED' && row.agrees === false
+    && row.audit_result !== null && row.human_result != null);
 
   return {
     available,
@@ -413,6 +427,16 @@ export function aggregateHumanReview(input: HumanReviewInput): HumanReviewReport
     disagreements: counts.disagreements,
     agreementRate,
     avgComparisonConfidence,
+    discrepancies: discrepancyRows
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .slice(0, 100)
+      .map((row) => ({
+        caseId: row.case_id,
+        aiResolution: row.audit_result as string,
+        humanResolution: row.human_result as string,
+        createdAt: row.created_at,
+      })),
+    discrepanciesTruncated: discrepancyRows.length > 100,
   };
 }
 

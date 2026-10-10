@@ -71,6 +71,7 @@ export type CaseCreatorRole = 'user' | 'coordinator' | 'manager';
 export interface CaseCreatorOption {
   creatorId: string;
   role: CaseCreatorRole;
+  name: string | null;
 }
 
 export interface CaseDetail {

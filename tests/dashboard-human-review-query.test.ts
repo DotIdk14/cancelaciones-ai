@@ -40,7 +40,7 @@ const REVIEWS = 'case_reviews';
 type Row = Record<string, unknown>;
 
 interface Predicate {
-  op: 'eq' | 'gte' | 'lte';
+  op: 'eq' | 'gte' | 'lte' | 'in';
   column: string;
   value: unknown;
 }
@@ -64,6 +64,9 @@ interface FakeSeed {
   reviews?: Array<{
     id: string;
     created_at: string;
+    result?: string;
+    coordinator_decision?: 'APPROVE' | 'CHANGE' | null;
+    coordinator_resolution?: string | null;
     'cases.is_test'?: boolean;
     'cases.created_by'?: string | null;
   }>;
@@ -85,6 +88,7 @@ interface FakeClient {
  */
 function matches(row: Row, predicate: Predicate): boolean {
   if (predicate.op === 'eq') return row[predicate.column] === predicate.value;
+  if (predicate.op === 'in') return (predicate.value as unknown[]).includes(row[predicate.column]);
   const left = typeof row[predicate.column] === 'string' ? (row[predicate.column] as string) : '';
   const right = String(predicate.value);
   return predicate.op === 'gte' ? left >= right : left <= right;
@@ -133,6 +137,10 @@ function createFakeClient(seed: FakeSeed): FakeClient {
       },
       lte(column: string, value: unknown): typeof query {
         predicates.push({ op: 'lte', column, value });
+        return query;
+      },
+      in(column: string, values: unknown[]): typeof query {
+        predicates.push({ op: 'in', column, value: values });
         return query;
       },
       order(): typeof query {
@@ -467,7 +475,7 @@ describe('getAiQuality — el bloque humano sin degradarse en silencio', () => {
 // --------------------------------------------------------------------------- forma
 
 describe('getAiQuality — la forma que viaja al navegador', () => {
-  it('humanReview tiene EXACTAMENTE los once campos del contrato', async () => {
+  it('humanReview tiene los campos declarados del contrato', async () => {
     // El nombre de cada clave ES el contrato con `src/lib/dashboard.ts` y con
     // `src/components/dashboard/QualityPage.tsx`. Se fija la lista completa en
     // vez de comprobar campos sueltos porque el defecto que hay que cazar aquí es
@@ -490,11 +498,38 @@ describe('getAiQuality — la forma que viaja al navegador', () => {
       'comparableReviews',
       'completedComparisons',
       'disagreements',
+      'discrepancies',
+      'discrepanciesTruncated',
       'failedComparisons',
       'message',
       'pendingComparisons',
       'reviewedCases',
     ]);
+  });
+
+  it('expone las resoluciones IA y humana finales solo para comparaciones discrepantes', async () => {
+    const fake = createFakeClient({
+      comparisons: [
+        comparisonRow({ agrees: false, case_id: 'case-discrepancy', audit_result: 'CANCELACION_VENTA' }),
+        comparisonRow({ id: 'agreement', agrees: true, case_id: 'case-agreement' }),
+      ],
+      reviews: [{
+        id: 'review-1',
+        created_at: '2026-09-10T09:00:00.000Z',
+        result: 'BAJA',
+        coordinator_decision: 'CHANGE',
+        coordinator_resolution: 'TICKET_RECHAZADO',
+      }],
+    });
+
+    const report = await getAiQuality(fake.client, FILTERS);
+
+    expect(report.humanReview.discrepancies).toEqual([{
+      caseId: 'case-discrepancy',
+      aiResolution: 'CANCELACION_VENTA',
+      humanResolution: 'TICKET_RECHAZADO',
+      createdAt: '2026-09-15T12:00:00.000Z',
+    }]);
   });
 
   it('el informe no lleva el comentario humano ni la explicación del modelo', async () => {

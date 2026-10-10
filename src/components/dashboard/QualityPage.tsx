@@ -27,14 +27,14 @@
 
 import type { ReactNode } from 'react';
 import { useCallback, useState } from 'react';
-import { Gauge, Info, Scale, UserCheck } from 'lucide-react';
+import { ChevronDown, Gauge, Info, Scale, UserCheck } from 'lucide-react';
 import type {
   DashboardFilters as DashboardFiltersValue,
   QualityReport,
 } from '../../lib/dashboard';
 import { defaultDateRange } from '../../lib/dashboard';
 import { DASH, formatPercent } from '../../lib/format';
-import { CONFIDENCE_HIGH_THRESHOLD } from '../../lib/labels';
+import { CONFIDENCE_HIGH_THRESHOLD, resolutionLabel } from '../../lib/labels';
 import { useAiQuality } from '../../lib/useDashboard';
 import { Badge, ChartFrame, ErrorCard, Skeleton, StatCard } from '../ui';
 import { DashboardFilters } from './DashboardFilters';
@@ -82,7 +82,7 @@ function HumanReviewNotice({ report }: { report: QualityReport | null }): ReactN
         <p className="max-w-3xl text-sm text-muted">{message}</p>
       </div>
       <Badge tone="neutral" className="shrink-0">
-        Sin revisión humana
+        {report?.humanReview.available ? 'Revisión humana registrada' : 'Sin revisión humana'}
       </Badge>
     </div>
   );
@@ -163,9 +163,9 @@ export function QualityPage(): ReactNode {
       )}
 
       {/* Fila 1: KPIs */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {showSkeleton ? (
-          Array.from({ length: 5 }, (_, i) => (
+          Array.from({ length: 4 }, (_, i) => (
             <StatCard
               key={i}
               label="Cargando"
@@ -183,29 +183,18 @@ export function QualityPage(): ReactNode {
               hint={humanReview?.available ? 'Revisiones enlazadas a la auditoría filtrada' : 'Sin revisiones en este periodo'}
             />
             <StatCard
-              label="Acuerdos exactos"
+              label="Acuerdos"
               tone="success"
               icon={<Scale {...ICON_PROPS} />}
               value={humanReview === null ? DASH : humanReview.agreements}
               hint={humanReview === null ? 'Sin datos' : `${humanReview.comparableReviews} revisiones comparables`}
             />
             <StatCard
-              label="Discrepancias exactas"
+              label="Discrepancias"
               tone="warning"
               icon={<Scale {...ICON_PROPS} />}
               value={humanReview === null ? DASH : humanReview.disagreements}
               hint="Resultado humano distinto al de la auditoría referenciada"
-            />
-            <StatCard
-              label="Coincidencia exacta"
-              tone="brand"
-              icon={<Scale {...ICON_PROPS} />}
-              value={humanReview?.agreementRate === null || humanReview === null
-                ? <span className="text-muted">{DASH}</span>
-                : formatPercent(humanReview.agreementRate)}
-              hint={humanReview?.agreementRate === null || humanReview === null
-                ? 'Sin revisiones comparables'
-                : `Sobre ${humanReview.comparableReviews} revisiones`}
             />
             {/* Esta sí es real: la confianza que declaró el modelo. */}
             <StatCard
@@ -223,8 +212,8 @@ export function QualityPage(): ReactNode {
         )}
       </div>
 
-      {/* Fila 2: comparación exacta con la auditoría referenciada por la revisión */}
-      <div className="grid gap-6 lg:grid-cols-2">
+      {/* Fila 2: comparaciones humanas */}
+      <div className="grid gap-6">
         {data?.truncated === true && (
           <div className="lg:col-span-2">
             <Badge tone="warning">Se muestran los casos más recientes del periodo</Badge>
@@ -232,34 +221,9 @@ export function QualityPage(): ReactNode {
         )}
 
         <ChartFrame
-          title="Coincidencia exacta IA / humano"
-          description="Compara el resultado humano con el de la auditoría indicada por audit_id."
-          height={300}
-          isLoading={showSkeleton}
-          isEmpty={!showSkeleton && !humanReview?.available}
-          emptyTitle="Sin revisiones humanas en este periodo."
-          emptyDescription="La tasa queda sin dato hasta que exista una revisión enlazada a su auditoría."
-          error={null}
-        >
-          {humanReview?.available ? (
-            <div className="flex h-full flex-col justify-center gap-4">
-              <p className="text-sm text-muted">{humanReview.message}</p>
-              <dl className="flex flex-col gap-2">
-                <HumanMetricRow label="Revisiones registradas" value={humanReview.reviewedCases} />
-                <HumanMetricRow label="Comparables con resultado exacto" value={humanReview.comparableReviews} />
-                <HumanMetricRow
-                  label="Tasa de coincidencia"
-                  value={humanReview.agreementRate === null ? DASH : formatPercent(humanReview.agreementRate)}
-                />
-              </dl>
-            </div>
-          ) : <div />}
-        </ChartFrame>
-
-        <ChartFrame
           title="Acuerdos y discrepancias"
-          description="Conteo exacto de resultados iguales o distintos en los casos revisados."
-          height={300}
+          description="Consulta los dictámenes donde la comparación reportó una discrepancia."
+          height={360}
           isLoading={showSkeleton}
           isEmpty={!showSkeleton && !humanReview?.available}
           emptyTitle="Sin revisiones humanas en este periodo."
@@ -267,16 +231,40 @@ export function QualityPage(): ReactNode {
           error={null}
         >
           {humanReview?.available ? (
-            <div className="flex h-full flex-col justify-center gap-4">
-              <p className="text-sm text-muted">{humanReview.message}</p>
-              <dl className="flex flex-col gap-2">
-                <HumanMetricRow label="Acuerdos exactos" value={humanReview.agreements} />
-                <HumanMetricRow label="Discrepancias exactas" value={humanReview.disagreements} />
-                <HumanMetricRow
-                  label="Sin resultado comparable"
-                  value={humanReview.reviewedCases - humanReview.comparableReviews}
-                />
-              </dl>
+            <div className="flex h-full flex-col gap-4">
+              <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                <span className="text-sm text-muted">Porcentaje de discrepancia</span>
+                <strong className="text-xl tabular-nums text-ink">
+                  {humanReview.agreements + humanReview.disagreements === 0
+                    ? DASH
+                    : formatPercent(humanReview.disagreements / (humanReview.agreements + humanReview.disagreements))}
+                </strong>
+                <span className="w-full text-xs text-muted">
+                  Sobre {humanReview.agreements + humanReview.disagreements} comparaciones clasificadas
+                </span>
+              </div>
+              <details className="quality-discrepancy-menu">
+                <summary>
+                  <span>Ver discrepancias ({humanReview.discrepancies.length}{humanReview.discrepanciesTruncated ? '+' : ''})</span>
+                  <ChevronDown size={16} aria-hidden="true" />
+                </summary>
+                <div className="quality-discrepancy-list">
+                  {humanReview.discrepancies.length === 0 ? (
+                    <p className="text-sm text-muted">No hay discrepancias con ambas resoluciones disponibles en este periodo.</p>
+                  ) : humanReview.discrepancies.map((item) => (
+                    <article key={`${item.caseId}:${item.createdAt}`} className="quality-discrepancy-row">
+                      <span className="text-xs text-muted">Expediente {item.caseId.slice(0, 8)}</span>
+                      <dl>
+                        <div><dt>Resolución IA</dt><dd>{resolutionLabel(item.aiResolution)}</dd></div>
+                        <div><dt>Resolución humana</dt><dd>{resolutionLabel(item.humanResolution)}</dd></div>
+                      </dl>
+                    </article>
+                  ))}
+                  {humanReview.discrepanciesTruncated && (
+                    <p className="px-3 py-2 text-xs text-muted">Se muestran las 100 discrepancias más recientes.</p>
+                  )}
+                </div>
+              </details>
             </div>
           ) : <div />}
         </ChartFrame>
@@ -316,11 +304,3 @@ export function QualityPage(): ReactNode {
   );
 }
 
-function HumanMetricRow({ label, value }: { label: string; value: string | number }): ReactNode {
-  return (
-    <div className="flex items-center justify-between gap-3 border-b border-line/70 pb-2">
-      <dt className="text-xs font-medium uppercase tracking-wide text-muted">{label}</dt>
-      <dd className="text-sm font-semibold tabular-nums text-ink">{typeof value === 'number' ? INT_FMT.format(value) : value}</dd>
-    </div>
-  );
-}

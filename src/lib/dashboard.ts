@@ -520,10 +520,21 @@ export interface HumanReviewReport {
   reviewedCases: number;
   /** Revisiones con resultado humano y resultado de auditoría disponibles. */
   comparableReviews: number;
+  completedComparisons: number;
+  pendingComparisons: number;
+  failedComparisons: number;
   agreements: number;
   disagreements: number;
   /** Coincidencias exactas de la revisión y el audit_id al que está anclada. */
   agreementRate: number | null;
+  avgComparisonConfidence: number | null;
+  discrepancies: Array<{
+    caseId: string;
+    aiResolution: string;
+    humanResolution: string;
+    createdAt: string;
+  }>;
+  discrepanciesTruncated: boolean;
 }
 
 /** Confianza declarada por el modelo, agrupada. */

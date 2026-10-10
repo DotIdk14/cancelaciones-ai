@@ -65,11 +65,6 @@ function selectOnKeyboard(event: KeyboardEvent<HTMLTableRowElement>, select: () 
   }
 }
 
-/** Sufijo corto para distinguir UUID que comparten el prefijo estándar. */
-function creatorKey(id: string): string {
-  return id.length <= 16 ? id : `${id.slice(0, 6)}…${id.slice(-6)}`;
-}
-
 export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: boolean }): ReactNode {
   const preview = isLocalDashboardPreview();
   const [cases, setCases] = useState<CaseSummary[] | null>(() => preview ? getLocalPreviewCases() : null);
@@ -85,7 +80,16 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
     if (!preview) return [];
     const creators = new Map<string, CaseCreatorOption>();
     for (const item of getLocalPreviewCases()) {
-      if (item.creatorId && item.creatorRole) creators.set(item.creatorId, { creatorId: item.creatorId, role: item.creatorRole });
+      if (item.creatorId && item.creatorRole) {
+        const names: Record<string, string> = {
+          '20000000-0000-4000-8000-000000000001': 'Mariana Ruiz',
+          '20000000-0000-4000-8000-000000000002': 'Diego Soto',
+          '10000000-0000-4000-8000-000000000001': 'Andrea Torres',
+          '10000000-0000-4000-8000-000000000002': 'Lucía Vega',
+          '10000000-0000-4000-8000-000000000003': 'Carlos León',
+        };
+        creators.set(item.creatorId, { creatorId: item.creatorId, role: item.creatorRole, name: names[item.creatorId] ?? null });
+      }
     }
     return [...creators.values()];
   });
@@ -229,18 +233,14 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
       const result = item.effectiveResolution === null || item.effectiveResolution === undefined
         ? ''
         : resolutionLabel(item.effectiveResolution.result);
-      return [item.id, shortId(item.id), item.creatorId ?? '', item.creatorId ? creatorKey(item.creatorId) : '', item.studentIdentifier ?? '', result]
+      return [item.id, shortId(item.id), item.studentIdentifier ?? '', result]
         .some((value) => value.toLocaleLowerCase('es').includes(normalized));
     });
   }, [cases, creatorId, creatorRole, preview, query, statusFilter]);
 
   const visibleCreatorOptions = creatorOptions
     .filter((item) => creatorRole === 'ALL' || item.role === creatorRole)
-    .sort((a, b) => a.creatorId.localeCompare(b.creatorId));
-  const creatorRoleLabel = (role: CaseCreatorRole): string => role === 'coordinator'
-    ? 'Coordinador'
-    : role === 'manager' ? 'Gerente' : 'Asesor';
-
+    .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '', 'es'));
   const selectedCase = filteredCases.find((item) => item.id === selectedId) ?? filteredCases[0] ?? null;
   const selectedCases = filteredCases.filter((item) => item.canManageCases === true && selectedCaseIds.has(item.id));
   const visibleManageableCases = filteredCases.filter((item) => item.canManageCases === true);
@@ -381,9 +381,7 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
               >
                 <option value="ALL">Todos los creadores</option>
                 {visibleCreatorOptions.map((item) => (
-                  <option key={item.creatorId} value={item.creatorId} title={item.creatorId}>
-                    {creatorRoleLabel(item.role)} · {creatorKey(item.creatorId)}
-                  </option>
+                  <option key={item.creatorId} value={item.creatorId}>{item.name || 'Nombre no disponible'}</option>
                 ))}
               </select>
             </label>
@@ -517,14 +515,9 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
                         <span className="case-cell-secondary">{item.studentName ? `Matrícula ${item.studentIdentifier || 'sin capturar'}` : 'Nombre pendiente'} · Creado {formatDateTime(item.createdAt)}</span>
                       </td>
                       {canReadAllCases && (
-                        <td title={item.creatorId ?? undefined}>
+                        <td>
                           {item.creatorRole && item.creatorId ? (
-                            <>
-                              <span>{creatorRoleLabel(item.creatorRole)}</span>
-                              <span className="case-cell-secondary" aria-label={`Identificador de creador ${item.creatorId}`}>
-                                {creatorKey(item.creatorId)}
-                              </span>
-                            </>
+                            <span>{creatorOptions.find((creator) => creator.creatorId === item.creatorId)?.name || 'Nombre no disponible'}</span>
                           ) : <span className="text-muted">Creador sin identificar</span>}
                         </td>
                       )}

@@ -114,7 +114,9 @@ export default handleRoute(async (req, res) => {
         creatorRole as CaseCreatorRole | undefined,
         creatorId,
       );
-      const creatorOptions = !cursor && capabilities.canReadAllCases ? await listCaseCreatorOptions(client) : undefined;
+      const creatorOptions = !cursor && capabilities.canReadAllCases && !creatorRole && !creatorId
+        ? await listCaseCreatorOptions(client)
+        : undefined;
       ok(res, {
         cases: cases.map((row) => caseToSummary(row, capabilities.canManageCases)),
         nextCursor,

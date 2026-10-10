@@ -306,8 +306,29 @@ export async function getHumanReviewInput(
   // Las revisiones contadas son las del periodo MÁS las revisiones referenciadas
   // por comparaciones que cayeron en el periodo aunque la revisión esté fuera.
   const comparisonReviewIds = new Set(
-    comparisons.map((comparison) => comparison.case_review_id).filter((id): id is string => id !== null),
+    comparisons.map((comparison) => comparison.case_review_id).filter((id): id is string => typeof id === 'string' && id.length > 0),
   );
+  if (comparisonReviewIds.size > 0) {
+    const reviewResultsQuery = client.database
+      .from('case_reviews')
+      .select('id,result,coordinator_decision,coordinator_resolution')
+      .in('id', [...comparisonReviewIds]);
+    const reviewResults = await readAllPages<{
+      id: string;
+      result: string;
+      coordinator_decision?: 'APPROVE' | 'CHANGE' | null;
+      coordinator_resolution?: string | null;
+    }>(reviewResultsQuery as never);
+    const humanResultByReview = new Map(reviewResults.map((review) => [
+      review.id,
+      review.coordinator_decision === 'CHANGE' && review.coordinator_resolution
+        ? review.coordinator_resolution
+        : review.result,
+    ]));
+    for (const comparison of comparisons) {
+      comparison.human_result = humanResultByReview.get(comparison.case_review_id) ?? null;
+    }
+  }
   let reviewedCases = reviewIdsInRange.size;
   for (const id of comparisonReviewIds) {
     if (!reviewIdsInRange.has(id)) reviewedCases += 1;

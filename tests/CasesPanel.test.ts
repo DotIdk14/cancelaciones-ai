@@ -54,7 +54,11 @@ async function renderList(cases: CaseSummary[], canReadAllCases = false): Promis
       ERROR: scoped.filter((item) => item.status === 'ERROR').length,
     };
     const creatorOptions = [...new Map(cases.flatMap((item) => item.creatorId && item.creatorRole
-      ? [[item.creatorId, { creatorId: item.creatorId, role: item.creatorRole }]]
+      ? [[item.creatorId, {
+        creatorId: item.creatorId,
+        role: item.creatorRole,
+        name: item.studentIdentifier === 'AGENTE-UNO' ? 'Ana Pérez' : item.studentIdentifier === 'AGENTE-DOS' ? 'Luis Gómez' : 'Mariana Ruiz',
+      }]]
       : [])).values()];
     return fakeResponse(200, { cases: filtered, nextCursor: null, statusCounts, creatorOptions });
   }));
@@ -148,7 +152,7 @@ describe('CasesPanel — resolución efectiva', () => {
     expect(screen.queryByRole('row', { name: /ASESOR-001/ })).toBeNull();
   });
 
-  it('filtra por una persona creadora individual y muestra su identificador en la tabla', async () => {
+  it('filtra por una persona creadora individual y muestra su nombre en la tabla', async () => {
     const creatorOne = '10000000-0000-4000-8000-000000000001';
     const creatorTwo = '10000000-0000-4000-8000-000000000002';
     await renderList([
@@ -157,7 +161,8 @@ describe('CasesPanel — resolución efectiva', () => {
       makeCase({ id: 'case-coordinator', creatorRole: 'coordinator', creatorId: '20000000-0000-4000-8000-000000000001', studentIdentifier: 'COORD-001' }),
     ], true);
 
-    expect(screen.getByRole('row', { name: /AGENTE-UNO/ }).textContent).toContain(creatorOne.slice(-6));
+    expect(screen.getByRole('row', { name: /AGENTE-UNO/ }).textContent).toContain('Ana Pérez');
+    expect(screen.getByRole('row', { name: /AGENTE-UNO/ }).textContent).not.toContain(creatorOne);
     fireEvent.change(screen.getByRole('combobox', { name: /filtrar por creador de caso/i }), {
       target: { value: creatorTwo },
     });

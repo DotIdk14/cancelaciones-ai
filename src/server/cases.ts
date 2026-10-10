@@ -57,6 +57,7 @@ export type CaseCreatorRole = 'user' | 'coordinator' | 'manager';
 export interface CaseCreatorOption {
   creatorId: string;
   role: CaseCreatorRole;
+  name: string | null;
 }
 
 export interface CaseSummaryRow extends CaseRow {
@@ -87,7 +88,7 @@ async function caseCreatorIdsForRole(client: InsForgeClient, role: CaseCreatorRo
 }
 
 export async function listCaseCreatorOptions(client: InsForgeClient): Promise<CaseCreatorOption[]> {
-  const creators: CaseCreatorOption[] = [];
+  const memberships: Array<{ creatorId: string; role: CaseCreatorRole }> = [];
   for (let offset = 0; ; offset += 500) {
     const { data, error } = await client.database
       .from('app_memberships')
@@ -96,13 +97,24 @@ export async function listCaseCreatorOptions(client: InsForgeClient): Promise<Ca
       .range(offset, offset + 499);
     if (error || !data) dbError(error);
     const page = data as Array<{ user_id: string; role: string }>;
-    creators.push(...page.flatMap((item) =>
+    memberships.push(...page.flatMap((item) =>
       item.role === 'user' || item.role === 'coordinator' || item.role === 'manager'
         ? [{ creatorId: item.user_id, role: item.role as CaseCreatorRole }]
         : [],
     ));
-    if (page.length < 500) return creators;
+    if (page.length < 500) break;
   }
+
+  return Promise.all(memberships.map(async (creator) => {
+    try {
+      const { data } = await client.auth.getProfile(creator.creatorId);
+      const profile = data as { name?: unknown; profile?: { name?: unknown } | null } | null;
+      const rawName = profile?.name ?? profile?.profile?.name;
+      return { ...creator, name: typeof rawName === 'string' && rawName.trim() ? rawName.trim() : null };
+    } catch {
+      return { ...creator, name: null };
+    }
+  }));
 }
 
 export interface EvidenceRow {

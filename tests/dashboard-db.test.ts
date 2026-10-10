@@ -66,6 +66,7 @@ interface RecordedQuery {
   eqs: Array<[string, unknown]>;
   gte: Array<[string, unknown]>;
   lte: Array<[string, unknown]>;
+  ins: Array<[string, unknown[]]>;
   order: Array<[string, unknown]>;
   limit: number | null;
   range: [number, number] | null;
@@ -95,6 +96,7 @@ function fakeClient(options: FakeOptions = {}): {
       eqs: [],
       gte: [],
       lte: [],
+      ins: [],
       order: [],
       limit: null,
       range: null,
@@ -122,6 +124,10 @@ function fakeClient(options: FakeOptions = {}): {
     },
     eq(column: string, value: unknown) {
       queries[queries.length - 1].eqs.push([column, value]);
+      return chain;
+    },
+    in(column: string, values: unknown[]) {
+      queries[queries.length - 1].ins.push([column, values]);
       return chain;
     },
     order(column: string, opts?: unknown) {
