@@ -562,10 +562,14 @@ describe('PATCH y DELETE administrativos en /api/cases/:id', () => {
   it('borra un dictamen sin revisión y conserva los dictámenes revisados', async () => {
     seedCase();
     db.seed('audits', { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', case_id: 'case-1', status: 'COMPLETED' });
+    db.seed('evidence', { id: 'evidence-1', case_id: 'case-1', storage_path: 'case-1/file-1' });
     const deleted = makeApiResponse();
     await caseHandler(makeApiRequest({ method: 'DELETE', body: { target: 'audit', auditId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }, auth: fakeAuthContext('manager') }), deleted);
     expect(deleted.statusCode).toBe(200);
     expect(db.rows('audits')).toHaveLength(0);
+    expect(db.rows('evidence')).toHaveLength(0);
+    expect(db.removedStoragePaths).toEqual(['case-1/file-1']);
+    expect(casesRows()[0]?.status).toBe('DRAFT');
 
     db.seed('audits', { id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', case_id: 'case-1', status: 'COMPLETED' });
     db.seed('case_reviews', { id: 'review-1', audit_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' });

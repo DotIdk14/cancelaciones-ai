@@ -178,6 +178,7 @@ class FakeQuery implements PromiseLike<QueryResult> {
 class FakeDatabaseImpl {
   private readonly tables = new Map<string, Row[]>();
   private sequence = 0;
+  readonly removedStoragePaths: string[] = [];
 
   rows(table: string): Row[] {
     let found = this.tables.get(table);
@@ -196,12 +197,21 @@ class FakeDatabaseImpl {
   reset(): void {
     this.tables.clear();
     this.sequence = 0;
+    this.removedStoragePaths.length = 0;
   }
 
   client(): InsForgeClient {
     return {
       database: {
         from: (table: string) => new FakeQuery(this, table, 'select'),
+      },
+      storage: {
+        from: () => ({
+          remove: async (path: string) => {
+            this.removedStoragePaths.push(path);
+            return { data: null, error: null };
+          },
+        }),
       },
     } as unknown as InsForgeClient;
   }
@@ -212,6 +222,8 @@ export interface FakeDatabase {
   client: InsForgeClient;
   /** Copia de las filas de una tabla (para observar qué se escribió). */
   rows(table: string): Row[];
+  /** Rutas retiradas del Storage por el cliente fake. */
+  removedStoragePaths: string[];
   /**
    * Siembra una fila CRUDO, sin pasar por el cliente ni por una función de
    * producción.
@@ -230,6 +242,7 @@ export function createFakeDatabase(): FakeDatabase {
   return {
     client: db.client(),
     rows: (table) => db.rows(table).map((row) => ({ ...row })),
+    removedStoragePaths: db.removedStoragePaths,
     seed: (table, row) => {
       db.rows(table).push({ ...row });
     },

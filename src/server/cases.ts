@@ -13,6 +13,7 @@ import type { AuthContext } from './auth.js';
 import { capabilitiesForRole } from './auth.js';
 import { ApiError, mapProviderError } from './http.js';
 import { computeEvidenceFingerprint } from './audit-fingerprint.js';
+import { getEnv } from './env.js';
 
 export interface CaseRow {
   id: string;
@@ -220,8 +221,30 @@ export async function deleteUnreviewedAudit(client: InsForgeClient, caseId: stri
   if ((review?.length ?? 0) > 0 || (comparison?.length ?? 0) > 0) {
     throw new ApiError(409, 'VALIDATION_ERROR', 'No se puede borrar un dictamen con revisión o comparación humana');
   }
+
+  // La acción administrativa borra el dictamen y los archivos fuente del caso.
+  // El objeto se elimina antes de su fila para no perder la ruta si Storage falla.
+  const { data: evidenceRows, error: evidenceError } = await client.database
+    .from('evidence')
+    .select('id,storage_path')
+    .eq('case_id', caseId);
+  if (evidenceError) dbError(evidenceError);
+  const bucket = client.storage.from(getEnv().INSFORGE_STORAGE_BUCKET);
+  for (const evidence of (evidenceRows as Array<{ id: string; storage_path: string }> | null) ?? []) {
+    const removal = await bucket.remove(evidence.storage_path);
+    if (removal?.error) {
+      console.error('[audit-delete] no se pudo remover evidencia del almacenamiento', {
+        evidenceId: evidence.id,
+        category: 'STORAGE_ERROR',
+        message: 'Error de almacenamiento',
+      });
+      throw new ApiError(500, 'STORAGE_ERROR', 'No se pudieron eliminar todos los archivos; inténtalo de nuevo');
+    }
+    await deleteEvidenceRow(client, evidence.id);
+  }
   const { error } = await client.database.from('audits').delete().eq('id', auditId).eq('case_id', caseId);
   if (error) dbError(error);
+  await updateCaseStatus(client, caseId, 'DRAFT');
 }
 
 async function enrichCaseSummaries(

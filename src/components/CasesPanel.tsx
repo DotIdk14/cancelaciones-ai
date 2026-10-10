@@ -284,7 +284,7 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
       ? ' Se excluirán de las métricas operativas.'
       : action === 'mark-real'
         ? ' Volverán a incluirse en las métricas operativas.'
-        : ` Esta acción no se puede deshacer. Las evidencias originales se conservarán${targets.length < selectedCases.length ? `; se omitirá${selectedCases.length - targets.length === 1 ? '' : 'n'} ${selectedCases.length - targets.length} ${selectedCases.length - targets.length === 1 ? 'caso' : 'casos'} sin dictamen elegible, con revisión humana o con auditoría en curso` : ''}.`;
+        : ` Se eliminarán también todos los archivos de evidencia de esos casos. Esta acción no se puede deshacer${targets.length < selectedCases.length ? `; se omitirá${selectedCases.length - targets.length === 1 ? '' : 'n'} ${selectedCases.length - targets.length} ${selectedCases.length - targets.length === 1 ? 'caso' : 'casos'} sin dictamen elegible, con revisión humana o con auditoría en curso` : ''}.`;
     const targetDescription = action === 'delete-audits'
       ? `${targets.length} ${targets.length === 1 ? 'dictamen seleccionado' : 'dictámenes seleccionados'}`
       : `${targets.length} ${targets.length === 1 ? 'expediente seleccionado' : 'expedientes seleccionados'}`;
@@ -441,7 +441,7 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
                 </div>
                 {deletableAuditCases.length < selectedCases.length && (
                   <p className="case-bulk-hint">
-                    Se pueden borrar {deletableAuditCases.length} de {selectedCases.length} dictámenes seleccionados. Los demás no tienen dictamen elegible, cuentan con revisión humana o tienen una auditoría en curso. Las evidencias originales se conservan.
+                    Se pueden borrar {deletableAuditCases.length} de {selectedCases.length} dictámenes seleccionados junto con sus archivos de evidencia. Los demás no tienen dictamen elegible, cuentan con revisión humana o tienen una auditoría en curso.
                   </p>
                 )}
                 {adminPending && <span role="status" className="case-bulk-progress"><Spinner label="Procesando selección" className="h-3.5 w-3.5" /> Procesando selección…</span>}
