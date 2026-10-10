@@ -107,7 +107,7 @@ function renderRoute(
         <CaseDetailPage caseId={route.caseId} role={role} capabilities={capabilities} />
       );
     case 'cases':
-      return <CaseListPage canReadAllCases={capabilities.canReadAllCases} />;
+      return <CaseListPage canReadAllCases={capabilities.canReadAllCases} canFinalizeAnyCase={capabilities.canFinalizeAnyCase} />;
     // El dock ofrece "Nueva auditoría" y "Expedientes" como entradas distintas, así que
     // `#/nuevo` muestra solo el alta y `#/casos` la lista. Ambas pantallas se
     // componían antes en `CaseListPage`; aquí solo se usa el panel que la

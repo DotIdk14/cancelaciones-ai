@@ -31,6 +31,19 @@ vi.mock('../src/server/cases', async () => {
     persistDerivedExtraction: store.persistDerivedExtraction,
     assertCaseOwner: store.assertCaseOwner,
     listCaseSummaries: store.listCaseSummaries,
+    listCaseSummaryPage: async (client: unknown, auth: { sub: string; role: 'user' | 'coordinator' | 'manager' }, options: { offset: number; limit: number; snapshot: string; status?: string }) => {
+      const rows = await store.listCaseSummaries(client, auth) as Array<Record<string, unknown>>;
+      const filtered = options.status ? rows.filter((row) => row.status === options.status) : rows;
+      return filtered.slice(options.offset, options.offset + options.limit);
+    },
+    countCaseSummaryStatuses: async (_client: unknown, auth: { sub: string; role: 'user' | 'coordinator' | 'manager' }) => {
+      const rows = await store.listCaseSummaries(_client, auth) as Array<Record<string, unknown>>;
+      return Object.fromEntries(['ALL', 'DRAFT', 'READY', 'AUDITING', 'COMPLETED', 'ERROR'].map((status) => [
+        status,
+        status === 'ALL' ? rows.length : rows.filter((row) => row.status === status).length,
+      ]));
+    },
+    listCaseCreatorOptions: async () => [],
     createCase: store.createCase,
     listEvidenceRows: store.listEvidenceRows,
     getEvidenceOr404: store.getEvidenceOr404,
@@ -262,5 +275,51 @@ describe('GET /api/cases — alcance por capacidad, no por nombre de rol', () =>
     const cases = (JSON.parse(res.body) as { cases: Array<{ id: string; isTest: boolean }> }).cases;
     expect(cases.find((c) => c.id === 'real')?.isTest).toBe(false);
     expect(cases.find((c) => c.id === 'prueba')?.isTest).toBe(true);
+  });
+});
+
+describe('GET /api/cases — bandejas derivadas del flujo humano', () => {
+  it('solo incluye dictámenes IA vigentes en Pendientes de Asesor y pagina el siguiente resultado', async () => {
+    for (const id of ['ai-1', 'ai-2']) {
+      seedCase({ id, status: 'COMPLETED' });
+      seedAudit({ id: `audit-${id}`, case_id: id, resultJson: validAuditResult });
+    }
+    seedCase({ id: 'sin-dictamen', status: 'READY' });
+    seedCase({ id: 'ya-revisado', status: 'COMPLETED' });
+    seedAudit({ id: 'audit-ya-revisado', case_id: 'ya-revisado', resultJson: validAuditResult });
+    seedReview({ case_id: 'ya-revisado', audit_id: 'audit-ya-revisado' });
+
+    const first = makeApiResponse();
+    await casesHandler(makeApiRequest('GET', { limit: '1', workflowState: 'PENDING_ADVISOR' }, undefined, fakeAuthContext('coordinator')), first);
+    expect(first.statusCode).toBe(200);
+    const firstPayload = JSON.parse(first.body) as { cases: Array<{ id: string; workflowState: string }>; nextCursor: string | null };
+    expect(firstPayload.cases).toHaveLength(1);
+    expect(firstPayload.cases[0]?.workflowState).toBe('PENDING_ADVISOR');
+    expect(firstPayload.nextCursor).not.toBeNull();
+
+    const second = makeApiResponse();
+    await casesHandler(makeApiRequest('GET', { limit: '1', workflowState: 'PENDING_ADVISOR', cursor: firstPayload.nextCursor! }, undefined, fakeAuthContext('coordinator')), second);
+    const secondPayload = JSON.parse(second.body) as { cases: Array<{ id: string }> };
+    expect(secondPayload.cases).toHaveLength(1);
+    expect(secondPayload.cases[0]?.id).not.toBe(firstPayload.cases[0]?.id);
+    expect(['ai-1', 'ai-2']).toContain(secondPayload.cases[0]?.id);
+  });
+
+  it('Pendientes de Coordinador contiene la revisión del Asesor y niega la bandeja a otros roles', async () => {
+    seedCase({ id: 'reviewed', status: 'COMPLETED' });
+    seedAudit({ id: 'audit-reviewed', case_id: 'reviewed', resultJson: validAuditResult });
+    seedReview({ case_id: 'reviewed', audit_id: 'audit-reviewed' });
+    seedCase({ id: 'unreviewed', status: 'COMPLETED' });
+    seedAudit({ id: 'audit-unreviewed', case_id: 'unreviewed', resultJson: validAuditResult });
+
+    const coordinator = makeApiResponse();
+    await casesHandler(makeApiRequest('GET', { limit: '10', workflowState: 'PENDING_COORDINATOR' }, undefined, fakeAuthContext('coordinator')), coordinator);
+    const rows = (JSON.parse(coordinator.body) as { cases: Array<{ id: string; workflowState: string }> }).cases;
+    expect(rows.map((row) => row.id)).toEqual(['reviewed']);
+    expect(rows[0]?.workflowState).toBe('PENDING_COORDINATOR');
+
+    const advisor = makeApiResponse();
+    await casesHandler(makeApiRequest('GET', { limit: '10', workflowState: 'PENDING_COORDINATOR' }, undefined, fakeAuthContext('user')), advisor);
+    expect(advisor.statusCode).toBe(403);
   });
 });

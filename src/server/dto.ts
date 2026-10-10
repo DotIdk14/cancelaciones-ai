@@ -19,6 +19,7 @@ export interface CaseSummaryDto {
   evidenceCount: number;
   createdAt: string;
   updatedAt: string;
+  workflowState: WorkflowState;
   effectiveResolution: EffectiveResolution | null;
   /** `false` identifica un dictamen histórico que no corresponde a los datos actuales. */
   auditIsCurrent: boolean | null;
@@ -210,6 +211,7 @@ export function caseToSummary(row: CaseSummaryRow, canManageCases = false): Case
     evidenceCount: count,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    workflowState: deriveWorkflowState(row.review ?? null),
     effectiveResolution: deriveEffectiveResolution(
       row.review ?? null,
       row.auditIsCurrent === false ? null : row.audit ?? null,

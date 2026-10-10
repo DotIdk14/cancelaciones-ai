@@ -9,10 +9,10 @@
 import type { ReactNode } from 'react';
 import { CasesPanel } from './CasesPanel';
 
-export function CaseListPage({ canReadAllCases = false }: { canReadAllCases?: boolean }): ReactNode {
+export function CaseListPage({ canReadAllCases = false, canFinalizeAnyCase = false }: { canReadAllCases?: boolean; canFinalizeAnyCase?: boolean }): ReactNode {
   return (
     <div className="flex flex-col gap-5">
-      <CasesPanel canReadAllCases={canReadAllCases} />
+      <CasesPanel canReadAllCases={canReadAllCases} canFinalizeAnyCase={canFinalizeAnyCase} />
     </div>
   );
 }

@@ -7,7 +7,7 @@ import type { KeyboardEvent, ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowRight, CircleCheck, FileText, Files, FlaskConical, Search, Trash2, TriangleAlert, Undo2, X } from 'lucide-react';
 import { deleteCaseAudit, deleteCaseDraft, listCasePage, setCaseTestFlag, toErrorState } from '../lib/api';
-import type { CaseCreatorOption, CaseCreatorRole, CaseSummary } from '../lib/api';
+import type { CaseCreatorOption, CaseCreatorRole, CaseSummary, WorkflowState } from '../lib/api';
 import { formatDateTime, shortId } from '../lib/format';
 import { isLocalDashboardPreview } from '../lib/local-dashboard-preview';
 import { getLocalPreviewCases } from '../lib/local-ui-preview';
@@ -65,7 +65,7 @@ function selectOnKeyboard(event: KeyboardEvent<HTMLTableRowElement>, select: () 
   }
 }
 
-export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: boolean }): ReactNode {
+export function CasesPanel({ canReadAllCases = false, canFinalizeAnyCase = false }: { canReadAllCases?: boolean; canFinalizeAnyCase?: boolean }): ReactNode {
   const preview = isLocalDashboardPreview();
   const [cases, setCases] = useState<CaseSummary[] | null>(() => preview ? getLocalPreviewCases() : null);
   const [loading, setLoading] = useState(!preview);
@@ -74,6 +74,7 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
   const [statusCounts, setStatusCounts] = useState<Record<CaseStatus | 'ALL', number> | null>(null);
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<CaseStatus | 'ALL'>('ALL');
+  const [workflowFilter, setWorkflowFilter] = useState<Exclude<WorkflowState, 'FINALIZED'>>('PENDING_ADVISOR');
   const [creatorRole, setCreatorRole] = useState<CaseCreatorRole | 'ALL'>('ALL');
   const [creatorId, setCreatorId] = useState<string | 'ALL'>('ALL');
   const [creatorOptions, setCreatorOptions] = useState<CaseCreatorOption[]>(() => {
@@ -110,7 +111,7 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
     const currentRequest = ++requestId.current;
     setLoading(true);
     try {
-      const page = await listCasePage({ status: statusFilter, creatorRole, creatorId, limit: 50 });
+      const page = await listCasePage({ status: statusFilter, creatorRole, creatorId, ...(canFinalizeAnyCase ? { workflowState: workflowFilter } : {}), limit: 50 });
       if (currentRequest !== requestId.current) return;
       setCases(page.cases);
       if (page.creatorOptions) setCreatorOptions(page.creatorOptions);
@@ -124,18 +125,18 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
     } finally {
       if (currentRequest === requestId.current) setLoading(false);
     }
-  }, [creatorId, creatorRole, preview, statusFilter]);
+  }, [canFinalizeAnyCase, creatorId, creatorRole, preview, statusFilter, workflowFilter]);
 
   const loadAllForSearch = useCallback(async (): Promise<void> => {
     if (preview) return;
     const currentRequest = ++requestId.current;
     setLoading(true);
     try {
-      const first = await listCasePage({ status: statusFilter, creatorRole, creatorId, limit: 50 });
+      const first = await listCasePage({ status: statusFilter, creatorRole, creatorId, ...(canFinalizeAnyCase ? { workflowState: workflowFilter } : {}), limit: 50 });
       const all = [...first.cases];
       let cursor = first.nextCursor;
       while (cursor) {
-        const page = await listCasePage({ status: statusFilter, creatorRole, creatorId, cursor, limit: 50 });
+        const page = await listCasePage({ status: statusFilter, creatorRole, creatorId, ...(canFinalizeAnyCase ? { workflowState: workflowFilter } : {}), cursor, limit: 50 });
         all.push(...page.cases);
         cursor = page.nextCursor;
       }
@@ -152,14 +153,14 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
     } finally {
       if (currentRequest === requestId.current) setLoading(false);
     }
-  }, [creatorId, creatorRole, preview, statusFilter]);
+  }, [canFinalizeAnyCase, creatorId, creatorRole, preview, statusFilter, workflowFilter]);
 
   const loadMore = useCallback(async (): Promise<void> => {
     if (!nextCursor || preview) return;
     const currentRequest = ++requestId.current;
     setLoading(true);
     try {
-      const page = await listCasePage({ status: statusFilter, creatorRole, creatorId, cursor: nextCursor, limit: 50 });
+      const page = await listCasePage({ status: statusFilter, creatorRole, creatorId, ...(canFinalizeAnyCase ? { workflowState: workflowFilter } : {}), cursor: nextCursor, limit: 50 });
       if (currentRequest !== requestId.current) return;
       setCases((current) => [...(current ?? []), ...page.cases]);
       setNextCursor(page.nextCursor);
@@ -171,7 +172,7 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
     } finally {
       if (currentRequest === requestId.current) setLoading(false);
     }
-  }, [creatorId, creatorRole, nextCursor, preview, statusFilter]);
+  }, [canFinalizeAnyCase, creatorId, creatorRole, nextCursor, preview, statusFilter, workflowFilter]);
 
   const loadAll = useCallback(async (): Promise<void> => {
     if (preview || !nextCursor) return;
@@ -181,7 +182,7 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
       const all = [...(cases ?? [])];
       let cursor: string | null = nextCursor;
       while (cursor) {
-        const page = await listCasePage({ status: statusFilter, creatorRole, creatorId, cursor, limit: 50 });
+        const page = await listCasePage({ status: statusFilter, creatorRole, creatorId, ...(canFinalizeAnyCase ? { workflowState: workflowFilter } : {}), cursor, limit: 50 });
         all.push(...page.cases);
         cursor = page.nextCursor;
       }
@@ -196,7 +197,7 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
     } finally {
       if (currentRequest === requestId.current) setLoading(false);
     }
-  }, [cases, creatorId, creatorRole, nextCursor, preview, statusFilter]);
+  }, [canFinalizeAnyCase, cases, creatorId, creatorRole, nextCursor, preview, statusFilter, workflowFilter]);
 
   useEffect(() => { if (!preview) void load(); }, [load, preview]);
 
@@ -226,6 +227,11 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
   const filteredCases = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase('es');
     return (cases ?? []).filter((item) => {
+      if (canFinalizeAnyCase) {
+        const workflow = item.workflowState ?? 'PENDING_ADVISOR';
+        if (workflow !== workflowFilter) return false;
+        if (workflowFilter === 'PENDING_ADVISOR' && item.effectiveResolution?.source !== 'AI') return false;
+      }
       if (statusFilter !== 'ALL' && item.status !== statusFilter) return false;
       if (preview && creatorRole !== 'ALL' && item.creatorRole !== creatorRole) return false;
       if (preview && creatorId !== 'ALL' && item.creatorId !== creatorId) return false;
@@ -236,7 +242,7 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
       return [item.id, shortId(item.id), item.studentIdentifier ?? '', result]
         .some((value) => value.toLocaleLowerCase('es').includes(normalized));
     });
-  }, [cases, creatorId, creatorRole, preview, query, statusFilter]);
+  }, [canFinalizeAnyCase, cases, creatorId, creatorRole, preview, query, statusFilter, workflowFilter]);
 
   const visibleCreatorOptions = creatorOptions
     .filter((item) => creatorRole === 'ALL' || item.role === creatorRole)
@@ -337,6 +343,22 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
       </div>
 
       <div className="case-toolbar rounded-xl border border-line bg-surface-1 p-3">
+        {canFinalizeAnyCase && (
+          <div className="flex flex-wrap gap-1.5" role="group" aria-label="Bandeja de revisión del coordinador">
+            <button
+              type="button"
+              aria-pressed={workflowFilter === 'PENDING_ADVISOR'}
+              onClick={() => { setSelectedCaseIds(new Set()); setSelectedId(null); if (!preview) setCases(null); setNextCursor(null); setStatusFilter('ALL'); setWorkflowFilter('PENDING_ADVISOR'); }}
+              className={`case-status-tab ${workflowFilter === 'PENDING_ADVISOR' ? 'case-status-tab-active' : ''}`}
+            >Pendientes de Asesor</button>
+            <button
+              type="button"
+              aria-pressed={workflowFilter === 'PENDING_COORDINATOR'}
+              onClick={() => { setSelectedCaseIds(new Set()); setSelectedId(null); if (!preview) setCases(null); setNextCursor(null); setStatusFilter('ALL'); setWorkflowFilter('PENDING_COORDINATOR'); }}
+              className={`case-status-tab ${workflowFilter === 'PENDING_COORDINATOR' ? 'case-status-tab-active' : ''}`}
+            >Pendientes de Coordinador</button>
+          </div>
+        )}
         <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filtrar por estado del caso">
           {STATUS_FILTERS.map((item) => (
             <StatusTab

@@ -9,7 +9,7 @@ import {
 } from '../../src/server/http.js';
 import { createServerClient } from '../../src/server/insforge.js';
 import { countCaseSummaryStatuses, createCase, listCaseCreatorOptions, listCaseSummaries, listCaseSummaryPage, type CaseCreatorRole } from '../../src/server/cases.js';
-import { caseToSummary } from '../../src/server/dto.js';
+import { caseToSummary, deriveWorkflowState } from '../../src/server/dto.js';
 import { assertCaseWriteCapability } from '../../src/server/auth.js';
 import { CASE_STATUSES } from '../../src/skills/audit/types.js';
 import { capabilitiesForRole } from '../../src/server/capabilities.js';
@@ -44,7 +44,10 @@ const CaseCursorSchema = z.object({
   status: z.enum(CASE_STATUSES).optional(),
   creatorRole: z.enum(['user', 'coordinator', 'manager']).optional(),
   creatorId: z.string().uuid().optional(),
+  workflowState: z.enum(['PENDING_ADVISOR', 'PENDING_COORDINATOR']).optional(),
 }).strict();
+
+const WorkflowFilterSchema = z.enum(['PENDING_ADVISOR', 'PENDING_COORDINATOR']);
 
 function decodeCursor(value: string): z.infer<typeof CaseCursorSchema> {
   try {
@@ -75,6 +78,9 @@ export default handleRoute(async (req, res) => {
       if (req.query.creatorId !== undefined && typeof req.query.creatorId !== 'string') {
         throw new ApiError(400, 'VALIDATION_ERROR', 'creatorId debe ser una cadena');
       }
+      if (req.query.workflowState !== undefined && typeof req.query.workflowState !== 'string') {
+        throw new ApiError(400, 'VALIDATION_ERROR', 'workflowState debe ser una cadena');
+      }
       const cursor = typeof req.query.cursor === 'string' ? decodeCursor(req.query.cursor) : null;
       const rawStatus = typeof req.query.status === 'string' ? req.query.status : undefined;
       const statusParsed = rawStatus === undefined ? undefined : z.enum(CASE_STATUSES).safeParse(rawStatus);
@@ -85,7 +91,14 @@ export default handleRoute(async (req, res) => {
       const rawCreatorId = typeof req.query.creatorId === 'string' ? req.query.creatorId : undefined;
       const creatorIdParsed = rawCreatorId === undefined ? undefined : z.string().uuid().safeParse(rawCreatorId);
       if (creatorIdParsed && !creatorIdParsed.success) throw new ApiError(400, 'VALIDATION_ERROR', 'creatorId no es válido');
-      if (cursor && (cursor.limit !== parsedLimit.data || cursor.status !== statusParsed?.data || cursor.creatorRole !== creatorRoleParsed?.data || cursor.creatorId !== creatorIdParsed?.data)) {
+      const rawWorkflowState = typeof req.query.workflowState === 'string' ? req.query.workflowState : undefined;
+      const workflowStateParsed = rawWorkflowState === undefined ? undefined : WorkflowFilterSchema.safeParse(rawWorkflowState);
+      if (workflowStateParsed && !workflowStateParsed.success) throw new ApiError(400, 'VALIDATION_ERROR', 'workflowState no es válido');
+      const capabilities = capabilitiesForRole(req.auth!.role);
+      if (workflowStateParsed?.success && !capabilities.canFinalizeAnyCase) {
+        throw new ApiError(403, 'AUTH_ERROR', 'No tienes permiso para consultar las bandejas de coordinación');
+      }
+      if (cursor && (cursor.limit !== parsedLimit.data || cursor.status !== statusParsed?.data || cursor.creatorRole !== creatorRoleParsed?.data || cursor.creatorId !== creatorIdParsed?.data || cursor.workflowState !== workflowStateParsed?.data)) {
         throw new ApiError(400, 'VALIDATION_ERROR', 'El cursor no corresponde a los filtros solicitados');
       }
       const limit = cursor?.limit ?? parsedLimit.data;
@@ -93,21 +106,56 @@ export default handleRoute(async (req, res) => {
       const status = cursor?.status ?? statusParsed?.data;
       const creatorRole = cursor?.creatorRole ?? creatorRoleParsed?.data;
       const creatorId = cursor?.creatorId ?? creatorIdParsed?.data;
+      const workflowState = cursor?.workflowState ?? workflowStateParsed?.data;
       const offset = cursor?.offset ?? 0;
-      const rows = await listCaseSummaryPage(client, req.auth!, {
+      const listOptions = {
         offset,
         limit: limit + 1,
         snapshot,
         ...(status ? { status } : {}),
         ...(creatorRole ? { creatorRole: creatorRole as CaseCreatorRole } : {}),
         ...(creatorId ? { creatorId } : {}),
-      });
-      const hasMore = rows.length > limit;
-      const cases = rows.slice(0, limit);
+      };
+      let cases;
+      let hasMore: boolean;
+      let nextOffset: number;
+      if (workflowState) {
+        // workflowState se deriva de case_reviews y no es una columna de cases.
+        // Escanea páginas acotadas del conjunto filtrado para que la paginación
+        // siga siendo correcta aunque la mayoría no pertenezca a esta bandeja.
+        const pageSize = 100;
+        const matching = [];
+        let scanOffset = offset;
+        let extraMatchOffset: number | null = null;
+        while (matching.length <= limit) {
+          const batch = await listCaseSummaryPage(client, req.auth!, { ...listOptions, offset: scanOffset, limit: pageSize });
+          if (batch.length === 0) break;
+          for (let index = 0; index < batch.length; index += 1) {
+            const row = batch[index]!;
+            const matchesWorkflow = deriveWorkflowState(row.review ?? null) === workflowState;
+            const hasCurrentAiResolution = caseToSummary(row).effectiveResolution?.source === 'AI';
+            if (!matchesWorkflow || (workflowState === 'PENDING_ADVISOR' && !hasCurrentAiResolution)) continue;
+            if (matching.length === limit) {
+              extraMatchOffset = scanOffset + index;
+              break;
+            }
+            matching.push(row);
+          }
+          if (extraMatchOffset !== null || batch.length < pageSize) break;
+          scanOffset += batch.length;
+        }
+        cases = matching;
+        hasMore = extraMatchOffset !== null;
+        nextOffset = extraMatchOffset ?? scanOffset;
+      } else {
+        const rows = await listCaseSummaryPage(client, req.auth!, listOptions);
+        hasMore = rows.length > limit;
+        cases = rows.slice(0, limit);
+        nextOffset = offset + limit;
+      }
       const nextCursor = hasMore
-        ? Buffer.from(JSON.stringify({ offset: offset + limit, snapshot, limit, ...(status ? { status } : {}), ...(creatorRole ? { creatorRole } : {}), ...(creatorId ? { creatorId } : {}) })).toString('base64url')
+        ? Buffer.from(JSON.stringify({ offset: workflowState ? nextOffset : offset + limit, snapshot, limit, ...(status ? { status } : {}), ...(creatorRole ? { creatorRole } : {}), ...(creatorId ? { creatorId } : {}), ...(workflowState ? { workflowState } : {}) })).toString('base64url')
         : null;
-      const capabilities = capabilitiesForRole(req.auth!.role);
       const statusCounts = cursor ? undefined : await countCaseSummaryStatuses(
         client,
         req.auth!,

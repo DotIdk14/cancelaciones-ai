@@ -29,11 +29,12 @@ function makeCase(overrides: Partial<CaseSummary> = {}): CaseSummary {
     evidenceCount: 2,
     createdAt: '2026-02-01T10:00:00Z',
     updatedAt: '2026-02-03T09:00:00Z',
+    workflowState: 'PENDING_ADVISOR',
     ...overrides,
   };
 }
 
-async function renderList(cases: CaseSummary[], canReadAllCases = false): Promise<void> {
+async function renderList(cases: CaseSummary[], canReadAllCases = false, canFinalizeAnyCase = false): Promise<void> {
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), 'http://localhost');
     if (init?.method === 'PATCH') return fakeResponse(200, { case: {} });
@@ -41,9 +42,12 @@ async function renderList(cases: CaseSummary[], canReadAllCases = false): Promis
     const status = url.searchParams.get('status');
     const creatorRole = url.searchParams.get('creatorRole');
     const creatorId = url.searchParams.get('creatorId');
+    const workflowState = url.searchParams.get('workflowState');
     const filtered = cases.filter((item) => (!status || item.status === status)
       && (!creatorRole || item.creatorRole === creatorRole)
-      && (!creatorId || item.creatorId === creatorId));
+      && (!creatorId || item.creatorId === creatorId)
+      && (!workflowState || (item.workflowState === workflowState
+        && (workflowState !== 'PENDING_ADVISOR' || item.effectiveResolution?.source === 'AI'))));
     const scoped = creatorRole || creatorId ? filtered : cases;
     const statusCounts = {
       ALL: scoped.length,
@@ -62,7 +66,7 @@ async function renderList(cases: CaseSummary[], canReadAllCases = false): Promis
       : [])).values()];
     return fakeResponse(200, { cases: filtered, nextCursor: null, statusCounts, creatorOptions });
   }));
-  const view = render(createElement(CasesPanel, { canReadAllCases }));
+  const view = render(createElement(CasesPanel, { canReadAllCases, canFinalizeAnyCase }));
   // Espera a que la lista llegue del servidor.
   await vi.waitFor(() => {
     if (cases.length > 0) expect(view.container.querySelector('tbody tr')).not.toBeNull();
@@ -76,6 +80,30 @@ afterEach(() => {
 });
 
 describe('CasesPanel — resolución efectiva', () => {
+  it('ofrece al coordinador sus dos bandejas y separa IA pendiente de revisión humana', async () => {
+    await renderList([
+      makeCase({ id: 'case-ai', studentIdentifier: 'IA-PENDIENTE', workflowState: 'PENDING_ADVISOR', effectiveResolution: { result: 'BAJA', source: 'AI' } }),
+      makeCase({ id: 'case-unresolved', studentIdentifier: 'SIN-DICTAMEN', workflowState: 'PENDING_ADVISOR', effectiveResolution: null }),
+      makeCase({ id: 'case-reviewed', studentIdentifier: 'REVISADO', workflowState: 'PENDING_COORDINATOR', effectiveResolution: { result: 'BAJA', source: 'HUMAN' } }),
+      makeCase({ id: 'case-finalized', studentIdentifier: 'FINALIZADO', workflowState: 'FINALIZED', effectiveResolution: { result: 'BAJA', source: 'HUMAN' } }),
+    ], true, true);
+
+    expect(screen.getByRole('button', { name: 'Pendientes de Asesor' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('row', { name: /IA-PENDIENTE/ })).toBeTruthy();
+    expect(screen.queryByRole('row', { name: /SIN-DICTAMEN|REVISADO|FINALIZADO/ })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Pendientes de Coordinador' }));
+    await vi.waitFor(() => expect(screen.getByRole('row', { name: /REVISADO/ })).toBeTruthy());
+    expect(screen.queryByRole('row', { name: /IA-PENDIENTE|SIN-DICTAMEN|FINALIZADO/ })).toBeNull();
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).includes('workflowState=PENDING_COORDINATOR'))).toBe(true);
+  });
+
+  it('no muestra las bandejas de coordinación a quien no tiene esa capacidad', async () => {
+    await renderList([makeCase()], true, false);
+    expect(screen.queryByRole('button', { name: 'Pendientes de Asesor' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Pendientes de Coordinador' })).toBeNull();
+  });
+
   it('muestra Humano para el caso revisado y IA para el que sólo tiene dictamen', async () => {
     await renderList([
       makeCase({ id: 'case-human', effectiveResolution: { result: 'DICTAMINACION', source: 'HUMAN' } }),

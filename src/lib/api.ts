@@ -39,6 +39,8 @@ export interface CaseSummary {
   evidenceCount: number;
   createdAt: string;
   updatedAt: string;
+  /** Etapa humana derivada de case_reviews; no corresponde a cases.status. */
+  workflowState?: WorkflowState;
   /**
    * Resolución vigente y su origen.
    *
@@ -502,6 +504,7 @@ export async function listCases(): Promise<CaseSummary[]> {
 export async function listCasePage(options: {
   cursor?: string | null;
   status?: CaseStatus | 'ALL';
+  workflowState?: Exclude<WorkflowState, 'FINALIZED'>;
   creatorRole?: CaseCreatorRole | 'ALL';
   creatorId?: string | 'ALL';
   limit?: number;
@@ -509,6 +512,7 @@ export async function listCasePage(options: {
   const params = new URLSearchParams({ limit: String(options.limit ?? 50) });
   if (options.cursor) params.set('cursor', options.cursor);
   if (options.status && options.status !== 'ALL') params.set('status', options.status);
+  if (options.workflowState) params.set('workflowState', options.workflowState);
   if (options.creatorRole && options.creatorRole !== 'ALL') params.set('creatorRole', options.creatorRole);
   if (options.creatorId && options.creatorId !== 'ALL') params.set('creatorId', options.creatorId);
   return request<CaseSummaryPage>(`/api/cases?${params.toString()}`, {}, [200]);
