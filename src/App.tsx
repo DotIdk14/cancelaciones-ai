@@ -5,7 +5,7 @@
 // =============================================================================
 
 import type { MouseEvent, ReactNode } from 'react';
-import { Suspense, lazy, useEffect } from 'react';
+import { Suspense, lazy, useEffect, useState } from 'react';
 import { AppHeader } from './components/AppHeader';
 import { AppDock } from './components/AppDock';
 import { CaseDetailPage } from './components/CaseDetailPage';
@@ -15,6 +15,7 @@ import { LoginScreen } from './components/LoginScreen';
 import { NewCasePanel } from './components/NewCasePanel';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Panel, Spinner } from './components/ui';
+import { getLastErrorCorrelationId, reportClientError, setLastErrorCorrelationId } from './lib/api';
 import type { AppRole, SessionSnapshot, WorkflowState } from './lib/api';
 import { cx } from './lib/cx';
 import { WORKFLOW_STATE_LABELS } from './lib/labels';
@@ -31,6 +32,7 @@ import { useHashRoute } from './lib/useHashRoute';
 import type { AppRoute } from './lib/useHashRoute';
 import { useSession } from './lib/useSession';
 import { capabilitiesForRole } from './server/capabilities';
+import { ReportProblemModal } from './components/ReportProblemModal';
 
 // -----------------------------------------------------------------------------
 // Dashboard en carga diferida
@@ -51,6 +53,10 @@ const QualityPage = lazy(async () => ({
 
 const AiCostsPage = lazy(async () => ({
   default: (await import('./components/dashboard/AiCostsPage')).AiCostsPage,
+}));
+
+const IncidentsPage = lazy(async () => ({
+  default: (await import('./components/IncidentsPage')).IncidentsPage,
 }));
 
 /**
@@ -118,6 +124,8 @@ function renderRoute(
       return <QualityPage />;
     case 'ai-costs':
       return <AiCostsPage />;
+    case 'incidents':
+      return <IncidentsPage previewOnly={previewOnly} />;
     case 'dashboard':
       return <OverviewPage />;
   }
@@ -137,8 +145,10 @@ function Shell({
   capabilities?: SessionSnapshot['capabilities'];
 }): ReactNode {
   const route = useHashRoute();
-  const restrictedRoute = !capabilities.canReadAllCases &&
-    (route.name === 'dashboard' || route.name === 'quality' || route.name === 'ai-costs');
+  const [reportOpen, setReportOpen] = useState(false);
+  const restrictedRoute =
+    (!capabilities.canReadAllCases && route.name === 'dashboard') ||
+    (!capabilities.canManageCases && (route.name === 'quality' || route.name === 'ai-costs' || route.name === 'incidents'));
   const displayRoute: AppRoute = restrictedRoute ? { name: 'cases' } : route;
   const routeKey = route.name === 'case' ? `${route.name}:${route.caseId}` : route.name;
 
@@ -150,6 +160,31 @@ function Shell({
   useEffect(() => {
     if (restrictedRoute && window.location.hash !== '#/casos') window.location.hash = '#/casos';
   }, [restrictedRoute, routeKey]);
+
+  useEffect(() => {
+    if (previewOnly) return;
+    const module = route.name === 'case' || route.name === 'cases' ? 'Expedientes'
+      : route.name === 'quality' ? 'Calidad'
+        : route.name === 'ai-costs' ? 'IA y Costos'
+        : route.name === 'new-case' ? 'Nueva auditoría' : route.name === 'incidents' ? 'Incidencias' : 'Resumen';
+    const routePath = window.location.hash.split('?')[0]?.slice(0, 120) || '#/';
+    const onError = (): void => {
+      const correlationId = crypto.randomUUID();
+      setLastErrorCorrelationId(correlationId);
+      void reportClientError({ source: 'FRONTEND', category: 'FRONTEND_ERROR', module, route: routePath, correlationId }).catch(() => undefined);
+    };
+    const onRejection = (): void => {
+      const correlationId = crypto.randomUUID();
+      setLastErrorCorrelationId(correlationId);
+      void reportClientError({ source: 'ASYNC', category: 'UNHANDLED_REJECTION', module, route: routePath, correlationId }).catch(() => undefined);
+    };
+    window.addEventListener('error', onError);
+    window.addEventListener('unhandledrejection', onRejection);
+    return () => {
+      window.removeEventListener('error', onError);
+      window.removeEventListener('unhandledrejection', onRejection);
+    };
+  }, [previewOnly, route.name]);
 
   /**
    * El skip link NO puede usar `href="#contenido"`: el hash lo interpreta el
@@ -174,7 +209,7 @@ function Shell({
       >
         Saltar al contenido
       </a>
-      <AppHeader onSignOut={onSignOut} previewOnly={previewOnly} role={role} />
+      <AppHeader onSignOut={onSignOut} previewOnly={previewOnly} role={role} onReportProblem={!previewOnly ? () => setReportOpen(true) : undefined} />
       {previewOnly && (
         <div className="local-preview-toolbar flex flex-wrap items-center justify-center gap-x-3 gap-y-1 border-b border-warning/30 bg-surface-2 px-4 py-2 text-center text-sm text-warning">
           <span className="local-preview-note" role="status">Vista previa local: datos ficticios, sin conexión a InsForge.</span>
@@ -200,6 +235,7 @@ function Shell({
         </main>
       </div>
       <AppDock capabilities={capabilities} previewOnly={previewOnly} />
+      {reportOpen && <ReportProblemModal onClose={() => setReportOpen(false)} module={route.name === 'case' || route.name === 'cases' ? 'Expedientes' : route.name === 'quality' ? 'Calidad' : route.name === 'ai-costs' ? 'IA y Costos' : route.name === 'new-case' ? 'Nueva auditoría' : route.name === 'incidents' ? 'Incidencias' : 'Resumen'} context={{ route: window.location.hash.split('?')[0]?.slice(0, 120) || '#/', ...(getLastErrorCorrelationId() ? { correlationId: getLastErrorCorrelationId()! } : {}) }} />}
     </div>
   );
 }

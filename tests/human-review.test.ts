@@ -46,6 +46,7 @@ vi.mock('../src/server/cases', async () => {
     derivedExtractionOf: store.derivedExtractionOf,
     persistDerivedExtraction: store.persistDerivedExtraction,
     assertCaseOwner: store.assertCaseOwner,
+    assertCaseNotFinalized: store.assertCaseNotFinalized,
     listCaseSummaries: store.listCaseSummaries,
     createCase: store.createCase,
     listEvidenceRows: store.listEvidenceRows,
@@ -60,6 +61,7 @@ vi.mock('../src/server/cases', async () => {
     insertAudit: store.insertAudit,
     updateAuditResult: store.updateAuditResult,
     updateCaseStatus: store.updateCaseStatus,
+    updateCaseDimensions: store.updateCaseDimensions,
     getAuditById: store.getAuditById,
     latestCompletedAudit: store.latestCompletedAudit,
   };
@@ -72,6 +74,7 @@ vi.mock('../src/server/reviews', async () => {
     createCaseReview: store.createCaseReview,
     getCaseReview: store.getCaseReview,
     finalizeCaseReview: store.finalizeCaseReview,
+    DUPLICATE_FINALIZATION_MESSAGE: 'La decisión final del coordinador es única e inmutable.',
     insertComparison: store.insertComparison,
     getLatestComparisonForReview: store.getLatestComparisonForReview,
     rearmComparison: store.rearmComparison,
@@ -834,7 +837,10 @@ async function postReview(
   auth = ASESOR,
 ): Promise<ReturnType<typeof makeApiResponse>> {
   const res = makeApiResponse();
-  await reviewHandler(makeApiRequest('POST', { caseId: 'case-1' }, body, auth), res);
+  const coordinatorBody = auth.role === 'coordinator' && body !== null && typeof body === 'object' && !Array.isArray(body)
+    ? { country: 'MX', channel: 'WHATSAPP', ...body }
+    : body;
+  await reviewHandler(makeApiRequest('POST', { caseId: 'case-1' }, coordinatorBody, auth), res);
   return res;
 }
 

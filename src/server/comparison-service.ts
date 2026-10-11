@@ -20,6 +20,7 @@
 // =============================================================================
 
 import type { InsForgeClient } from './insforge.js';
+import { randomUUID } from 'node:crypto';
 import { ApiError } from './http.js';
 import { getEnv } from './env.js';
 import {
@@ -419,6 +420,14 @@ async function executeComparison(
     return { phase: 'done', comparison: comparisonToDto(done) };
   } catch (error) {
     const category: ErrorCategory = error instanceof ApiError ? error.category : 'AI_PROVIDER_ERROR';
+    const correlationId = randomUUID();
+    void import('./incidents.js').then(({ recordSanitizedError }) => recordSanitizedError(client, {
+      correlation_id: correlationId,
+      source: 'ASYNC',
+      category,
+      module: 'Calidad',
+      route: '/api/cases/:id/comparison',
+    })).catch(() => undefined);
     await updateComparisonError(client, row.id, {
       errorCategory: category,
       latencyMs: Date.now() - startedAt,

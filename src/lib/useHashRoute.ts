@@ -20,6 +20,7 @@ export type AppRoute =
   | { name: 'ai-costs' } // #/ia-costos
   | { name: 'new-case' } // #/nuevo
   | { name: 'cases' } // #/casos
+  | { name: 'incidents' } // #/incidencias
   | { name: 'case'; caseId: string }; // #/casos/:id
 
 function decodeSegment(segment: string): string {
@@ -58,6 +59,8 @@ export function parseHash(hash: string): AppRoute {
       return { name: 'ai-costs' };
     case 'nuevo':
       return { name: 'new-case' };
+    case 'incidencias':
+      return { name: 'incidents' };
     default:
       // Ruta desconocida: nunca dejamos al usuario en una pantalla rota.
       return { name: 'dashboard' };

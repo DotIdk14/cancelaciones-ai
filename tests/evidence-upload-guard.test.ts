@@ -47,6 +47,7 @@ vi.mock('../src/server/cases', async () => {
     ...actual,
     getScopedCaseOr404: vi.fn(async () => ({ id: CASE_ID, created_by: FAKE_USER_SUB })),
     assertCaseOwner: vi.fn(() => undefined),
+    assertCaseNotFinalized: vi.fn(async () => undefined),
     insertEvidence: (...args: [unknown, Record<string, unknown>]) => insertEvidence(...args),
     updateEvidenceStatus: (...args: [unknown, string, Record<string, unknown>]) =>
       updateEvidenceStatus(...(args as [])),

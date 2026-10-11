@@ -42,6 +42,7 @@ vi.mock('../src/server/cases', async () => {
     getCaseOr404: store.getCaseOr404,
     getScopedCaseOr404: store.getScopedCaseOr404,
     assertCaseOwner: store.assertCaseOwner,
+    assertCaseNotFinalized: store.assertCaseNotFinalized,
     getEvidenceOr404: store.getEvidenceOr404,
     listEvidenceRows: store.listEvidenceRows,
     listCaseSummaries: store.listCaseSummaries,
@@ -145,7 +146,7 @@ describe('rutas críticas (validación de método)', () => {
     // los filtros, para que un método incorrecto nunca llegue a la base.
     // Sin `view` a propósito: el 405 tiene que resolverse antes de validar la
     // vista, igual que antes de parsear los filtros.
-    const req = makeApiRequest({ method: 'PATCH', query: { from: 'basura' } });
+    const req = makeApiRequest({ method: 'PATCH', query: { view: 'quality', from: 'basura' } });
 
     await dashboardHandler(req, res);
 
@@ -155,7 +156,7 @@ describe('rutas críticas (validación de método)', () => {
 
   it('PATCH /dashboard/ai-costs → 405 sin parsear filtros ni tocar la base', async () => {
     const res = makeApiResponse();
-    const req = makeApiRequest({ method: 'PATCH', query: { from: 'basura', granularity: 'trimestre' } });
+    const req = makeApiRequest({ method: 'PATCH', query: { view: 'ai-costs', from: 'basura', granularity: 'trimestre' } });
 
     await dashboardHandler(req, res);
 
@@ -166,7 +167,7 @@ describe('rutas críticas (validación de método)', () => {
   it('GET /dashboard/ai-costs?granularity=trimestre → 400 en español, sin tocar la base', async () => {
     const res = makeApiResponse();
     // Fechas válidas: el 400 tiene que venir de `granularity`, no del rango.
-    const req = makeApiRequest({ method: 'GET', query: { view: 'ai-costs', from: '2026-09-01', to: '2026-09-30', granularity: 'trimestre' } });
+    const req = makeApiRequest({ method: 'GET', query: { view: 'ai-costs', from: '2026-09-01', to: '2026-09-30', granularity: 'trimestre' }, auth: fakeAuthContext('manager') });
 
     await dashboardHandler(req, res);
 
@@ -179,7 +180,7 @@ describe('rutas críticas (validación de método)', () => {
 
   it('GET /dashboard/ai-costs?granularity=trimestre&granularity=day → 400 (valor repetido)', async () => {
     const res = makeApiResponse();
-    const req = makeApiRequest({ method: 'GET', query: { view: 'ai-costs', granularity: ['trimestre', 'day'] } });
+    const req = makeApiRequest({ method: 'GET', query: { view: 'ai-costs', granularity: ['trimestre', 'day'] }, auth: fakeAuthContext('manager') });
 
     await dashboardHandler(req, res);
 
@@ -191,7 +192,7 @@ describe('rutas críticas (validación de método)', () => {
     const res = makeApiResponse();
     // Query deliberadamente inválida: el 405 tiene que resolverse ANTES de
     // parsear los filtros, igual que en las otras dos rutas de dashboard.
-    const req = makeApiRequest({ method: 'PATCH', query: { from: 'basura' } });
+    const req = makeApiRequest({ method: 'PATCH', query: { view: 'quality', from: 'basura' } });
 
     await dashboardHandler(req, res);
 
@@ -201,7 +202,7 @@ describe('rutas críticas (validación de método)', () => {
 
   it('GET /dashboard/quality?from=basura → 400 en español, sin tocar la base', async () => {
     const res = makeApiResponse();
-    const req = makeApiRequest({ method: 'GET', query: { view: 'quality', from: 'basura' } });
+    const req = makeApiRequest({ method: 'GET', query: { view: 'quality', from: 'basura' }, auth: fakeAuthContext('manager') });
 
     await dashboardHandler(req, res);
 

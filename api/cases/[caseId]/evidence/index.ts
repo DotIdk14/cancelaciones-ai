@@ -13,6 +13,7 @@ import { assertCaseWriteCapability } from '../../../../src/server/auth.js';
 import { getEnv } from '../../../../src/server/env.js';
 import {
   assertCaseOwner,
+  assertCaseNotFinalized,
   getScopedCaseOr404,
   insertEvidence,
   updateCaseStatus,
@@ -43,6 +44,7 @@ export default handleRoute(async (req, res) => {
   // Capacidad ANTES que propiedad: el gerente no sube evidencia, ni propia.
   assertCaseWriteCapability(req.auth!);
   assertCaseOwner(caseRow, req.auth!);
+  await assertCaseNotFinalized(client, caseId);
 
   const headerValue = (value: string | string[] | undefined): string =>
     typeof value === 'string' ? value : Array.isArray(value) ? (value[0] ?? '') : '';

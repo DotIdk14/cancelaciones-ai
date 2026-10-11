@@ -1,7 +1,7 @@
 import { handleRoute, json, methodNotAllowed, ok, requiredUuid } from '../../../../src/server/http.js';
 import { createServerClient } from '../../../../src/server/insforge.js';
 import { assertCaseWriteCapability } from '../../../../src/server/auth.js';
-import { assertCaseOwner, getScopedCaseOr404 } from '../../../../src/server/cases.js';
+import { assertCaseOwner, assertCaseNotFinalized, getScopedCaseOr404 } from '../../../../src/server/cases.js';
 import { getAuditForPolling, runAudit } from '../../../../src/server/audit-service.js';
 
 // GET  /api/cases/:caseId/audit → { audit: AuditDetail|null } (polling + refresco de transcripción)
@@ -29,6 +29,7 @@ export default handleRoute(async (req, res) => {
   // Lanzar la auditoría ES una mutación: el gerente solo lee.
   assertCaseWriteCapability(req.auth!);
   assertCaseOwner(caseRow, req.auth!);
+  await assertCaseNotFinalized(client, caseId);
   const outcome = await runAudit(client, caseId, { userId: req.auth!.sub });
   if (outcome.phase === 'pending') {
     json(res, 202, { audit: null, pendingEvidence: outcome.pendingEvidence });

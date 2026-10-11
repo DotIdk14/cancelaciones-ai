@@ -4,6 +4,7 @@
 // =============================================================================
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { randomUUID } from 'node:crypto';
 import type { ErrorCategory } from '../skills/audit/types.js';
 import { ApiError } from './errors.js';
 import { requireAuth, type AuthContext } from './auth.js';
@@ -105,6 +106,24 @@ export function handleRoute(handler: ApiHandler, options?: HandleRouteOptions): 
       }
       await handler(req, res);
     } catch (error) {
+      const apiError = error instanceof ApiError ? error : null;
+      if (apiError === null || apiError.status >= 500) {
+        const correlationId = randomUUID();
+        const rawPath = typeof req.url === 'string' ? req.url.split('?')[0] ?? '/' : '/';
+        const route = rawPath.replace(/[0-9a-f]{8}-[0-9a-f-]{27,}/gi, ':id').slice(0, 160);
+        res.setHeader('X-Correlation-ID', correlationId);
+        // Lazy import keeps this shared HTTP leaf free of static InsForge imports.
+        void import('./incidents.js').then(async ({ recordSanitizedError }) => {
+          const { createServerClient } = await import('./insforge.js');
+          await recordSanitizedError(createServerClient(), {
+            correlation_id: correlationId,
+            source: 'BACKEND',
+            category: apiError?.category ?? 'UNKNOWN',
+            module: route.split('/')[2] || 'API',
+            route,
+          });
+        }).catch(() => undefined);
+      }
       sendError(res, error);
     }
   };

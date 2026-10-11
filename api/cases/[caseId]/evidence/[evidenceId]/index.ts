@@ -4,6 +4,7 @@ import { assertCaseWriteCapability } from '../../../../../src/server/auth.js';
 import { getEnv } from '../../../../../src/server/env.js';
 import {
   assertCaseOwner,
+  assertCaseNotFinalized,
   deleteEvidenceRow,
   getEvidenceOr404,
   getScopedCaseOr404,
@@ -25,6 +26,7 @@ export default handleRoute(async (req, res) => {
   // Capacidad ANTES que propiedad: el gerente no borra evidencia, ni propia.
   assertCaseWriteCapability(req.auth!);
   assertCaseOwner(caseRow, req.auth!);
+  await assertCaseNotFinalized(client, caseId);
   const evidence = await getEvidenceOr404(client, caseId, evidenceId);
 
   // Se intenta borrar el objeto del storage ANTES de borrar la fila. Si el

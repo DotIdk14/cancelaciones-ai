@@ -74,7 +74,7 @@ export function CasesPanel({ canReadAllCases = false, canFinalizeAnyCase = false
   const [statusCounts, setStatusCounts] = useState<Record<CaseStatus | 'ALL', number> | null>(null);
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<CaseStatus | 'ALL'>('ALL');
-  const [workflowFilter, setWorkflowFilter] = useState<Exclude<WorkflowState, 'FINALIZED'>>('PENDING_ADVISOR');
+  const [workflowFilter, setWorkflowFilter] = useState<Exclude<WorkflowState, 'FINALIZED'> | 'ALL'>('PENDING_ADVISOR');
   const [creatorRole, setCreatorRole] = useState<CaseCreatorRole | 'ALL'>('ALL');
   const [creatorId, setCreatorId] = useState<string | 'ALL'>('ALL');
   const [creatorOptions, setCreatorOptions] = useState<CaseCreatorOption[]>(() => {
@@ -111,7 +111,7 @@ export function CasesPanel({ canReadAllCases = false, canFinalizeAnyCase = false
     const currentRequest = ++requestId.current;
     setLoading(true);
     try {
-      const page = await listCasePage({ status: statusFilter, creatorRole, creatorId, ...(canFinalizeAnyCase ? { workflowState: workflowFilter } : {}), limit: 50 });
+      const page = await listCasePage({ status: statusFilter, creatorRole, creatorId, ...(canFinalizeAnyCase && workflowFilter !== 'ALL' ? { workflowState: workflowFilter } : {}), limit: 50 });
       if (currentRequest !== requestId.current) return;
       setCases(page.cases);
       if (page.creatorOptions) setCreatorOptions(page.creatorOptions);
@@ -132,11 +132,11 @@ export function CasesPanel({ canReadAllCases = false, canFinalizeAnyCase = false
     const currentRequest = ++requestId.current;
     setLoading(true);
     try {
-      const first = await listCasePage({ status: statusFilter, creatorRole, creatorId, ...(canFinalizeAnyCase ? { workflowState: workflowFilter } : {}), limit: 50 });
+      const first = await listCasePage({ status: statusFilter, creatorRole, creatorId, ...(canFinalizeAnyCase && workflowFilter !== 'ALL' ? { workflowState: workflowFilter } : {}), limit: 50 });
       const all = [...first.cases];
       let cursor = first.nextCursor;
       while (cursor) {
-        const page = await listCasePage({ status: statusFilter, creatorRole, creatorId, ...(canFinalizeAnyCase ? { workflowState: workflowFilter } : {}), cursor, limit: 50 });
+        const page = await listCasePage({ status: statusFilter, creatorRole, creatorId, ...(canFinalizeAnyCase && workflowFilter !== 'ALL' ? { workflowState: workflowFilter } : {}), cursor, limit: 50 });
         all.push(...page.cases);
         cursor = page.nextCursor;
       }
@@ -160,7 +160,7 @@ export function CasesPanel({ canReadAllCases = false, canFinalizeAnyCase = false
     const currentRequest = ++requestId.current;
     setLoading(true);
     try {
-      const page = await listCasePage({ status: statusFilter, creatorRole, creatorId, ...(canFinalizeAnyCase ? { workflowState: workflowFilter } : {}), cursor: nextCursor, limit: 50 });
+      const page = await listCasePage({ status: statusFilter, creatorRole, creatorId, ...(canFinalizeAnyCase && workflowFilter !== 'ALL' ? { workflowState: workflowFilter } : {}), cursor: nextCursor, limit: 50 });
       if (currentRequest !== requestId.current) return;
       setCases((current) => [...(current ?? []), ...page.cases]);
       setNextCursor(page.nextCursor);
@@ -182,7 +182,7 @@ export function CasesPanel({ canReadAllCases = false, canFinalizeAnyCase = false
       const all = [...(cases ?? [])];
       let cursor: string | null = nextCursor;
       while (cursor) {
-        const page = await listCasePage({ status: statusFilter, creatorRole, creatorId, ...(canFinalizeAnyCase ? { workflowState: workflowFilter } : {}), cursor, limit: 50 });
+        const page = await listCasePage({ status: statusFilter, creatorRole, creatorId, ...(canFinalizeAnyCase && workflowFilter !== 'ALL' ? { workflowState: workflowFilter } : {}), cursor, limit: 50 });
         all.push(...page.cases);
         cursor = page.nextCursor;
       }
@@ -229,7 +229,7 @@ export function CasesPanel({ canReadAllCases = false, canFinalizeAnyCase = false
     return (cases ?? []).filter((item) => {
       if (canFinalizeAnyCase) {
         const workflow = item.workflowState ?? 'PENDING_ADVISOR';
-        if (workflow !== workflowFilter) return false;
+        if (workflowFilter !== 'ALL' && workflow !== workflowFilter) return false;
         if (workflowFilter === 'PENDING_ADVISOR' && item.effectiveResolution?.source !== 'AI') return false;
       }
       if (statusFilter !== 'ALL' && item.status !== statusFilter) return false;
@@ -250,7 +250,7 @@ export function CasesPanel({ canReadAllCases = false, canFinalizeAnyCase = false
   const selectedCase = filteredCases.find((item) => item.id === selectedId) ?? filteredCases[0] ?? null;
   const selectedCases = filteredCases.filter((item) => item.canManageCases === true && selectedCaseIds.has(item.id));
   const deletableAuditCases = selectedCases.filter(
-    (item) => item.auditId != null && item.status !== 'AUDITING' && item.auditHasHumanReview !== true,
+    (item) => item.auditId != null && item.status !== 'AUDITING' && item.auditHasHumanReview !== true && item.workflowState !== 'FINALIZED',
   );
   const visibleManageableCases = filteredCases.filter((item) => item.canManageCases === true);
   const showManagementSelection = !preview && (cases?.some((item) => item.canManageCases === true) ?? false);
@@ -345,6 +345,12 @@ export function CasesPanel({ canReadAllCases = false, canFinalizeAnyCase = false
       <div className="case-toolbar rounded-xl border border-line bg-surface-1 p-3">
         {canFinalizeAnyCase && (
           <div className="flex flex-wrap gap-1.5" role="group" aria-label="Bandeja de revisión del coordinador">
+            <button
+              type="button"
+              aria-pressed={workflowFilter === 'ALL'}
+              onClick={() => { setSelectedCaseIds(new Set()); setSelectedId(null); if (!preview) setCases(null); setNextCursor(null); setStatusFilter('ALL'); setWorkflowFilter('ALL'); }}
+              className={`case-status-tab ${workflowFilter === 'ALL' ? 'case-status-tab-active' : ''}`}
+            >Historial completo</button>
             <button
               type="button"
               aria-pressed={workflowFilter === 'PENDING_ADVISOR'}

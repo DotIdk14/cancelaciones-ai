@@ -48,6 +48,8 @@ export interface CaseDetailDto {
   /** Capacidad efectiva para mutar este caso, resuelta por rol y propiedad. */
   canWrite: boolean;
   canManageCases: boolean;
+  country: string | null;
+  channel: string | null;
   /**
    * Fecha de inicio de clases aportada por una persona, con su procedencia.
    *
@@ -240,6 +242,8 @@ export function caseToDetail(row: CaseRow, canWrite = false, canManageCases = fa
     isTest: row.is_test ?? false,
     canWrite,
     canManageCases,
+    country: row.country ?? null,
+    channel: row.channel ?? null,
     // `?? null` y no el valor directo: las columnas son opcionales en `CaseRow`
     // para que el `select('*')` siga funcionando si la migración aún no está
     // aplicada, y una columna ausente no es lo mismo que un `NULL` explícito

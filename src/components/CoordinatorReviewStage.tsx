@@ -15,6 +15,8 @@ import {
   resolutionLabel,
 } from '../lib/labels';
 import { Badge, Button, DataRow, ErrorCard, Panel, SectionTitle } from './ui';
+import { EVIDENCE_CHANNELS, EVIDENCE_COUNTRIES } from '../skills/audit/types';
+import { CHANNEL_LABELS, COUNTRY_LABELS } from '../lib/labels';
 
 /** Etiqueta de la decisión de etapa 2, para los radios del Coordinador. */
 const DECISION_OPTIONS: ReadonlyArray<{ value: CoordinatorDecision; label: string; description: string }> = [
@@ -44,6 +46,8 @@ export function CoordinatorStage({
   workflowState,
   role,
   canFinalize = false,
+  caseCountry = null,
+  caseChannel = null,
   onSubmitted,
 }: {
   caseId: string;
@@ -51,6 +55,8 @@ export function CoordinatorStage({
   workflowState?: WorkflowState;
   role: AppRole | null;
   canFinalize?: boolean;
+  caseCountry?: string | null;
+  caseChannel?: string | null;
   onSubmitted?: () => void;
 }): ReactNode {
   const state = workflowStateOf(review, workflowState);
@@ -58,7 +64,7 @@ export function CoordinatorStage({
     return <CoordinatorDecisionRecord review={review} />;
   }
   if (canFinalize) {
-    return <CoordinatorFinalizeForm caseId={caseId} review={review} onSubmitted={onSubmitted} />;
+    return <CoordinatorFinalizeForm caseId={caseId} review={review} caseCountry={caseCountry} caseChannel={caseChannel} onSubmitted={onSubmitted} />;
   }
   const message =
     role === 'manager'
@@ -80,10 +86,14 @@ export function CoordinatorStage({
 function CoordinatorFinalizeForm({
   caseId,
   review,
+  caseCountry,
+  caseChannel,
   onSubmitted,
 }: {
   caseId: string;
   review: CaseReviewDto;
+  caseCountry: string | null;
+  caseChannel: string | null;
   onSubmitted?: () => void;
 }): ReactNode {
   const [decision, setDecision] = useState<CoordinatorDecision | ''>('');
@@ -92,6 +102,9 @@ function CoordinatorFinalizeForm({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<ErrorState | null>(null);
   const [finalized, setFinalized] = useState<CaseReviewDto | null>(null);
+  const [country, setCountry] = useState(caseCountry ?? '');
+  const [channel, setChannel] = useState(caseChannel ?? '');
+  const [showOriginModal, setShowOriginModal] = useState(false);
 
   const trimmed = comment.trim();
   const tooLong = trimmed.length > REVIEW_COMMENT_LIMITS.max;
@@ -101,10 +114,8 @@ function CoordinatorFinalizeForm({
   const canSubmit =
     (decision === 'APPROVE' || (decision === 'CHANGE' && resolution !== '')) && !tooLong && !sending;
 
-  const handleSubmit = useCallback(
-    async (event: FormEvent<HTMLFormElement>): Promise<void> => {
-      event.preventDefault();
-      if (decision === '' || !canSubmit) return;
+  const submitDecision = useCallback(async (): Promise<void> => {
+      if (decision === '' || !canSubmit || !country || !channel) return;
       setSending(true);
       setError(null);
       try {
@@ -112,17 +123,28 @@ function CoordinatorFinalizeForm({
           decision,
           ...(decision === 'CHANGE' && resolution !== '' ? { resolution } : {}),
           comment: trimmed,
+          country,
+          channel,
         });
         setFinalized(data.review);
+        setShowOriginModal(false);
         onSubmitted?.();
       } catch (err) {
         setError(toErrorState(err));
       } finally {
         setSending(false);
       }
-    },
-    [canSubmit, caseId, decision, onSubmitted, resolution, trimmed],
-  );
+    }, [canSubmit, caseId, channel, country, decision, onSubmitted, resolution, trimmed]);
+
+  const handleSubmit = useCallback((event: FormEvent<HTMLFormElement>): void => {
+    event.preventDefault();
+    if (decision === '' || !canSubmit) return;
+    if (!country || !channel) {
+      setShowOriginModal(true);
+      return;
+    }
+    void submitDecision();
+  }, [canSubmit, channel, country, decision, submitDecision]);
 
   if (finalized !== null) {
     return <CoordinatorDecisionRecord review={finalized} />;
@@ -136,7 +158,7 @@ function CoordinatorFinalizeForm({
       title="Decisión del Coordinador"
       description="Aprueba la resolución del Asesor o cámbiala por otra distinta. No se modifica la decisión del Asesor."
     >
-      <form className="flex flex-col gap-5" onSubmit={(event) => void handleSubmit(event)} aria-busy={sending}>
+      <form className="flex flex-col gap-5" onSubmit={handleSubmit} aria-busy={sending}>
         <fieldset className="flex flex-col gap-2" disabled={sending}>
           <legend className="text-sm font-semibold text-ink">Decisión final</legend>
           <p className="text-xs text-muted">
@@ -267,6 +289,32 @@ function CoordinatorFinalizeForm({
           </p>
         </div>
       </form>
+      {showOriginModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowOriginModal(false); }}>
+          <section role="dialog" aria-modal="true" aria-labelledby="origin-required-title" className="w-full max-w-lg rounded-2xl border border-line bg-surface-1 p-5 shadow-xl">
+            <h2 id="origin-required-title" className="text-lg font-semibold text-ink">Completa el origen antes de finalizar</h2>
+            <p className="mt-2 text-sm text-muted">El dictamen final requiere país y canal. Tu decisión y comentario se conservarán mientras completas estos datos.</p>
+            <div className="mt-5 grid gap-4 sm:grid-cols-2">
+              <label className="flex flex-col gap-1.5 text-sm font-medium text-ink">País
+                <select required value={country} onChange={(event) => setCountry(event.target.value)} className="rounded-lg border border-line bg-surface-2 px-3 py-2 text-ink">
+                  <option value="">Selecciona un país</option>
+                  {EVIDENCE_COUNTRIES.map((value) => <option key={value} value={value}>{COUNTRY_LABELS[value]}</option>)}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1.5 text-sm font-medium text-ink">Canal
+                <select required value={channel} onChange={(event) => setChannel(event.target.value)} className="rounded-lg border border-line bg-surface-2 px-3 py-2 text-ink">
+                  <option value="">Selecciona un canal</option>
+                  {EVIDENCE_CHANNELS.map((value) => <option key={value} value={value}>{CHANNEL_LABELS[value]}</option>)}
+                </select>
+              </label>
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <Button variant="secondary" onClick={() => setShowOriginModal(false)} disabled={sending}>Volver</Button>
+              <Button variant="primary" onClick={() => void submitDecision()} disabled={!country || !channel || sending} loading={sending} loadingLabel="Finalizando">Guardar y finalizar</Button>
+            </div>
+          </section>
+        </div>
+      )}
     </Panel>
   );
 }

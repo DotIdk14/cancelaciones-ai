@@ -23,6 +23,9 @@ export interface CaseRow {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  /** Proyección del origen del dictamen, usada también como validación de cierre. */
+  country?: string | null;
+  channel?: string | null;
   /**
    * Fecha de inicio de ciclo aportada por una persona (migración
    * `20261008090000_case-cycle-start-date-human.sql`).
@@ -449,6 +452,20 @@ export async function getScopedCaseOr404(
 export function assertCaseOwner(row: CaseRow, auth: AuthContext): void {
   if (row.created_by !== auth.sub) {
     throw new ApiError(404, 'NOT_FOUND', 'Caso no encontrado');
+  }
+}
+
+/** Los expedientes finalizados son inmutables en todas las rutas de escritura. */
+export async function assertCaseNotFinalized(client: InsForgeClient, caseId: string): Promise<void> {
+  const { data, error } = await client.database
+    .from('case_reviews')
+    .select('coordinator_decision')
+    .eq('case_id', caseId)
+    .limit(1);
+  if (error) dbError(error);
+  const review = (data as Array<{ coordinator_decision?: string | null }> | null)?.[0];
+  if (review?.coordinator_decision != null) {
+    throw new ApiError(409, 'VALIDATION_ERROR', 'El dictamen finalizado es de solo lectura.');
   }
 }
 

@@ -1,16 +1,39 @@
-Can't initialize prompt toolkit: No Windows console found. Are you running 
-cmd.exe?
-───────────────────────────────────────────────────────────────────────────────
+Detected dumb terminal, disabling fancy input and pretty output.
+
 Using openrouter/anthropic/claude-sonnet-4 model with API key from environment.
 Aider v0.86.2
-Main model: openrouter/anthropic/claude-sonnet-4 with diff edit format, 
-infinite output
+Main model: openrouter/anthropic/claude-sonnet-4 with diff edit format
 Weak model: openrouter/anthropic/claude-3-5-haiku
-Git repo: .git with 271 files
+Git repo: .git with 278 files
 Repo-map: using 4096 tokens, auto refresh
 Here are summaries of some files present in my git repository.
 Do not propose changes to these files, treat them as *read-only*.
 If you need to edit any of these files, ask me to *add them to the chat* first.
+
+.opencode\plugins\repo-map-freshness.ts:
+⋮
+│function checkFreshness(): Promise<void> {
+│  return new Promise((resolve) => {
+│    const child = spawn(
+│      "powershell.exe",
+│      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "-Mode", 
+"Check"],
+│      { stdio: "ignore", windowsHide: true },
+│    )
+│    child.once("error", (error) => {
+│      console.error(`[repo-map] No se pudo comprobar la frescura: 
+${error.message}`)
+│      resolve()
+⋮
+│export default Plugin.define({
+│  id: "cancelaciones.repo-map-freshness",
+│  async setup(ctx) {
+│    await checkFreshness()
+│    await ctx.session.hook("prompt", async () => {
+│      await checkFreshness()
+│    })
+│  },
+⋮
 
 scripts\contrast.mjs:
 ⋮
@@ -44,21 +67,29 @@ ${section.pages.join(', ') ||
 │    parts.push('');
 ⋮
 
+src\components\AppDock.tsx:
+⋮
+│type Capabilities = SessionSnapshot['capabilities'];
+│
+⋮
+
 src\components\AppHeader.tsx:
 ⋮
 │interface AppHeaderProps {
 │  onSignOut?: () => void;
 │  previewOnly?: boolean;
 │  role?: AppRole | null;
-│  canCreate?: boolean;
+│  onReportProblem?: () => void;
 ⋮
 
 src\components\CaseListPage.tsx:
 ⋮
-│export function CaseListPage(): ReactNode {
+│export function CaseListPage({ canReadAllCases = false, canFinalizeAnyCase = 
+false }: { canReadAllC
 │  return (
 │    <div className="flex flex-col gap-5">
-│      <CasesPanel />
+│      <CasesPanel canReadAllCases={canReadAllCases} 
+canFinalizeAnyCase={canFinalizeAnyCase} />
 │    </div>
 │  );
 ⋮
@@ -107,9 +138,6 @@ src\components\LoginScreen.tsx:
 ⋮
 
 src\components\NewCasePanel.tsx:
-⋮
-│type NoteArea = (typeof NOTE_AREAS)[number];
-│
 ⋮
 │interface EvidenceEntry {
 │  /** Identidad de la fila, estable entre renders. Es lo que se quita. */
@@ -264,8 +292,11 @@ src\lib\api.ts:
 │  evidenceCount: number;
 │  createdAt: string;
 │  updatedAt: string;
-│  /**
-│   * Resolución vigente y su origen.
+│  /** Etapa humana derivada de case_reviews; no corresponde a cases.status. */
+│  workflowState?: WorkflowState;
+⋮
+│export type CaseCreatorRole = 'user' | 'coordinator' | 'manager';
+│
 ⋮
 │export interface CaseDetail {
 │  id: string;
@@ -385,6 +416,21 @@ estricto.
 │  /** Si es false, un 401 no dispara refresh automático. */
 │  retryAuth?: boolean;
 ⋮
+│export type IncidentModule = 'Resumen' | 'Calidad' | 'IA y Costos' | 
+'Expedientes' | 'Nueva auditor
+│export type IncidentStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED';
+⋮
+│export interface IncidentTicketDto {
+│  id: string;
+│  reporter_email: string;
+│  module: IncidentModule;
+│  description: string;
+│  status: IncidentStatus;
+│  context: { route?: string; correlationId?: string };
+│  created_at: string;
+│  updated_at: string;
+│  events: TicketEventDto[];
+⋮
 
 src\lib\dashboard-shared.ts:
 ⋮
@@ -450,6 +496,7 @@ src\lib\useHashRoute.ts:
 │  | { name: 'ai-costs' } // #/ia-costos
 │  | { name: 'new-case' } // #/nuevo
 │  | { name: 'cases' } // #/casos
+│  | { name: 'incidents' } // #/incidencias
 ⋮
 
 src\lib\usePolling.ts:
@@ -547,16 +594,8 @@ src\server\capabilities.ts:
 
 src\server\cases.ts:
 ⋮
-│export interface CaseSummaryRow extends CaseRow {
-│  evidence?: Array<{ count: number }> | null;
-│  /** Resolución humana del caso (cargada en batch junto con el listado). */
-│  review?: CaseReviewRow | null;
-│  /** Auditoría COMPLETED vigente del caso (cargada en batch junto con el 
-listado). */
-│  audit?: AuditRow | null;
-│  /** Si la última auditoría completada usa los datos actuales del expediente.
-*/
-│  auditIsCurrent?: boolean | null;
+│export type CaseCreatorRole = 'user' | 'coordinator' | 'manager';
+│
 ⋮
 │export interface EvidenceRow {
 │  id: string;
@@ -571,16 +610,6 @@ listado). */
 ⋮
 │export type AuditStatus = 'RUNNING' | 'COMPLETED' | 'ERROR';
 │
-│export interface AuditRow {
-│  id: string;
-│  case_id: string;
-│  status: AuditStatus;
-│  provider: string;
-│  model: string;
-│  result_json: unknown;
-│  error_category: ErrorCategory | null;
-│  latency_ms: number | null;
-│  evidence_fingerprint: string | null;
 ⋮
 
 src\server\dashboard-contracts.ts:
@@ -704,9 +733,6 @@ tests). */
 │  auth?: AuthContext;
 ⋮
 │export type ApiResponse = ServerResponse;
-│
-│export type ApiHandler = (req: ApiRequest, res: ApiResponse) => Promise<void> 
-| void;
 │
 ⋮
 │export interface CookieOptions {
@@ -848,17 +874,6 @@ src\skills\sanitize.ts:
 │  // eslint-disable-next-line no-control-regex
 │  return text.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '');
 ⋮
-│export function wrapUntrusted(label: string, content: string): string {
-│  const safeLabel = stripControlChars(sanitizeTagDelimiters(label)).slice(0, 
-200);
-│  const body = 
-stripControlChars(sanitizeFenceDelimiters(sanitizeTagDelimiters(content)));
-│  return [
-│    `${UNTRUSTED_OPEN} [${safeLabel}]`,
-│    body.length > 0 ? body : '(sin contenido)',
-│    UNTRUSTED_CLOSE,
-│  ].join('\n');
-⋮
 │export function wrapUntrustedInline(label: string, content: string): string {
 │  const safe = 
 stripControlChars(sanitizeFenceDelimiters(sanitizeTagDelimiters(content)))
@@ -884,45 +899,6 @@ tests\case-dimensions.test.ts:
 │  value: unknown;
 ⋮
 
-tests\cases-pagination.test.ts:
-⋮
-│function database(rows: Row[], related: Record<string, Row[]> = {}) {
-│  const ranges: Array<[string, number, number]> = [];
-│  const filters: Array<[string, string, unknown]> = [];
-│  const client = {
-│    database: {
-│      from(table: string) {
-│        let page: [number, number] = [0, 9999];
-│        let predicates: Array<[string, string, unknown]> = [];
-│        const orders: Array<[string, boolean]> = [];
-│        const query = {
-│          select() { return query; },
-│          eq(column: string, value: unknown) { predicates.push([column, 'eq', 
-value]); return query
-│          lte(column: string, value: unknown) { predicates.push([column, 
-'lte', value]); return que
-│          in(column: string, value: unknown[]) { predicates.push([column, 
-'in', value]); return que
-│          order(column: string, options?: { ascending?: boolean }) { 
-orders.push([column, options?.
-│          range(from: number, to: number) { page = [from, to]; return query; 
-},
-│          then(resolve: (value: unknown) => unknown) {
-│            filters.push(...predicates);
-│            ranges.push([table, page[0], page[1]]);
-│            const matches = (rowsForTable: Row[]) => rowsForTable.filter((row)
-=> predicates.every(
-│              if (op === 'eq') return row[column] === value;
-│              if (op === 'in') return (value as 
-unknown[]).includes(row[column]);
-│              return String(row[column] ?? '') <= String(value);
-│            }));
-│            let found = matches(table === 'cases' ? rows : related[table] ?? 
-[]);
-│            if (table === 'cases') found = found.map((row) => ({ ...row, 
-evidence: [] }));
-⋮
-
 tests\dashboard-human-review-query.test.ts:
 ⋮
 │interface QueryResult {
@@ -945,15 +921,6 @@ tests\evidence-mime-detection.test.ts:
 │          sizeBytes: JPEG_BYTES.length,
 ⋮
 
-tests\helpers\env.ts:
-⋮
-│export function setTestEnv(): void {
-│  for (const [key, value] of Object.entries(REQUIRED_VARS)) {
-│    process.env[key] = value;
-│  }
-│  resetEnvCache();
-⋮
-
 tests\helpers\fake-database.ts:
 ⋮
 │type QueryResult = { data: Row[] | Row | null; error: null };
@@ -972,24 +939,24 @@ tests\helpers\fake-database.ts:
 │class FakeDatabaseImpl {
 │  private readonly tables = new Map<string, Row[]>();
 │  private sequence = 0;
+│  readonly removedStoragePaths: string[] = [];
 │
 │  rows(table: string): Row[] {
 │    let found = this.tables.get(table);
 │    if (!found) {
 │      found = [];
 │      this.tables.set(table, found);
-│    }
 ⋮
 │export interface FakeDatabase {
 │  /** Cliente InsForge fake, listo para `createCaseReview(fake, ...)`. */
 │  client: InsForgeClient;
 │  /** Copia de las filas de una tabla (para observar qué se escribió). */
 │  rows(table: string): Row[];
+│  /** Rutas retiradas del Storage por el cliente fake. */
+│  removedStoragePaths: string[];
 │  /**
 │   * Siembra una fila CRUDO, sin pasar por el cliente ni por una función de
 │   * producción.
-│   *
-│   * Hace falta cuando la fila que hay que sembrar no se puede crear con la
 ⋮
 
 tests\model-capabilities.test.ts:

@@ -50,6 +50,7 @@ vi.mock('../src/server/cases', async () => {
     derivedExtractionOf: store.derivedExtractionOf,
     persistDerivedExtraction: store.persistDerivedExtraction,
     assertCaseOwner: store.assertCaseOwner,
+    assertCaseNotFinalized: store.assertCaseNotFinalized,
     listCaseSummaries: store.listCaseSummaries,
     createCase: store.createCase,
     listEvidenceRows: store.listEvidenceRows,
@@ -77,6 +78,7 @@ vi.mock('../src/server/reviews', async () => {
     createCaseReview: store.createCaseReview,
     getCaseReview: store.getCaseReview,
     finalizeCaseReview: store.finalizeCaseReview,
+    DUPLICATE_FINALIZATION_MESSAGE: 'La decisión final del coordinador es única e inmutable.',
     insertComparison: store.insertComparison,
     getLatestComparisonForReview: store.getLatestComparisonForReview,
     rearmComparison: store.rearmComparison,
@@ -236,7 +238,7 @@ async function postAreaComment(role: AppRole | undefined, caseId: string) {
 }
 
 const ADVISOR_BODY = { result: 'BAJA', comment: 'Resolución propuesta por el asesor.' };
-const COORDINATOR_BODY = { decision: 'APPROVE' };
+const COORDINATOR_BODY = { decision: 'APPROVE', country: 'MX', channel: 'WHATSAPP' };
 
 // =============================================================================
 describe('crear caso · POST /api/cases', () => {
@@ -384,11 +386,19 @@ describe('finalizar como coordinador · POST /api/cases/:id/review {decision}', 
     expect((JSON.parse(res.body) as { workflowState: string }).workflowState).toBe('FINALIZED');
   });
 
+  it('rechaza una finalización sin país o canal y conserva la etapa pendiente', async () => {
+    seedCase({ id: OTHER_CASE, created_by: OTHER_OWNER });
+    const review = seedReview({ case_id: OTHER_CASE, result: 'BAJA', coordinator_decision: null });
+    const res = await postReview('coordinator', OTHER_CASE, { decision: 'APPROVE', country: 'MX' });
+    expect(res.statusCode).toBe(400);
+    expect(review.coordinator_decision).toBeNull();
+  });
+
   it('Coordinador sobre caso ya finalizado: 409 (la finalización es única e inmutable)', async () => {
     seedCase({ id: OTHER_CASE, created_by: OTHER_OWNER });
     seedReview({ case_id: OTHER_CASE, result: 'BAJA', coordinator_decision: 'APPROVE' });
     const res = await postReview('coordinator', OTHER_CASE, COORDINATOR_BODY);
-    expect(res.statusCode).toBe(409);
+    expect(res.statusCode, res.body).toBe(409);
   });
 
   it('Asesor sobre caso PENDING_COORDINATOR: 409 (no es su etapa; el cuerpo ni se mira)', async () => {

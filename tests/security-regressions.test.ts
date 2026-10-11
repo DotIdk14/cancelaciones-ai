@@ -402,7 +402,7 @@ describe('matriz de capacidades sobre /review · el servidor resuelve la etapa',
   }
 
   it('el coordinador FINALIZA el caso de un asesor: 200 y la fila queda con su actor', async () => {
-    const { res, store } = await callReview('coordinator', 'POST', { decision: 'APPROVE' });
+    const { res, store } = await callReview('coordinator', 'POST', { decision: 'APPROVE', country: 'MX', channel: 'WHATSAPP' });
 
     expect(res.statusCode).toBe(200);
     const payload = JSON.parse(res.body) as { workflowState: string; review: { coordinatorDecision: string } };

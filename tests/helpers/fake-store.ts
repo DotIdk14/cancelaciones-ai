@@ -288,6 +288,13 @@ export function assertCaseOwner(row: { created_by?: string | null }, auth: { sub
   }
 }
 
+export async function assertCaseNotFinalized(_client: unknown, caseId: string): Promise<void> {
+  const review = reviewRows.find((row) => row.case_id === caseId);
+  if (review?.coordinator_decision != null) {
+    throw new ApiError(409, 'VALIDATION_ERROR', 'El dictamen finalizado es de solo lectura.');
+  }
+}
+
 export async function listCaseSummaries(
   _client: unknown,
   auth?: { sub: string; role: 'user' | 'coordinator' | 'manager' },

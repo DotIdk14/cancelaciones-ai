@@ -99,6 +99,8 @@ export interface CaseDetail {
   /** Capacidad efectiva para mutar este expediente, resuelta por el servidor. */
   canWrite?: boolean;
   canManageCases?: boolean;
+  country?: string | null;
+  channel?: string | null;
 }
 
 export interface CaseSummaryPage {
@@ -360,8 +362,13 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
+let lastErrorCorrelationId: string | null = null;
+export function getLastErrorCorrelationId(): string | null { return lastErrorCorrelationId; }
+export function setLastErrorCorrelationId(value: string | null): void { lastErrorCorrelationId = value; }
+
 /** Lee el cuerpo de error de una respuesta no exitosa. Nunca lanza. */
 export async function readError(res: Response): Promise<ApiError> {
+  lastErrorCorrelationId = typeof res.headers?.get === 'function' ? res.headers.get('x-correlation-id') : null;
   let category = 'UNKNOWN';
   let message = `Error ${res.status} al llamar al servidor.`;
 
@@ -775,13 +782,15 @@ export async function submitCaseReview(
  */
 export async function finalizeCaseReview(
   caseId: string,
-  input: { decision: CoordinatorDecision; resolution?: AuditResultType; comment?: string },
+  input: { decision: CoordinatorDecision; resolution?: AuditResultType; comment?: string; country?: string; channel?: string },
 ): Promise<{ review: CaseReviewDto; workflowState: WorkflowState | null; comparison: ComparisonDto | null }> {
   const body: Record<string, unknown> = {
     decision: input.decision,
     comment: (input.comment ?? '').trim(),
   };
   if (input.decision === 'CHANGE' && input.resolution) body.resolution = input.resolution;
+  if (input.country) body.country = input.country;
+  if (input.channel) body.channel = input.channel;
   const data = await request<{ review: CaseReviewDto; workflowState?: WorkflowState; comparison?: ComparisonDto | null }>(
     casePath(caseId, '/review'),
     {
@@ -804,6 +813,66 @@ export async function retryComparison(caseId: string): Promise<ComparisonDto> {
     201,
   ]);
   return data.comparison;
+}
+
+export type IncidentModule = 'Resumen' | 'Calidad' | 'IA y Costos' | 'Expedientes' | 'Nueva auditoría' | 'Incidencias' | 'Otro';
+export type IncidentStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED';
+export interface TicketEventDto {
+  id: string;
+  event_type: 'CREATED' | 'COMMENT' | 'STATUS_CHANGED';
+  body: string;
+  previous_status: IncidentStatus | null;
+  next_status: IncidentStatus | null;
+  created_at: string;
+}
+export interface IncidentTicketDto {
+  id: string;
+  reporter_email: string;
+  module: IncidentModule;
+  description: string;
+  status: IncidentStatus;
+  context: { route?: string; correlationId?: string };
+  created_at: string;
+  updated_at: string;
+  events: TicketEventDto[];
+}
+export interface SanitizedErrorDto {
+  correlation_id: string;
+  source: 'FRONTEND' | 'BACKEND' | 'ASYNC';
+  category: string;
+  module: string;
+  route: string;
+  created_at: string;
+}
+
+export async function reportProblem(input: { module: IncidentModule; description: string; context: { route?: string; correlationId?: string } }): Promise<IncidentTicketDto> {
+  const data = await request<{ ticket: IncidentTicketDto }>('/api/dashboard/incidents', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'ticket', ...input }),
+  }, [201]);
+  return data.ticket;
+}
+
+export async function reportClientError(input: { source: 'FRONTEND' | 'ASYNC'; category: 'FRONTEND_ERROR' | 'UNHANDLED_REJECTION'; module: string; route: string; correlationId: string }): Promise<void> {
+  await request<{ recorded: boolean }>('/api/dashboard/incidents', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'client-error', ...input }),
+  }, [200]);
+}
+
+export async function addIncidentComment(input: { ticketId: string; comment: string }): Promise<void> {
+  await request<{ saved: boolean }>('/api/dashboard/incidents', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'ticket-comment', ...input }),
+  }, [200]);
+}
+
+export async function getIncidents(): Promise<{ tickets: IncidentTicketDto[]; errors: SanitizedErrorDto[] }> {
+  return request('/api/dashboard/incidents', {}, [200]);
+}
+
+export async function updateIncident(input: { ticketId: string; status: IncidentStatus; comment?: string }): Promise<IncidentTicketDto> {
+  const data = await request<{ ticket: IncidentTicketDto }>('/api/dashboard/incidents', {
+    method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input),
+  }, [200]);
+  return data.ticket;
 }
 
 // -----------------------------------------------------------------------------

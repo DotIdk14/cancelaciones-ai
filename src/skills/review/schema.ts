@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { EVIDENCE_CHANNELS, EVIDENCE_COUNTRIES } from '../audit/types.js';
 import {
   COORDINATOR_DECISIONS,
   HUMAN_RESOLUTIONS,
@@ -134,6 +135,8 @@ export const CoordinatorReviewInputSchema = z
   .object({
     decision: z.enum(COORDINATOR_DECISIONS),
     resolution: z.enum(HUMAN_RESOLUTIONS).optional(),
+    country: z.enum(EVIDENCE_COUNTRIES).optional(),
+    channel: z.enum(EVIDENCE_CHANNELS).optional(),
     comment: z
       .string()
       .trim()

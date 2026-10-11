@@ -94,6 +94,8 @@ export interface CaseReviewPanelProps {
   role?: AppRole | null;
   canReviewOwnCase?: boolean;
   canFinalizeAnyCase?: boolean;
+  caseCountry?: string | null;
+  caseChannel?: string | null;
   /** Se llama tras registrar la revisión o la decisión final, para refrescar el caso. */
   onSubmitted?: () => void;
 }
@@ -110,6 +112,8 @@ export function CaseReviewPanel({
   role = null,
   canReviewOwnCase = false,
   canFinalizeAnyCase = false,
+  caseCountry = null,
+  caseChannel = null,
   onSubmitted,
 }: CaseReviewPanelProps): ReactNode {
   const [result, setResult] = useState<AuditResultType | ''>('');
@@ -238,6 +242,8 @@ export function CaseReviewPanel({
           workflowState={workflowState}
           role={role}
           canFinalize={canFinalizeAnyCase}
+          caseCountry={caseCountry}
+          caseChannel={caseChannel}
           onSubmitted={onSubmitted}
         />
       </div>
@@ -272,6 +278,8 @@ export function CaseReviewPanel({
           workflowState={workflowState}
           role={role}
           canFinalize={canFinalizeAnyCase}
+          caseCountry={caseCountry}
+          caseChannel={caseChannel}
           onSubmitted={onSubmitted}
         />
       </div>

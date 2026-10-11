@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Coins, FolderOpen, LayoutDashboard, Plus, ShieldCheck } from 'lucide-react';
+import { Coins, FolderOpen, LayoutDashboard, LifeBuoy, Plus, ShieldCheck } from 'lucide-react';
 import type { SessionSnapshot } from '../lib/api';
 import { cx } from '../lib/cx';
 import { useHashRoute } from '../lib/useHashRoute';
@@ -18,10 +18,11 @@ interface DockItem {
 
 const DOCK_ITEMS: readonly DockItem[] = [
   { name: 'dashboard', href: '#/', label: 'Resumen', Icon: LayoutDashboard, allowed: (c) => c.canReadAllCases, previewAllowed: true },
-  { name: 'quality', href: '#/calidad', label: 'Calidad', Icon: ShieldCheck, allowed: (c) => c.canReadAllCases, previewAllowed: true },
-  { name: 'ai-costs', href: '#/ia-costos', label: 'IA y Costos', Icon: Coins, allowed: (c) => c.canReadAllCases, previewAllowed: true },
+  { name: 'quality', href: '#/calidad', label: 'Calidad', Icon: ShieldCheck, allowed: (c) => c.canManageCases, previewAllowed: true },
+  { name: 'ai-costs', href: '#/ia-costos', label: 'IA y Costos', Icon: Coins, allowed: (c) => c.canManageCases, previewAllowed: true },
   { name: 'cases', href: '#/casos', label: 'Expedientes', Icon: FolderOpen, allowed: (c) => c.canReadAllCases || c.canReviewOwnCases, previewAllowed: true },
-  { name: 'new-case', href: '#/nuevo', label: 'Nueva auditoría', Icon: Plus, allowed: (c) => c.canWriteOwnedCases, previewAllowed: true },
+  { name: 'new-case', href: '#/nuevo', label: 'Nueva auditoría', Icon: Plus, allowed: (c) => c.canWriteOwnedCases || c.canManageCases, previewAllowed: true },
+  { name: 'incidents', href: '#/incidencias', label: 'Incidencias', Icon: LifeBuoy, allowed: (c) => c.canManageCases, previewAllowed: true },
 ];
 
 export function AppDock({

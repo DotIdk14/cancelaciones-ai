@@ -44,6 +44,7 @@ vi.mock('../src/server/cases', async () => {
     derivedExtractionOf: store.derivedExtractionOf,
     persistDerivedExtraction: store.persistDerivedExtraction,
     assertCaseOwner: store.assertCaseOwner,
+    assertCaseNotFinalized: store.assertCaseNotFinalized,
     getEvidenceOr404: store.getEvidenceOr404,
     listEvidenceRows: store.listEvidenceRows,
     listCaseSummaries: store.listCaseSummaries,

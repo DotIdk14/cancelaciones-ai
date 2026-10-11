@@ -3,7 +3,7 @@
 // =============================================================================
 
 import type { ReactNode } from 'react';
-import { LogOut, ShieldCheck, UserRound } from 'lucide-react';
+import { LifeBuoy, LogOut, ShieldCheck, UserRound } from 'lucide-react';
 import type { AppRole } from '../lib/api';
 import { roleLabel } from '../lib/useSession';
 import { Button } from './ui';
@@ -12,9 +12,10 @@ interface AppHeaderProps {
   onSignOut?: () => void;
   previewOnly?: boolean;
   role?: AppRole | null;
+  onReportProblem?: () => void;
 }
 
-export function AppHeader({ onSignOut, previewOnly = false, role = null }: AppHeaderProps): ReactNode {
+export function AppHeader({ onSignOut, previewOnly = false, role = null, onReportProblem }: AppHeaderProps): ReactNode {
   // Solo los roles con capacidad de escritura ven el alta. El Gerente (o un rol
   // no resuelto) no la ve; el servidor además responde 403.
   const label = roleLabel(role);
@@ -40,6 +41,7 @@ export function AppHeader({ onSignOut, previewOnly = false, role = null }: AppHe
             </span>
           )}
           {previewOnly && <span className="app-preview-user"><UserRound size={17} aria-hidden="true" /><span>Vista local</span></span>}
+          {onReportProblem && <Button variant="ghost" onClick={onReportProblem} className="app-signout"><LifeBuoy size={16} aria-hidden="true" /><span>Reportar un problema</span></Button>}
           {onSignOut && <Button variant="ghost" onClick={onSignOut} className="app-signout"><LogOut size={16} aria-hidden="true" /><span>Cerrar sesión</span></Button>}
         </div>
       </div>

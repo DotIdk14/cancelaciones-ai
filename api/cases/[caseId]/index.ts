@@ -4,6 +4,7 @@ import { createServerClient } from '../../../src/server/insforge.js';
 import { assertCaseWriteCapability } from '../../../src/server/auth.js';
 import {
   assertCaseOwner,
+  assertCaseNotFinalized,
   getCaseOr404,
   getScopedCaseOr404,
   latestAudit,
@@ -60,6 +61,7 @@ export default handleRoute(async (req, res) => {
       }
       const parsed = z.object({ isTest: z.boolean() }).strict().safeParse(body);
       if (!parsed.success) throw new ApiError(400, 'VALIDATION_ERROR', 'isTest debe ser booleano');
+      await assertCaseNotFinalized(client, caseId);
       await setCaseTestFlag(client, caseId, parsed.data.isTest);
       ok(res, { case: caseToDetail(await getCaseOr404(client, caseId), false, true) });
       return;
@@ -67,6 +69,7 @@ export default handleRoute(async (req, res) => {
     // Capacidad ANTES que propiedad: el gerente no muta NINGÚN caso, ni propio.
     assertCaseWriteCapability(req.auth!);
     assertCaseOwner(caseRow, req.auth!);
+    await assertCaseNotFinalized(client, caseId);
 
     const input = parseCaseCycleStartDateInput(body);
     await setCaseCycleStartDate(client, caseId, {
@@ -90,6 +93,7 @@ export default handleRoute(async (req, res) => {
     const client = createServerClient();
     const caseId = requiredUuid(req.query, 'caseId');
     const caseRow = await getScopedCaseOr404(client, caseId, req.auth!);
+    await assertCaseNotFinalized(client, caseId);
     const parsed = z.object({ target: z.enum(['draft', 'audit']), auditId: z.string().uuid().optional() }).strict().safeParse(await readJsonBody(req));
     if (!parsed.success) throw new ApiError(400, 'VALIDATION_ERROR', 'Solicitud de borrado inválida');
     if (parsed.data.target === 'draft') {
@@ -131,7 +135,7 @@ export default handleRoute(async (req, res) => {
   ok(res, {
     case: caseToDetail(
       caseRow,
-      capabilitiesForRole(req.auth!.role).canWriteOwnedCases && caseRow.created_by === req.auth!.sub,
+      capabilitiesForRole(req.auth!.role).canWriteOwnedCases && caseRow.created_by === req.auth!.sub && review?.coordinator_decision == null,
       capabilitiesForRole(req.auth!.role).canManageCases,
     ),
     evidences: evidences.map(evidenceToDto),

@@ -9,8 +9,8 @@ import {
 } from '../../../../src/server/http.js';
 import { createServerClient } from '../../../../src/server/insforge.js';
 import { capabilitiesForRole } from '../../../../src/server/auth.js';
-import { assertCaseOwner, getScopedCaseOr404, latestCompletedAudit } from '../../../../src/server/cases.js';
-import { finalizeCaseReview, getCaseReview, listComparisonsForCase } from '../../../../src/server/reviews.js';
+import { assertCaseOwner, getScopedCaseOr404, latestCompletedAudit, updateCaseDimensions } from '../../../../src/server/cases.js';
+import { DUPLICATE_FINALIZATION_MESSAGE, finalizeCaseReview, getCaseReview, listComparisonsForCase } from '../../../../src/server/reviews.js';
 import { parseCoordinatorReviewInput, parseHumanReviewInput } from '../../../../src/skills/review/schema.js';
 import {
   caseReviewToDto,
@@ -124,6 +124,13 @@ export default handleRoute(async (req, res) => {
       );
     }
     const input = parseCoordinatorReviewInput(await readJsonBody(req));
+    if (workflowState === 'FINALIZED') throw new ApiError(409, 'VALIDATION_ERROR', DUPLICATE_FINALIZATION_MESSAGE);
+    const country = input.country ?? row.country ?? null;
+    const channel = input.channel ?? row.channel ?? null;
+    if (!country || !channel) {
+      throw new ApiError(400, 'VALIDATION_ERROR', 'El país y el canal son obligatorios para finalizar el dictamen.');
+    }
+    await updateCaseDimensions(client, caseId, { country, channel });
     const finalized = await finalizeCaseReview(client, {
       caseId,
       decision: input.decision,

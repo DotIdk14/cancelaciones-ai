@@ -8,6 +8,7 @@
 // =============================================================================
 
 import type { InsForgeClient } from './insforge.js';
+import { randomUUID } from 'node:crypto';
 import { getEnv } from './env.js';
 import { auditSkill, PDF_MIN_TEXT_CHARS } from '../skills/audit/execute.js';
 import { OpenRouterAuditError } from './openrouter.js';
@@ -477,6 +478,14 @@ export async function runAudit(
     return { phase: 'done', audit: auditToDto(final) };
   } catch (error) {
     const category: ErrorCategory = error instanceof ApiError ? error.category : 'AI_PROVIDER_ERROR';
+    const correlationId = randomUUID();
+    void import('./incidents.js').then(({ recordSanitizedError }) => recordSanitizedError(client, {
+      correlation_id: correlationId,
+      source: 'ASYNC',
+      category,
+      module: 'Expedientes',
+      route: '/api/cases/:id/audit',
+    })).catch(() => undefined);
     const latencyMs = Date.now() - startedAt;
     const diagnostics = error instanceof OpenRouterAuditError ? error.diagnostics : null;
     // Una sola línea JSON: en producción un SCHEMA_VALIDATION_ERROR solo dejaba

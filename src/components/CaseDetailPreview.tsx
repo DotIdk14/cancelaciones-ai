@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { useState } from 'react';
-import { ArrowLeft, AudioLines, BookOpenCheck, Clock3, FileCheck2, FileText, MessageSquareText, Search, ShieldAlert, UserRound } from 'lucide-react';
+import { ArrowLeft, AudioLines, BookOpenCheck, Clock3, FileCheck2, FileText, MessageSquareText, Search, ShieldAlert } from 'lucide-react';
 import type { AppRole, CaseReviewDto, CoordinatorDecision, WorkflowState } from '../lib/api';
 import type { AuditResultType } from '../skills/audit/types';
 import { formatDateTime } from '../lib/format';
@@ -34,7 +34,7 @@ export function CaseDetailPreview({
   role?: AppRole | null;
   workflowState?: WorkflowState;
 }): ReactNode {
-  const [activeTab, setActiveTab] = useState<'transcript' | 'findings' | 'timeline' | 'verdict'>('transcript');
+  const [activeTab, setActiveTab] = useState<'evidence' | 'findings' | 'timeline' | 'verdict'>('evidence');
   const item = getLocalPreviewCases().find((candidate) => candidate.id === caseId) ?? getLocalPreviewCases()[0];
   if (!item) return null;
 
@@ -55,19 +55,14 @@ export function CaseDetailPreview({
         </aside>
         <section className="case-detail-assessment preview-transcript-column">
           <nav className="case-detail-tabs" role="tablist" aria-label="Contenido del expediente">
-            <button type="button" role="tab" aria-selected={activeTab === 'transcript'} onClick={() => setActiveTab('transcript')}><AudioLines size={16} /> Transcripción</button>
+            <button type="button" role="tab" aria-selected={activeTab === 'evidence'} onClick={() => setActiveTab('evidence')}><AudioLines size={16} /> Evidencia</button>
             <button type="button" role="tab" aria-selected={activeTab === 'findings'} onClick={() => setActiveTab('findings')}><BookOpenCheck size={16} /> Hechos y checks</button>
             <button type="button" role="tab" aria-selected={activeTab === 'timeline'} onClick={() => setActiveTab('timeline')}><Clock3 size={16} /> Cronología</button>
             <button type="button" role="tab" aria-selected={activeTab === 'verdict'} onClick={() => setActiveTab('verdict')}><FileText size={16} /> Dictamen</button>
             <label className="case-detail-search"><Search size={15} /><span>Buscar en el expediente</span></label>
           </nav>
-          <Panel title={activeTab === 'transcript' ? 'Transcripción de muestra' : activeTab === 'findings' ? 'Hechos y checks' : activeTab === 'timeline' ? 'Cronología' : 'Dictamen original de IA'} description="Datos ficticios para revisar la interfaz; no proceden de un expediente real.">
-            {activeTab === 'transcript' && <>
-            <div className="preview-transcript-message"><span><UserRound size={17} /></span><div><small>Asesor · muestra</small><p>La transcripción y las referencias de evidencia aparecerán aquí cuando el expediente real tenga audio procesado.</p></div></div>
-            <div className="preview-transcript-message preview-transcript-message-user"><span><UserRound size={17} /></span><div><small>Estudiante · muestra</small><p>Este espacio conserva el texto asociado a cada evidencia y permite abrir el archivo de origen.</p></div></div>
-            <div className="preview-transcript-message"><span><UserRound size={17} /></span><div><small>Asesor · muestra</small><p>En producción, cada fragmento queda enlazado al minuto correspondiente de la grabación.</p></div></div>
-            <div className="preview-transcript-compose"><MessageSquareText size={16} /><span>Escribe un comentario o busca en la transcripción…</span><Button disabled aria-label="Enviar comentario">Enviar</Button></div>
-            </>}
+          <Panel title={activeTab === 'evidence' ? 'Evidencia de muestra' : activeTab === 'findings' ? 'Hechos y checks' : activeTab === 'timeline' ? 'Cronología' : 'Dictamen original de IA'} description="Datos ficticios para revisar la interfaz; no proceden de un expediente real.">
+            {activeTab === 'evidence' && <div className="preview-transcript-message"><span><AudioLines size={17} /></span><div><small>llamada_retencion_demo.mp3</small><p>La transcripción de muestra permanece asociada a este archivo dentro de Evidencias.</p></div></div>}
             {activeTab === 'findings' && <div className="case-workspace-empty"><BookOpenCheck size={22} /><strong>Sin hallazgos reales en la vista local</strong><p>Los hechos y checks se cargan desde una auditoría completada del expediente.</p></div>}
             {activeTab === 'timeline' && <div className="case-workspace-empty"><Clock3 size={22} /><strong>Cronología de ejemplo</strong><p>Las fechas y eventos reales se consultan dentro de un expediente autenticado.</p></div>}
             {activeTab === 'verdict' && (item.effectiveResolution ? <div className="preview-demo-result"><small>Resultado ilustrativo</small><strong>{resolutionLabel(item.effectiveResolution.result)}</strong><p>No procede de una auditoría ni de una decisión humana real.</p></div> : <div className="case-workspace-empty"><FileText size={22} /><strong>Sin dictamen vinculado</strong><p>La vista local no ejecuta auditorías reales.</p></div>)}

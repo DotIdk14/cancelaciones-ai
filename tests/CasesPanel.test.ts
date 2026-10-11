@@ -80,7 +80,7 @@ afterEach(() => {
 });
 
 describe('CasesPanel — resolución efectiva', () => {
-  it('ofrece al coordinador sus dos bandejas y separa IA pendiente de revisión humana', async () => {
+  it('ofrece las bandejas de coordinación y el historial completo de dictámenes', async () => {
     await renderList([
       makeCase({ id: 'case-ai', studentIdentifier: 'IA-PENDIENTE', workflowState: 'PENDING_ADVISOR', effectiveResolution: { result: 'BAJA', source: 'AI' } }),
       makeCase({ id: 'case-unresolved', studentIdentifier: 'SIN-DICTAMEN', workflowState: 'PENDING_ADVISOR', effectiveResolution: null }),
@@ -96,6 +96,12 @@ describe('CasesPanel — resolución efectiva', () => {
     await vi.waitFor(() => expect(screen.getByRole('row', { name: /REVISADO/ })).toBeTruthy());
     expect(screen.queryByRole('row', { name: /IA-PENDIENTE|SIN-DICTAMEN|FINALIZADO/ })).toBeNull();
     expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).includes('workflowState=PENDING_COORDINATOR'))).toBe(true);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Historial completo' }));
+    await vi.waitFor(() => expect(screen.getByRole('row', { name: /IA-PENDIENTE/ })).toBeTruthy());
+    expect(screen.getByRole('row', { name: /SIN-DICTAMEN/ })).toBeTruthy();
+    expect(screen.getByRole('row', { name: /REVISADO/ })).toBeTruthy();
+    expect(screen.getByRole('row', { name: /FINALIZADO/ })).toBeTruthy();
   });
 
   it('no muestra las bandejas de coordinación a quien no tiene esa capacidad', async () => {

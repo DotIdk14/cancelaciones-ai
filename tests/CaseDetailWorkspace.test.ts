@@ -201,11 +201,11 @@ describe('Buscador del expediente', () => {
   it('existe un campo de búsqueda real, no un rótulo decorativo', async () => {
     await renderDetail(makeDetailWithAudit());
 
-    const input = screen.getByRole('searchbox', { name: 'Buscar transcripción, hechos o cronología' });
+    const input = screen.getByRole('searchbox', { name: 'Buscar hechos o cronología' });
     expect(input).toBeTruthy();
     // El texto que anunciaba el rótulo viejo ahora es el placeholder, o sea
     // que el control existe y se puede escribir en él.
-    expect(input.getAttribute('placeholder')).toBe('Buscar transcripción, hechos o cronología');
+    expect(input.getAttribute('placeholder')).toBe('Buscar hechos o cronología');
   });
 
   it('filtra los hechos de la pestaña activa y dice cuántas coincidencias hay', async () => {
@@ -215,7 +215,7 @@ describe('Buscador del expediente', () => {
     expect(screen.getByText('Apertura de matrícula')).toBeTruthy();
     expect(screen.getByText('Solicitud dentro del primer mes')).toBeTruthy();
 
-    fireEvent.change(screen.getByRole('searchbox', { name: 'Buscar transcripción, hechos o cronología' }), {
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Buscar hechos o cronología' }), {
       target: { value: 'primer mes' },
     });
 
@@ -231,7 +231,7 @@ describe('Buscador del expediente', () => {
     await renderDetail(makeDetailWithAudit());
     await openTab(/Cronología/);
 
-    fireEvent.change(screen.getByRole('searchbox', { name: 'Buscar transcripción, hechos o cronología' }), {
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Buscar hechos o cronología' }), {
       target: { value: 'zzz-no-existe-zzz' },
     });
 
@@ -247,7 +247,7 @@ describe('Buscador del expediente', () => {
   it('ofrece saltar a la pestaña que sí tiene coincidencias', async () => {
     await renderDetail(makeDetailWithAudit());
 
-    fireEvent.change(screen.getByRole('searchbox', { name: 'Buscar transcripción, hechos o cronología' }), {
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Buscar hechos o cronología' }), {
       target: { value: 'Solicitud de cancelación' },
     });
 
@@ -259,7 +259,7 @@ describe('Buscador del expediente', () => {
 
   it('se limpia con el botón y con la tecla Escape', async () => {
     await renderDetail(makeDetailWithAudit());
-    const input = screen.getByRole('searchbox', { name: 'Buscar transcripción, hechos o cronología' }) as HTMLInputElement;
+    const input = screen.getByRole('searchbox', { name: 'Buscar hechos o cronología' }) as HTMLInputElement;
 
     fireEvent.change(input, { target: { value: 'matrícula' } });
     await waitFor(() => {
@@ -297,7 +297,7 @@ describe('Disposición de evidencias en el detalle', () => {
 });
 
 describe('Transcripciones de evidencia', () => {
-  it('muestra los fragmentos y permite abrir el archivo original desde el detalle', async () => {
+  it('no tiene pestaña independiente y muestra la transcripción al abrir su evidencia', async () => {
     await renderDetail(makeDetail({
       evidences: [makeEvidence({
         filename: 'llamada.m4a',
@@ -310,10 +310,9 @@ describe('Transcripciones de evidencia', () => {
       })],
     }));
 
-    await openTab(/Transcripción/);
+    expect(screen.queryByRole('tab', { name: /Transcripción/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /llamada\.m4a/i }));
     expect(screen.getByText('Le apoyo con su solicitud.')).toBeTruthy();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Abrir evidencia' }));
     expect(screen.getByRole('tab', { name: /Evidencias/ }).getAttribute('aria-selected')).toBe('true');
     expect(screen.getAllByText('llamada.m4a').length).toBeGreaterThan(0);
   });
@@ -396,3 +395,4 @@ describe('CaseDetailPage — gating por rol (solo presentación)', () => {
     expect(screen.getByRole('button', { name: /auditar con ia/i })).toBeTruthy();
   });
 });
+
