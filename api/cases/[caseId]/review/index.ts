@@ -18,7 +18,7 @@ import {
   deriveEffectiveResolution,
   deriveWorkflowState,
 } from '../../../../src/server/dto.js';
-import { healStaleComparison, submitCaseReview } from '../../../../src/server/comparison-service.js';
+import { healStaleComparison, startComparison, submitCaseReview } from '../../../../src/server/comparison-service.js';
 
 // GET  /api/cases/:caseId/review → 200 { review, comparison, workflowState, effectiveResolution }
 // POST /api/cases/:caseId/review → 201 (asesor) | 200 (coordinador) | 400 | 403 | 404 | 409 | 502
@@ -34,8 +34,7 @@ import { healStaleComparison, submitCaseReview } from '../../../../src/server/co
 //
 // El actor y la hora los deriva SIEMPRE el servidor de `req.auth`; un
 // `reviewerName`/actor/rol del cliente se rechaza en el schema (strict) o se
-// ignora. La comparación se dispara en la etapa de ASESOR y queda durable; un
-// `CHANGE` posterior del coordinador no la vuelve a disparar.
+// ignora. La comparación solo se inicia tras la decisión final del Coordinador.
 export const maxDuration = 300; // Vercel: hasta 300 s en planes compatibles
 
 export default handleRoute(async (req, res) => {
@@ -54,7 +53,10 @@ export default handleRoute(async (req, res) => {
 
     ok(res, {
       review: review ? caseReviewToDto(review) : null,
-      comparison: comparisons[0] ? comparisonToDto(comparisons[0]) : null,
+      comparison: review?.coordinator_decision != null && review.coordinator_created_at && comparisons[0] &&
+        Date.parse(comparisons[0].created_at) >= Date.parse(review.coordinator_created_at)
+        ? comparisonToDto(comparisons[0])
+        : null,
       workflowState: deriveWorkflowState(review),
       effectiveResolution: deriveEffectiveResolution(review, latest),
     });
@@ -129,9 +131,19 @@ export default handleRoute(async (req, res) => {
       comment: input.comment,
       coordinatorUserId: req.auth!.sub,
     });
+    let comparison = null;
+    // La finalización queda persistida aunque la comparación no pueda iniciarse
+    // por una cuota o una incidencia del proveedor; el endpoint de comparación
+    // existente permite iniciarla/reintentarla después.
+    try {
+      comparison = (await startComparison(client, caseId, { userId: req.auth!.sub })).comparison;
+    } catch (error) {
+      console.error('[review] no se pudo iniciar la comparación final:', error instanceof ApiError ? error.category : error instanceof Error ? error.name : typeof error);
+    }
     ok(res, {
       review: caseReviewToDto(finalized),
       workflowState: deriveWorkflowState(finalized),
+      comparison,
     });
     return;
   }

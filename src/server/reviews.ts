@@ -97,7 +97,10 @@ export interface InsertComparisonInput {
 export interface RearmComparisonInput {
   deadlineAt: string;
   attemptCount: number;
+  expectedAttemptCount?: number;
   model?: string;
+  /** Marca el inicio del análisis sobre la resolución final del Coordinador. */
+  resetCreatedAt?: string;
 }
 
 export interface UpdateComparisonResultInput {
@@ -105,11 +108,14 @@ export interface UpdateComparisonResultInput {
   provider: string;
   model: string;
   latencyMs: number;
+  /** Fencing token: una ejecución anterior no pisa un rearme posterior. */
+  expectedAttemptCount?: number;
 }
 
 export interface UpdateComparisonErrorInput {
   errorCategory: ErrorCategory;
   latencyMs: number;
+  expectedAttemptCount?: number;
 }
 
 /** Mensaje único del conflicto "una revisión por caso" (lo comparan cliente y test). */
@@ -324,7 +330,7 @@ export async function rearmComparison(
   comparisonId: string,
   input: RearmComparisonInput,
 ): Promise<ComparisonRow> {
-  const { data, error } = await client.database
+  let query = client.database
     .from('case_comparisons')
     .update({
       status: 'RUNNING',
@@ -333,11 +339,12 @@ export async function rearmComparison(
       latency_ms: null,
       attempt_count: input.attemptCount,
       deadline_at: input.deadlineAt,
+      ...(input.resetCreatedAt ? { created_at: input.resetCreatedAt } : {}),
       ...(input.model ? { model: input.model } : {}),
     })
-    .eq('id', comparisonId)
-    .select()
-    .single();
+    .eq('id', comparisonId);
+  if (input.expectedAttemptCount !== undefined) query = query.eq('attempt_count', input.expectedAttemptCount);
+  const { data, error } = await query.select().single();
   if (error) dbError(error);
   if (!data) dbError(null);
   return data as ComparisonRow;
@@ -348,7 +355,7 @@ export async function updateComparisonResult(
   comparisonId: string,
   input: UpdateComparisonResultInput,
 ): Promise<ComparisonRow> {
-  const { data, error } = await client.database
+  let query = client.database
     .from('case_comparisons')
     .update({
       status: 'COMPLETED',
@@ -358,9 +365,9 @@ export async function updateComparisonResult(
       provider: input.provider,
       model: input.model,
     })
-    .eq('id', comparisonId)
-    .select()
-    .single();
+    .eq('id', comparisonId);
+  if (input.expectedAttemptCount !== undefined) query = query.eq('attempt_count', input.expectedAttemptCount);
+  const { data, error } = await query.select().single();
   if (error) dbError(error);
   if (!data) dbError(null);
   return data as ComparisonRow;
@@ -371,7 +378,7 @@ export async function updateComparisonError(
   comparisonId: string,
   input: UpdateComparisonErrorInput,
 ): Promise<ComparisonRow> {
-  const { data, error } = await client.database
+  let query = client.database
     .from('case_comparisons')
     .update({
       status: 'ERROR',
@@ -379,9 +386,9 @@ export async function updateComparisonError(
       error_category: input.errorCategory,
       latency_ms: input.latencyMs,
     })
-    .eq('id', comparisonId)
-    .select()
-    .single();
+    .eq('id', comparisonId);
+  if (input.expectedAttemptCount !== undefined) query = query.eq('attempt_count', input.expectedAttemptCount);
+  const { data, error } = await query.select().single();
   if (error) dbError(error);
   if (!data) dbError(null);
   return data as ComparisonRow;

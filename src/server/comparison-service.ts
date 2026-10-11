@@ -63,7 +63,7 @@ export interface SubmitCaseReviewInput {
 
 export interface SubmitCaseReviewOutcome {
   review: CaseReviewDto;
-  comparison: ComparisonDto;
+  comparison: ComparisonDto | null;
   /**
    * Estado del flujo DERIVADO de la fila recién persistida: tras una revisión de
    * asesor es `PENDING_COORDINATOR`. Se deriva aquí y no en el endpoint para que
@@ -82,7 +82,8 @@ interface ComparisonContext {
 }
 
 /**
- * Registra la revisión humana y arranca su comparación en la misma llamada.
+ * Registra la propuesta del Asesor. La comparación se inicia cuando el
+ * Coordinador emite el dictamen final.
  *
  * El `audit_id` lo RESUELVE el servidor contra la auditoría COMPLETED vigente;
  * el cliente no lo envía (`HumanReviewInputSchema` es `strict` y lo rechaza).
@@ -92,8 +93,7 @@ interface ComparisonContext {
  *
  * La atribución (`reviewer_name`) se deriva del correo de la sesión
  * (`input.reviewerEmail`), nunca de un nombre que envíe el cliente. La
- * comparación se dispara AQUÍ, en la etapa de asesor, y evalúa la resolución
- * del ASESOR: un `CHANGE` posterior del coordinador no la vuelve a disparar.
+ * comparación se ejecuta después, al finalizar el Coordinador.
  */
 export async function submitCaseReview(
   client: InsForgeClient,
@@ -120,10 +120,9 @@ export async function submitCaseReview(
     userId: input.userId,
   });
 
-  const outcome = await startComparison(client, caseId, { userId: input.userId });
   return {
     review: caseReviewToDto(review),
-    comparison: outcome.comparison,
+    comparison: null,
     workflowState: deriveWorkflowState(review),
   };
 }
@@ -152,15 +151,25 @@ export async function startComparison(
 ): Promise<StartComparisonOutcome> {
   const context = await loadContext(client, caseId);
   assertReviewableAudit(context.audit);
+  if (context.review.coordinator_decision == null) {
+    throw new ApiError(409, 'VALIDATION_ERROR', 'La comparación solo está disponible después del dictamen final del Coordinador.');
+  }
+  if (context.review.coordinator_decision === 'CHANGE' && !context.review.coordinator_resolution) {
+    throw new ApiError(409, 'VALIDATION_ERROR', 'El dictamen final del Coordinador no incluye resolución.');
+  }
   const existing = context.comparison;
+  const needsFinalDecisionComparison = Boolean(
+    existing && context.review.coordinator_created_at &&
+    Date.parse(existing.created_at) < Date.parse(context.review.coordinator_created_at),
+  );
 
-  if (existing?.status === 'COMPLETED') {
+  if (!needsFinalDecisionComparison && existing?.status === 'COMPLETED') {
     return { phase: 'done', comparison: comparisonToDto(existing) };
   }
-  if (existing?.status === 'ERROR') {
+  if (!needsFinalDecisionComparison && existing?.status === 'ERROR') {
     return { phase: 'error', comparison: comparisonToDto(existing), errorCategory: existing.error_category ?? 'UNKNOWN' };
   }
-  if (existing && existing.status === 'RUNNING' && !isStale(existing)) {
+  if (!needsFinalDecisionComparison && existing && existing.status === 'RUNNING' && !isStale(existing)) {
     return { phase: 'running', comparison: comparisonToDto(existing) };
   }
 
@@ -179,12 +188,15 @@ export async function startComparison(
 
   // Una comparación RUNNING caducada se RETOMA sobre su propia fila; si no había
   // ninguna, se abre una nueva. Nunca hay dos filas por revisión.
-  if (existing) assertCanRearm(existing);
+  if (existing && !needsFinalDecisionComparison) assertCanRearm(existing);
+  const finalizedAt = context.review.coordinator_created_at ?? new Date().toISOString();
   const row = existing
     ? await rearmComparison(client, existing.id, {
         deadlineAt,
         attemptCount: existing.attempt_count + 1,
+        expectedAttemptCount: existing.attempt_count,
         model: getEnv().OPENROUTER_MODEL,
+        ...(needsFinalDecisionComparison ? { resetCreatedAt: finalizedAt } : {}),
       })
     : await insertComparison(client, {
         caseReviewId: context.review.id,
@@ -214,15 +226,23 @@ export async function retryComparison(
 ): Promise<ComparisonDto> {
   const context = await loadContext(client, caseId);
   assertReviewableAudit(context.audit);
+  if (context.review.coordinator_decision == null) {
+    throw new ApiError(409, 'VALIDATION_ERROR', 'La comparación solo está disponible después del dictamen final del Coordinador.');
+  }
+  if (context.review.coordinator_decision === 'CHANGE' && !context.review.coordinator_resolution) {
+    throw new ApiError(409, 'VALIDATION_ERROR', 'El dictamen final del Coordinador no incluye resolución.');
+  }
 
   const existing = context.comparison;
 
+  const isLegacyComparison = Boolean(
+    existing && context.review.coordinator_created_at &&
+    Date.parse(existing.created_at) < Date.parse(context.review.coordinator_created_at),
+  );
+  if (isLegacyComparison) return (await startComparison(client, caseId, options)).comparison;
+
   if (!existing) {
-    throw new ApiError(
-      400,
-      'VALIDATION_ERROR',
-      'No hay comparación que reintentar: la revisión del caso todavía no generó ninguna.',
-    );
+    return (await startComparison(client, caseId, options)).comparison;
   }
   if (existing.status === 'RUNNING' && !isStale(existing)) {
     return comparisonToDto(existing);
@@ -249,6 +269,7 @@ export async function retryComparison(
   const row = await rearmComparison(client, existing.id, {
     deadlineAt,
     attemptCount: existing.attempt_count + 1,
+    expectedAttemptCount: existing.attempt_count,
     model: getEnv().OPENROUTER_MODEL,
   });
   const outcome = await executeComparison(client, inputs, row);
@@ -317,6 +338,7 @@ export async function healStaleComparison(client: InsForgeClient, caseId: string
   await updateComparisonError(client, comparison.id, {
     errorCategory: 'AI_PROVIDER_ERROR',
     latencyMs: ageMs,
+    expectedAttemptCount: comparison.attempt_count,
   }).catch(() => undefined);
 }
 
@@ -360,8 +382,10 @@ async function buildComparisonInputs(
   return {
     caseId: context.caseRow.id,
     studentIdentifier: context.caseRow.student_identifier,
-    humanResult: context.review.result,
-    humanComment: context.review.comment,
+    humanResult: context.review.coordinator_decision === 'CHANGE'
+      ? context.review.coordinator_resolution!
+      : context.review.result,
+    humanComment: context.review.coordinator_comment ?? '',
     auditResultJson: context.audit.result_json,
     evidences: items,
   };
@@ -390,6 +414,7 @@ async function executeComparison(
       provider: 'openrouter',
       model: execution.model,
       latencyMs: Date.now() - startedAt,
+      expectedAttemptCount: row.attempt_count,
     });
     return { phase: 'done', comparison: comparisonToDto(done) };
   } catch (error) {
@@ -397,6 +422,7 @@ async function executeComparison(
     await updateComparisonError(client, row.id, {
       errorCategory: category,
       latencyMs: Date.now() - startedAt,
+      expectedAttemptCount: row.attempt_count,
     }).catch(() => undefined);
     if (error instanceof ApiError) throw error;
     // Fallo no tipado: el mensaje puede incluir respuestas del proveedor,

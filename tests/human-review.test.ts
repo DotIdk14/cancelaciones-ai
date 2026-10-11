@@ -1,4 +1,4 @@
-﻿// =============================================================================
+// =============================================================================
 // Revisión humana y comparación con IA — orquestación durable y endpoints.
 //
 // Lo que estos tests fijan, y que es la parte fácil de romper sin darse cuenta:
@@ -139,6 +139,16 @@ function seedAuditableCase(options: { auditId?: string; createdAt?: string; rule
   });
 }
 
+/** Comparison tests must model the final Coordinador stage explicitly. */
+function seedFinalizedReview(overrides: Parameters<typeof seedReview>[0] = {}) {
+  return seedReview({
+    coordinator_decision: 'APPROVE',
+    coordinator_created_at: '2026-02-02T09:01:00.000Z',
+    coordinator_comment: 'Decisión final del Coordinador.',
+    ...overrides,
+  });
+}
+
 function makeApiResponse(): ApiResponse & { statusCode: number; body: string } {
   const fake = {
     statusCode: 200,
@@ -207,7 +217,7 @@ describe('startComparison — los cuatro caminos', () => {
 
   it('sin comparación previa: crea RUNNING, llama al modelo y termina en done', async () => {
     seedAuditableCase();
-    seedReview({ audit_id: 'audit-1', result: 'DICTAMINACION', comment: HUMAN_COMMENT });
+    seedFinalizedReview({ audit_id: 'audit-1', result: 'DICTAMINACION', comment: HUMAN_COMMENT });
 
     const outcome = await startComparison(fakeClient, 'case-1');
 
@@ -220,7 +230,7 @@ describe('startComparison — los cuatro caminos', () => {
 
   it('con comparación RUNNING vigente devuelve running sin volver a llamar al modelo', async () => {
     seedAuditableCase();
-    const review = seedReview({ audit_id: 'audit-1' });
+    const review = seedFinalizedReview({ audit_id: 'audit-1' });
     seedComparison({
       case_review_id: review.id,
       audit_id: 'audit-1',
@@ -239,7 +249,7 @@ describe('startComparison — los cuatro caminos', () => {
 
   it('con comparación COMPLETED devuelve done y reutiliza el resultado durable', async () => {
     seedAuditableCase();
-    const review = seedReview({ audit_id: 'audit-1' });
+    const review = seedFinalizedReview({ audit_id: 'audit-1' });
     seedComparison({
       case_review_id: review.id,
       audit_id: 'audit-1',
@@ -256,7 +266,7 @@ describe('startComparison — los cuatro caminos', () => {
 
   it('con comparación ERROR devuelve error y NO relanza nada por su cuenta', async () => {
     seedAuditableCase();
-    const review = seedReview({ audit_id: 'audit-1' });
+    const review = seedFinalizedReview({ audit_id: 'audit-1' });
     seedComparison({
       case_review_id: review.id,
       audit_id: 'audit-1',
@@ -275,7 +285,7 @@ describe('startComparison — los cuatro caminos', () => {
 
   it('una comparación RUNNING caducada se retoma SOBRE LA MISMA fila (cero duplicados)', async () => {
     seedAuditableCase();
-    const review = seedReview({ audit_id: 'audit-1' });
+    const review = seedFinalizedReview({ audit_id: 'audit-1' });
     const stale = seedComparison({
       case_review_id: review.id,
       audit_id: 'audit-1',
@@ -294,7 +304,7 @@ describe('startComparison — los cuatro caminos', () => {
 
   it('una revisión cuya auditoría no es COMPLETED no es revisable: 409', async () => {
     seedAuditableCase();
-    const review = seedReview({ audit_id: 'audit-1' });
+    const review = seedFinalizedReview({ audit_id: 'audit-1' });
     seedComparison({ case_review_id: review.id, audit_id: 'audit-1', status: 'RUNNING' });
     // La auditoría referenciada deja de estar COMPLETED (RUNNING en curso o ERROR).
     await updateAuditResult(fakeClient, 'audit-1', {
@@ -317,7 +327,7 @@ describe('startComparison — expediente desde case_reviews.audit_id', () => {
       created_at: '2026-02-09T10:10:00Z',
       resultJson: { ...validAuditResult, audit: { ...validAuditResult.audit, rule: 'REGLA-RECIENTE' } },
     });
-    seedReview({ audit_id: 'audit-referenciada', result: 'CANCELACION_VENTA', comment: HUMAN_COMMENT });
+    seedFinalizedReview({ audit_id: 'audit-referenciada', result: 'CANCELACION_VENTA', coordinator_comment: HUMAN_COMMENT });
 
     await startComparison(fakeClient, 'case-1');
 
@@ -334,7 +344,7 @@ describe('startComparison — expediente desde case_reviews.audit_id', () => {
 
   it('rechaza que la comparación cite evidencia que no existe en el expediente', async () => {
     seedAuditableCase();
-    seedReview({ audit_id: 'audit-1' });
+    seedFinalizedReview({ audit_id: 'audit-1' });
     mockedCall.mockResolvedValue({
       parsed: { ...validComparison, evidenceIds: ['ev-inventada'] },
       model: 'google/gemini-2.5-flash-lite',
@@ -352,7 +362,7 @@ describe('startComparison — expediente desde case_reviews.audit_id', () => {
 
   it('un fallo del proveedor deja la comparación en ERROR y no fabrica veredicto', async () => {
     seedAuditableCase();
-    seedReview({ audit_id: 'audit-1' });
+    seedFinalizedReview({ audit_id: 'audit-1' });
     mockedCall.mockRejectedValue(new Error('HTTP 429 rate_limit_exceeded'));
 
     await expect(startComparison(fakeClient, 'case-1')).rejects.toThrow();
@@ -367,7 +377,7 @@ describe('startComparison — expediente desde case_reviews.audit_id', () => {
 describe('retryComparison — sólo desde ERROR', () => {
   it('reintenta una comparación en ERROR sin duplicar revisión ni comparación', async () => {
     seedAuditableCase();
-    const review = seedReview({ audit_id: 'audit-1', result: 'BAJA' });
+    const review = seedFinalizedReview({ audit_id: 'audit-1', result: 'BAJA' });
     const failed = seedComparison({
       case_review_id: review.id,
       audit_id: 'audit-1',
@@ -388,7 +398,7 @@ describe('retryComparison — sólo desde ERROR', () => {
 
   it('desde COMPLETED no es reintentable: 400 y cero llamadas al modelo', async () => {
     seedAuditableCase();
-    const review = seedReview({ audit_id: 'audit-1' });
+    const review = seedFinalizedReview({ audit_id: 'audit-1' });
     seedComparison({ case_review_id: review.id, audit_id: 'audit-1', status: 'COMPLETED' });
 
     await expect(retryComparison(fakeClient, 'case-1')).rejects.toMatchObject({ status: 400 });
@@ -399,7 +409,7 @@ describe('retryComparison — sólo desde ERROR', () => {
 
   it('RUNNING vigente se devuelve tal cual, sin relanzar ni duplicar fila', async () => {
     seedAuditableCase();
-    const review = seedReview({ audit_id: 'audit-1' });
+    const review = seedFinalizedReview({ audit_id: 'audit-1' });
     const running = seedComparison({
       case_review_id: review.id,
       audit_id: 'audit-1',
@@ -417,7 +427,7 @@ describe('retryComparison — sólo desde ERROR', () => {
 
   it('RUNNING caducada se reintenta sobre la misma fila', async () => {
     seedAuditableCase();
-    const review = seedReview({ audit_id: 'audit-1' });
+    const review = seedFinalizedReview({ audit_id: 'audit-1' });
     const stale = seedComparison({
       case_review_id: review.id,
       audit_id: 'audit-1',
@@ -436,7 +446,7 @@ describe('retryComparison — sólo desde ERROR', () => {
 
   it('superado el tope de reintentos devuelve 429 sin llamar al modelo', async () => {
     seedAuditableCase();
-    const review = seedReview({ audit_id: 'audit-1' });
+    const review = seedFinalizedReview({ audit_id: 'audit-1' });
     seedComparison({
       case_review_id: review.id,
       audit_id: 'audit-1',
@@ -452,14 +462,15 @@ describe('retryComparison — sólo desde ERROR', () => {
     expect(mockedCall).not.toHaveBeenCalled();
   });
 
-  it('sin comparación previa tampoco es reintentable: 400', async () => {
+  it('sin comparación previa inicia la comparación final sobre la misma revisión', async () => {
     seedAuditableCase();
-    seedReview({ audit_id: 'audit-1' });
+    seedFinalizedReview({ audit_id: 'audit-1' });
 
-    await expect(retryComparison(fakeClient, 'case-1')).rejects.toMatchObject({ status: 400 });
+    const comparison = await retryComparison(fakeClient, 'case-1');
 
-    expect(listComparisons()).toHaveLength(0);
-    expect(mockedCall).not.toHaveBeenCalled();
+    expect(comparison.status).toBe('COMPLETED');
+    expect(listComparisons()).toHaveLength(1);
+    expect(mockedCall).toHaveBeenCalledTimes(1);
   });
 
   it('sin revisión humana tampoco hay nada que reintentar: 400', async () => {
@@ -484,7 +495,7 @@ describe('submitCaseReview — una revisión por caso', () => {
     expect(listReviews()).toHaveLength(0);
   });
 
-  it('registra la revisión apuntando a la auditoría COMPLETED más reciente y arranca la comparación', async () => {
+  it('registra la revisión apuntando a la auditoría vigente sin arrancar la comparación', async () => {
     seedAuditableCase();
     seedAudit({ id: 'audit-nueva', created_at: '2026-02-05T10:10:00Z' });
 
@@ -492,13 +503,14 @@ describe('submitCaseReview — una revisión por caso', () => {
 
     expect(result.review.auditId).toBe('audit-nueva');
     expect(result.review.result).toBe('CANCELACION_VENTA');
-    expect(result.comparison.status).toBe('COMPLETED');
+    expect(result.comparison).toBeNull();
     // La atribución sale de la SESIÓN (correo), nunca de un nombre del cliente.
     expect(result.review.reviewerName).toBe(FAKE_USER_EMAIL);
     // Registrar la decisión del asesor abre la etapa de finalización.
     expect(result.workflowState).toBe('PENDING_COORDINATOR');
     expect(listReviews()).toHaveLength(1);
-    expect(listComparisons()).toHaveLength(1);
+    expect(listComparisons()).toHaveLength(0);
+    expect(mockedCall).not.toHaveBeenCalled();
   });
 
   it('una segunda revisión del mismo caso es 409 y no crea fila', async () => {
@@ -561,7 +573,7 @@ describe('endpoints de revisión y comparación', () => {
     expect(listReviews()).toHaveLength(0);
   });
 
-  it('POST /review crea la revisión y arranca la comparación en la misma llamada (201)', async () => {
+  it('POST /review crea la propuesta del Asesor sin iniciar una comparación (201)', async () => {
     seedAuditableCase();
     const res = makeApiResponse();
 
@@ -570,14 +582,16 @@ describe('endpoints de revisión y comparación', () => {
     expect(res.statusCode).toBe(201);
     const payload = JSON.parse(res.body) as {
       review: { result: string; reviewerName: string; comment: string };
-      comparison: { status: string };
+      comparison: null;
       workflowState: string;
     };
     expect(payload.review.result).toBe('BAJA');
     // La atribución es la de la SESIÓN, no la del body.
     expect(payload.review.reviewerName).toBe(FAKE_USER_EMAIL);
     expect(payload.review.comment).toBe(HUMAN_COMMENT);
-    expect(payload.comparison.status).toBe('COMPLETED');
+    expect(payload.comparison).toBeNull();
+    expect(listComparisons()).toHaveLength(0);
+    expect(mockedCall).not.toHaveBeenCalled();
     expect(payload.workflowState).toBe('PENDING_COORDINATOR');
   });
 
@@ -594,9 +608,12 @@ describe('endpoints de revisión y comparación', () => {
     expect(listReviews()).toHaveLength(1);
   });
 
-  it('GET /review devuelve revisión + comparación + estado del flujo + resolución efectiva', async () => {
+  it('GET /review oculta cualquier acuerdo antes del dictamen final del Coordinador', async () => {
     seedAuditableCase();
     await reviewHandler(makeApiRequest('POST', { caseId: 'case-1' }, { result: 'BAJA', comment: HUMAN_COMMENT }), makeApiResponse());
+    // Incluso una comparación heredada de una versión previa no es un acuerdo final.
+    const review = listReviews()[0];
+    if (review) seedComparison({ case_review_id: review.id, status: 'COMPLETED' });
     const res = makeApiResponse();
 
     await reviewHandler(makeApiRequest('GET', { caseId: 'case-1' }), res);
@@ -604,7 +621,7 @@ describe('endpoints de revisión y comparación', () => {
     expect(res.statusCode).toBe(200);
     const payload = JSON.parse(res.body) as {
       review: { result: string; coordinatorDecision: string | null };
-      comparison: { status: string; resultJson: { agrees: boolean } | null };
+      comparison: null;
       workflowState: string;
       effectiveResolution: { result: string; source: string };
     };
@@ -612,8 +629,7 @@ describe('endpoints de revisión y comparación', () => {
     // El bloque del coordinador viaja aunque esté vacío: la UI no tiene que
     // adivinar si existe o no.
     expect(payload.review.coordinatorDecision).toBeNull();
-    expect(payload.comparison.status).toBe('COMPLETED');
-    expect(payload.comparison.resultJson?.agrees).toBe(false);
+    expect(payload.comparison).toBeNull();
     expect(payload.workflowState).toBe('PENDING_COORDINATOR');
     expect(payload.effectiveResolution).toEqual({ result: 'BAJA', source: 'HUMAN' });
   });
@@ -639,7 +655,7 @@ describe('endpoints de revisión y comparación', () => {
 
   it('GET /review sana una comparación RUNNING caducada y POST /comparison la retoma', async () => {
     seedAuditableCase();
-    const review = seedReview({ audit_id: 'audit-1', result: 'BAJA' });
+    const review = seedFinalizedReview({ audit_id: 'audit-1', result: 'BAJA' });
     seedComparison({
       case_review_id: review.id,
       audit_id: 'audit-1',
@@ -651,8 +667,8 @@ describe('endpoints de revisión y comparación', () => {
     const getRes = makeApiResponse();
     await reviewHandler(makeApiRequest('GET', { caseId: 'case-1' }), getRes);
     expect(getRes.statusCode).toBe(200);
-    const getPayload = JSON.parse(getRes.body) as { comparison: { status: string } };
-    expect(getPayload.comparison.status).toBe('ERROR');
+    const getPayload = JSON.parse(getRes.body) as { comparison: { status: string } | null };
+    expect(getPayload.comparison).toBeNull();
     expect(mockedCall).not.toHaveBeenCalled();
 
     const postRes = makeApiResponse();
@@ -663,9 +679,9 @@ describe('endpoints de revisión y comparación', () => {
     expect(listComparisons()).toHaveLength(1);
   });
 
-  it('POST /comparison reintenta sólo desde ERROR (200) y es 400 desde COMPLETED', async () => {
+  it('POST /comparison no repite una comparación COMPLETED y reintenta ERROR', async () => {
     seedAuditableCase();
-    const review = seedReview({ audit_id: 'audit-1', result: 'BAJA' });
+    const review = seedFinalizedReview({ audit_id: 'audit-1', result: 'BAJA' });
     const done = seedComparison({
       case_review_id: review.id,
       audit_id: 'audit-1',
@@ -698,7 +714,7 @@ describe('endpoints de revisión y comparación', () => {
 
   it('POST /comparison rechaza 409 si la auditoría de la revisión no está COMPLETED', async () => {
     seedAuditableCase();
-    const review = seedReview({ audit_id: 'audit-1' });
+    const review = seedFinalizedReview({ audit_id: 'audit-1' });
     seedComparison({ case_review_id: review.id, audit_id: 'audit-1', status: 'ERROR', error_category: 'RATE_LIMIT' });
     // Aunque la comparación esté en ERROR (reintentable), la revisabilidad se
     // comprueba ANTES: si el dictamen dejó de existir, no se reintenta.
@@ -721,7 +737,7 @@ describe('endpoints de revisión y comparación', () => {
 
   it('POST /comparison nunca crea una segunda revisión', async () => {
     seedAuditableCase();
-    const review = seedReview({ audit_id: 'audit-1' });
+    const review = seedFinalizedReview({ audit_id: 'audit-1' });
     seedComparison({ case_review_id: review.id, audit_id: 'audit-1', status: 'ERROR', error_category: 'RATE_LIMIT' });
 
     const res = makeApiResponse();
@@ -852,7 +868,7 @@ describe('deriveWorkflowState — se deriva de la fila, no de cases.status', () 
 });
 
 describe('etapa 1 · el asesor registra su decisión y abre la finalización', () => {
-  it('PENDING_ADVISOR → asesor → PENDING_COORDINATOR', async () => {
+  it('PENDING_ADVISOR → asesor → PENDING_COORDINATOR, sin comparar todavía', async () => {
     seedAuditableCase();
     expect((await getReview()).workflowState).toBe('PENDING_ADVISOR');
 
@@ -864,6 +880,8 @@ describe('etapa 1 · el asesor registra su decisión y abre la finalización', (
     expect(row?.result).toBe('BAJA');
     expect(row?.coordinator_decision).toBeNull();
     expect(row?.coordinator_created_at).toBeNull();
+    expect(listComparisons()).toHaveLength(0);
+    expect(mockedCall).not.toHaveBeenCalled();
   });
 
   it('la atribución y el actor los pone el servidor: created_by es la sesión y el nombre es su correo', async () => {
@@ -876,7 +894,7 @@ describe('etapa 1 · el asesor registra su decisión y abre la finalización', (
     expect(row?.reviewer_name).toBe(FAKE_USER_EMAIL);
   });
 
-  it('un segundo envío del asesor es 409 estable y NO muta lo ya escrito', async () => {
+  it('un segundo envío del asesor es 409 y NO inicia comparación ni cambia lo escrito', async () => {
     seedAuditableCase();
     await postReview({ result: 'BAJA', comment: HUMAN_COMMENT }, ASESOR);
     const before = listReviews()[0];
@@ -891,18 +909,17 @@ describe('etapa 1 · el asesor registra su decisión y abre la finalización', (
     expect(after?.result).toBe('BAJA');
     expect(after?.comment).toBe(HUMAN_COMMENT);
     expect(after?.created_at).toBe(before?.created_at);
-    // Y tampoco se relanza la comparación: una sola fila por revisión.
-    expect(listComparisons()).toHaveLength(1);
+    // La etapa del Asesor no crea comparaciones.
+    expect(listComparisons()).toHaveLength(0);
   });
 
-  it('la comparación se dispara en la etapa del asesor y compara SU resolución', async () => {
+  it('la etapa del Asesor no genera comparación ni marca un acuerdo anticipado', async () => {
     seedAuditableCase();
 
     await postReview({ result: 'BAJA', comment: HUMAN_COMMENT }, ASESOR);
 
-    expect(listComparisons()).toHaveLength(1);
-    expect(listComparisons()[0]?.status).toBe('COMPLETED');
-    expect(sentText()).toContain('BAJA');
+    expect(listComparisons()).toHaveLength(0);
+    expect(mockedCall).not.toHaveBeenCalled();
   });
 });
 
@@ -920,6 +937,8 @@ describe('etapa 2 · el coordinador finaliza cualquier caso', () => {
     expect(payload.review?.coordinatorDecision).toBe('APPROVE');
     expect(payload.review?.coordinatorResolution).toBeNull();
     expect(payload.effectiveResolution).toEqual({ result: 'BAJA', source: 'HUMAN' });
+    expect(listComparisons()).toHaveLength(1);
+    expect(listComparisons()[0]?.status).toBe('COMPLETED');
   });
 
   it('CHANGE guarda una resolución DISTINTA y no toca la del asesor', async () => {
@@ -939,6 +958,25 @@ describe('etapa 2 · el coordinador finaliza cualquier caso', () => {
     expect(payload.review?.result).toBe('BAJA');
     expect(payload.review?.comment).toBe('Se acredita la baja por solicitud posterior al inicio de ciclo.');
     expect(payload.effectiveResolution).toEqual({ result: 'EVIDENCIA_INSUFICIENTE', source: 'HUMAN' });
+    expect(sentText()).toContain('EVIDENCIA_INSUFICIENTE');
+  });
+
+  it('la comparación se ejecuta al finalizar y usa la resolución y comentario del Coordinador', async () => {
+    seedAuditableCase();
+    await postReview({ result: 'BAJA', comment: HUMAN_COMMENT }, ASESOR);
+    expect(listComparisons()).toHaveLength(0);
+
+    const response = await postReview({
+      decision: 'CHANGE',
+      resolution: 'EVIDENCIA_INSUFICIENTE',
+      comment: 'El Coordinador confirma que falta evidencia.',
+    }, COORDINADOR);
+
+    expect(response.statusCode).toBe(200);
+    expect(listComparisons()).toHaveLength(1);
+    expect(listComparisons()[0]?.status).toBe('COMPLETED');
+    expect(sentText()).toContain('EVIDENCIA_INSUFICIENTE');
+    expect(sentText()).toContain('El Coordinador confirma que falta evidencia.');
   });
 
   it('CHANGE sin resolución, con la misma del asesor o inventada: 400 y nada se escribe', async () => {

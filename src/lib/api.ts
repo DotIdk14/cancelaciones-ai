@@ -737,7 +737,8 @@ export function workflowStateOf(review: CaseReviewDto | null, provided?: Workflo
 }
 
 /**
- * Registra la revisión humana de la ETAPA DE ASESOR y arranca su comparación.
+ * Registra la revisión humana de la ETAPA DE ASESOR. La comparación se genera
+ * cuando el Coordinador emite la decisión final.
  *
  * El cuerpo es `{ result, comment? }`. NO se envía `reviewerName`: el servidor
  * deriva la atribución de la sesión y un `reviewerName` del cliente se rechaza
@@ -748,8 +749,8 @@ export function workflowStateOf(review: CaseReviewDto | null, provided?: Workflo
 export async function submitCaseReview(
   caseId: string,
   input: { result: AuditResultType; comment: string },
-): Promise<{ review: CaseReviewDto; comparison: ComparisonDto; workflowState: WorkflowState | null }> {
-  const data = await request<{ review: CaseReviewDto; comparison: ComparisonDto; workflowState?: WorkflowState }>(
+): Promise<{ review: CaseReviewDto; comparison: ComparisonDto | null; workflowState: WorkflowState | null }> {
+  const data = await request<{ review: CaseReviewDto; comparison: ComparisonDto | null; workflowState?: WorkflowState }>(
     casePath(caseId, '/review'),
     {
       method: 'POST',
@@ -765,7 +766,8 @@ export async function submitCaseReview(
 }
 
 /**
- * Finaliza la ETAPA DE COORDINADOR sobre una revisión de Asesor.
+ * Finaliza la ETAPA DE COORDINADOR sobre una revisión de Asesor y, al persistir
+ * el dictamen final, inicia su comparación con IA.
  *
  * `APPROVE` conserva la resolución del Asesor y NO admite `resolution`.
  * `CHANGE` exige una resolución distinta de la del Asesor. El actor y la hora
@@ -774,13 +776,13 @@ export async function submitCaseReview(
 export async function finalizeCaseReview(
   caseId: string,
   input: { decision: CoordinatorDecision; resolution?: AuditResultType; comment?: string },
-): Promise<{ review: CaseReviewDto; workflowState: WorkflowState | null }> {
+): Promise<{ review: CaseReviewDto; workflowState: WorkflowState | null; comparison: ComparisonDto | null }> {
   const body: Record<string, unknown> = {
     decision: input.decision,
     comment: (input.comment ?? '').trim(),
   };
   if (input.decision === 'CHANGE' && input.resolution) body.resolution = input.resolution;
-  const data = await request<{ review: CaseReviewDto; workflowState?: WorkflowState }>(
+  const data = await request<{ review: CaseReviewDto; workflowState?: WorkflowState; comparison?: ComparisonDto | null }>(
     casePath(caseId, '/review'),
     {
       method: 'POST',
@@ -789,7 +791,7 @@ export async function finalizeCaseReview(
     },
     [200],
   );
-  return { review: data.review, workflowState: data.workflowState ?? null };
+  return { review: data.review, workflowState: data.workflowState ?? null, comparison: data.comparison ?? null };
 }
 
 /**

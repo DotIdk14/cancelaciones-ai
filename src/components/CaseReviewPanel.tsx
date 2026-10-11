@@ -6,8 +6,8 @@
 //   2. La RESOLUCIÓN del ASESOR (etapa 1), que aquí se registra y que, si existe,
 //      manda sobre el dictamen. No lo modifica ni lo oculta.
 //   3. La DECISIÓN FINAL del COORDINADOR (etapa 2), que aprueba o cambia la
-//      resolución del Asesor sin sobrescribirla. La comparación con la IA evalúa
-//      la distancia entre el dictamen y la decisión del Asesor.
+//      resolución del Asesor sin sobrescribirla. La comparación con IA se genera
+//      después de esa decisión y evalúa la resolución final.
 //
 // EL GATING POR ROL ES SOLO PRESENTACIÓN
 //   El servidor resuelve la etapa a partir de las capacidades del rol
@@ -86,6 +86,8 @@ export interface CaseReviewPanelProps {
   comparison?: ComparisonDto | null;
   effectiveResolution?: EffectiveResolution | null;
   reviewAuditResult?: AuditResultType | null;
+  /** Nombre legible por ID interno de evidencia. */
+  evidenceNames?: Record<string, string>;
   /** Estado derivado del flujo; si falta se deriva de `review`. */
   workflowState?: WorkflowState;
   /** Rol para PRESENTACIÓN. `null`/desconocido no ve controles de mutación. */
@@ -103,6 +105,7 @@ export function CaseReviewPanel({
   comparison = null,
   effectiveResolution = null,
   reviewAuditResult = null,
+  evidenceNames = {},
   workflowState,
   role = null,
   canReviewOwnCase = false,
@@ -111,6 +114,8 @@ export function CaseReviewPanel({
 }: CaseReviewPanelProps): ReactNode {
   const [result, setResult] = useState<AuditResultType | ''>('');
   const [comment, setComment] = useState('');
+  const [confirmingAiAgreement, setConfirmingAiAgreement] = useState(false);
+  const [resultBeforeAiAgreement, setResultBeforeAiAgreement] = useState<AuditResultType | ''>('');
   const [phase, setPhase] = useState<ReviewPhase>('idle');
   const [error, setError] = useState<ErrorState | null>(null);
   /** El servidor dijo que la revisión ya existe: el formulario desaparece. */
@@ -127,6 +132,8 @@ export function CaseReviewPanel({
   useEffect(() => {
     setResult('');
     setComment('');
+    setConfirmingAiAgreement(false);
+    setResultBeforeAiAgreement('');
     setPhase('idle');
     setError(null);
     setConflict(false);
@@ -223,6 +230,7 @@ export function CaseReviewPanel({
           comparison={comparison}
           effectiveResolution={effectiveResolution}
           reviewAuditResult={reviewAuditResult}
+          evidenceNames={evidenceNames}
         />
         <CoordinatorStage
           caseId={caseId}
@@ -256,6 +264,7 @@ export function CaseReviewPanel({
           comparison={submitted.comparison}
           effectiveResolution={submitted.effectiveResolution}
           reviewAuditResult={submitted.reviewAuditResult}
+          evidenceNames={evidenceNames}
         />
         <CoordinatorStage
           caseId={caseId}
@@ -304,11 +313,10 @@ export function CaseReviewPanel({
         aria-busy={sending}
       >
         {/* ------------------------------------------------- resolución */}
-        <fieldset className="flex flex-col gap-1" disabled={sending}>
-          <legend className="text-sm font-semibold text-ink">Resolución final del caso</legend>
+        {!confirmingAiAgreement && <fieldset className="flex flex-col gap-1" disabled={sending}>
+          <legend className="text-sm font-semibold text-ink">Resolución propuesta por el Asesor</legend>
           <p className="text-xs text-muted">
-            Elige el resultado del vocabulario vigente. Es la decisión que gobierna el caso; las
-            auditorías posteriores no la sobrescriben.
+            Elige la resolución que propones. El Coordinador registrará el dictamen final en la siguiente etapa.
           </p>
           {aiResult !== null && (
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand/30 bg-brand/5 p-3">
@@ -319,7 +327,12 @@ export function CaseReviewPanel({
                 type="button"
                 variant="secondary"
                 disabled={sending}
-                onClick={() => setResult(aiResult)}
+                onClick={() => {
+                  setResultBeforeAiAgreement(result);
+                  setResult(aiResult);
+                  setError(null);
+                  setConfirmingAiAgreement(true);
+                }}
               >
                 Estoy de acuerdo con la IA
               </Button>
@@ -360,15 +373,17 @@ export function CaseReviewPanel({
               );
             })}
           </div>
-        </fieldset>
+        </fieldset>}
 
         {/* ------------------------------------------------- comentario */}
         <div className="flex flex-col gap-1.5">
           <label htmlFor="revision-comment" className="text-sm font-semibold text-ink">
-            Notas de la revisión <span className="font-normal text-muted">(opcional)</span>
+            {confirmingAiAgreement ? 'Comentario' : 'Notas de la revisión'} <span className="font-normal text-muted">(opcional)</span>
           </label>
           <p id={commentHintId} className="text-xs text-muted">
-            Agrega contexto si hace falta. La coincidencia se calcula comparando directamente ambos resultados.
+            {confirmingAiAgreement
+              ? 'Agrega contexto para confirmar que estás de acuerdo con el dictamen de IA.'
+              : 'Agrega contexto si hace falta. La comparación de Calidad se calcula después de la decisión final del Coordinador.'}
           </p>
           <textarea
             id="revision-comment"
@@ -412,25 +427,45 @@ export function CaseReviewPanel({
 
         {/* ------------------------------------------------- envío */}
         <div className="flex flex-wrap items-center gap-3">
-          <Button
-            type="submit"
-            variant="primary"
-            disabled={!canSubmit}
-            loading={sending}
-            loadingLabel="Registrando la revisión"
-            aria-describedby={error !== null ? formErrorId : undefined}
-          >
-            Registrar la revisión
-          </Button>
-          {sending && (
+          {confirmingAiAgreement ? (
+            <>
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={sending}
+                onClick={() => {
+                  setResult(resultBeforeAiAgreement);
+                  setConfirmingAiAgreement(false);
+                }}
+              >Regresar</Button>
+              <Button
+                type="submit"
+                variant="primary"
+                disabled={!canSubmit}
+                loading={sending}
+                loadingLabel="Registrando la revisión"
+                aria-describedby={error !== null ? formErrorId : undefined}
+              >Estoy de acuerdo</Button>
+            </>
+          ) : (
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={!canSubmit}
+              loading={sending}
+              loadingLabel="Registrando la revisión"
+              aria-describedby={error !== null ? formErrorId : undefined}
+            >Registrar la revisión</Button>
+          )}
+          {sending && !confirmingAiAgreement && (
             <span role="status" className="flex items-center gap-2 text-sm text-muted">
               <Spinner label="Registrando la revisión" className="h-3.5 w-3.5" />
               Registrando la revisión…
             </span>
           )}
-          <p className="text-xs text-muted">
+          {!confirmingAiAgreement && <p className="text-xs text-muted">
             La revisión del Asesor es única por caso. Después, un Coordinador registra la decisión final.
-          </p>
+          </p>}
         </div>
       </form>
     </Panel>
@@ -479,10 +514,12 @@ export interface CaseReviewRecordProps {
   comparison: ComparisonDto | null;
   effectiveResolution?: EffectiveResolution | null;
   reviewAuditResult?: AuditResultType | null;
+  evidenceNames?: Record<string, string>;
 }
 
 /**
- * Revisión del Asesor registrada, su comparación y el reintento.
+ * Revisión del Asesor registrada; solo tras la decisión final muestra su
+ * comparación con IA y el reintento.
  *
  * Es la mitad "de lectura" del flujo y se monta con datos del servidor, así que
  * recargar durante la comparación NO duplica nada: el polling es un `GET`.
@@ -493,6 +530,7 @@ export function CaseReviewRecord({
   comparison,
   effectiveResolution: effectiveResolutionProp = null,
   reviewAuditResult = null,
+  evidenceNames = {},
 }: CaseReviewRecordProps): ReactNode {
   const [live, setLive] = useState<ComparisonDto | null>(comparison);
   const [retrying, setRetrying] = useState(false);
@@ -542,6 +580,10 @@ export function CaseReviewRecord({
     }
   }, [caseId]);
 
+  const isFinalized = review.coordinatorDecision != null;
+  const finalResult = review.coordinatorDecision === 'CHANGE'
+    ? review.coordinatorResolution ?? review.result
+    : review.result;
   const resultLabel = resolutionLabel(review.result);
   const outcome = live?.status === 'COMPLETED' ? live.resultJson : null;
 
@@ -577,23 +619,23 @@ export function CaseReviewRecord({
         </p>
       </div>}
 
-      <div className="mt-5 rounded-xl border border-line bg-surface-2 p-4">
+      {isFinalized && <div className="mt-5 rounded-xl border border-line bg-surface-2 p-4">
         <SectionTitle>Coincidencia exacta con la auditoría</SectionTitle>
         <dl className="mt-3 flex flex-col gap-2">
           <DataRow
             label="Resultado de la auditoría referenciada"
             value={reviewAuditResult === null ? DASH : resolutionLabel(reviewAuditResult)}
           />
-          <DataRow label="Resultado humano" value={resultLabel} />
+          <DataRow label="Resolución final" value={resolutionLabel(finalResult)} />
         </dl>
-        <p className={cx('mt-3 text-sm font-semibold', reviewAuditResult === null ? 'text-muted' : reviewAuditResult === review.result ? 'text-success' : 'text-warning')}>
+        <p className={cx('mt-3 text-sm font-semibold', reviewAuditResult === null ? 'text-muted' : reviewAuditResult === finalResult ? 'text-success' : 'text-warning')}>
           {reviewAuditResult === null
             ? 'No se puede calcular la coincidencia: el resultado de esa auditoría no está disponible.'
-            : reviewAuditResult === review.result
+            : reviewAuditResult === finalResult
               ? 'Coincide exactamente'
               : 'No coincide'}
         </p>
-      </div>
+      </div>}
 
       <dl className="mt-4">
         <DataRow label="Dictamen comparado" value={`Auditoría ${shortId(review.auditId)}`} />
@@ -613,14 +655,19 @@ export function CaseReviewRecord({
       </p>
 
       {/* ------------------------------------------------- comparación */}
-      <div aria-live="polite" className="mt-5 flex flex-col gap-3">
+      {!isFinalized ? (
+        <p role="status" className="mt-5 text-sm text-muted">La propuesta del Asesor quedó registrada. El acuerdo y su comparación se mostrarán después del dictamen final del Coordinador.</p>
+      ) : <div aria-live="polite" className="mt-5 flex flex-col gap-3">
         <SectionTitle>Evaluación IA de la discrepancia</SectionTitle>
 
         {live === null ? (
-          <p className="text-sm text-muted">
-            La revisión está registrada y es la resolución propuesta del Asesor. La comparación todavía no
-            se ha iniciado.
-          </p>
+          <div className="flex flex-col items-start gap-3">
+            <p className="text-sm text-muted">El dictamen final quedó registrado. La comparación todavía no se ha iniciado.</p>
+            <Button variant="secondary" onClick={() => void handleRetry()} loading={retrying} loadingLabel="Iniciando comparación">
+              Iniciar comparación
+            </Button>
+            {retryError !== null && <ErrorCard message={retryError.message} />}
+          </div>
         ) : live.status === 'RUNNING' ? (
           comparisonTimedOut ? (
             <div className="flex flex-col gap-3">
@@ -683,9 +730,9 @@ export function CaseReviewRecord({
             discrepancia.
           </p>
         ) : (
-          <ComparisonOutcomeView comparison={live} />
+          <ComparisonOutcomeView comparison={live} evidenceNames={evidenceNames} />
         )}
-      </div>
+      </div>}
     </Panel>
   );
 }
@@ -694,7 +741,7 @@ export function CaseReviewRecord({
 // Conclusión de la comparación
 // -----------------------------------------------------------------------------
 
-function ComparisonOutcomeView({ comparison }: { comparison: ComparisonDto }): ReactNode {
+function ComparisonOutcomeView({ comparison, evidenceNames }: { comparison: ComparisonDto; evidenceNames: Record<string, string> }): ReactNode {
   const outcome = comparison.resultJson;
   if (outcome === null) return null;
 
@@ -761,7 +808,7 @@ function ComparisonOutcomeView({ comparison }: { comparison: ComparisonDto }): R
               <span className="flex flex-wrap gap-1.5">
                 {outcome.evidenceIds.map((id) => (
                   <Chip key={id} title="Identificador de evidencia del expediente">
-                    {shortId(id)}
+                    {evidenceNames[id] ?? 'Evidencia sin nombre'}
                   </Chip>
                 ))}
               </span>

@@ -809,6 +809,7 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
             comparison={comparison}
             effectiveResolution={effectiveResolution}
             reviewAuditResult={reviewAuditResult}
+            evidenceNames={Object.fromEntries(evidences.map((evidence) => [evidence.id, evidence.filename]))}
             workflowState={workflowState}
             role={role}
             canReviewOwnCase={capabilities.canReviewOwnCases}

@@ -278,8 +278,7 @@ export async function getHumanReviewInput(
   compQuery = applyTestScope(compQuery);
 
   compQuery = compQuery.order('created_at', { ascending: true }).order('id', { ascending: true });
-  const comparisons = await readAllPages<ComparisonMetricRow>(compQuery as never);
-  const comparisonsAvailable = comparisons.length;
+  let comparisons = await readAllPages<ComparisonMetricRow>(compQuery as never);
 
   // Conteo de revisiones humanas dentro del periodo.
   //
@@ -311,24 +310,35 @@ export async function getHumanReviewInput(
   if (comparisonReviewIds.size > 0) {
     const reviewResultsQuery = client.database
       .from('case_reviews')
-      .select('id,result,coordinator_decision,coordinator_resolution')
+      .select('id,result,coordinator_decision,coordinator_resolution,coordinator_created_at')
       .in('id', [...comparisonReviewIds]);
     const reviewResults = await readAllPages<{
       id: string;
       result: string;
       coordinator_decision?: 'APPROVE' | 'CHANGE' | null;
       coordinator_resolution?: string | null;
+      coordinator_created_at?: string | null;
     }>(reviewResultsQuery as never);
-    const humanResultByReview = new Map(reviewResults.map((review) => [
-      review.id,
-      review.coordinator_decision === 'CHANGE' && review.coordinator_resolution
-        ? review.coordinator_resolution
-        : review.result,
-    ]));
+    const finalReviews = new Map(reviewResults
+      .filter((review) => review.coordinator_decision != null)
+      .map((review) => [review.id, {
+        result: review.coordinator_decision === 'CHANGE' && review.coordinator_resolution
+          ? review.coordinator_resolution
+          : review.result,
+        finalizedAt: review.coordinator_created_at ?? null,
+      }] as const));
+    // El acuerdo de Calidad solo existe después de que el Coordinador guarda
+    // una decisión final. Oculta comparaciones heredadas de la etapa Asesor.
+    comparisons = comparisons.filter((comparison) => {
+      const finalReview = finalReviews.get(comparison.case_review_id);
+      return finalReview?.finalizedAt !== null && finalReview !== undefined &&
+        Date.parse(comparison.created_at) >= Date.parse(finalReview.finalizedAt);
+    });
     for (const comparison of comparisons) {
-      comparison.human_result = humanResultByReview.get(comparison.case_review_id) ?? null;
+      comparison.human_result = finalReviews.get(comparison.case_review_id)?.result ?? null;
     }
   }
+  const comparisonsAvailable = comparisons.length;
   let reviewedCases = reviewIdsInRange.size;
   for (const id of comparisonReviewIds) {
     if (!reviewIdsInRange.has(id)) reviewedCases += 1;

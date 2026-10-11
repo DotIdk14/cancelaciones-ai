@@ -138,7 +138,10 @@ export default handleRoute(async (req, res) => {
     audit: audit ? auditToDto(audit) : null,
     audits: audits.map(auditHistoryItemToDto),
     review: review ? caseReviewToDto(review) : null,
-    comparison: comparisons[0] ? comparisonToDto(comparisons[0]) : null,
+    comparison: review?.coordinator_decision != null && review.coordinator_created_at && comparisons[0] &&
+      Date.parse(comparisons[0].created_at) >= Date.parse(review.coordinator_created_at)
+      ? comparisonToDto(comparisons[0])
+      : null,
     effectiveResolution: deriveEffectiveResolution(review, auditIsCurrent === false ? null : completedAudit),
     auditIsCurrent,
   });

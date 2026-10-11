@@ -96,12 +96,27 @@ function matches(row: Row, predicate: Predicate): boolean {
 
 function createFakeClient(seed: FakeSeed): FakeClient {
   const calls: RecordedCall[] = [];
+  const reviewRows = new Map((seed.comparisons ?? []).map((comparison) => [comparison.case_review_id, {
+    id: comparison.case_review_id,
+    result: 'BAJA',
+    coordinator_decision: 'APPROVE',
+    coordinator_resolution: null,
+    coordinator_created_at: '2026-01-01T00:00:00.000Z',
+    created_at: '2026-01-01T00:00:00.000Z',
+  }]));
+  for (const review of seed.reviews ?? []) reviewRows.set(review.id, { ...review });
   const tables: Record<string, Row[]> = {
     // Las filas sembradas llevan `is_test`/`created_by` (las columnas que la
     // consulta filtra tras la migración). `is_test` por defecto `false`: es el
     // default de la columna y el estado de un caso real.
     [VIEW]: (seed.comparisons ?? []).map((row) => ({ is_test: false, ...row })),
-    [REVIEWS]: (seed.reviews ?? []).map((row) => ({ 'cases.is_test': false, ...row })),
+    [REVIEWS]: [...reviewRows.values()].map((row) => ({
+      coordinator_decision: 'APPROVE',
+      coordinator_resolution: null,
+      coordinator_created_at: '2026-01-01T00:00:00.000Z',
+      'cases.is_test': false,
+      ...row,
+    })),
     audit_dashboard_metrics: (seed.metrics ?? []).map((row) => ({ is_test: false, ...row })),
   };
 
@@ -321,6 +336,26 @@ describe('getHumanReviewInput — el corte por periodo', () => {
 
     expect(input.comparisons).toHaveLength(3);
     expect(input.comparisonsAvailable).toBe(3);
+  });
+
+  it('excluye acuerdos sin dictamen final del Coordinador y comparaciones anteriores a la finalización', async () => {
+    const fake = createFakeClient({
+      comparisons: [
+        comparisonRow({ id: 'pending', case_review_id: 'pending-review' }),
+        comparisonRow({ id: 'legacy', case_review_id: 'legacy-review', created_at: '2026-09-10T08:00:00.000Z' }),
+        comparisonRow({ id: 'final', case_review_id: 'final-review' }),
+      ],
+      reviews: [
+        { id: 'pending-review', coordinator_decision: null, coordinator_created_at: null },
+        { id: 'legacy-review', coordinator_created_at: '2026-09-10T09:00:00.000Z' },
+        { id: 'final-review' },
+      ],
+    });
+
+    const input = await getHumanReviewInput(fake.client, FILTERS);
+
+    expect(input.comparisons.map((comparison) => comparison.id)).toEqual(['final']);
+    expect(input.comparisonsAvailable).toBe(1);
   });
 });
 

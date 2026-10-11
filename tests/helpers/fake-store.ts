@@ -534,12 +534,15 @@ export async function finalizeCaseReview(_client: unknown, input: FinalizeCaseRe
 }
 
 export async function insertComparison(_client: unknown, input: InsertComparisonInput): Promise<ComparisonRow> {
+  const now = new Date().toISOString();
   return seedComparison({
     case_review_id: input.caseReviewId,
     audit_id: input.auditId,
     status: 'RUNNING',
     attempt_count: 1,
     deadline_at: input.deadlineAt,
+    created_at: now,
+    updated_at: now,
   });
 }
 
@@ -565,6 +568,7 @@ export async function rearmComparison(
   row.latency_ms = null;
   row.attempt_count = input.attemptCount;
   row.deadline_at = input.deadlineAt;
+  if (input.resetCreatedAt) row.created_at = input.resetCreatedAt;
   if (input.model) row.model = input.model;
   row.updated_at = new Date().toISOString();
   return { ...row };
@@ -577,6 +581,9 @@ export async function updateComparisonResult(
 ): Promise<ComparisonRow> {
   const row = comparisonRows.find((item) => item.id === comparisonId);
   if (!row) throw new ApiError(404, 'NOT_FOUND', 'Comparación no encontrada');
+  if (input.expectedAttemptCount !== undefined && row.attempt_count !== input.expectedAttemptCount) {
+    throw new ApiError(409, 'VALIDATION_ERROR', 'La comparación fue rearmada por una ejecución más reciente.');
+  }
   row.status = 'COMPLETED';
   row.result_json = input.resultJson;
   row.provider = input.provider;
@@ -594,6 +601,9 @@ export async function updateComparisonError(
 ): Promise<ComparisonRow> {
   const row = comparisonRows.find((item) => item.id === comparisonId);
   if (!row) throw new ApiError(404, 'NOT_FOUND', 'Comparación no encontrada');
+  if (input.expectedAttemptCount !== undefined && row.attempt_count !== input.expectedAttemptCount) {
+    throw new ApiError(409, 'VALIDATION_ERROR', 'La comparación fue rearmada por una ejecución más reciente.');
+  }
   row.status = 'ERROR';
   row.result_json = null;
   row.error_category = input.errorCategory;

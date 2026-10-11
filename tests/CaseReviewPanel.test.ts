@@ -26,7 +26,6 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AppRole, AuditDetail, CaseReviewDto, ComparisonDto, EffectiveResolution, WorkflowState } from '../src/lib/api';
 import { CaseReviewPanel, CaseReviewRecord } from '../src/components/CaseReviewPanel';
-import { RESULT_LABELS } from '../src/lib/labels';
 import { validAuditResult } from './fixtures/audit-result';
 
 // --- Fetch -------------------------------------------------------------------
@@ -169,17 +168,18 @@ function renderRecord(comparison: ComparisonDto | null): HTMLElement {
   const view = render(
     createElement(CaseReviewRecord, {
       caseId: 'case-1',
-      review: makeReview(),
+      review: makeReview({ coordinatorDecision: 'APPROVE', coordinatorCreatedAt: '2026-02-03T10:00:00Z' }),
       comparison,
       effectiveResolution: makeEffective('DICTAMINACION', 'HUMAN'),
       reviewAuditResult: validAuditResult.audit.result,
+      evidenceNames: { 'ev-1': 'correo-estudiante.pdf' },
     }),
   );
   return view.container;
 }
 
 function commentBox(): HTMLTextAreaElement {
-  return screen.getByLabelText(/notas de la revisión/i) as HTMLTextAreaElement;
+  return screen.getByLabelText(/notas de la revisión|^comentario/i) as HTMLTextAreaElement;
 }
 
 function chooseReview(resultLabel = 'Baja'): void {
@@ -305,13 +305,32 @@ describe('CaseReviewPanel — gating por rol (solo presentación)', () => {
 
 // =============================================================================
 describe('CaseReviewPanel — decisión y datos de la revisión', () => {
-  it('permite registrar conformidad con IA sin cambiar el resultado', () => {
+  it('al aceptar IA muestra solo comentario y dos botones; regresar conserva datos y confirmar registra IA', async () => {
+    const calls = stubFetch(() => fakeResponse(201, { review: makeReview(), comparison: null }));
     renderForm();
+    fireEvent.click(screen.getByRole('radio', { name: /^baja$/i }));
+    fireEvent.change(commentBox(), { target: { value: COMMENT } });
 
     fireEvent.click(screen.getByRole('button', { name: /estoy de acuerdo con la ia/i }));
 
     const aiResult = validAuditResult.audit.result;
-    expect((screen.getByRole('radio', { name: RESULT_LABELS[aiResult] }) as HTMLInputElement).checked).toBe(true);
+    const form = document.querySelector('form') as HTMLFormElement;
+    expect(within(form).queryByRole('radio')).toBeNull();
+    expect(within(form).getByLabelText(/^comentario/i)).toBeTruthy();
+    expect(within(form).getByRole('button', { name: 'Regresar' })).toBeTruthy();
+    expect(within(form).getByRole('button', { name: 'Estoy de acuerdo' })).toBeTruthy();
+    expect(within(form).getAllByRole('button')).toHaveLength(2);
+    expect(commentBox().value).toBe(COMMENT);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Regresar' }));
+    expect((screen.getByRole('radio', { name: /^baja$/i }) as HTMLInputElement).checked).toBe(true);
+    expect(commentBox().value).toBe(COMMENT);
+
+    fireEvent.click(screen.getByRole('button', { name: /estoy de acuerdo con la ia/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Estoy de acuerdo' }));
+    await settle();
+    expect(calls[0]?.url).toBe('/api/cases/case-1/review');
+    expect(calls[0]?.body).toEqual({ result: aiResult, comment: COMMENT });
   });
 
   it('requiere elegir una resolución, pero permite dejar las notas vacías', () => {
@@ -359,7 +378,7 @@ describe('CaseReviewPanel — decisión y datos de la revisión', () => {
   it('el selector es un fieldset con radios, no un desplegable', () => {
     renderForm();
 
-    const group = screen.getByRole('group', { name: /resolución final/i });
+    const group = screen.getByRole('group', { name: /resolución propuesta/i });
     // Una opción por cada resultado del vocabulario cerrado que expone el servidor
     // (6, no los 8 del Skill: la persona no elige matrícula ni dictaminación).
     expect(within(group).getAllByRole('radio')).toHaveLength(6);
@@ -369,11 +388,11 @@ describe('CaseReviewPanel — decisión y datos de la revisión', () => {
 
 // =============================================================================
 describe('CaseReviewPanel — envío válido', () => {
-  it('llama al endpoint con { result, comment } y muestra el estado de comparación', async () => {
+  it('llama al endpoint con { result, comment } y espera la decisión final del Coordinador', async () => {
     const calls = stubFetch(() =>
       fakeResponse(201, {
         review: makeReview(),
-        comparison: makeComparison({ status: 'RUNNING', resultJson: null }),
+        comparison: null,
       }),
     );
     const form = renderForm();
@@ -395,13 +414,13 @@ describe('CaseReviewPanel — envío válido', () => {
     // rechazaría un `reviewerName` (schema estricto).
     expect(calls[0]?.body).not.toHaveProperty('reviewerName');
 
-    expect(await screen.findByText(/comparando/i)).toBeTruthy();
+    expect(await screen.findByText(/se mostrarán después del dictamen final del coordinador/i)).toBeTruthy();
   });
 
   it('muestra la conclusión y separa el acierto medido de la confianza declarada', async () => {
     stubFetch(() =>
       fakeResponse(201, {
-        review: makeReview(),
+        review: makeReview({ coordinatorDecision: 'APPROVE', coordinatorCreatedAt: '2026-02-03T10:00:00Z' }),
         comparison: makeComparison(),
         effectiveResolution: makeEffective('BAJA', 'HUMAN'),
       }),
@@ -501,17 +520,33 @@ describe('CaseReviewPanel — errores', () => {
 // =============================================================================
 describe('CaseReviewRecord — la revisión registrada y su comparación', () => {
   it('muestra la resolución humana prioritaria y conserva el resultado de IA separado', () => {
-    renderRecord(null);
+    renderRecord(makeComparison());
 
     expect(screen.getByRole('heading', { name: /revisión humana/i })).toBeTruthy();
     expect(screen.getAllByText('Dictaminación')).toHaveLength(2);
     expect(screen.getByText('Cancelación de venta')).toBeTruthy();
     expect(screen.getByText('Revisora de pruebas')).toBeTruthy();
     expect(screen.getByText('No coincide')).toBeTruthy();
+    expect(screen.getByText('correo-estudiante.pdf')).toBeTruthy();
+    expect(screen.queryByText('ev-1')).toBeNull();
     expect(screen.getByText(COMMENT)).toBeTruthy();
     // El dictamen de la auditoría vive en su propio panel: aquí se aclara que no se
     // sobrescribe y se cita a qué auditoría se compara.
     expect(screen.getByText(/no modifica el dictamen original/i)).toBeTruthy();
+  });
+
+  it('no muestra acuerdos de comparación antes del dictamen del Coordinador', () => {
+    render(
+      createElement(CaseReviewRecord, {
+        caseId: 'case-1',
+        review: makeReview(),
+        comparison: makeComparison(),
+        effectiveResolution: makeEffective('DICTAMINACION', 'HUMAN'),
+        reviewAuditResult: validAuditResult.audit.result,
+      }),
+    );
+    expect(screen.queryByText('No coincide')).toBeNull();
+    expect(screen.getByText(/se mostrarán después del dictamen final del coordinador/i)).toBeTruthy();
   });
 
   it('un RUNNING al montar retoma el polling y no duplica nada', async () => {
