@@ -43,10 +43,10 @@ function dbFailure(error: unknown): never {
   throw mapProviderError(error, 'DATABASE_ERROR');
 }
 
-function safeRoute(value: string): string {
-  const path = value.split(/[?#]/, 1)[0]?.slice(0, 160) ?? '';
-  if (!/^#\/[a-z0-9/-]{0,100}$/i.test(path)) return '#/';
-  return path.replace(/(\/casos)\/[a-f0-9-]{8,64}(?=\/|$)/i, '$1/:id');
+export function safeRoute(value: string): string {
+  const path = value.split('?', 1)[0]?.slice(0, 160) ?? '';
+  if (!/^(?:#\/|\/api\/)[a-z0-9/:-]{0,140}$/i.test(path)) return '#/';
+  return path.replace(/(\/(?:casos|cases|evidence))\/[a-f0-9-]{8,64}(?=\/|$)/gi, '$1/:id');
 }
 
 function contextForTicket(context: unknown): TicketRow['context'] {

@@ -29,12 +29,11 @@ function apiKey(): string {
  * llamador persiste como estado terminal recuperable.
  */
 async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const signal = AbortSignal.timeout(timeoutMs);
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    return await fetch(url, { ...init, signal });
   } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') {
+    if (error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')) {
       throw new ApiError(
         504,
         'TRANSCRIPTION_ERROR',
@@ -42,8 +41,6 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: numbe
       );
     }
     throw error;
-  } finally {
-    clearTimeout(timer);
   }
 }
 

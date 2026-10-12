@@ -51,3 +51,9 @@ describe('proyección de dictamen actual e histórico', () => {
     expect(dto.effectiveResolution).toEqual({ result: 'CANCELACION_VENTA', source: 'AI' });
   });
 });
+
+
+it('el resultado terminal vigente gobierna la presentación si falla su proyección de estado', () => {
+  expect(caseToSummary(summaryRow({ status: 'AUDITING', auditIsCurrent: true })).status).toBe('COMPLETED');
+  expect(caseToSummary(summaryRow({ status: 'AUDITING', auditIsCurrent: false })).status).toBe('AUDITING');
+});

@@ -57,7 +57,7 @@ export type RunAuditOutcome =
   | { phase: 'done'; audit: AuditDetailDto };
 
 /** Marca ERROR las auditorías RUNNING abandonadas (función interrumpida). */
-async function healStaleAudit(client: InsForgeClient, caseId: string): Promise<void> {
+export async function healStaleAudit(client: InsForgeClient, caseId: string): Promise<void> {
   const audit = await latestAudit(client, caseId);
   if (!audit || audit.status !== 'RUNNING') return;
   const deadlineAt = audit.deadline_at ? new Date(audit.deadline_at).getTime() : new Date(audit.created_at).getTime() + getEnv().AUDIT_STALE_AFTER_MS;
@@ -96,10 +96,12 @@ export async function refreshTranscriptions(
   for (const evidence of audioPending) {
     const assemblyId = readAssemblyId(evidence);
     if (!assemblyId) {
+      const marker = evidence.transcript_json as { status?: string; submissionDeadlineAt?: string } | null;
+      if (marker?.status === 'SUBMITTING' && Date.parse(marker.submissionDeadlineAt ?? '') > Date.now()) continue;
       await updateEvidenceStatus(client, evidence.id, {
         processing_status: 'ERROR',
         transcript_json: { status: 'ERROR', error: 'Transcripción no iniciada' },
-      }).catch(() => undefined);
+      });
       continue;
     }
     // El presupuesto acota cuánto se ESPERA, no si se OBSERVA: el estado se
@@ -113,14 +115,14 @@ export async function refreshTranscriptions(
         await updateEvidenceStatus(client, evidence.id, {
           processing_status: 'READY',
           transcript_json: { assemblyId, status: 'READY', transcript: status.transcript },
-        }).catch(() => undefined);
+        });
         break;
       }
       if (status.state === 'ERROR') {
         await updateEvidenceStatus(client, evidence.id, {
           processing_status: 'ERROR',
           transcript_json: { assemblyId, status: 'ERROR', error: status.error ?? 'Error de transcripción' },
-        }).catch(() => undefined);
+        });
         break;
       }
       if (Date.now() >= deadline) break;
@@ -151,6 +153,7 @@ export async function buildAuditInputs(
   client: InsForgeClient,
   caseRow: CaseRow,
   evidences: EvidenceRow[],
+  loadedAreaComments?: Awaited<ReturnType<typeof listAreaComments>>,
 ): Promise<AuditSkillInput> {
   enforceEvidenceSetLimits(evidences);
   const items: EvidenceInputItem[] = [];
@@ -241,7 +244,7 @@ export async function buildAuditInputs(
   const scopes = new Set<string>(AREA_COMMENT_SCOPES);
   let areaComments: AreaCommentContext[] = [];
   try {
-    areaComments = (await listAreaComments(client, caseRow.id))
+    areaComments = (loadedAreaComments ?? await listAreaComments(client, caseRow.id))
       .filter((row) => scopes.has(row.area))
       .map((row) => ({
         area: row.area as AreaCommentScope,
@@ -357,6 +360,7 @@ const EXTRACTION_PIPELINE_VERSION = 'extract-v1';
 export interface RunAuditOptions {
   /** Usuario que pide la ejecución; se cobra cuota por él. Sin él, no se cobra. */
   userId?: string;
+  correlationId?: string;
 }
 
 export async function runAudit(
@@ -395,7 +399,11 @@ export async function runAudit(
   // dictamen cacheado volvería a devolverse y la fecha nunca llegaría al
   // análisis. Se pasa tal cual (`?? null`): columna ausente —migración sin
   // aplicar— o sin capturar deja la huella exactamente como estaba.
-  const fingerprint = computeEvidenceFingerprint(evidences, caseRow.cycle_start_date ?? null);
+  const areaRows = await listAreaComments(client, caseId).catch(() => {
+    console.warn('[audit] contexto de áreas no disponible; snapshot opcional vacío', { caseId, category: 'DATABASE_ERROR' });
+    return [];
+  });
+  const fingerprint = computeEvidenceFingerprint(evidences, caseRow.cycle_start_date ?? null, areaRows);
   const completed = await latestCompletedAuditByFingerprint(client, caseId, fingerprint);
   if (completed) return { phase: 'done', audit: auditToDto(completed) };
   const running = await latestRunningAuditByFingerprint(client, caseId, fingerprint);
@@ -414,7 +422,7 @@ export async function runAudit(
 
   // Prepara y valida expediente antes de crear RUNNING: errores 413/validación
   // son accionables por el usuario y no deben dejar una auditoría técnica fallida.
-  const inputs = await buildAuditInputs(client, caseRow, evidences);
+  const inputs = await buildAuditInputs(client, caseRow, evidences, areaRows);
 
   // Cuota ANTES de la fila durable y ANTES del proveedor, y DESPUÉS de las
   // comprobaciones de reutilización de arriba: reutilizar un COMPLETED o una
@@ -445,9 +453,8 @@ export async function runAudit(
     if (concurrent) return { phase: 'running', audit: auditToDto(concurrent) };
     throw error;
   }
-  await updateCaseStatus(client, caseId, 'AUDITING');
-
   try {
+    await updateCaseStatus(client, caseId, 'AUDITING');
     const execution = await auditSkill.executeWithMetadata(inputs, { deadlineMs });
     const result = execution.result;
     const latencyMs = Date.now() - startedAt;
@@ -460,7 +467,14 @@ export async function runAudit(
       model: execution.model,
       provider_metadata: { usage: execution.usage, openrouterAttempts: execution.attempts },
     });
-    await updateCaseStatus(client, caseId, 'COMPLETED');
+    try {
+      await updateCaseStatus(client, caseId, 'COMPLETED');
+    } catch {
+      // La fila terminal es la fuente de verdad. Una proyección fallida no
+      // puede borrar el assessment ya persistido ni volver a llamar al modelo.
+      console.warn('[audit] dictamen guardado; falló la proyección de estado', { auditId: final.id });
+      await import('./incidents.js').then(({ recordSanitizedError }) => recordSanitizedError(client, { correlation_id: options?.correlationId ?? randomUUID(), source: 'ASYNC', category: 'DATABASE_ERROR', module: 'Expedientes', route: '/api/cases/:id/audit' })).catch(() => undefined);
+    }
     // El dictamen ya está persistido en `result_json` y es la fuente de verdad; estas
     // dimensiones son solo una proyección para poder filtrar. Si la escritura falla,
     // se traga el error a propósito: perder el filtro no puede invalidar un dictamen
@@ -478,8 +492,8 @@ export async function runAudit(
     return { phase: 'done', audit: auditToDto(final) };
   } catch (error) {
     const category: ErrorCategory = error instanceof ApiError ? error.category : 'AI_PROVIDER_ERROR';
-    const correlationId = randomUUID();
-    void import('./incidents.js').then(({ recordSanitizedError }) => recordSanitizedError(client, {
+    const correlationId = options?.correlationId ?? randomUUID();
+    await import('./incidents.js').then(({ recordSanitizedError }) => recordSanitizedError(client, {
       correlation_id: correlationId,
       source: 'ASYNC',
       category,
@@ -514,7 +528,7 @@ export async function runAudit(
       result_json: null,
       error_category: category,
       latency_ms: latencyMs,
-      provider_metadata: diagnostics ? { openrouterAttempts: diagnostics } : null,
+      provider_metadata: { correlationId, ...(diagnostics ? { openrouterAttempts: diagnostics } : {}) },
     }).catch(() => undefined);
     await updateCaseStatus(client, caseId, 'ERROR').catch(() => undefined);
     if (error instanceof ApiError) throw error;

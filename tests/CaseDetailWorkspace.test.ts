@@ -396,3 +396,14 @@ describe('CaseDetailPage — gating por rol (solo presentación)', () => {
   });
 });
 
+
+
+it('la pestaña Dictamen no presenta una evaluación obsoleta como vigente', async () => {
+  const detail = makeDetailWithAudit();
+  detail.auditIsCurrent = false;
+  await renderDetail(detail);
+  await openTab(/Dictamen/);
+  expect(screen.getByText('No hay un dictamen vigente')).toBeTruthy();
+  expect(screen.queryByText('Dictamen original de IA')).toBeTruthy();
+  expect(screen.queryByText('La alumna pidió cancelar dentro del primer mes.')).toBeNull();
+});

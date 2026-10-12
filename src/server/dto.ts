@@ -207,7 +207,7 @@ export function caseToSummary(row: CaseSummaryRow, canManageCases = false): Case
   const count = row.evidence?.[0]?.count ?? 0;
   return {
     id: row.id,
-    status: row.status,
+    status: row.status === 'AUDITING' && row.audit?.status === 'COMPLETED' && row.auditIsCurrent === true ? 'COMPLETED' : row.status,
     studentIdentifier: row.student_identifier,
     studentName: row.student_name ?? null,
     evidenceCount: count,

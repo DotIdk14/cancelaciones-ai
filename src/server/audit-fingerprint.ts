@@ -6,14 +6,15 @@ import type { EvidenceRow } from './cases.js';
 export const AUDIT_PIPELINE_VERSION = 'audit-v5-pipeline-2';
 
 /** Huella canónica compartida por la ejecución y la proyección de vigencia. */
-export function computeEvidenceFingerprint(evidences: EvidenceRow[], humanCycleStartDate?: string | null): string {
-  return computeEvidenceFingerprintFor(AUDIT_PIPELINE_VERSION, evidences, humanCycleStartDate);
+export function computeEvidenceFingerprint(evidences: EvidenceRow[], humanCycleStartDate?: string | null, areaComments: Array<{ area: string; comment: string }> = []): string {
+  return computeEvidenceFingerprintFor(AUDIT_PIPELINE_VERSION, evidences, humanCycleStartDate, areaComments);
 }
 
 export function computeEvidenceFingerprintFor(
   version: string,
   evidences: EvidenceRow[],
   humanCycleStartDate?: string | null,
+  areaComments: Array<{ area: string; comment: string }> = [],
 ): string {
   const canonical = evidences
     .map((evidence) => {
@@ -29,5 +30,6 @@ export function computeEvidenceFingerprintFor(
   const payload = humanCycleStartDate
     ? { pipeline: version, evidence: canonical, humanCycleStartDate }
     : { pipeline: version, evidence: canonical };
-  return createHash('sha256').update(JSON.stringify(payload)).digest('hex');
+  const context = areaComments.filter((row) => row.area === 'BACK_OFFICE' || row.area === 'HELPDESK').map(({ area, comment }) => ({ area, comment })).sort((a, b) => a.area.localeCompare(b.area));
+  return createHash('sha256').update(JSON.stringify(context.length ? { ...payload, areaComments: context } : payload)).digest('hex');
 }

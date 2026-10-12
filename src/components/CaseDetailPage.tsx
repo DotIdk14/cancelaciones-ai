@@ -1,3 +1,6 @@
+import { EvidenceReferences } from './EvidenceReferences';
+import { OperationProgressDialog } from './OperationProgressDialog';
+import { ReportProblemModal } from './ReportProblemModal';
 // =============================================================================
 // Detalle de caso: evidencias, botón AUDITAR, polling y panel de resultado.
 // Toda la verdad vive en el servidor; aquí solo se orquestan peticiones.
@@ -140,12 +143,15 @@ export interface CaseDetailPageProps {
 }
 
 export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases: false, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false, canManageCases: false } }: CaseDetailPageProps): ReactNode {
+  const [progressOpen, setProgressOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [seekRequest, setSeekRequest] = useState<{ seconds: number; requestId: number } | null>(null);
   const [detail, setDetail] = useState<CaseDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<ErrorState | null>(null);
 
   const auditWorkflow = useCaseAuditWorkflow({ caseId, setDetail });
-  const { auditPhase, auditError, pendingEvidence, runAudit, tickWaiting, tickRunning, observeLoadedCase } = auditWorkflow;
+  const { auditPhase, auditError, pendingEvidence, tickWaiting, tickRunning, observeLoadedCase } = auditWorkflow;
 
   /**
    * Id de la evidencia abierta en la pestaña central, no el objeto entero: si
@@ -229,8 +235,9 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
       return;
     }
     setShowNotesPrompt(false);
-    void runAudit();
-  }, [quickComments, showNotesPrompt, skipNotesPrompt, runAudit]);
+    setProgressOpen(true);
+    void auditWorkflow.recoverAudit();
+  }, [quickComments, showNotesPrompt, skipNotesPrompt, auditWorkflow]);
 
   const evidences = detail?.evidences ?? EMPTY_EVIDENCES;
   const audit = detail?.audit ?? null;
@@ -453,6 +460,13 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
         </Button>
       </div>
 
+      {(auditBusy || auditError) && <Button variant="secondary" onClick={() => setProgressOpen(true)}>Ver progreso de auditoría</Button>}
+      {progressOpen && !reportOpen && <OperationProgressDialog title="Progreso de auditoría" stages={[
+        { label: 'Evidencias disponibles', status: auditPhase === 'waiting' ? 'current' : allReady ? 'done' : hasFailedEvidence ? 'error' : 'pending', detail: auditPhase === 'waiting' ? `Esperando ${pendingEvidence.length} evidencia(s)` : undefined },
+        { label: 'Preparación, evaluación y validación de IA', status: auditError ? 'error' : auditBusy && auditPhase !== 'waiting' ? 'current' : audit?.status === 'COMPLETED' ? 'done' : 'pending' },
+        { label: 'Dictamen vigente guardado', status: !auditBusy && !auditError && detail.auditIsCurrent !== false && audit?.status === 'COMPLETED' ? 'done' : 'pending' },
+      ]} error={auditError} onClose={() => setProgressOpen(false)} onRetry={readOnly ? undefined : () => void auditWorkflow.recoverAudit()} onReport={() => setReportOpen(true)}><AuditFailureDetail attempts={audit?.providerMetadata?.openrouterAttempts ?? []} /></OperationProgressDialog>}
+      {reportOpen && <ReportProblemModal initialDescription={`Problema durante la auditoría. Código: ${auditError?.category ?? audit?.errorCategory ?? 'sin código'}. Referencia: ${auditError?.correlationId ?? audit?.id ?? 'sin referencia'}.`} module="Expedientes" context={{ route: `#/casos/${caseId}`, correlationId: auditError?.correlationId }} onClose={() => setReportOpen(false)} />}
       {loadError !== null && (
         <ErrorCard message={loadError.message} category={loadError.category} onRetry={() => void load()} />
       )}
@@ -563,12 +577,12 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
                 {result === null ? <div className="case-workspace-empty"><FileCheck2 size={22} /><strong>Sin hallazgos de auditoría</strong><p>Los hechos y checks aparecerán cuando exista un dictamen completado.</p></div> : <div className="case-findings-content">
                   <section><h3>Hechos extraídos <span>{searching ? visibleFacts.length : result.facts.length}</span></h3>
                     {result.facts.length === 0 ? <p className="case-workspace-note">La auditoría no registró hechos estructurados.</p> : visibleFacts.length === 0 ? <p className="case-workspace-note">Ningún hecho coincide con la búsqueda.</p> : visibleFacts.map((fact) => (
-                      <article className="case-finding-row" key={fact.key}><div><strong>{fact.label}</strong><span>{formatFactValue(fact.value)}</span></div><p>{fact.evidenceText ?? 'Sin cita textual guardada.'}</p><small>Confianza {formatPercent(fact.confidence)} · {fact.evidenceIds.length} evidencia(s)</small></article>
+                      <article className="case-finding-row" key={fact.key}><div><strong>{fact.label}</strong><span>{formatFactValue(fact.value)}</span></div><p>{fact.evidenceText ?? 'Sin cita textual guardada.'}</p><EvidenceReferences text={fact.evidenceText ?? ''} evidenceIds={fact.evidenceIds} evidences={evidences} onOpen={(id, seconds) => { setViewingEvidenceId(id); setActiveTab('evidence'); setSeekRequest(seconds === null ? null : { seconds, requestId: Date.now() }); }} /><small>Confianza {formatPercent(fact.confidence)} · {fact.evidenceIds.length} evidencia(s)</small></article>
                     ))}
                   </section>
                   <section><h3>Checks del procedimiento <span>{searching ? visibleChecks.length : result.audit.procedureChecks.length}</span></h3>
                     {result.audit.procedureChecks.length === 0 ? <p className="case-workspace-note">La auditoría no registró checks para mostrar.</p> : visibleChecks.length === 0 ? <p className="case-workspace-note">Ningún check coincide con la búsqueda.</p> : visibleChecks.map((check, index) => (
-                      <article className="case-check-row" key={`${check.procedureSection}-${index}`}><div><strong>{check.procedureSection}</strong><Badge tone={check.status === 'ACREDITADO' ? 'success' : check.status === 'NO_ACREDITADO' ? 'danger' : 'warning'}>{check.status.replaceAll('_', ' ')}</Badge></div><p>{check.criterion}</p><small>{check.reasoning}</small></article>
+                      <article className="case-check-row" key={`${check.procedureSection}-${index}`}><div><strong>{check.procedureSection}</strong><Badge tone={check.status === 'ACREDITADO' ? 'success' : check.status === 'NO_ACREDITADO' ? 'danger' : 'warning'}>{check.status.replaceAll('_', ' ')}</Badge></div><p>{check.criterion}</p><small>{check.reasoning}</small><EvidenceReferences text={check.reasoning} evidenceIds={check.evidenceIds} evidences={evidences} onOpen={(id, seconds) => { setViewingEvidenceId(id); setActiveTab('evidence'); setSeekRequest(seconds === null ? null : { seconds, requestId: Date.now() }); }} /></article>
                     ))}
                   </section>
                 </div>}
@@ -648,13 +662,13 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
             )}
 
             {activeTab === 'verdict' && (
-              audit?.status === 'COMPLETED' ? <section className="case-detail-full-verdict"><h2>Dictamen original de IA</h2><AuditResultPanel audit={audit} /></section> : <Panel title="Dictamen original de IA"><div className="case-workspace-empty"><FileText size={22} /><strong>Aún no hay un dictamen completado</strong><p>Cuando la auditoría termine, el dictamen aparecerá aquí.</p></div></Panel>
+              audit?.status === 'COMPLETED' && detail.auditIsCurrent !== false ? <section className="case-detail-full-verdict"><h2>Dictamen original de IA</h2><AuditResultPanel audit={audit} /></section> : <Panel title="Dictamen original de IA"><div className="case-workspace-empty"><FileText size={22} /><strong>No hay un dictamen vigente</strong><p>La evidencia cambió o aún no se ha evaluado. Consulta el historial para ver resultados anteriores y vuelve a auditar para obtener el vigente.</p></div></Panel>
             )}
 
             {activeTab === 'evidence' && (
               <div className="case-evidence-viewer-region">
                 {viewingEvidence !== null ? (
-                  <EvidencePane evidence={viewingEvidence} studentName={detail.case.studentName} />
+                  <EvidencePane seekRequest={seekRequest} evidence={viewingEvidence} studentName={detail.case.studentName} />
                 ) : (
                   <div className="case-workspace-empty"><Paperclip size={22} /><strong>Sin evidencias</strong><p>Adjunta una evidencia para verla aquí.</p></div>
                 )}
@@ -669,7 +683,7 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
                   : 'La operación anterior falló. Revisa las evidencias y vuelve a auditar; el servidor controla los reintentos y la cuota.'}
               </p>
             )}
-            {displayError !== null && <ErrorCard title={`Auditoría con error · ${errorCategoryLabel(displayError.category)}`} category={displayError.category} message={displayError.message} onRetry={() => void runAudit()} retrying={auditBusy} />}
+            {displayError !== null && <ErrorCard title={`Auditoría con error · ${errorCategoryLabel(displayError.category)}`} category={displayError.category} message={displayError.message} onRetry={readOnly ? undefined : () => { setProgressOpen(true); void auditWorkflow.recoverAudit(); }} retrying={auditBusy} />}
             {/* El `ErrorCard` explica el error en lenguaje llano; este panel da
                 el "dónde" y el "qué": sin él, un `INVALID_EVIDENCE_REFERENCE` sólo
                 decía que el modelo falló, no qué campo ni qué evidencia. */}
@@ -693,7 +707,7 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
             {result === null ? <div className="case-verdict-pending"><span>—</span><strong>{audit?.status === 'RUNNING' ? 'Auditoría en curso' : 'Sin dictamen completado'}</strong><p>{audit?.status === 'RUNNING' ? 'El resultado aparecerá al terminar.' : 'Ejecuta la auditoría para revisar la propuesta del modelo.'}</p></div> : <div className="case-verdict-summary">
               <div><span className="case-verdict-confidence">{formatPercent(result.audit.confidence)}</span><span>Confianza declarada</span></div>
               <Badge tone={RESULT_TONE[result.audit.result]}>{RESULT_LABELS[result.audit.result]}</Badge>
-              <p>{result.audit.reasoning}</p>
+              <p>{result.audit.reasoning}</p><EvidenceReferences text={result.audit.reasoning} evidenceIds={result.audit.supportingEvidenceIds} evidences={evidences} onOpen={(id, seconds) => { setViewingEvidenceId(id); setActiveTab('evidence'); setSeekRequest(seconds === null ? null : { seconds, requestId: Date.now() }); }} />
               {result.audit.result === 'EVIDENCIA_INSUFICIENTE' && (
                 <p role="status" className="mt-3 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm text-ink">
                   Resultado de auditoría: la evidencia disponible no permite concluir. Revisa la explicación y agrega los documentos o datos faltantes antes de volver a auditar.
@@ -737,7 +751,8 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
                     onClick={() => {
                       setSkipNotesPrompt(true);
                       setShowNotesPrompt(false);
-                      void runAudit();
+                      setProgressOpen(true);
+                      void auditWorkflow.recoverAudit();
                     }}
                   >
                     Auditar sin notas
@@ -750,7 +765,7 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
           </Panel>
           <CaseReviewPanel
             caseId={caseId}
-            audit={audit}
+            audit={detail.auditIsCurrent === false && review === null ? null : audit}
             review={review}
             comparison={comparison}
             effectiveResolution={effectiveResolution}

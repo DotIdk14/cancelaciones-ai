@@ -110,6 +110,7 @@ export interface AuditAttemptDiagnosticView {
  * y cuyos valores pasaron el tipo esperado; el resto se descarta.
  */
 export interface AuditProviderMetadata {
+  correlationId?: string;
   /** Diagnóstico por intento del transporte de IA. */
   openrouterAttempts?: AuditAttemptDiagnosticView[];
   /** Tokens y coste reportados por el proveedor (nunca inventados: sin dato, `null`). */
@@ -266,6 +267,7 @@ function sanitizeUsage(value: unknown): ModelUsage | null {
 export function sanitizeProviderMetadata(value: unknown): AuditProviderMetadata | null {
   if (!isPlainObject(value)) return null;
   const out: AuditProviderMetadata = {};
+  if (typeof value.correlationId === 'string' && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value.correlationId)) out.correlationId = value.correlationId;
 
   if (Array.isArray(value.openrouterAttempts)) {
     out.openrouterAttempts = value.openrouterAttempts

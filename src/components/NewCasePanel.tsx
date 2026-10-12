@@ -13,9 +13,11 @@
 //   reintentar SOLO la carga. El reintento reutiliza el `caseId` ya creado y
 //   nunca vuelve a llamar a `createCase`, así que no se duplica la fila.
 //
-// NINGÚN COMPENSACIÓN EN SERVIDOR
-//   No hay cambios en `api/**` ni en `src/server/**`: el presupuesto de Vercel
-//   Hobby está en 12 de 12 Functions y la garantía es de interfaz.
+// RECUPERACIÓN
+//   La identidad de la solicitud viaja al servidor y usa la clave primaria del
+//   expediente. Una respuesta perdida se recupera sin crear otra fila.
+//   Una carga parcial conserva los archivos fallidos hasta reintentar o abrir
+//   explícitamente el expediente con los originales ya guardados.
 //
 // REUTILIZACIÓN SIN DUPLICAR LÓGICA
 //   - La secuencia de subida vive en `useEvidenceUpload`, el mismo motor que
@@ -25,9 +27,11 @@
 // =============================================================================
 
 import type { ChangeEvent, FormEvent, ReactNode } from 'react';
-import { useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { ArrowRight, FilePlus2, FolderOpen, ShieldCheck, Upload, FileText, Music2, MessageSquare, X } from 'lucide-react';
-import { createCase, saveAreaComment, toErrorState, type AppRole, type AreaCommentArea } from '../lib/api';
+import { createCase, getCase, saveAreaComment, toErrorState, type ErrorState, type AppRole, type AreaCommentArea } from '../lib/api';
+import { OperationProgressDialog } from './OperationProgressDialog';
+import { ReportProblemModal } from './ReportProblemModal';
 import { isLocalDashboardPreview } from '../lib/local-dashboard-preview';
 import { getLocalPreviewCases, localPreviewCaseLabel } from '../lib/local-ui-preview';
 import { goToCase } from '../lib/useHashRoute';
@@ -37,7 +41,7 @@ import { formatBytes, formatDateTime } from '../lib/format';
 import { Badge, Button, ErrorCard, Panel } from './ui';
 
 /** Mensaje amigable cuando el servidor devuelve 401 (sesión requerida). */
-const AUTH_ERROR_MESSAGE = 'El servidor requiere autenticación. La interfaz está en modo demo: los datos no se cargarán hasta que configure una sesión válida.';
+const AUTH_ERROR_MESSAGE = 'Tu sesión no está disponible. Vuelve a iniciar sesión para continuar.';
 
 /**
  * Solo las dos áreas que el expediente puede usar. Coincide con
@@ -139,6 +143,28 @@ function summarizeUploads(fresh: number, failed: number): string {
 }
 
 function NewCaseForm(): ReactNode {
+  const requestId = useRef<string | null>(null);
+  const locked = useRef(false);
+  const [progressOpen, setProgressOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [operationError, setOperationError] = useState<ErrorState | null>(null);
+  const [operation, setOperation] = useState('Creación del expediente');
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem('case-creation-request');
+      requestId.current = saved && /^[a-f0-9-]{36}$/i.test(saved) ? saved : crypto.randomUUID();
+      sessionStorage.setItem('case-creation-request', requestId.current);
+      if (saved) void getCase(saved).then((data) => {
+        setCaseId(data.case.id);
+        setStudentIdentifier(data.case.studentIdentifier ?? '');
+        setStudentName(data.case.studentName ?? '');
+        setCreateError('Expediente recuperado. Abre los archivos guardados o selecciona de nuevo los que quedaron sin enviar.');
+      }).catch((error: unknown) => {
+        const state = toErrorState(error);
+        if (state.category !== 'NOT_FOUND') setCreateError(state.message);
+      });
+    } catch { requestId.current = crypto.randomUUID(); }
+  }, []);
   const formId = useId();
   const identifierId = `${formId}-identifier`;
   const evidenceId = `${formId}-evidence`;
@@ -173,7 +199,7 @@ function NewCaseForm(): ReactNode {
   // notas" reenvía el mismo texto y el alta entra en bucle.
   const noteTooLong = NOTE_AREAS.find((area) => notes[area].length > MAX_NOTE_LENGTH) ?? null;
 
-  const { busy: uploading, announcement, runUploads } = useEvidenceUpload();
+  const { items: uploadItems, busy: uploading, announcement, runUploads } = useEvidenceUpload();
 
   const busy = creating || uploading || notesPending;
   // El error de notas se anuncia desde CADA textarea: solo uno de los dos puede
@@ -238,6 +264,7 @@ function NewCaseForm(): ReactNode {
     const drafts = NOTE_AREAS.filter((area) => notes[area].trim() !== '');
     if (drafts.length === 0) return true;
 
+    setOperation('Guardar comentarios');
     setNotesPending(true);
     setNotesError(null);
     try {
@@ -248,6 +275,7 @@ function NewCaseForm(): ReactNode {
     } catch (cause) {
       const state = toErrorState(cause);
       setNotesError(state.message);
+      setOperationError(state);
       return false;
     } finally {
       setNotesPending(false);
@@ -257,18 +285,21 @@ function NewCaseForm(): ReactNode {
   /** Crea el caso UNA sola vez. Un reintento reutiliza el `caseId` existente. */
   async function ensureCase(): Promise<string | null> {
     if (caseId !== null) return caseId;
+    setOperation('Creación del expediente');
     setCreating(true);
     setCreateError(null);
     try {
       const created = await createCase(
         studentIdentifier.trim() === '' ? undefined : studentIdentifier.trim(),
         studentName.trim() === '' ? undefined : studentName.trim(),
+        requestId.current ?? undefined,
       );
       setCaseId(created.id);
       return created.id;
     } catch (cause) {
       const state = toErrorState(cause);
       setCreateError(state.category === 'AUTH_ERROR' ? AUTH_ERROR_MESSAGE : state.message);
+      setOperationError(state);
       return null;
     } finally {
       setCreating(false);
@@ -276,7 +307,7 @@ function NewCaseForm(): ReactNode {
   }
 
   /**
-   * Sube un lote y, si sube AL MENOS uno, guarda las notas y navega.
+   * Sube un lote, guarda notas y navega cuando no quedan archivos fallidos.
    *
    * `batch` son únicamente archivos que aún no subieron con éxito: un reintento
    * jamás vuelve a enviar los ya exitosos (riesgo 2 del plan). Los fallidos se
@@ -286,6 +317,11 @@ function NewCaseForm(): ReactNode {
     // Antes de `ensureCase`: crear el caso y descubrir después que no hay nada
     // que subir dejaría una fila huérfana sin evidencia.
     if (batch.length === 0) return;
+    if (locked.current) return;
+    locked.current = true;
+    setProgressOpen(true);
+    setOperationError(null);
+    try {
     const targetCaseId = await ensureCase();
     if (targetCaseId === null) return;
 
@@ -298,6 +334,7 @@ function NewCaseForm(): ReactNode {
       ),
     );
 
+    setOperation('Carga de evidencias');
     const outcome = await runUploads(targetCaseId, batch.map((entry) => entry.file));
 
     // Los exitosos salen de la lista; los fallidos permanecen con su error.
@@ -316,15 +353,25 @@ function NewCaseForm(): ReactNode {
       }),
     );
 
+    if (outcome.uploaded > 0 && !(await saveNotes(targetCaseId))) return;
+
     // FALLO TOTAL: la fila ya existe pero sin evidencia. No se navega y el alta
     // no se presenta como exitosa; se ofrece reintentar la carga.
+    if (outcome.failed.length > 0) {
+      const failure = outcome.failed[0]!;
+      setOperationError({ category: failure.category, message: failure.message, correlationId: failure.correlationId });
+      return;
+    }
+    if (entries.some((entry) => !batchKeys.has(entry.key) && entry.status === 'error')) {
+      setOperationError({ category: 'UPLOAD_ERROR', message: 'Aún hay archivos sin guardar. Reintenta su carga o abre explícitamente el expediente con los archivos disponibles.' });
+      return;
+    }
     if (outcome.uploaded === 0) return;
 
-    // Éxito (parcial o total). Los fallidos ya quedan anunciados por el motor
-    // en la región `aria-live` y, si hizo falta, se reintentan desde el
-    // expediente con "Adjuntar evidencias".
-    if (!(await saveNotes(targetCaseId))) return;
+    // El lote y las notas están guardados. La navegación es segura.
+    try { sessionStorage.removeItem('case-creation-request'); } catch { /* Almacenamiento deshabilitado. */ }
     goToCase(targetCaseId);
+    } finally { locked.current = false; }
   }
 
   async function handleCreate(event: FormEvent<HTMLFormElement>): Promise<void> {
@@ -341,12 +388,30 @@ function NewCaseForm(): ReactNode {
 
   async function handleRetryNotes(): Promise<void> {
     if (caseId === null || notesPending) return;
+    setOperationError(null);
     if (!(await saveNotes(caseId))) return;
+    try { sessionStorage.removeItem('case-creation-request'); } catch { /* Almacenamiento deshabilitado. */ }
     goToCase(caseId);
   }
 
+  useEffect(() => {
+    const guard = (event: BeforeUnloadEvent): void => {
+      if (busy || entries.length > 0 || notesError) { event.preventDefault(); event.returnValue = ''; }
+    };
+    window.addEventListener('beforeunload', guard);
+    return () => window.removeEventListener('beforeunload', guard);
+  }, [busy, entries.length, notesError]);
+
   return (
     <div className="flex flex-col gap-5">
+      {caseId && <Button variant="secondary" onClick={() => goToCase(caseId)}>Abrir expediente guardado</Button>}
+      {(busy || operationError) && <Button variant="secondary" onClick={() => setProgressOpen(true)}>Ver progreso de creación</Button>}
+      {progressOpen && !reportOpen && <OperationProgressDialog title="Creación del expediente" stages={[
+        { label: 'Creación del expediente', status: caseId ? 'done' : creating ? 'current' : operationError ? 'error' : 'pending' },
+        { label: 'Carga de evidencias', status: uploading ? 'current' : operationError && operation === 'Carga de evidencias' ? 'error' : uploadItems.length > 0 && uploadItems.every((item) => item.status === 'done') ? 'done' : 'pending', detail: uploadItems.length ? `${uploadItems.filter((item) => item.status === 'done').length} de ${uploadItems.length} archivos guardados` : undefined },
+        { label: 'Guardar comentarios', status: notesPending ? 'current' : notesError ? 'error' : 'pending' },
+      ]} error={operationError ? { ...operationError, message: `${operation}: ${operationError.message}` } : null} onClose={() => setProgressOpen(false)} onRetry={busy ? undefined : () => { if (notesError) void handleRetryNotes(); else if (failedEntries.length) void handleRetryUploads(); else void uploadAndFinish(freshEntries); }} onReport={() => setReportOpen(true)} />}
+      {reportOpen && <ReportProblemModal initialDescription={`Problema en ${operation}. Código: ${operationError?.category ?? 'sin código'}. Referencia: ${operationError?.correlationId ?? 'sin referencia'}.`} module="Nueva auditoría" context={{ route: '#/nuevo', correlationId: operationError?.correlationId }} onClose={() => setReportOpen(false)} />}
       <header>
         <h1 className="text-2xl font-semibold tracking-tight text-ink">Crear caso de cancelación</h1>
         <p className="mt-1 text-sm text-muted">Abre un expediente para reunir evidencia y solicitar su auditoría.</p>
@@ -365,6 +430,7 @@ function NewCaseForm(): ReactNode {
                 <input
                   id={identifierId}
                   name="studentIdentifier"
+                  disabled={busy || caseId !== null}
                   type="text"
                   value={studentIdentifier}
                   onChange={(event) => setStudentIdentifier(event.target.value)}
@@ -384,6 +450,7 @@ function NewCaseForm(): ReactNode {
                 <input
                   id={`${formId}-student-name`}
                   name="studentName"
+                  disabled={busy || caseId !== null}
                   type="text"
                   value={studentName}
                   onChange={(event) => setStudentName(event.target.value)}
@@ -393,7 +460,7 @@ function NewCaseForm(): ReactNode {
                 />
               </div>
 
-              {createError !== null && <ErrorCard message={createError} />}
+              {createError !== null && !progressOpen && <ErrorCard message={createError} />}
 
               <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">
                 <a href="#/casos" className="text-sm font-medium text-muted hover:text-ink">Cancelar</a>
@@ -488,7 +555,7 @@ function NewCaseForm(): ReactNode {
                   title="Archivos sin subir"
                   message={
                     freshFiles.length === 0
-                      ? 'El caso ya quedó creado, pero sin evidencia. Reintenta la carga para poder abrir el expediente.'
+                      ? 'El caso ya quedó creado. Hay archivos sin guardar: reintenta su carga o abre el expediente con los archivos guardados.'
                       : `Estos archivos no se pudieron subir. Puedes enviar los pendientes y reintentar estos después, o reintentarlos ahora.`
                   }
                   onRetry={() => void handleRetryUploads()}

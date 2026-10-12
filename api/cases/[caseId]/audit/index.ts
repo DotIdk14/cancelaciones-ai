@@ -30,7 +30,7 @@ export default handleRoute(async (req, res) => {
   assertCaseWriteCapability(req.auth!);
   assertCaseOwner(caseRow, req.auth!);
   await assertCaseNotFinalized(client, caseId);
-  const outcome = await runAudit(client, caseId, { userId: req.auth!.sub });
+  const outcome = await runAudit(client, caseId, { userId: req.auth!.sub, correlationId: req.correlationId });
   if (outcome.phase === 'pending') {
     json(res, 202, { audit: null, pendingEvidence: outcome.pendingEvidence });
     return;

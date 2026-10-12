@@ -28,6 +28,7 @@ export interface UploadItem {
   status: UploadStatus;
   message?: string;
   category?: string;
+  correlationId?: string;
 }
 
 export interface UploadFailure {
@@ -35,6 +36,7 @@ export interface UploadFailure {
   /** Mensaje y categoría tal como los devolvió el servidor. */
   message: string;
   category: string;
+  correlationId?: string;
 }
 
 export interface UploadOutcome {
@@ -89,6 +91,7 @@ export function useEvidenceUpload(): EvidenceUploadController {
   const [busy, setBusy] = useState(false);
   const [announcement, setAnnouncement] = useState('');
   const sequence = useRef(0);
+  const lock = useRef(false);
 
   /** Identificador único por intento, no por archivo: la fila se reconcilia. */
   const nextItemId = useCallback((): string => {
@@ -106,6 +109,7 @@ export function useEvidenceUpload(): EvidenceUploadController {
 
   const runUploads = useCallback(
     async (caseId: string, files: File[]): Promise<UploadOutcome> => {
+      if (lock.current) return { uploaded: 0, failed: files.map((file) => ({ file, category: 'UPLOAD_IN_PROGRESS', message: 'Ya hay una carga en curso.' })), failedNames: files.map((file) => file.name) };
       const failed: UploadFailure[] = [];
       if (files.length === 0) {
         return { uploaded: 0, failed, failedNames: [] };
@@ -132,6 +136,7 @@ export function useEvidenceUpload(): EvidenceUploadController {
         // posición relativa, como antes.
         return [...queued, ...kept];
       });
+      lock.current = true;
       setBusy(true);
       setAnnouncement(`Subiendo ${files.length} archivo${files.length === 1 ? '' : 's'}…`);
 
@@ -152,8 +157,8 @@ export function useEvidenceUpload(): EvidenceUploadController {
             const acceptedMime = resolveEvidenceMime(head, file.type);
             if (!isAcceptedEvidenceMime(acceptedMime)) {
               const state = { category: 'UPLOAD_ERROR', message: EVIDENCE_TYPE_REJECTED_MESSAGE };
-              patch(item.id, { status: 'error', message: state.message, category: state.category });
-              failed.push({ file, message: state.message, category: state.category });
+              patch(item.id, { status: 'error', message: state.message, category: state.category, ...('correlationId' in state ? { correlationId: state.correlationId as string } : {}) });
+              failed.push({ file, message: state.message, category: state.category, ...('correlationId' in state ? { correlationId: state.correlationId as string } : {}) });
               continue;
             }
 
@@ -162,11 +167,12 @@ export function useEvidenceUpload(): EvidenceUploadController {
             uploaded += 1;
           } catch (cause) {
             const state = toErrorState(cause);
-            patch(item.id, { status: 'error', message: state.message, category: state.category });
-            failed.push({ file, message: state.message, category: state.category });
+            patch(item.id, { status: 'error', message: state.message, category: state.category, ...('correlationId' in state ? { correlationId: state.correlationId as string } : {}) });
+            failed.push({ file, message: state.message, category: state.category, ...('correlationId' in state ? { correlationId: state.correlationId as string } : {}) });
           }
         }
       } finally {
+        lock.current = false;
         setBusy(false);
         const failedNames = failed.map((failure) => failure.file.name);
         const parts = [`${uploaded} de ${files.length} archivo(s) subidos.`];

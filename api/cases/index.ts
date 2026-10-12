@@ -6,6 +6,7 @@ import {
   created,
   methodNotAllowed,
   readJsonBody,
+  idempotencyKey,
 } from '../../src/server/http.js';
 import { createServerClient } from '../../src/server/insforge.js';
 import { countCaseSummaryStatuses, createCase, listCaseCreatorOptions, listCaseSummaries, listCaseSummaryPage, type CaseCreatorRole } from '../../src/server/cases.js';
@@ -206,7 +207,10 @@ export default handleRoute(async (req, res) => {
     const studentName = rawName.length > 0 ? rawName.slice(0, 200) : null;
 
     const client = createServerClient();
-    const row = await createCase(client, studentIdentifier, studentName, req.auth!.sub);
+    const requestId = idempotencyKey(req);
+    const row = requestId
+      ? await createCase(client, studentIdentifier, studentName, req.auth!.sub, requestId)
+      : await createCase(client, studentIdentifier, studentName, req.auth!.sub);
     created(res, { case: caseToSummary({ ...row, evidence: [] }, capabilitiesForRole(req.auth!.role).canManageCases) });
     return;
   }

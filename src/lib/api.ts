@@ -158,6 +158,7 @@ export interface AuditAttemptDiagnostic {
 
 /** Metadatos técnicos del proveedor, sin prompts, expediente, PII ni secretos. */
 export interface AuditProviderMetadata {
+  correlationId?: string;
   openrouterAttempts?: AuditAttemptDiagnostic[];
   usage?: { promptTokens: number | null; completionTokens: number | null; totalTokens: number | null; estimatedCostUSD: number | null } | null;
   stale?: boolean;
@@ -339,6 +340,7 @@ export type StartAuditResponse = StartAuditPending | StartAuditFinished;
 export interface ErrorState {
   category: string;
   message: string;
+  correlationId?: string;
 }
 
 // -----------------------------------------------------------------------------
@@ -349,12 +351,14 @@ export interface ErrorState {
 export class ApiError extends Error {
   readonly category: string;
   readonly status: number;
+  readonly correlationId?: string;
 
-  constructor(category: string, message: string, status: number) {
+  constructor(category: string, message: string, status: number, correlationId?: string) {
     super(message);
     this.name = 'ApiError';
     this.category = category;
     this.status = status;
+    this.correlationId = correlationId;
   }
 }
 
@@ -368,7 +372,8 @@ export function setLastErrorCorrelationId(value: string | null): void { lastErro
 
 /** Lee el cuerpo de error de una respuesta no exitosa. Nunca lanza. */
 export async function readError(res: Response): Promise<ApiError> {
-  lastErrorCorrelationId = typeof res.headers?.get === 'function' ? res.headers.get('x-correlation-id') : null;
+  const responseCorrelationId = typeof res.headers?.get === 'function' ? res.headers.get('x-correlation-id') : null;
+  lastErrorCorrelationId = responseCorrelationId;
   let category = 'UNKNOWN';
   let message = `Error ${res.status} al llamar al servidor.`;
 
@@ -384,7 +389,7 @@ export async function readError(res: Response): Promise<ApiError> {
     // Respuesta sin cuerpo JSON (p. ej. gateway): se conserva el mensaje por defecto.
   }
 
-  return new ApiError(category, message, res.status);
+  return new ApiError(category, message, res.status, responseCorrelationId ?? undefined);
 }
 
 /** Señal tipada de que la sesión expiró y no pudo renovarse. */
@@ -402,7 +407,7 @@ export function isSessionExpiredError(error: unknown): error is SessionExpiredEr
 /** Convierte cualquier excepción en un estado mostrable. */
 export function toErrorState(error: unknown): ErrorState {
   if (error instanceof SessionExpiredError) return { category: error.category, message: error.message };
-  if (error instanceof ApiError) return { category: error.category, message: error.message };
+  if (error instanceof ApiError) return { category: error.category, message: error.message, ...(error.correlationId ? { correlationId: error.correlationId } : {}) };
   if (error instanceof Error && error.message) {
     return { category: 'UNKNOWN', message: error.message };
   }
@@ -417,6 +422,7 @@ interface RequestOptions {
   method?: string;
   headers?: Record<string, string>;
   body?: BodyInit;
+  timeoutMs?: number;
 }
 
 interface SafeFetchOptions extends RequestOptions {
@@ -434,6 +440,7 @@ async function performRefresh(): Promise<boolean> {
       method: 'POST',
       headers: { 'X-App-Request': '1' },
       credentials: 'same-origin',
+      signal: AbortSignal.timeout(30_000),
     });
     return res.status === 200;
   } catch {
@@ -471,12 +478,22 @@ async function safeFetch(url: string, options: SafeFetchOptions = {}): Promise<R
     ...(isMutating(method) ? { 'X-App-Request': '1' } : {}),
   };
 
-  const res = await fetch(url, {
-    method,
-    headers,
-    body: options.body,
-    credentials: 'same-origin',
-  });
+  const signal = AbortSignal.timeout(options.timeoutMs ?? 30_000);
+  let res: Response;
+  try {
+    res = await fetch(url, { method, headers, body: options.body, credentials: 'same-origin', signal });
+  } catch {
+    const correlationId = crypto.randomUUID();
+    lastErrorCorrelationId = correlationId;
+    throw new ApiError(
+      signal.aborted ? 'REQUEST_TIMEOUT' : 'NETWORK_ERROR',
+      signal.aborted
+        ? 'El servidor no respondió a tiempo. Consulta el estado guardado antes de repetir la operación.'
+        : 'Se interrumpió la conexión con el servidor. Consulta el estado guardado antes de repetir la operación.',
+      0,
+      correlationId,
+    );
+  }
 
   if (res.status === 401 && options.retryAuth !== false && !AUTH_ENDPOINTS.has(url)) {
     const refreshed = await refreshSessionInternal();
@@ -489,10 +506,17 @@ async function safeFetch(url: string, options: SafeFetchOptions = {}): Promise<R
   return res;
 }
 
+async function responseJson<T>(res: Response): Promise<T> {
+  try { return await res.json() as T; }
+  catch {
+    throw new ApiError('RESPONSE_ERROR', 'No se pudo leer la respuesta completa del servidor. Consulta el estado guardado antes de repetir la operación.', res.status, res.headers.get('x-correlation-id') ?? crypto.randomUUID());
+  }
+}
+
 async function request<T>(url: string, options: RequestOptions, expected: number[]): Promise<T> {
   const res = await safeFetch(url, options);
   if (!expected.includes(res.status)) throw await readError(res);
-  return (await res.json()) as T;
+  return responseJson<T>(res);
 }
 
 function casePath(caseId: string, suffix = ''): string {
@@ -525,12 +549,12 @@ export async function listCasePage(options: {
   return request<CaseSummaryPage>(`/api/cases?${params.toString()}`, {}, [200]);
 }
 
-export async function createCase(studentIdentifier?: string, studentName?: string): Promise<CaseSummary> {
+export async function createCase(studentIdentifier?: string, studentName?: string, requestId?: string): Promise<CaseSummary> {
   const data = await request<{ case: CaseSummary }>(
     '/api/cases',
     {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...(requestId ? { 'x-idempotency-key': requestId } : {}) },
       body: JSON.stringify({
         ...(studentIdentifier ? { studentIdentifier } : {}),
         ...(studentName ? { studentName } : {}),
@@ -614,20 +638,45 @@ export async function setCycleStartDate(caseId: string, date: string, byName: st
  * El nombre viaja en `x-file-name` URL-encoded porque HTTP headers no admiten
  * caracteres no ASCII.
  */
+const uploadRequests = new WeakMap<File, Map<string, string>>();
+
 export async function uploadEvidence(caseId: string, file: File): Promise<Evidence> {
   const head = await readEvidenceHead(file);
   const contentType = resolveEvidenceMime(head, file.type) ?? 'application/octet-stream';
+  const requests = uploadRequests.get(file) ?? new Map<string, string>();
+  let requestId = requests.get(caseId);
+  if (!requestId && file.size <= 8 * 1024 * 1024 && typeof file.arrayBuffer === 'function' && crypto.subtle) {
+    try {
+      const fileBytes = new Uint8Array(await file.arrayBuffer());
+      const identity = new TextEncoder().encode(`${file.name}\0${contentType}`);
+      const bytes = new Uint8Array(fileBytes.length + identity.length);
+      bytes.set(fileBytes); bytes.set(identity, fileBytes.length);
+      const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))).map((byte) => byte.toString(16).padStart(2, '0')).join('');
+      const storageKey = `evidence-request:${caseId}:${digest}`;
+      const saved = sessionStorage.getItem(storageKey);
+      requestId = saved && /^[a-f0-9-]{36}$/i.test(saved) ? saved : crypto.randomUUID();
+      sessionStorage.setItem(storageKey, requestId);
+    } catch { /* La identidad en memoria sigue disponible sin almacenamiento local. */ }
+  }
+  requestId ??= crypto.randomUUID();
+  requests.set(caseId, requestId);
+  uploadRequests.set(file, requests);
 
   const res = await safeFetch(casePath(caseId, '/evidence'), {
     method: 'POST',
     headers: {
       'content-type': contentType,
       'x-file-name': encodeURIComponent(file.name),
+      'x-idempotency-key': requestId,
     },
     body: file,
+    timeoutMs: 120_000,
   });
-  if (res.status !== 201) throw await readError(res);
-  const data = (await res.json()) as { evidence: Evidence };
+  if (res.status !== 201 && res.status !== 200) throw await readError(res);
+  const data = await responseJson<{ evidence: Evidence }>(res);
+  if (data.evidence.processingStatus === 'ERROR') {
+    throw new ApiError('TRANSCRIPTION_ERROR', `El original quedó guardado, pero su preparación falló: ${data.evidence.processingError ?? 'no se pudo iniciar la transcripción'}. Reintentar reutiliza este archivo.`, 502, res.headers.get('x-correlation-id') ?? undefined);
+  }
   return data.evidence;
 }
 
@@ -655,13 +704,13 @@ export function evidencePreviewUrl(evidenceId: string): string {
  *  - 202 con `pendingEvidence` cuando falta transcripción.
  */
 export async function startAudit(caseId: string): Promise<StartAuditResponse> {
-  const res = await safeFetch(casePath(caseId, '/audit'), { method: 'POST' });
+  const res = await safeFetch(casePath(caseId, '/audit'), { method: 'POST', timeoutMs: 285_000 });
   if (res.status === 200) {
-    const data = (await res.json()) as { audit: AuditDetail };
+    const data = await responseJson<{ audit: AuditDetail }>(res);
     return { kind: 'finished', audit: data.audit };
   }
   if (res.status === 202) {
-    const data = (await res.json()) as { audit: AuditDetail | null; pendingEvidence: string[] };
+    const data = await responseJson<{ audit: AuditDetail | null; pendingEvidence: string[] }>(res);
     return { kind: 'pending', pendingEvidence: data.pendingEvidence ?? [] };
   }
   throw await readError(res);

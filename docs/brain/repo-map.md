@@ -388,17 +388,19 @@ estricto.
 │export interface ErrorState {
 │  category: string;
 │  message: string;
+│  correlationId?: string;
 ⋮
 │export class ApiError extends Error {
 │  readonly category: string;
 │  readonly status: number;
+│  readonly correlationId?: string;
 │
-│  constructor(category: string, message: string, status: number) {
+│  constructor(category: string, message: string, status: number, 
+correlationId?: string) {
 │    super(message);
 │    this.name = 'ApiError';
 │    this.category = category;
 │    this.status = status;
-│  }
 ⋮
 │export class SessionExpiredError extends ApiError {
 │  constructor() {
@@ -411,6 +413,7 @@ estricto.
 │  method?: string;
 │  headers?: Record<string, string>;
 │  body?: BodyInit;
+│  timeoutMs?: number;
 ⋮
 │interface SafeFetchOptions extends RequestOptions {
 │  /** Si es false, un 401 no dispara refresh automático. */
@@ -474,6 +477,7 @@ src\lib\useEvidenceUpload.ts:
 │  status: UploadStatus;
 │  message?: string;
 │  category?: string;
+│  correlationId?: string;
 ⋮
 │export interface EvidenceUploadController {
 │  items: UploadItem[];
@@ -727,6 +731,8 @@ dev-api.mjs). */
 │  /** Contexto de autenticación resuelto por `handleRoute` (o inyectado en 
 tests). */
 │  auth?: AuthContext;
+│  /** Identidad de la petición compartida por respuesta, auditoría y logs. */
+│  correlationId?: string;
 ⋮
 │export type ApiResponse = ServerResponse;
 │

@@ -1,3 +1,5 @@
+import { listEvidence } from './helpers/fake-store';
+import { computeEvidenceFingerprint } from '../src/server/audit-fingerprint';
 // =============================================================================
 // Revisión humana y comparación con IA — orquestación durable y endpoints.
 //
@@ -36,6 +38,8 @@ import {
   updateAuditResult,
   updateComparisonError,
 } from './helpers/fake-store';
+
+vi.mock('../src/server/area-comments', () => ({ listAreaComments: async () => [] }));
 
 // --- Persistencia de casos/evidencias/auditorías: store en memoria -------------
 vi.mock('../src/server/cases', async () => {
@@ -134,6 +138,7 @@ function seedAuditableCase(options: { auditId?: string; createdAt?: string; rule
   seedCase({ created_by: FAKE_USER_SUB });
   seedEvidence({ id: 'ev-1', processing_status: 'READY', content: 'El estudiante solicita cancelar la matrícula.' });
   return seedAudit({
+    evidence_fingerprint: computeEvidenceFingerprint(listEvidence()),
     id: options.auditId ?? 'audit-1',
     created_at: options.createdAt ?? '2026-02-01T10:10:00Z',
     resultJson: options.rule
@@ -500,7 +505,7 @@ describe('submitCaseReview — una revisión por caso', () => {
 
   it('registra la revisión apuntando a la auditoría vigente sin arrancar la comparación', async () => {
     seedAuditableCase();
-    seedAudit({ id: 'audit-nueva', created_at: '2026-02-05T10:10:00Z' });
+    seedAudit({ id: 'audit-nueva', evidence_fingerprint: computeEvidenceFingerprint(listEvidence()), created_at: '2026-02-05T10:10:00Z' });
 
     const result = await submitCaseReview(fakeClient, 'case-1', advisorInput({ result: 'CANCELACION_VENTA' }));
 
@@ -1164,5 +1169,15 @@ describe('atribución · nada de lo que dice el cuerpo se cree', () => {
     const payload = await getReview(COORDINADOR);
     expect(payload.review?.comment).toBe('Se acredita la baja por solicitud posterior al inicio de ciclo.');
     expect(payload.review?.coordinatorComment).toBe('Se comparte la lectura del caso.');
+  });
+});
+
+
+describe('vigencia antes de la revisión del Asesor', () => {
+  it('una evidencia nueva impide revisar un dictamen viejo sin alterar su historial', async () => {
+    seedAuditableCase();
+    seedEvidence({ id: 'ev-nueva', processing_status: 'READY', content: 'Evidencia adicional sintética' });
+    await expect(submitCaseReview(fakeClient, 'case-1', advisorInput())).rejects.toMatchObject({ status: 409 });
+    expect(listReviews()).toHaveLength(0);
   });
 });

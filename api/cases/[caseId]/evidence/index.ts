@@ -7,6 +7,7 @@ import {
   methodNotAllowed,
   readRawBody,
   requiredUuid,
+  idempotencyKey,
 } from '../../../../src/server/http.js';
 import { createServerClient } from '../../../../src/server/insforge.js';
 import { assertCaseWriteCapability } from '../../../../src/server/auth.js';
@@ -17,7 +18,8 @@ import {
   getScopedCaseOr404,
   insertEvidence,
   updateCaseStatus,
-  updateEvidenceStatus,
+  claimEvidencePreparationRetry,
+  evidenceByRequestId,
 } from '../../../../src/server/cases.js';
 import { evidenceToDto } from '../../../../src/server/dto.js';
 import {
@@ -27,7 +29,7 @@ import {
   sha256Hex,
   verifyFileSignature,
 } from '../../../../src/server/evidence-prep.js';
-import { submitTranscription } from '../../../../src/server/assemblyai.js';
+import { prepareAudio } from '../../../../src/server/audio-preparation.js';
 import { checkPaidQuota } from '../../../../src/server/quotas.js';
 
 // POST /api/cases/:caseId/evidence
@@ -40,6 +42,7 @@ export default handleRoute(async (req, res) => {
   }
   const client = createServerClient();
   const caseId = requiredUuid(req.query, 'caseId');
+  const requestId = idempotencyKey(req);
   const caseRow = await getScopedCaseOr404(client, caseId, req.auth!);
   // Capacidad ANTES que propiedad: el gerente no sube evidencia, ni propia.
   assertCaseWriteCapability(req.auth!);
@@ -50,7 +53,10 @@ export default handleRoute(async (req, res) => {
     typeof value === 'string' ? value : Array.isArray(value) ? (value[0] ?? '') : '';
 
   const rawName = headerValue(req.headers['x-file-name']);
-  let filename = sanitizeFilename(rawName ? decodeURIComponent(rawName) : '');
+  let decodedName = '';
+  try { decodedName = rawName ? decodeURIComponent(rawName) : ''; }
+  catch { throw new ApiError(400, 'UPLOAD_ERROR', 'El nombre del archivo no tiene una codificación válida'); }
+  let filename = sanitizeFilename(decodedName);
   const mimeType = normalizeMime(headerValue(req.headers['content-type']));
   const buffer = await readRawBody(req);
 
@@ -85,6 +91,31 @@ export default handleRoute(async (req, res) => {
     );
   }
 
+  const hash = sha256Hex(buffer);
+  const recover = async () => {
+    if (!requestId) return null;
+    const previous = await evidenceByRequestId(client, requestId);
+    if (!previous) return null;
+    if (previous.case_id !== caseId) throw new ApiError(404, 'NOT_FOUND', 'Evidencia no encontrada');
+    if (previous.hash !== hash || previous.filename !== filename || previous.mime_type !== mimeType) {
+      throw new ApiError(409, 'UPLOAD_ERROR', 'Esta solicitud ya guardó una evidencia distinta. No se sobrescribió el original.');
+    }
+    return previous;
+  };
+  const previous = await recover();
+  if (previous) {
+    if (previous.processing_status === 'ERROR' && isAudio(previous.mime_type)) {
+      await checkPaidQuota(req.auth!.sub, `transcription:${caseId}:${hash}`);
+      const claimed = await claimEvidencePreparationRetry(client, previous.id);
+      const recovered = claimed ? await prepareAudio(client, claimed, buffer, req.correlationId) : await recover();
+      if (recovered) await updateCaseStatus(client, caseId, recovered.processing_status === 'READY' ? 'READY' : 'DRAFT');
+      created(res, { evidence: evidenceToDto(recovered ?? previous) });
+      return;
+    }
+    created(res, { evidence: evidenceToDto(previous) });
+    return;
+  }
+
   // Audio: la transcripción es una operación PAGADA, así que la cuota se cobra
   // ANTES de subir el archivo y de insertar la fila: un 429 no deja ni bytes en
   // el almacenamiento ni evidencia a medias.
@@ -92,15 +123,24 @@ export default handleRoute(async (req, res) => {
     await checkPaidQuota(req.auth!.sub, `transcription:${caseId}:${sha256Hex(buffer)}`);
   }
 
-  const hash = sha256Hex(buffer);
-  const storagePath = `${caseId}/${randomUUID()}`;
+  const storagePath = `${caseId}/${requestId ?? randomUUID()}`;
 
   const blob = new Blob([new Uint8Array(buffer)], { type: mimeType });
   const { data: stored, error: storageError } = await client.storage
     .from(getEnv().INSFORGE_STORAGE_BUCKET)
     .upload(storagePath, blob);
   if (storageError || !stored) {
-    throw new ApiError(500, 'STORAGE_ERROR', 'No se pudo guardar la evidencia en el almacenamiento');
+    const concurrent = await recover();
+    if (concurrent) {
+      created(res, { evidence: evidenceToDto(concurrent) });
+      return;
+    }
+    // Una interrupción pudo guardar el original y no insertar la fila. Solo se
+    // recupera el objeto de ESTA solicitud si su hash coincide exactamente.
+    const recovered = requestId ? await client.storage.from(getEnv().INSFORGE_STORAGE_BUCKET).download(storagePath) : null;
+    if (!recovered?.data || recovered.error || sha256Hex(Buffer.from(await recovered.data.arrayBuffer())) !== hash) {
+      throw new ApiError(500, 'STORAGE_ERROR', 'No se pudo guardar la evidencia en el almacenamiento');
+    }
   }
 
   // El estado inicial depende de si hay un paso ASÍNCRONO de preparación:
@@ -112,35 +152,40 @@ export default handleRoute(async (req, res) => {
   //    lo dejaba en un estado "en proceso" del que nadie lo saca: el único
   //    refresco de estados es el de transcripciones de audio, y terminaba en
   //    202 pendingEvidence para siempre.
-  let evidence = await insertEvidence(client, {
+  let evidence;
+  try {
+    evidence = await insertEvidence(client, {
+    ...(requestId ? { id: requestId } : {}),
     case_id: caseId,
     filename,
     mime_type: mimeType,
     size_bytes: buffer.length,
     hash,
-    storage_path: stored.key,
+    storage_path: stored?.key ?? storagePath,
     processing_status: isAudio(mimeType) ? 'UPLOADED' : 'READY',
-  });
+    ...(isAudio(mimeType) ? { transcript_json: { status: 'SUBMITTING', submissionDeadlineAt: new Date(Date.now() + 120_000).toISOString() } } : {}),
+    });
+  } catch (cause) {
+    const concurrent = await recover();
+    if (concurrent) {
+      created(res, { evidence: evidenceToDto(concurrent) });
+      return;
+    }
+    // Las solicitudes con identidad conservan su objeto recuperable. Para las
+    // antiguas, compensamos una inserción fallida retirando el objeto huérfano.
+    if (!requestId) {
+      try {
+        const removal = await client.storage.from(getEnv().INSFORGE_STORAGE_BUCKET).remove(storagePath);
+        if (removal.error) console.warn('[upload] no se pudo compensar el objeto sin fila');
+      } catch { console.warn('[upload] no se pudo compensar el objeto sin fila'); }
+    }
+    throw cause;
+  }
 
   // Audio: lanzar transcripción inmediatamente (AssemblyAI). El fallo se persiste
   // como estado terminal recuperable: la evidencia nunca queda UPLOADED para
   // siempre con dinero ya pagado.
-  if (isAudio(mimeType)) {
-    try {
-      const assemblyId = await submitTranscription(buffer);
-      evidence = await updateEvidenceStatus(client, evidence.id, {
-        processing_status: 'TRANSCRIBING',
-        transcript_json: { assemblyId, status: 'TRANSCRIBING' },
-      });
-    } catch (error) {
-      const message = error instanceof ApiError ? error.message : 'No se pudo iniciar la transcripción';
-      evidence = await updateEvidenceStatus(client, evidence.id, {
-        processing_status: 'ERROR',
-        transcript_json: { status: 'ERROR', error: message },
-      });
-      // No se lanza: la evidencia queda registrada en ERROR y la UI lo muestra.
-    }
-  }
+  if (isAudio(mimeType)) evidence = await prepareAudio(client, evidence, buffer, req.correlationId);
 
   // El estado del caso se actualiza con el estado REAL de la evidencia recién
   // creada. Si esa escritura falla se propaga el error: tragarlo dejaba el caso

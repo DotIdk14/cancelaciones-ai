@@ -1,3 +1,5 @@
+const contextRows = vi.hoisted(() => ({ rows: [] as Array<{ area: string; comment: string }> }));
+import * as casePersistence from '../src/server/cases';
 // =============================================================================
 // Estados de `evidence.processing_status` durante la subida y su efecto en
 // `POST /audit`.
@@ -12,6 +14,7 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiRequest, ApiResponse } from '../src/server/http';
 import type { Evidence } from '../src/lib/api';
+import { submitTranscription } from '../src/server/assemblyai';
 import { callOpenRouterAudit } from '../src/server/openrouter';
 import { resetEnvCache } from '../src/server/env';
 import { refreshTranscriptions, runAudit } from '../src/server/audit-service';
@@ -35,6 +38,8 @@ import {
   setTranscription,
 } from './helpers/fake-store';
 
+vi.mock('../src/server/area-comments', () => ({ listAreaComments: async () => contextRows.rows }));
+
 // --- Persistencia: store en memoria de `cases`/`evidence`/`audits` -----------
 vi.mock('../src/server/cases', async () => {
   const store = await import('./helpers/fake-store');
@@ -50,6 +55,12 @@ vi.mock('../src/server/cases', async () => {
     listCaseSummaries: store.listCaseSummaries,
     createCase: store.createCase,
     insertEvidence: store.insertEvidence,
+    claimEvidencePreparationRetry: async (client: unknown, id: string) => {
+      const row = store.listEvidence().find((item) => item.id === id);
+      if (!row || row.processing_status !== 'ERROR') return null;
+      return store.updateEvidenceStatus(client, id, { processing_status: 'UPLOADED', transcript_json: { status: 'SUBMITTING', submissionDeadlineAt: new Date(Date.now() + 120_000).toISOString() } });
+    },
+    evidenceByRequestId: async (_client: unknown, id: string) => store.listEvidence().find((row) => row.id === id) ?? null,
     updateEvidenceStatus: store.updateEvidenceStatus,
     deleteEvidenceRow: store.deleteEvidenceRow,
     latestAudit: store.latestAudit,
@@ -191,6 +202,7 @@ async function upload(
 
 beforeEach(() => {
   setTestEnv();
+  contextRows.rows = [];
   // Ventana holgada por defecto: el primer poll ya devuelve READY y no hay sleep.
   setPollWindow(2_000);
   resetStore();
@@ -439,4 +451,95 @@ describe('invariante: ninguna evidencia nascenta deja el caso en "en proceso" et
       expect(outcome.phase).toBe('done');
     },
   );
+});
+
+
+describe('recuperación durable — regresiones de producción', () => {
+  it('un refresco concurrente no marca ERROR mientras se inicia AssemblyAI', async () => {
+    seedCase();
+    seedEvidence({ mime_type: 'audio/mpeg', processing_status: 'UPLOADED', transcript_json: { status: 'SUBMITTING', submissionDeadlineAt: new Date(Date.now() + 60_000).toISOString() } });
+    await refreshTranscriptions(fakeClient, 'case-1', 0);
+    expect(listEvidence()[0]?.processing_status).toBe('UPLOADED');
+  });
+  it('una entrega interrumpida sin proveedor llega a ERROR después de su plazo', async () => {
+    seedCase();
+    seedEvidence({ mime_type: 'audio/mpeg', processing_status: 'UPLOADED', transcript_json: { status: 'SUBMITTING', submissionDeadlineAt: new Date(Date.now() - 1000).toISOString() } });
+    await refreshTranscriptions(fakeClient, 'case-1', 0);
+    expect(listEvidence()[0]?.processing_status).toBe('ERROR');
+  });
+  it('un error al proyectar COMPLETED no borra el dictamen persistido', async () => {
+    seedCase();
+    seedEvidence({ mime_type: 'text/plain', processing_status: 'READY', content: 'Expediente sintético' });
+    const original = casePersistence.updateCaseStatus;
+    const status = vi.spyOn(casePersistence, 'updateCaseStatus').mockImplementation(async (client, id, next) => {
+      if (next === 'COMPLETED') throw new Error('fallo de proyección simulado');
+      return original(client, id, next);
+    });
+    try {
+      const outcome = await runAudit(fakeClient, 'case-1');
+      expect(outcome.phase).toBe('done');
+      expect(listAudits()[0]?.status).toBe('COMPLETED');
+      expect(listAudits()[0]?.result_json).not.toBeNull();
+      expect(status).not.toHaveBeenCalledWith(fakeClient, 'case-1', 'ERROR');
+    } finally { status.mockRestore(); }
+  });
+});
+
+
+describe('subidas con identidad estable', () => {
+  it('una respuesta perdida no duplica el original ni la fila', async () => {
+    seedCase();
+    const key = '00000000-0000-4000-8000-000000000121';
+    const request = makeUploadRequest('text/plain', 'nota.txt', 'contenido sintético');
+    request.headers['x-idempotency-key'] = key;
+    const first = makeApiResponse();
+    const replay = makeApiResponse();
+    await evidenceUploadHandler(request, first);
+    await evidenceUploadHandler(makeUploadRequestWithKey(key), replay);
+    expect(first.statusCode).toBe(201);
+    expect(replay.statusCode).toBe(201);
+    expect(listEvidence()).toHaveLength(1);
+    expect(listEvidence()[0]?.id).toBe(key);
+    expect(storageLog.uploads).toHaveLength(1);
+  });
+});
+function makeUploadRequestWithKey(key: string): ApiRequest {
+  const request = makeUploadRequest('text/plain', 'nota.txt', 'contenido sintético');
+  request.headers['x-idempotency-key'] = key;
+  return request;
+}
+
+
+describe('reintento de preparación sin resubir el original', () => {
+  it('AssemblyAI falla una vez y el reintento conserva id, bytes y una sola fila', async () => {
+    const key = '00000000-0000-4000-8000-000000000122';
+    const submit = vi.mocked(submitTranscription);
+    submit.mockRejectedValueOnce(new Error('fallo simulado'));
+    const first = makeApiResponse();
+    const request = makeUploadRequest('audio/mpeg', 'llamada.mp3', MP3_BYTES);
+    request.headers['x-idempotency-key'] = key;
+    await evidenceUploadHandler(request, first);
+    expect(listEvidence()[0]?.processing_status).toBe('ERROR');
+    const retry = makeUploadRequest('audio/mpeg', 'llamada.mp3', MP3_BYTES);
+    retry.headers['x-idempotency-key'] = key;
+    const res = makeApiResponse();
+    await evidenceUploadHandler(retry, res);
+    expect(res.statusCode).toBe(201);
+    expect(listEvidence()).toHaveLength(1);
+    expect(listEvidence()[0]?.id).toBe(key);
+    expect(listEvidence()[0]?.processing_status).toBe('TRANSCRIBING');
+    expect(storageLog.uploads).toHaveLength(1);
+  });
+});
+
+
+it('cambiar el contexto inyectado invalida la caché y genera una evaluación vigente', async () => {
+  seedEvidence({ mime_type: 'text/plain', processing_status: 'READY', content: 'Expediente sintético' });
+  contextRows.rows = [{ area: 'BACK_OFFICE', comment: 'Contexto inicial sintético' }];
+  await runAudit(fakeClient, 'case-1');
+  contextRows.rows = [{ area: 'BACK_OFFICE', comment: 'Contexto actualizado sintético' }];
+  await runAudit(fakeClient, 'case-1');
+  expect(listAudits()).toHaveLength(2);
+  expect(listAudits()[0]?.evidence_fingerprint).not.toBe(listAudits()[1]?.evidence_fingerprint);
+  expect(mockedCall).toHaveBeenCalledTimes(2);
 });

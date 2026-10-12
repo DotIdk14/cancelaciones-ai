@@ -137,6 +137,10 @@ export function useSession(): UseSessionResult {
     try {
       await apiSignOut();
     } finally {
+      try {
+        sessionStorage.removeItem('case-creation-request');
+        for (const key of Object.keys(sessionStorage)) if (key.startsWith('evidence-request:')) sessionStorage.removeItem(key);
+      } catch { /* Almacenamiento deshabilitado. */ }
       setStatus('anon');
       setSessionExpired(false);
       setRole(null);

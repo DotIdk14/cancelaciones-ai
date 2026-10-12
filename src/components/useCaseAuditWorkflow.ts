@@ -8,7 +8,7 @@ const AUDIT_POLL_MS = 4000;
 const MAX_WAIT_RETRIES = 60;
 const MAX_RUNNING_POLLS = 90;
 
-export const AUTH_ERROR_MESSAGE = 'El servidor requiere autenticación. La interfaz está en modo demo: los datos no se cargarán hasta que configure una sesión válida.';
+export const AUTH_ERROR_MESSAGE = 'Tu sesión no está disponible. Vuelve a iniciar sesión para continuar.';
 
 type AuditPhase = 'idle' | 'starting' | 'waiting' | 'running';
 
@@ -31,6 +31,8 @@ export function useCaseAuditWorkflow({ caseId, setDetail }: UseCaseAuditWorkflow
   const waitRetriesRef = useRef(0);
   const runningPollsRef = useRef(0);
   const bootstrappedRef = useRef(false);
+  const requestInFlight = useRef(false);
+  const generation = useRef(0);
 
   useEffect(() => {
     setAuditPhase('idle');
@@ -39,6 +41,9 @@ export function useCaseAuditWorkflow({ caseId, setDetail }: UseCaseAuditWorkflow
     waitRetriesRef.current = 0;
     runningPollsRef.current = 0;
     bootstrappedRef.current = false;
+    requestInFlight.current = false;
+    generation.current += 1;
+    return () => { generation.current += 1; };
   }, [caseId]);
 
   const applyAudit = useCallback((next: AuditDetail): void => {
@@ -52,6 +57,7 @@ export function useCaseAuditWorkflow({ caseId, setDetail }: UseCaseAuditWorkflow
     setAuditPhase('idle');
     if (next.status === 'ERROR') {
       setAuditError({
+        correlationId: next.providerMetadata?.correlationId ?? next.id,
         category: next.errorCategory ?? 'UNKNOWN',
         message: errorCategoryMessage(next.errorCategory),
       });
@@ -63,6 +69,9 @@ export function useCaseAuditWorkflow({ caseId, setDetail }: UseCaseAuditWorkflow
   const observeLoadedCase = useCallback((data: CaseDetailResponse): void => {
     if (bootstrappedRef.current) return;
     bootstrappedRef.current = true;
+    if (data.audit?.status === 'ERROR') {
+      setAuditError({ category: data.audit.errorCategory ?? 'UNKNOWN', message: errorCategoryMessage(data.audit.errorCategory), correlationId: data.audit.providerMetadata?.correlationId ?? data.audit.id });
+    }
     if (data.audit?.status === 'RUNNING') {
       runningPollsRef.current = 0;
       setAuditPhase('running');
@@ -70,23 +79,35 @@ export function useCaseAuditWorkflow({ caseId, setDetail }: UseCaseAuditWorkflow
   }, []);
 
   const runAudit = useCallback(async (): Promise<void> => {
+    if (requestInFlight.current) return;
+    requestInFlight.current = true;
+    const revision = generation.current;
     setAuditPhase('starting');
     setAuditError(null);
     setPendingEvidence([]);
     waitRetriesRef.current = 0;
     try {
       const response = await startAudit(caseId);
+      if (revision !== generation.current) return;
       if (response.kind === 'pending') {
         setPendingEvidence(response.pendingEvidence);
         setAuditPhase('waiting');
         return;
       }
+      if (response.audit.status !== 'RUNNING') {
+        const current = await getCase(caseId);
+        if (revision !== generation.current) return;
+        setDetail(current);
+      }
       applyAudit(response.audit);
     } catch (error) {
+      if (revision !== generation.current) return;
       setAuditPhase('idle');
       setAuditError(userFacingError(error));
+    } finally {
+      if (revision === generation.current) requestInFlight.current = false;
     }
-  }, [caseId, applyAudit]);
+  }, [caseId, applyAudit, setDetail]);
 
   const tickWaiting = useCallback(async (): Promise<void> => {
     waitRetriesRef.current += 1;
@@ -98,14 +119,26 @@ export function useCaseAuditWorkflow({ caseId, setDetail }: UseCaseAuditWorkflow
       });
       return;
     }
-    const data = await getCase(caseId);
-    setDetail(data);
-    if (data.audit !== null && data.audit.status !== 'RUNNING') {
-      applyAudit(data.audit);
-      return;
+    const revision = generation.current;
+    try {
+      const data = await getCase(caseId);
+      if (revision !== generation.current) return;
+      setDetail(data);
+      if (data.audit !== null && data.audit.status === 'COMPLETED' && data.auditIsCurrent !== false) {
+        applyAudit(data.audit);
+        return;
+      }
+      const ready = data.evidences.length > 0 && data.evidences.every((item) => item.processingStatus === 'READY');
+      const failed = data.evidences.find((item) => item.processingStatus === 'ERROR');
+      if (failed) {
+        setAuditPhase('idle');
+        setAuditError({ category: 'TRANSCRIPTION_ERROR', message: `No se pudo preparar ${failed.filename}. Consulta la evidencia antes de reintentar.` });
+        return;
+      }
+      if (ready) await runAudit();
+    } catch (error) {
+      if (revision === generation.current) { setAuditPhase('idle'); setAuditError(userFacingError(error)); }
     }
-    const ready = data.evidences.length > 0 && data.evidences.every((item) => item.processingStatus === 'READY');
-    if (ready) await runAudit();
   }, [caseId, applyAudit, runAudit, setDetail]);
 
   const tickRunning = useCallback(async (): Promise<void> => {
@@ -118,18 +151,45 @@ export function useCaseAuditWorkflow({ caseId, setDetail }: UseCaseAuditWorkflow
       });
       return;
     }
-    const next = await getAudit(caseId);
-    if (next !== null) {
-      setDetail((prev) => (prev ? { ...prev, audit: next } : prev));
-      if (next.status === 'COMPLETED' || next.status === 'ERROR') applyAudit(next);
+    const revision = generation.current;
+    try {
+      const next = await getAudit(caseId);
+      if (revision !== generation.current) return;
+      if (next !== null) {
+        setDetail((prev) => (prev ? { ...prev, audit: next } : prev));
+        if (next.status === 'COMPLETED' || next.status === 'ERROR') {
+          const data = await getCase(caseId);
+          if (revision !== generation.current) return;
+          setDetail(data);
+          applyAudit(data.audit ?? next);
+        }
+      }
+    } catch (error) {
+      if (revision === generation.current) { setAuditPhase('idle'); setAuditError(userFacingError(error)); }
     }
   }, [caseId, applyAudit, setDetail]);
+
+  const recoverLock = useRef(false);
+  const recoverAudit = useCallback(async (): Promise<void> => {
+    if (recoverLock.current) return;
+    recoverLock.current = true;
+    const revision = generation.current;
+    try {
+      const data = await getCase(caseId);
+      if (revision !== generation.current) return;
+      setDetail(data);
+      if (data.audit?.status === 'RUNNING' || (data.audit?.status === 'COMPLETED' && data.auditIsCurrent !== false)) { applyAudit(data.audit); return; }
+      await runAudit();
+    } catch (error) { if (revision === generation.current) setAuditError(userFacingError(error)); }
+    finally { recoverLock.current = false; }
+  }, [caseId, setDetail, applyAudit, runAudit]);
 
   return {
     auditPhase,
     auditError,
     pendingEvidence,
     runAudit,
+    recoverAudit,
     tickWaiting,
     tickRunning,
     observeLoadedCase,

@@ -19,6 +19,8 @@ export interface ApiRequest extends IncomingMessage {
   body?: unknown;
   /** Contexto de autenticación resuelto por `handleRoute` (o inyectado en tests). */
   auth?: AuthContext;
+  /** Identidad de la petición compartida por respuesta, auditoría y logs. */
+  correlationId?: string;
 }
 
 export type ApiResponse = ServerResponse;
@@ -32,6 +34,15 @@ export type ApiHandler = (req: ApiRequest, res: ApiResponse) => Promise<void> | 
 export { ApiError, mapProviderError, type ErrorCategory } from './errors.js';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function idempotencyKey(req: ApiRequest): string | undefined {
+  const value = req.headers['x-idempotency-key'];
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string' || !UUID_REGEX.test(value)) {
+    throw new ApiError(400, 'VALIDATION_ERROR', 'La identidad de la solicitud debe ser un UUID válido');
+  }
+  return value;
+}
 
 /** Valida que un parámetro de ruta sea un UUID (en producción) o un identificador seguro. */
 export function requiredUuid(query: Record<string, QueryValue>, key: string): string {
@@ -88,6 +99,8 @@ interface HandleRouteOptions {
  */
 export function handleRoute(handler: ApiHandler, options?: HandleRouteOptions): ApiHandler {
   return async (req, res) => {
+    req.correlationId = randomUUID();
+    res.setHeader('X-Correlation-ID', req.correlationId);
     try {
       const isMutating = req.method === 'POST' || req.method === 'PATCH' || req.method === 'DELETE';
       // Si el test ya inyectó un contexto, no lo re-resuelve: es el único bypass
@@ -108,12 +121,12 @@ export function handleRoute(handler: ApiHandler, options?: HandleRouteOptions): 
     } catch (error) {
       const apiError = error instanceof ApiError ? error : null;
       if (apiError === null || apiError.status >= 500) {
-        const correlationId = randomUUID();
+        const correlationId = req.correlationId;
         const rawPath = typeof req.url === 'string' ? req.url.split('?')[0] ?? '/' : '/';
         const route = rawPath.replace(/[0-9a-f]{8}-[0-9a-f-]{27,}/gi, ':id').slice(0, 160);
         res.setHeader('X-Correlation-ID', correlationId);
         // Lazy import keeps this shared HTTP leaf free of static InsForge imports.
-        void import('./incidents.js').then(async ({ recordSanitizedError }) => {
+        await import('./incidents.js').then(async ({ recordSanitizedError }) => {
           const { createServerClient } = await import('./insforge.js');
           await recordSanitizedError(createServerClient(), {
             correlation_id: correlationId,
@@ -292,7 +305,7 @@ export function sendBinary(
   res: ApiResponse,
   buffer: Buffer,
   mimeType: string,
-  options: { inline: boolean; filename: string },
+  options: { inline: boolean; filename: string; range?: string },
 ): void {
   res.statusCode = 200;
   res.setHeader('Content-Type', mimeType);
@@ -307,9 +320,30 @@ export function sendBinary(
     'Content-Disposition',
     `${options.inline ? 'inline' : 'attachment'}; filename="${asciiFilenameFallback(options.filename)}"; filename*=UTF-8''${encodeURIComponent(options.filename)}`,
   );
-  res.setHeader('Content-Length', buffer.length);
+  res.setHeader('Accept-Ranges', 'bytes');
   res.setHeader('Cache-Control', 'private, max-age=60');
-  res.end(buffer);
+  let body = buffer;
+  if (options.range !== undefined) {
+    const match = /^bytes=(\d*)-(\d*)$/.exec(options.range.trim());
+    const first = match?.[1] ?? '';
+    const last = match?.[2] ?? '';
+    const suffix = first === '' ? Number(last) : null;
+    const start = suffix === null ? Number(first) : Math.max(0, buffer.length - suffix);
+    const end = suffix === null && last !== '' ? Math.min(Number(last), buffer.length - 1) : buffer.length - 1;
+    if (!match || (!first && !last) || !Number.isSafeInteger(start) || !Number.isSafeInteger(end) ||
+        (suffix !== null && (!Number.isSafeInteger(suffix) || suffix <= 0)) || start > end || start >= buffer.length) {
+      res.statusCode = 416;
+      res.setHeader('Content-Range', `bytes */${buffer.length}`);
+      res.setHeader('Content-Length', 0);
+      res.end();
+      return;
+    }
+    res.statusCode = 206;
+    res.setHeader('Content-Range', `bytes ${start}-${end}/${buffer.length}`);
+    body = buffer.subarray(start, end + 1);
+  }
+  res.setHeader('Content-Length', body.length);
+  res.end(body);
 }
 
 function asciiFilenameFallback(filename: string): string {

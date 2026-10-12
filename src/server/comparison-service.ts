@@ -33,6 +33,8 @@ import {
 } from './cases.js';
 import { buildAuditInputs } from './audit-service.js';
 import { checkPaidQuota } from './quotas.js';
+import { computeEvidenceFingerprint } from './audit-fingerprint.js';
+import { listAreaComments } from './area-comments.js';
 import {
   createCaseReview,
   getCaseReview,
@@ -101,7 +103,7 @@ export async function submitCaseReview(
   caseId: string,
   input: SubmitCaseReviewInput,
 ): Promise<SubmitCaseReviewOutcome> {
-  await getCaseOr404(client, caseId);
+  const caseRow = await getCaseOr404(client, caseId);
 
   const audit = await latestCompletedAudit(client, caseId);
   if (!audit) {
@@ -110,6 +112,12 @@ export async function submitCaseReview(
       'VALIDATION_ERROR',
       'El caso no tiene una auditoría completada; ejecuta la auditoría antes de registrar la revisión.',
     );
+  }
+
+  const evidences = await listEvidenceRows(client, caseId);
+  const areaComments = await listAreaComments(client, caseId);
+  if (audit.evidence_fingerprint !== computeEvidenceFingerprint(evidences, caseRow.cycle_start_date ?? null, areaComments)) {
+    throw new ApiError(409, 'VALIDATION_ERROR', 'Las evidencias o el contexto cambiaron. Ejecuta una auditoría vigente antes de registrar la revisión.');
   }
 
   const review = await createCaseReview(client, {

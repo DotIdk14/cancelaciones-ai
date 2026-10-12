@@ -1,6 +1,6 @@
 import type { FormEvent, ReactNode } from 'react';
 import { useEffect, useState } from 'react';
-import { X } from 'lucide-react';
+import { ModalShell } from './OperationProgressDialog';
 import { addIncidentComment, getIncidents, reportProblem, toErrorState } from '../lib/api';
 import type { IncidentModule, IncidentTicketDto } from '../lib/api';
 import { formatDateTime } from '../lib/format';
@@ -12,27 +12,33 @@ export function ReportProblemModal({
   module,
   context,
   onClose,
+  initialDescription = '',
 }: {
   module: IncidentModule;
   context: { route?: string; correlationId?: string };
   onClose: () => void;
+  initialDescription?: string;
 }): ReactNode {
   const [selectedModule, setSelectedModule] = useState<IncidentModule>(module);
-  const [description, setDescription] = useState('');
+  const [description, setDescription] = useState(initialDescription);
   const [ticketId, setTicketId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [ticketsLoading, setTicketsLoading] = useState(true);
+  const [ticketsError, setTicketsError] = useState<string | null>(null);
   const [tickets, setTickets] = useState<IncidentTicketDto[]>([]);
   const [comments, setComments] = useState<Record<string, string>>({});
   const [busyTicket, setBusyTicket] = useState<string | null>(null);
 
   const refreshTickets = async (): Promise<void> => {
+    setTicketsLoading(true);
     try {
       const result = await getIncidents();
+      setTicketsError(null);
       setTickets(result.tickets);
     } catch (cause) {
-      setError(toErrorState(cause).message);
-    }
+      setTicketsError(toErrorState(cause).message);
+    } finally { setTicketsLoading(false); }
   };
 
   useEffect(() => { void refreshTickets(); }, []);
@@ -70,12 +76,7 @@ export function ReportProblemModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section role="dialog" aria-modal="true" aria-labelledby="report-problem-title" className="w-full max-w-xl rounded-2xl border border-line bg-surface-1 p-5 shadow-xl">
-        <header className="flex items-start justify-between gap-4">
-          <div><h2 id="report-problem-title" className="text-lg font-semibold text-ink">Reportar un problema</h2><p className="mt-1 text-sm text-muted">Describe lo que ocurrió. Se adjunta contexto básico de la vista para facilitar el seguimiento.</p></div>
-          <button type="button" onClick={onClose} className="rounded-lg p-2 text-muted hover:bg-surface-2 hover:text-ink" aria-label="Cerrar"><X size={18} /></button>
-        </header>
+    <ModalShell title="Reportar un problema" onClose={onClose}>
         {ticketId && (
           <div className="mt-6 rounded-xl border border-success/40 bg-success/10 p-4">
             <strong className="text-ink">Reporte recibido</strong>
@@ -94,13 +95,13 @@ export function ReportProblemModal({
               <span className="text-xs font-normal text-muted">{description.length}/5,000</span>
             </label>
             {(context.route || context.correlationId) && <p className="text-xs text-muted">Contexto incluido: {context.route ?? 'vista actual'}{context.correlationId ? ` · correlación ${context.correlationId}` : ''}</p>}
-            {error && <ErrorCard title="No se pudo enviar el reporte" message={error} />}
+            {error && <ErrorCard title="No se pudo completar la acción" message={error} />}
             <div className="flex justify-end gap-2"><Button variant="secondary" onClick={onClose} disabled={submitting}>Cancelar</Button><Button variant="primary" type="submit" loading={submitting} loadingLabel="Enviando" disabled={description.trim().length < 10}>Enviar reporte</Button></div>
           </form>
         )}
         <section className="mt-6 border-t border-line pt-4" aria-labelledby="my-incidents-title">
           <h3 id="my-incidents-title" className="text-sm font-semibold text-ink">Mis reportes</h3>
-          {tickets.length === 0 ? <p className="mt-2 text-xs text-muted">Aún no tienes reportes.</p> : (
+          {ticketsLoading ? <p role="status" className="mt-2 text-xs text-muted">Consultando reportes…</p> : ticketsError ? <ErrorCard message={ticketsError} onRetry={() => void refreshTickets()} /> : tickets.length === 0 ? <p className="mt-2 text-xs text-muted">Aún no tienes reportes.</p> : (
             <ul className="mt-3 max-h-64 space-y-3 overflow-y-auto pr-1">
               {tickets.map((ticket) => (
                 <li key={ticket.id} className="rounded-xl border border-line bg-surface-2/60 p-3">
@@ -113,9 +114,8 @@ export function ReportProblemModal({
             </ul>
           )}
         </section>
-        {error && <div className="mt-4"><ErrorCard title="No se pudo completar la acción" message={error} /></div>}
+        {error && ticketId && <div className="mt-4"><ErrorCard title="No se pudo completar la acción" message={error} /></div>}
         <div className="mt-4 flex justify-end"><Button variant="secondary" onClick={onClose}>Cerrar</Button></div>
-      </section>
-    </div>
+    </ModalShell>
   );
 }

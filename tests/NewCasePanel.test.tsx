@@ -172,6 +172,7 @@ function currentHash(): string {
 }
 
 beforeEach(() => {
+  sessionStorage.clear();
   vi.unstubAllGlobals();
   window.location.hash = '';
   // La vista previa local se activa por `?preview=dashboard`: se limpia entre
@@ -291,7 +292,7 @@ describe('NewCasePanel · subida de evidencias', () => {
     await submitCase();
 
     // No navega y el alta NO se presenta como exitosa.
-    const retry = await screen.findByRole('button', { name: /reintentar/i });
+    const retry = await screen.findByRole('button', { name: /reintentar carga/i });
     expect(currentHash()).toBe('');
     expect(screen.getByText(/archivos sin subir/i)).toBeTruthy();
 
@@ -334,7 +335,7 @@ describe('NewCasePanel · subida de evidencias', () => {
     await submitCase();
 
     await waitFor(() => {
-      expect(currentHash()).toBe('#/casos/case-1');
+      expect(currentHash()).toBe('');
     });
     // Solo se envía el nuevo. Los fallidos NO se reintentan por su cuenta: para
     // eso está el botón "Reintentar carga".
@@ -437,7 +438,7 @@ describe('NewCasePanel · subida de evidencias', () => {
     expect(calls.filter((call) => call.url === '/api/cases' && call.method === 'POST')).toHaveLength(1);
   });
 
-  it('2.5 éxito parcial completa el flujo e informa cuáles fallaron sin resubir los exitosos', async () => {
+  it('2.5 éxito parcial conserva el formulario y los fallidos sin resubir los exitosos', async () => {
     const calls = stubApp({
       evidence: (name) =>
         name === 'malo.pdf'
@@ -449,9 +450,10 @@ describe('NewCasePanel · subida de evidencias', () => {
     await selectEvidence('bueno.pdf', 'malo.pdf');
     await submitCase();
 
+    await screen.findByText(/archivos sin subir/i);
     // Al menos una subió: el flujo se completa y navega.
     await waitFor(() => {
-      expect(currentHash()).toBe('#/casos/case-1');
+      expect(currentHash()).toBe('');
     });
     expect(calls.filter((call) => call.url === '/api/cases' && call.method === 'POST')).toHaveLength(1);
     expect(calls.filter((call) => call.url.endsWith('/evidence')).map((call) => call.filename).sort()).toEqual([
@@ -476,12 +478,13 @@ describe('NewCasePanel · subida de evidencias', () => {
     await selectEvidence('bueno.pdf', 'malo.pdf');
     await submitCase();
 
+    await screen.findByText(/archivos sin subir/i);
     // Paso 3.4: con al menos una subida correcta, el alta se completa.
     await waitFor(() => {
-      expect(currentHash()).toBe('#/casos/case-1');
+      expect(currentHash()).toBe('');
     });
     // Y el lote se informa archivo por archivo: el que subió y el que falló.
-    const region = screen.getByRole('status');
+    const region = screen.getAllByRole('status').find((item) => item.textContent?.includes('archivo(s) subidos'))!;
     expect(region.textContent).toContain('1 de 2');
     expect(region.textContent).toContain('malo.pdf');
     // INVARIANTE: un archivo que subió con éxito SALE de la lista. Es lo que
@@ -517,15 +520,14 @@ describe('NewCasePanel · subida de evidencias', () => {
     await selectEvidence('bueno.pdf', 'malo.pdf');
     await submitCase();
 
+    await screen.findByText(/archivos sin subir/i);
     // Un archivo subió: se completa el flujo y se navega (Paso 3.4).
-    await waitFor(() => {
-      expect(currentHash()).toBe('#/casos/case-1');
-    });
+    await screen.findByText(/archivos sin subir/i);
     const uploaded = calls.filter((call) => call.url.endsWith('/evidence')).map((call) => call.filename);
     expect(uploaded).toEqual(['bueno.pdf', 'malo.pdf']);
     expect(calls.filter((call) => call.url === '/api/cases' && call.method === 'POST')).toHaveLength(1);
     // El lote se informa archivo por archivo.
-    const region = screen.getByRole('status');
+    const region = screen.getAllByRole('status').find((item) => item.textContent?.includes('archivo(s) subidos'))!;
     expect(region.textContent).toContain('1 de 2');
     expect(region.textContent).toContain('malo.pdf');
   });

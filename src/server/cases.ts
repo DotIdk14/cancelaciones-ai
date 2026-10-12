@@ -168,13 +168,32 @@ export async function createCase(
   studentIdentifier: string | null,
   studentName: string | null,
   createdBy: string,
+  requestId?: string,
 ): Promise<CaseRow> {
+  const recover = async (): Promise<CaseRow | null> => {
+    if (!requestId) return null;
+    const { data, error } = await client.database.from('cases').select('*').eq('id', requestId).limit(1);
+    if (error) dbError(error);
+    const existing = (data as CaseRow[] | null)?.[0];
+    if (!existing) return null;
+    if (existing.created_by !== createdBy) throw new ApiError(404, 'NOT_FOUND', 'Caso no encontrado');
+    if (existing.student_identifier !== studentIdentifier || existing.student_name !== studentName) {
+      throw new ApiError(409, 'VALIDATION_ERROR', 'Esta solicitud ya creó un expediente con otros datos. Abre el expediente guardado para continuar.');
+    }
+    return existing;
+  };
+  const previous = await recover();
+  if (previous) return previous;
   const { data, error } = await client.database
     .from('cases')
-    .insert([{ status: 'DRAFT', student_identifier: studentIdentifier, student_name: studentName, created_by: createdBy, is_test: false }])
+    .insert([{ ...(requestId ? { id: requestId } : {}), status: 'DRAFT', student_identifier: studentIdentifier, student_name: studentName, created_by: createdBy, is_test: false }])
     .select()
     .single();
-  if (error || !data) dbError(error);
+  if (error || !data) {
+    const concurrent = await recover();
+    if (concurrent) return concurrent;
+    dbError(error);
+  }
   return data as CaseRow;
 }
 
@@ -312,6 +331,19 @@ async function enrichCaseSummaries(
     }
   }
 
+  const areaContext = new Map<string, Array<{ area: string; comment: string }>>();
+  for (let offset = 0; offset < rows.length; offset += 100) {
+    const ids = rows.slice(offset, offset + 100).map((row) => row.id);
+    const { data, error } = await client.database.from('case_area_comments')
+      .select('case_id,area,comment').in('case_id', ids).in('area', ['BACK_OFFICE', 'HELPDESK']);
+    if (error) dbError(error);
+    for (const row of (data ?? []) as Array<{ case_id: string; area: string; comment: string }>) {
+      const group = areaContext.get(row.case_id) ?? [];
+      group.push({ area: row.area, comment: row.comment });
+      areaContext.set(row.case_id, group);
+    }
+  }
+
   const creatorIds = [...new Set(rows.map((row) => row.created_by).filter((id): id is string => Boolean(id)))];
   const creatorRoleById = new Map<string, CaseCreatorRole>();
   for (let offset = 0; offset < creatorIds.length; offset += pageSize) {
@@ -333,7 +365,7 @@ async function enrichCaseSummaries(
     const audit = auditMap.get(row.id) ?? null;
     const auditIsCurrent = audit === null
       ? null
-      : audit.evidence_fingerprint === computeEvidenceFingerprint(evidencesByCase.get(row.id) ?? [], row.cycle_start_date ?? null);
+      : audit.evidence_fingerprint === computeEvidenceFingerprint(evidencesByCase.get(row.id) ?? [], row.cycle_start_date ?? null, areaContext.get(row.id) ?? []);
     return {
       ...row,
       review,
@@ -542,6 +574,8 @@ export async function getEvidenceByIdOr404(client: InsForgeClient, evidenceId: s
 }
 
 export interface InsertEvidenceRow {
+  id?: string;
+  transcript_json?: unknown;
   case_id: string;
   filename: string;
   mime_type: string;
@@ -555,6 +589,23 @@ export async function insertEvidence(client: InsForgeClient, row: InsertEvidence
   const { data, error } = await client.database.from('evidence').insert([row]).select().single();
   if (error || !data) dbError(error, 'UPLOAD_ERROR');
   return data as EvidenceRow;
+}
+
+/** Recupera una solicitud de subida sin modificar ni deduplicar otros originales. */
+export async function evidenceByRequestId(client: InsForgeClient, requestId: string): Promise<EvidenceRow | null> {
+  const { data, error } = await client.database.from('evidence').select('*').eq('id', requestId).limit(1);
+  if (error) dbError(error);
+  return (data as EvidenceRow[] | null)?.[0] ?? null;
+}
+
+/** Solo un reintento puede reclamar una preparación fallida. No toca el original. */
+export async function claimEvidencePreparationRetry(client: InsForgeClient, evidenceId: string): Promise<EvidenceRow | null> {
+  const { data, error } = await client.database.from('evidence').update({
+    processing_status: 'UPLOADED',
+    transcript_json: { status: 'SUBMITTING', submissionDeadlineAt: new Date(Date.now() + 120_000).toISOString() },
+  }).eq('id', evidenceId).eq('processing_status', 'ERROR').select('*');
+  if (error) dbError(error);
+  return (data as EvidenceRow[] | null)?.[0] ?? null;
 }
 
 export async function updateEvidenceStatus(

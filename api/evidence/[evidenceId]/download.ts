@@ -33,5 +33,9 @@ export default handleRoute(async (req, res) => {
   const buffer = Buffer.from(await data.arrayBuffer());
 
   const preview = optionalString(req.query, 'preview') === '1';
-  sendBinary(res, buffer, evidence.mime_type, { inline: preview, filename: evidence.filename });
+  sendBinary(res, buffer, evidence.mime_type, {
+    inline: preview,
+    filename: evidence.filename,
+    ...(typeof req.headers.range === 'string' ? { range: req.headers.range } : {}),
+  });
 });

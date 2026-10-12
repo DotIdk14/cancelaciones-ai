@@ -1,3 +1,5 @@
+import { healStaleAudit } from '../../../src/server/audit-service.js';
+import { listAreaComments } from '../../../src/server/area-comments.js';
 import { z } from 'zod';
 import { ApiError, handleRoute, ok, methodNotAllowed, readJsonBody, requiredUuid } from '../../../src/server/http.js';
 import { createServerClient } from '../../../src/server/insforge.js';
@@ -117,6 +119,7 @@ export default handleRoute(async (req, res) => {
   const caseRow = await getScopedCaseOr404(client, caseId, req.auth!);
   // Refresco acotado de transcripciones para que la UI vea TRANSCRIBING → READY.
   await refreshTranscriptions(client, caseId, 6_000);
+  await healStaleAudit(client, caseId);
   const evidences = await listEvidenceRows(client, caseId);
   const audit = await latestAudit(client, caseId);
   const audits = await listAuditsByCase(client, caseId);
@@ -128,13 +131,14 @@ export default handleRoute(async (req, res) => {
   const review = await getCaseReview(client, caseId);
   const comparisons = await listComparisonsForCase(client, caseId);
   const completedAudit = await latestCompletedAudit(client, caseId);
+  const areaRows = await listAreaComments(client, caseId).catch(() => null);
   const auditIsCurrent = completedAudit === null
     ? null
-    : completedAudit.evidence_fingerprint === computeEvidenceFingerprint(evidences, caseRow.cycle_start_date ?? null);
+    : areaRows !== null && completedAudit.evidence_fingerprint === computeEvidenceFingerprint(evidences, caseRow.cycle_start_date ?? null, areaRows);
 
   ok(res, {
     case: caseToDetail(
-      caseRow,
+      audit?.status === 'COMPLETED' && auditIsCurrent === true && caseRow.status === 'AUDITING' ? { ...caseRow, status: 'COMPLETED' } : caseRow,
       capabilitiesForRole(req.auth!.role).canWriteOwnedCases && caseRow.created_by === req.auth!.sub && review?.coordinator_decision == null,
       capabilitiesForRole(req.auth!.role).canManageCases,
     ),

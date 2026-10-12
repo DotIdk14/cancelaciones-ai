@@ -10,7 +10,7 @@
 // =============================================================================
 
 import type { ReactNode } from 'react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Minus, Plus, RotateCcw } from 'lucide-react';
 import type { Evidence } from '../lib/api';
 import { evidenceDownloadUrl, evidencePreviewUrl } from '../lib/api';
@@ -31,9 +31,10 @@ const EMPTY_TRANSCRIPT_SPEAKERS: NonNullable<Evidence['transcript']>['speakers']
 export interface EvidencePaneProps {
   evidence: Evidence;
   studentName?: string | null;
+  seekRequest?: { seconds: number; requestId: number } | null;
 }
 
-export function EvidencePane({ evidence, studentName }: EvidencePaneProps): ReactNode {
+export function EvidencePane({ evidence, studentName, seekRequest }: EvidencePaneProps): ReactNode {
   const kind = kindFromMime(evidence.mimeType);
   const downloadUrl = evidenceDownloadUrl(evidence.id);
   const previewUrl = evidencePreviewUrl(evidence.id);
@@ -83,16 +84,7 @@ export function EvidencePane({ evidence, studentName }: EvidencePaneProps): Reac
 
         {isAudioMime(evidence.mimeType) && (
           <div className="flex flex-col gap-4">
-            {evidence.transcript !== null ? (
-              <AudioTranscript evidence={evidence} studentName={studentName ?? null} audioUrl={downloadUrl} />
-            ) : (
-              <>
-                <audio controls src={downloadUrl} className="evidence-audio-player">
-                  Tu navegador no puede reproducir este audio. Usa el botón Descargar.
-                </audio>
-                <p className="text-sm text-muted">Este audio todavía no tiene transcripción. Cuando termine de procesarse, aparecerá aquí.</p>
-              </>
-            )}
+            <AudioTranscript key={evidence.id} evidence={evidence} studentName={studentName ?? null} audioUrl={previewUrl} seekRequest={seekRequest} />
           </div>
         )}
 
@@ -129,9 +121,11 @@ function extractGreetingName(text: string): string | null {
   return candidate.length > 1 ? candidate.replace(/\s+/g, ' ') : null;
 }
 
-function AudioTranscript({ evidence, studentName, audioUrl }: { evidence: Evidence; studentName: string | null; audioUrl: string }): ReactNode {
+function AudioTranscript({ evidence, studentName, audioUrl, seekRequest }: { evidence: Evidence; studentName: string | null; audioUrl: string; seekRequest?: EvidencePaneProps['seekRequest'] }): ReactNode {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [currentTime, setCurrentTime] = useState(0);
+  const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const pendingSeek = useRef<number | null>(null);
   const speakers = evidence.transcript?.speakers ?? EMPTY_TRANSCRIPT_SPEAKERS;
   const speakerLabels = useMemo(() => {
     const profiles = new Map<string, { name: string | null; role: string | null }>();
@@ -164,24 +158,44 @@ function AudioTranscript({ evidence, studentName, audioUrl }: { evidence: Eviden
     return profiles;
   }, [speakers, studentName]);
 
-  const activeIndex = speakers.findIndex((segment, index) =>
-    currentTime * 1000 >= segment.start && (index === speakers.length - 1 || currentTime * 1000 < speakers[index + 1]!.start),
+  const activeIndex = speakers.findIndex((segment) =>
+    currentTime * 1000 >= segment.start && currentTime * 1000 < segment.end,
   );
 
-  function seekTo(startMs: number): void {
+  const applyPendingSeek = useCallback((): void => {
     const audio = audioRef.current;
-    if (audio === null) return;
-    audio.currentTime = Math.max(0, startMs / 1000);
-    void audio.play().catch(() => undefined);
-  }
+    const seconds = pendingSeek.current;
+    if (audio === null || seconds === null || audio.readyState < 1) return;
+    try {
+      const target = Number.isFinite(audio.duration) ? Math.min(seconds, audio.duration) : seconds;
+      audio.currentTime = target;
+      setCurrentTime(target);
+      pendingSeek.current = null;
+      setPlaybackError(null);
+      void audio.play().catch(() => setPlaybackError('El audio está en el instante seleccionado. Pulsa Reproducir en el control del audio para escucharlo.'));
+    } catch {
+      setPlaybackError('No se pudo saltar al fragmento. Reintenta cuando el audio termine de cargar.');
+    }
+  }, []);
+
+  const seekTo = useCallback((seconds: number): void => {
+    if (!Number.isFinite(seconds) || seconds < 0) return;
+    pendingSeek.current = seconds;
+    applyPendingSeek();
+  }, [applyPendingSeek]);
+
+  useEffect(() => {
+    if (seekRequest) seekTo(seekRequest.seconds);
+  }, [seekRequest, seekTo]);
 
   const uniqueSpeakers = [...new Set(speakers.map((segment) => segment.speaker))];
 
   return (
     <section className="audio-transcript" aria-label={`Audio y transcripción de ${evidence.filename}`}>
-      <audio ref={audioRef} controls src={audioUrl} className="evidence-audio-player" onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}>
+      <audio ref={audioRef} controls preload="metadata" src={audioUrl} className="evidence-audio-player" onLoadedMetadata={applyPendingSeek} onCanPlay={applyPendingSeek} onError={() => setPlaybackError('No se pudo cargar el audio. Comprueba la conexión y tu sesión; puedes descargar el archivo original.')} onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}>
         Tu navegador no puede reproducir este audio. Usa el botón Descargar.
       </audio>
+      {playbackError && <p role="alert" className="text-sm text-danger">{playbackError}</p>}
       <div className="audio-transcript-heading">
         <div><h3>Transcripción</h3><p>{formatDuration(evidence.transcript?.durationSeconds)} · Selecciona un diálogo para escuchar desde ahí</p></div>
         <span>Los nombres se toman de las presentaciones del audio</span>
@@ -195,7 +209,7 @@ function AudioTranscript({ evidence, studentName, audioUrl }: { evidence: Eviden
             const name = profile?.name;
             return (
               <li key={`${evidence.id}-${index}`}>
-                <button type="button" className="audio-transcript-line" aria-current={activeIndex === index ? 'true' : undefined} onClick={() => seekTo(segment.start)}>
+                <button type="button" className="audio-transcript-line" aria-current={activeIndex === index ? 'true' : undefined} onClick={() => seekTo(segment.start / 1000)}>
                   <span className="audio-transcript-time">{formatDuration(segment.start / 1000)}</span>
                   <span className="audio-transcript-copy">
                     <span className={`audio-transcript-speaker${role === 'Asesor' ? ' is-advisor' : role === 'Cliente' ? ' is-client' : ''}`}>{role}{name ? ` · ${name}` : ''}</span>
@@ -207,7 +221,7 @@ function AudioTranscript({ evidence, studentName, audioUrl }: { evidence: Eviden
           })}
         </ol>
       ) : (
-        <p className="case-transcript-plain">{textOrDash(evidence.transcript?.transcript)}</p>
+        <p className="case-transcript-plain">{evidence.transcript === null ? 'Este audio todavía no tiene transcripción. Cuando termine de procesarse, aparecerá aquí.' : textOrDash(evidence.transcript.transcript)}</p>
       )}
     </section>
   );
