@@ -7,7 +7,7 @@ import { ReportProblemModal } from './ReportProblemModal';
 // =============================================================================
 
 import type { ReactNode } from 'react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { BookOpenCheck, Clock3, FileCheck2, FileText, Paperclip, Search } from 'lucide-react';
 import { deleteEvidence, getAreaComments, getCase, toErrorState, workflowStateOf } from '../lib/api';
 import type { AppRole, AreaComment, CaseDetailResponse, ErrorState, Evidence, SessionSnapshot } from '../lib/api';
@@ -143,6 +143,8 @@ export interface CaseDetailPageProps {
 }
 
 export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases: false, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false, canManageCases: false } }: CaseDetailPageProps): ReactNode {
+  const loadGeneration = useRef(0);
+  const loadedCaseId = useRef(caseId);
   const [progressOpen, setProgressOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [seekRequest, setSeekRequest] = useState<{ seconds: number; requestId: number } | null>(null);
@@ -174,8 +176,10 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
   // ---------------------------------------------------------------- carga
 
   const load = useCallback(async (): Promise<void> => {
+    const generation = loadGeneration.current;
     try {
       const data = await getCase(caseId);
+      if (generation !== loadGeneration.current || loadedCaseId.current !== caseId) return;
       setViewingEvidenceId((currentId) =>
         currentId !== null && data.evidences.some((item) => item.id === currentId)
           ? currentId
@@ -185,18 +189,21 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
       setLoadError(null);
       observeLoadedCase(data);
     } catch (err) {
+      if (generation !== loadGeneration.current || loadedCaseId.current !== caseId) return;
       const state = toErrorState(err);
       // Si el servidor devuelve 401, mostrar mensaje amigable en modo demo.
       const message = state.category === 'AUTH_ERROR' ? AUTH_ERROR_MESSAGE : state.message;
       setLoadError({ category: state.category, message });
     } finally {
-      setLoading(false);
+      if (generation === loadGeneration.current && loadedCaseId.current === caseId) setLoading(false);
     }
   }, [caseId, observeLoadedCase]);
 
   const loadQuickComments = useCallback(async (): Promise<void> => {
+    const generation = loadGeneration.current;
     try {
       const comments = await getAreaComments(caseId);
+      if (generation !== loadGeneration.current || loadedCaseId.current !== caseId) return;
       setQuickComments(comments);
     } catch {
       // Si no se puede consultar, se trata como "no se puede determinar":
@@ -205,6 +212,11 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
   }, [caseId]);
 
   useEffect(() => {
+    loadGeneration.current += 1;
+    loadedCaseId.current = caseId;
+    setSeekRequest(null);
+    setProgressOpen(false);
+    setReportOpen(false);
     setLoading(true);
     setDetail(null);
     setActionError(null);
@@ -218,7 +230,8 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
     setFocusNotesRequest(0);
     void load();
     void loadQuickComments();
-  }, [load, loadQuickComments]);
+    return () => { loadGeneration.current += 1; };
+  }, [caseId, load, loadQuickComments]);
 
   // --------------------------------------------------------------- auditoría
   const maybeRunAudit = useCallback((): void => {
@@ -479,6 +492,7 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
               evidences={evidences}
               activeId={viewingEvidenceId}
               onSelect={(id) => {
+                setSeekRequest(null);
                 setViewingEvidenceId(id);
                 setActiveTab('evidence');
               }}

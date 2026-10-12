@@ -33,6 +33,7 @@ export function useCaseAuditWorkflow({ caseId, setDetail }: UseCaseAuditWorkflow
   const bootstrappedRef = useRef(false);
   const requestInFlight = useRef(false);
   const generation = useRef(0);
+  const recoverLock = useRef(false);
 
   useEffect(() => {
     setAuditPhase('idle');
@@ -42,6 +43,7 @@ export function useCaseAuditWorkflow({ caseId, setDetail }: UseCaseAuditWorkflow
     runningPollsRef.current = 0;
     bootstrappedRef.current = false;
     requestInFlight.current = false;
+    recoverLock.current = false;
     generation.current += 1;
     return () => { generation.current += 1; };
   }, [caseId]);
@@ -94,12 +96,14 @@ export function useCaseAuditWorkflow({ caseId, setDetail }: UseCaseAuditWorkflow
         setAuditPhase('waiting');
         return;
       }
+      let next = response.audit;
       if (response.audit.status !== 'RUNNING') {
         const current = await getCase(caseId);
         if (revision !== generation.current) return;
         setDetail(current);
+        next = current.audit ?? response.audit;
       }
-      applyAudit(response.audit);
+      applyAudit(next);
     } catch (error) {
       if (revision !== generation.current) return;
       setAuditPhase('idle');
@@ -169,7 +173,6 @@ export function useCaseAuditWorkflow({ caseId, setDetail }: UseCaseAuditWorkflow
     }
   }, [caseId, applyAudit, setDetail]);
 
-  const recoverLock = useRef(false);
   const recoverAudit = useCallback(async (): Promise<void> => {
     if (recoverLock.current) return;
     recoverLock.current = true;
@@ -181,7 +184,7 @@ export function useCaseAuditWorkflow({ caseId, setDetail }: UseCaseAuditWorkflow
       if (data.audit?.status === 'RUNNING' || (data.audit?.status === 'COMPLETED' && data.auditIsCurrent !== false)) { applyAudit(data.audit); return; }
       await runAudit();
     } catch (error) { if (revision === generation.current) setAuditError(userFacingError(error)); }
-    finally { recoverLock.current = false; }
+    finally { if (revision === generation.current) recoverLock.current = false; }
   }, [caseId, setDetail, applyAudit, runAudit]);
 
   return {

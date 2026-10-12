@@ -21,7 +21,7 @@
 // =============================================================================
 
 import { createElement } from 'react';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppRole, CaseDetailResponse, Evidence } from '../src/lib/api';
 import { CaseDetailPage } from '../src/components/CaseDetailPage';
@@ -406,4 +406,18 @@ it('la pestaña Dictamen no presenta una evaluación obsoleta como vigente', asy
   expect(screen.getByText('No hay un dictamen vigente')).toBeTruthy();
   expect(screen.queryByText('Dictamen original de IA')).toBeTruthy();
   expect(screen.queryByText('La alumna pidió cancelar dentro del primer mes.')).toBeNull();
+});
+
+
+it('una respuesta lenta del caso anterior no sustituye el expediente abierto después', async () => {
+  let resolveOld!: (value: CaseDetailResponse) => void;
+  const old = makeDetail({ evidences: [makeEvidence({ filename: 'anterior.png' })] });
+  const current = makeDetail({ case: { ...old.case, id: 'case-2' }, evidences: [makeEvidence({ id: 'ev-actual', caseId: 'case-2', filename: 'actual.png' })] });
+  getCase.mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve; })).mockResolvedValue(current);
+  const { rerender } = render(createElement(CaseDetailPage, { caseId: 'case-1', role: 'manager' }));
+  rerender(createElement(CaseDetailPage, { caseId: 'case-2', role: 'manager' }));
+  await screen.findAllByText('actual.png');
+  await act(async () => { resolveOld(old); });
+  expect(screen.getAllByText('actual.png').length).toBeGreaterThan(0);
+  expect(screen.queryByText('anterior.png')).toBeNull();
 });

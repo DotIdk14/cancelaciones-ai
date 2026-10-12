@@ -10,6 +10,22 @@ const detail = { case: { id: 'case-1', status: 'COMPLETED', canWrite: true }, au
 beforeEach(() => { vi.clearAllMocks(); api.getCase.mockResolvedValue(detail); });
 afterEach(cleanup);
 describe('recuperación del flujo de auditoría', () => {
+  it('una recuperación anterior no bloquea ni modifica la ruta nueva', async () => {
+    let resolveOld!: (value: CaseDetailResponse) => void;
+    api.getCase.mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve; }));
+    const next = { ...detail, case: { ...detail.case, id: 'case-2' }, audit: { ...audit, caseId: 'case-2' } };
+    const setDetail = vi.fn();
+    const { result, rerender } = renderHook(({ id }) => useCaseAuditWorkflow({ caseId: id, setDetail }), { initialProps: { id: 'case-1' } });
+    let pending!: Promise<void>;
+    act(() => { pending = result.current.recoverAudit(); });
+    rerender({ id: 'case-2' });
+    api.getCase.mockResolvedValueOnce(next);
+    await act(() => result.current.recoverAudit());
+    await act(async () => { resolveOld(detail); await pending; });
+    expect(api.getCase).toHaveBeenCalledTimes(2);
+    expect(setDetail).toHaveBeenCalledWith(next);
+    expect(setDetail).not.toHaveBeenCalledWith(detail);
+  });
   it('una respuesta perdida consulta primero el estado y no duplica una auditoría completada', async () => {
     const setDetail = vi.fn();
     const { result } = renderHook(() => useCaseAuditWorkflow({ caseId: 'case-1', setDetail }));

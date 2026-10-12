@@ -15,6 +15,7 @@ P0: pérdida/exposición general o servicio inutilizable. P1: operación princip
 | P1 | Respuesta de creación/subida perdida seguida de duplicación. | Alto / media | UUID estable por solicitud y claves primarias existentes; recuperación por actor, archivo/hash y payload. No se sobrescriben originales. Pruebas de replay, identidad ajena y payload incompatible. |
 | P1 | Una carga parcial navegaba y perdía los objetos File de los fallidos. | Alto / media | Permanece el formulario con los fallidos; solo se reenvían esos archivos. Abrir con los guardados es una acción explícita. Pruebas de NewCasePanel. |
 | P1 | Polling ignoraba errores y podía detenerse ante un resultado anterior. | Alto / media | Error visible, consulta segura del estado antes de repetir, exclusión de dictámenes obsoletos, límites de espera, bloqueo de doble pulsación y protección contra respuestas de otra ruta. Pruebas `audit-recovery`. |
+| P1 | Una lectura lenta podía reemplazar el caso abierto después y trasladar una referencia de audio. | Alto / media al navegar | Generación de carga, comprobación de caso y reinicio de referencias/ventanas al cambiar de ruta. Regresión con respuesta fuera de orden. |
 | P1 | Finalizar la auditoría actualizaba solo `detail.audit`, dejando estado, historial y permisos viejos. | Alto / alta | Se recarga el expediente completo al alcanzar estado terminal. |
 | P1 | Pestaña Dictamen mostraba una auditoría vieja aunque `auditIsCurrent` fuera falso. | Alto / alta al añadir evidencia | Se bloquea la presentación vigente y se conserva la consulta histórica. Regresión de CaseDetailWorkspace. |
 | P1 | Fallo al proyectar COMPLETED borraba un assessment ya persistido y lo convertía en ERROR. | Alto / baja | El resultado durable se conserva; la proyección es secundaria, el fallo se registra y el DTO refleja el estado terminal vigente. Regresiones de evidence-status y case-freshness. |
@@ -70,7 +71,7 @@ No se requieren cambios de esquema: se usan claves UUID, JSONB y tablas de incid
 
 - `npm run lint`: secretos, contraste, ESLint y typecheck correctos.
 - `npm run test:contract`: 102 pruebas correctas.
-- `npm test`: 1,076 correctas y 3 live omitidas; 74 archivos correctos y 1 omitido.
+- `npm test`: 1,078 correctas y 3 live omitidas; 74 archivos correctos y 1 omitido.
 - `npm run build`: correcto; hash routing y lazy loading conservados.
 - Detector Impeccable sobre los seis componentes de UI: sin hallazgos.
 - `npm audit --omit=dev`: 0 vulnerabilidades; auditoría completa de tooling: 23, pendientes arriba.
