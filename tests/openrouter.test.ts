@@ -5,6 +5,8 @@ import { invalidEvidenceReference } from '../src/skills/audit/execute';
 import { ApiError } from '../src/server/http';
 import { setTestEnv } from './helpers/env';
 import { validAuditResult } from './fixtures/audit-result';
+import { parseAiAuditAssessment } from '../src/skills/audit/schema';
+import { ASSESSMENT_VALIDATION_CHECKLIST } from '../src/skills/audit/instructions';
 
 vi.mock('../src/server/ai/model-capabilities', () => ({
   getModelCapabilities: vi.fn(async (modelId: string) => ({
@@ -553,6 +555,40 @@ describe('callOpenRouterAudit', () => {
     expect(text).toContain('SCHEMA_VALIDATION_ERROR');
     expect(text).toContain('audit.provisionalResolution');
     expect(text).toContain('solo aplica a EVIDENCIA_INSUFICIENTE');
+  });
+
+  it('corrige una salida con ambos fallos del incidente sin perder la trazabilidad temporal', async () => {
+    const { model: _model, usage: _usage, ...assessment } = structuredClone(validAuditResult);
+    const invalid = structuredClone(assessment);
+    invalid.facts = invalid.facts.filter((fact) => fact.key !== 'cycle_start_date');
+    const check = invalid.audit.procedureChecks[0];
+    if (!check) throw new Error('Fixture requires a procedure check');
+    check.status = 'NO_ACREDITADO';
+    check.evidenceIds = [];
+    check.observedValues = [];
+    const bodies: Array<Record<string, unknown>> = [];
+    fetchMock.mockImplementation(async (_url: unknown, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return completionResponse({ parsed: bodies.length === 1 ? invalid : assessment });
+    });
+
+    const result = await callOpenRouterAudit({
+      system: 's',
+      parts: [{ type: 'text', text: 'expediente sintético' }],
+      validationChecklist: ASSESSMENT_VALIDATION_CHECKLIST,
+      validate: (parsed) => { parseAiAuditAssessment(parsed); },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.attempts[0]?.path).toBe('audit.procedureChecks.0.status');
+    const turns = bodies[1]?.messages as Array<{ content: Array<{ text: string }> }>;
+    const feedback = turns.at(-1)?.content[0]?.text ?? '';
+    expect(feedback).toContain('NO_ACREDITADO exige evidencia');
+    expect(feedback).toContain(ASSESSMENT_VALIDATION_CHECKLIST);
+    expect(feedback).toContain('cycle_start_date');
+    expect(feedback).toContain('NO_DETERMINABLE');
+    expect(parseAiAuditAssessment(result.parsed).facts.find((fact) => fact.key === 'cycle_start_date')?.value)
+      .toBe(assessment.temporalAnalysis.cycleStartDate);
   });
 
   it('el feedback del segundo intento lleva la fecha de inicio aportada por el equipo', async () => {

@@ -4,8 +4,8 @@
 // Único módulo que habla con OpenRouter. Hay un máximo de dos llamadas reales:
 // un 400 de json_schema cambia a json_object; fallos transitorios usan retry o
 // fallback sin repetir una llamada determinista; y una salida que el validador
-// LOCAL rechaza se reintenta en el modelo de respaldo con feedback correctivo
-// (ver `resolveSecondAttemptRoute`). Zod sigue siendo autoridad.
+// LOCAL rechaza se reintenta con el mismo modelo y formato estricto, con
+// feedback correctivo. Zod sigue siendo autoridad.
 // =============================================================================
 
 import { AiAuditAssessmentSchema } from '../skills/audit/schema.js';
@@ -30,6 +30,8 @@ export interface CallOpenRouterAuditInput {
   deadlineMs?: number;
   /** Validador semántico/Zod aplicado localmente antes de aceptar la respuesta. */
   validate?: (parsed: unknown) => void;
+  /** Invariantes del contrato que se recuerdan al corregir una salida inválida. */
+  validationChecklist?: string;
   /**
    * Contrato de salida del modelo (structured output / json_object).
    * Por defecto, el assessment de auditoría. La comparación IA↔humana pasa su
@@ -208,7 +210,7 @@ function sanitizeValidationDetail(message: string): string {
  * diferencia sería el formato — insuficiente frente a un fallo cuyo origen es
  * una combinación de campos.
  */
-function buildCorrectiveFeedback(category: AttemptFailureCategory, validation: { detail: string; path: string }): string {
+function buildCorrectiveFeedback(category: AttemptFailureCategory, validation: { detail: string; path: string }, checklist?: string): string {
   const detail = sanitizeValidationDetail(validation.detail);
   return [
     '## Corrección requerida: tu respuesta anterior fue rechazada',
@@ -221,6 +223,7 @@ function buildCorrectiveFeedback(category: AttemptFailureCategory, validation: {
     'Reemite el objeto JSON COMPLETO con la misma estructura, corrigiendo exactamente ese punto.',
     'Algunas reglas del contrato son invariantes ENTRE campos y ningún formato de salida puede garantizarlas: revísalas tú mismo antes de responder.',
     'No inventes datos ni cites evidencia que no aparezca en el expediente.',
+    ...(checklist ? ['', checklist] : []),
   ].join('\n');
 }
 
@@ -655,7 +658,7 @@ export async function callOpenRouterAudit(
           // por aquí: no dice nada del contenido, y el comportamiento histórico
           // (mismo modelo, siguiente formato) se conserva intacto.
           if (MODEL_OUTPUT_VALIDATION_FAILURES.has(finalFailure) && error.validation) {
-            correctiveFeedback ??= buildCorrectiveFeedback(finalFailure, error.validation);
+            correctiveFeedback ??= buildCorrectiveFeedback(finalFailure, error.validation, input.validationChecklist);
             // `continue` reintenta el MISMO formato con el feedback pendiente;
             // las guardas `tryNumber < 2` y `attemptsMade < 2` lo acotan a una
             // única llamada extra.

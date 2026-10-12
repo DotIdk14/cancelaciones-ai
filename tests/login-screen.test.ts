@@ -39,9 +39,8 @@ describe('pantalla de login solo con Google', () => {
   it('deja explícito que el dominio institucional es requisito', () => {
     render(createElement(LoginScreen));
 
-    const note = screen.getByText(/@utel\.edu\.mx/).textContent ?? '';
-    expect(note).toContain('@utel.edu.mx');
-    expect(note).toContain('@s4learning.com');
+    expect(screen.getByText('@utel.edu.mx')).toBeDefined();
+    expect(screen.getByText('@s4learning.com')).toBeDefined();
   });
 });
 

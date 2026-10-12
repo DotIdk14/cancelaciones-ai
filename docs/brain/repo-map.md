@@ -1,9 +1,9 @@
 Detected dumb terminal, disabling fancy input and pretty output.
 
-Using openrouter/anthropic/claude-sonnet-4 model with API key from environment.
+Using openrouter/deepseek/deepseek-r1:free model with API key from environment.
 Aider v0.86.2
-Main model: openrouter/anthropic/claude-sonnet-4 with diff edit format
-Weak model: openrouter/anthropic/claude-3-5-haiku
+Model: openrouter/deepseek/deepseek-r1:free with diff edit format, prompt 
+cache, infinite output
 Git repo: .git with 284 files
 Repo-map: using 4096 tokens, auto refresh
 Here are summaries of some files present in my git repository.

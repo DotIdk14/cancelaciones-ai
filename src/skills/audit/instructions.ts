@@ -18,6 +18,16 @@ import { wrapUntrustedInline } from '../sanitize.js';
 // =============================================================================
 
 const ALLOWED_RESULTS = AUDIT_RESULTS.join(' | ');
+
+/** Invariantes de salida compartidas por el prompt y el reintento correctivo. */
+export const ASSESSMENT_VALIDATION_CHECKLIST = `
+## Comprobación del assessment completo antes de emitirlo
+
+- Revisa TODOS los procedureChecks: ACREDITADO y NO_ACREDITADO exigen evidenceIds y observedValues no vacíos. NO_ACREDITADO significa que los registros citados y sus valores observados sustentan el incumplimiento o la ausencia. Si solo falta información para comprobarlo, usa NO_DETERMINABLE; nunca inventes registros, IDs ni conteos para rellenar el contrato.
+- Si temporalAnalysis.cycleStartDate tiene una fecha, incluye además en facts un hecho con key "${CYCLE_START_FACT_KEY}", value exactamente igual a esa fecha ISO, evidenceIds, evidenceText y confidence menor que 1. La cita debe acreditar el inicio académico. Si usas la fecha aportada por el equipo, los IDs de ese hecho y de cycleStartEvidenceIds quedan vacíos y ambas citas declaran el origen humano.
+- La propiedad llamada cycleStartDate pertenece solo a temporalAnalysis en la respuesta del modelo; facts representa la misma fecha mediante key "${CYCLE_START_FACT_KEY}" y value. Ese hecho es obligatorio y no es una propiedad extra del contrato.
+- Corrige el assessment COMPLETO: una corrección en procedureChecks no permite omitir hechos, citas, referencias ni el análisis temporal requerido.
+`.trim();
 const ALLOWED_RELATIONS = TEMPORAL_RELATIONS.join(' | ');
 
 /** Reglas de conteo y bloqueo de la sección 5.2 cuando la ruta las requiere. */
@@ -338,9 +348,11 @@ ${ALLOWED_RELATIONS}
 
 La respuesta DEBE ser un único objeto JSON válido que cumpla EXACTAMENTE el contrato de salida que se entrega mediante structured output o que se adjunta explícitamente cuando se solicita json_object. No agregues campos fuera del contrato, ni texto fuera del JSON. Cuando una métrica no esté disponible usa null; nunca inventes métricas.
 
-La fecha de inicio de ciclo va ÚNICAMENTE en temporalAnalysis.cycleStartDate, con su evidencia y su cita. No la repitas en ningún otro bloque: el contrato no admite esa clave y una repetición hace inválida toda la respuesta.
+La propiedad cycleStartDate va ÚNICAMENTE en temporalAnalysis, con su evidencia y su cita. No agregues esa propiedad a case ni a otros objetos. Esto NO elimina el hecho obligatorio en facts: representa la misma fecha con key "${CYCLE_START_FACT_KEY}" y value igual a temporalAnalysis.cycleStartDate.
 
 Excepción única y ya explicada: si el expediente trae "Fecha de inicio de ciclo aportada por el equipo", esa fecha puede sustentar temporalAnalysis.cycleStartDate con cycleStartEvidenceIds vacío y cycleStartEvidenceText declarando el origen humano; el fact "${CYCLE_START_FACT_KEY}" sigue siendo obligatorio, con confidence menor que 1.
+
+${ASSESSMENT_VALIDATION_CHECKLIST}
 
 ## Eficiencia de salida
 
