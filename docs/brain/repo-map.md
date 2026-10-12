@@ -4,7 +4,7 @@ Using openrouter/deepseek/deepseek-r1:free model with API key from environment.
 Aider v0.86.2
 Model: openrouter/deepseek/deepseek-r1:free with diff edit format, prompt 
 cache, infinite output
-Git repo: .git with 284 files
+Git repo: .git with 291 files
 Repo-map: using 4096 tokens, auto refresh
 Here are summaries of some files present in my git repository.
 Do not propose changes to these files, treat them as *read-only*.
@@ -121,6 +121,25 @@ src\components\ErrorBoundary.tsx:
 │  error: Error | null;
 ⋮
 
+src\components\EvidenceReferences.tsx:
+⋮
+│export function referencedSeconds(text: string): Array<{ label: string; 
+seconds: number }> {
+│  return 
+Array.from(text.matchAll(/(?<![\d:])(\d{1,2}:\d{2}(?::\d{2})?)(?![\d:])/g)).fla
+tMap((match
+│    const label = match[1]!;
+│    const parts = label.split(':').map(Number);
+│    if (parts.slice(1).some((value) => value > 59)) return [];
+│    return [{ label, seconds: parts.reduce((total, value) => total * 60 + 
+value, 0) }];
+│  });
+│}
+│export function EvidenceReferences({ text, evidenceIds, evidences, onOpen }: {
+│  text: string; evidenceIds: string[]; evidences: Evidence[];
+│  onOpen: (id: string, seconds: number | null) => void;
+⋮
+
 src\components\EvidenceUploader.tsx:
 ⋮
 │export interface EvidenceUploaderProps {
@@ -154,6 +173,23 @@ src\components\NewCasePanel.tsx:
 │  status: 'pending' | 'uploading' | 'error';
 │  message?: string;
 │  category?: string;
+⋮
+
+src\components\OperationProgressDialog.tsx:
+⋮
+│export function ModalShell({ title, onClose, children }: { title: string; 
+onClose: () => void; chil
+│  const ref = useRef<HTMLDialogElement>(null);
+│  const titleId = useId();
+│  useEffect(() => {
+│    const dialog = ref.current;
+│    const previous = document.activeElement as HTMLElement | null;
+│    if (dialog && typeof dialog.showModal === 'function') dialog.showModal();
+│    else dialog?.setAttribute('open', '');
+│    return () => { dialog?.close?.(); previous?.focus(); };
+│  }, []);
+│  return <dialog ref={ref} aria-labelledby={titleId} onCancel={(event) => { 
+event.preventDefault();
 ⋮
 
 src\components\PdfCanvas.tsx:
@@ -443,11 +479,6 @@ src\lib\dashboard-shared.ts:
 │  result: string | null;
 │  status: string | null;
 ⋮
-│export type ExecutionOutcome =
-│  | 'SUCCESS_FIRST_ATTEMPT'
-│  | 'SUCCESS_AFTER_RETRY'
-│  | 'SUCCESS_WITH_FALLBACK'
-⋮
 
 src\lib\dashboard.ts:
 ⋮
@@ -636,23 +667,6 @@ src\server\dashboard-costs.ts:
 │
 ⋮
 
-src\server\dashboard-utils.ts:
-⋮
-│export function utcDayBucket(iso: string): string {
-│  const ms = Date.parse(iso);
-│  if (Number.isNaN(ms)) return iso.slice(0, 10);
-│  return new Date(ms).toISOString().slice(0, 10);
-⋮
-│export function percentage(part: number, total: number): number {
-│  if (total <= 0) return 0;
-│  const value = (part / total) * 100;
-│  if (!Number.isFinite(value)) return 0;
-│  return Math.round(value * 10) / 10;
-⋮
-│export function round3(value: number): number {
-│  return Math.round(value * 1000) / 1000;
-⋮
-
 src\server\derived.ts:
 ⋮
 │export interface DerivedExtractionCarrier {
@@ -735,9 +749,6 @@ tests). */
 │  correlationId?: string;
 ⋮
 │export type ApiResponse = ServerResponse;
-│
-│export type ApiHandler = (req: ApiRequest, res: ApiResponse) => Promise<void> 
-| void;
 │
 ⋮
 │export interface CookieOptions {

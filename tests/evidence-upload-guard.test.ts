@@ -121,6 +121,17 @@ beforeEach(() => {
 });
 
 describe('carga · validaciones que impiden tocar Storage', () => {
+  it.each([
+    ['image/jpeg', 'image/png', Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])],
+    ['image/png', 'image/jpeg', Buffer.from([0xff, 0xd8, 0xff, 0xe0])],
+    ['image/jpg', 'image/jpeg', Buffer.from([0xff, 0xd8, 0xff, 0xe0])],
+  ])('corrige %s por firma real %s antes de guardar', async (declared, expected, bytes) => {
+    const res = await upload(bytes, declared, 'Captura.JPG');
+    expect(res.statusCode).toBe(201);
+    expect(insertEvidence).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ mime_type: expected, filename: 'Captura.JPG' }));
+    expect(uploadSpy).toHaveBeenCalledTimes(1);
+  });
+
   it('415 y nada subido cuando la firma no corresponde al tipo declarado', async () => {
     const res = await upload(EXE, 'image/png', 'captura.png');
 

@@ -10,6 +10,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { uploadEvidence } from '../src/lib/api';
 import {
   detectEvidenceMime,
+  readEvidenceHead,
   EVIDENCE_MIME_ALLOWLIST,
   resolveEvidenceMime,
 } from '../src/shared/evidence-formats';
@@ -250,7 +251,9 @@ describe('uploadEvidence declara el MIME real detectado', () => {
     ];
     expect(options?.headers?.['content-type']).toBe('image/jpeg');
     expect(options?.headers?.['x-file-name']).toBe(encodeURIComponent('captura.png'));
-    expect(options?.body).toBe(file);
+    expect(options?.body).not.toBe(file);
+    expect(await readEvidenceHead(options?.body as File)).toEqual(JPEG_BYTES);
+    expect((options?.body as File).name).toBe(file.name);
 
     vi.unstubAllGlobals();
   });

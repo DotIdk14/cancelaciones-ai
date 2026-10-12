@@ -22,7 +22,7 @@ import {
   REVIEW_COMMENT_MAX,
   REVIEW_COMMENT_MIN,
 } from '../skills/review/types.js';
-import { EVIDENCE_MIME_ALLOWLIST } from '../shared/evidence-formats.js';
+import { canonicalEvidenceMime, EVIDENCE_MIME_ALLOWLIST } from '../shared/evidence-formats.js';
 import type { Tone } from '../components/ui';
 
 // -----------------------------------------------------------------------------
@@ -326,7 +326,7 @@ export const EVIDENCE_KIND_LABELS: Record<EvidenceKind, string> = {
  * (p. ej. BMP, TIFF, FLAC, SVG), generando un mismatch entre UX y validación.
  */
 export const EVIDENCE_ACCEPT =
-  '.png,.jpg,.jpeg,.webp,.gif,.pdf,.mp3,.wav,.m4a,.ogg,.webm,.txt,' +
+  '.png,.jpg,.jpeg,.jpe,.jfif,.webp,.gif,.pdf,.mp3,.wav,.m4a,.ogg,.webm,.txt,.csv,.md,.json,.log,' +
   'image/png,image/jpeg,image/webp,image/gif,' +
   'application/pdf,' +
   'audio/mpeg,audio/mp3,audio/wav,audio/mp4,audio/x-m4a,audio/m4a,audio/webm,audio/ogg,' +
@@ -346,12 +346,12 @@ const EVIDENCE_ACCEPT_MIMES = EVIDENCE_MIME_ALLOWLIST;
 
 /** Mensaje mostrado cuando el usuario selecciona un formato no soportado. */
 export const EVIDENCE_TYPE_REJECTED_MESSAGE =
-  'Formato no soportado. Usa PNG, JPG, WEBP, GIF, PDF, MP3, WAV, M4A, OGG o TXT.';
+  'Formato no soportado. Usa PNG, JPG, WEBP, GIF, PDF, MP3, WAV, M4A, OGG, WEBM o texto (TXT, CSV, MD, JSON, LOG).';
 
 /** Indica si un MIME reportado por el browser está en la allowlist del servidor. */
 export function isAcceptedEvidenceMime(mimeType: string | null | undefined): boolean {
   if (typeof mimeType !== 'string' || mimeType === '') return false;
-  return EVIDENCE_ACCEPT_MIMES.has(mimeType.toLowerCase().split(';')[0]?.trim() ?? '');
+  return EVIDENCE_ACCEPT_MIMES.has(canonicalEvidenceMime(mimeType));
 }
 
 /** Etiqueta para un dato de origen que el modelo no pudo determinar. */
