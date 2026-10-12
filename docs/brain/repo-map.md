@@ -4,7 +4,7 @@ Using openrouter/anthropic/claude-sonnet-4 model with API key from environment.
 Aider v0.86.2
 Main model: openrouter/anthropic/claude-sonnet-4 with diff edit format
 Weak model: openrouter/anthropic/claude-3-5-haiku
-Git repo: .git with 278 files
+Git repo: .git with 284 files
 Repo-map: using 4096 tokens, auto refresh
 Here are summaries of some files present in my git repository.
 Do not propose changes to these files, treat them as *read-only*.
@@ -639,10 +639,6 @@ src\server\dashboard-utils.ts:
 │  if (Number.isNaN(ms)) return iso.slice(0, 10);
 │  return new Date(ms).toISOString().slice(0, 10);
 ⋮
-│export function millisOf(iso: string): number {
-│  const ms = Date.parse(iso);
-│  return Number.isNaN(ms) ? 0 : ms;
-⋮
 │export function percentage(part: number, total: number): number {
 │  if (total <= 0) return 0;
 │  const value = (part / total) * 100;
@@ -734,6 +730,9 @@ tests). */
 ⋮
 │export type ApiResponse = ServerResponse;
 │
+│export type ApiHandler = (req: ApiRequest, res: ApiResponse) => Promise<void> 
+| void;
+│
 ⋮
 │export interface CookieOptions {
 │  maxAgeSeconds: number;
@@ -743,18 +742,10 @@ tests). */
 │  path?: string;
 ⋮
 
-src\server\openrouter.ts:
+src\server\incidents.ts:
 ⋮
-│export interface OpenRouterAttemptDiagnostic {
-│  model: string;
-│  format: 'json_schema' | 'json_object' | 'capability';
-│  status: number | null;
-│  providerErrorType: string | null;
-│  finishReason: string | null;
-│  latencyMs: number;
-│  promptTokens: number | null;
-│  completionTokens: number | null;
-│  totalTokens: number | null;
+│export type IncidentModule = (typeof INCIDENT_MODULES)[number];
+│
 ⋮
 
 src\server\pdf.ts:

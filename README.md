@@ -500,9 +500,9 @@ un callback sin verifier es `400` y no toca el proveedor de identidad.
 
 Antes de abrir sesión, el callback valida en este orden y falla cerrado:
 
-1. **Dominio** — `isAllowedEmail` exige `<cuenta>@utel.edu.mx` exacto. Se evalúa
-   contra el `user.email` que devuelve InsForge (verificado por Google), nunca
-   contra nada del navegador.
+1. **Dominio** — `isAllowedEmail` exige `<cuenta>@utel.edu.mx` o
+   `<cuenta>@s4learning.com` exactos. Se evalúa contra el `user.email` que
+   devuelve InsForge (verificado por Google), nunca contra nada del navegador.
 2. **Verificación** — `emailVerified` debe ser `true`.
 3. **Autorización** — fila en `app_memberships`. El dominio **no** es permiso:
    un correo institucional sin fila recibe `sin_acceso`.
@@ -515,9 +515,9 @@ Los destinos de retorno se declaran en `insforge.toml` (`allowed_redirect_urls`)
 y deben coincidir con `oauthCallbackUrl()`. Si la lista no incluye el
 `APP_URL` activo, Google no vuelve a la app.
 
-### Cambiar el dominio admitido
+### Cambiar los dominios admitidos
 
-`ALLOWED_EMAIL_DOMAIN` en `src/server/auth.ts`. Requiere desplegar y **no**
+`ALLOWED_EMAIL_DOMAINS` en `src/server/auth.ts`. Requiere desplegar y **no**
 cambia quién tiene acceso: el filtro es una condición necesaria, no suficiente.
 
 ---

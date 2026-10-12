@@ -299,8 +299,14 @@ describe('G2 · PKCE: el verifier viaja en cookie httpOnly y se borra al canjear
   });
 });
 
-describe('G3 · solo entra el dominio @utel.edu.mx', () => {
-  it.each([['alumno@utel.edu.mx'], ['Jefe@UTEL.EDU.MX'], ['coordinacion@utel.edu.mx']])(
+describe('G3 · solo entran los dominios institucionales permitidos', () => {
+  it.each([
+    ['alumno@utel.edu.mx'],
+    ['Jefe@UTEL.EDU.MX'],
+    ['coordinacion@utel.edu.mx'],
+    ['agente@s4learning.com'],
+    ['COORDINADOR@S4LEARNING.COM'],
+  ])(
     '%s abre sesión',
     async (email) => {
       const { res } = await attemptLogin(email);
@@ -313,6 +319,9 @@ describe('G3 · solo entra el dominio @utel.edu.mx', () => {
   it.each([
     ['alumno@utel.edu.uy', 'mismo prefijo, dominio distinto'],
     ['alumno@utel.edu.mx.evil.com', 'sufijo agregado'],
+    ['alumno@s4learning.com.evil.com', 'sufijo agregado al segundo dominio'],
+    ['s4learning.com', 'el dominio solo, sin cuenta'],
+    ['@s4learning.com', 'parte local vacía en el segundo dominio'],
     ['utel.edu.mx', 'el dominio solo, sin cuenta'],
     ['alumno@gmail.com', 'dominio personal'],
     ['notutel.edu.mx@evil.com', 'el dominio aparece en el local'],
@@ -331,6 +340,11 @@ describe('G3 · solo entra el dominio @utel.edu.mx', () => {
 
   it('el filtro no depende de las mayúsculas que devuelva el proveedor', async () => {
     const { res } = await attemptLogin('  ALUMNO@UTEL.EDU.MX  ');
+    expect(locations(res)).toContain(`${APP_URL}/`);
+  });
+
+  it('normaliza mayúsculas y espacios para @s4learning.com', async () => {
+    const { res } = await attemptLogin('  AGENTE@S4LEARNING.COM  ');
     expect(locations(res)).toContain(`${APP_URL}/`);
   });
 
@@ -373,6 +387,17 @@ describe('G3 · solo entra el dominio @utel.edu.mx', () => {
 describe('G4 · el dominio NO es autorización: sin membership sigue cerrado', () => {
   it('un @utel.edu.mx sin fila en app_memberships NO abre sesión', async () => {
     const { res, calls } = await attemptLogin('alumno@utel.edu.mx', {
+      data: null,
+      error: { statusCode: 404, message: 'no rows' },
+    });
+
+    expect(locations(res)).toContain(`${APP_URL}/?authError=sin_acceso`);
+    expect(setCookieHeader(res)).not.toContain(ACCESS_COOKIE);
+    expect(calls.signOut).toBe(1);
+  });
+
+  it('un correo de dominio admitido sin fila en app_memberships NO abre sesión', async () => {
+    const { res, calls } = await attemptLogin('agente@s4learning.com', {
       data: null,
       error: { statusCode: 404, message: 'no rows' },
     });

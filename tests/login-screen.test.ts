@@ -39,16 +39,19 @@ describe('pantalla de login solo con Google', () => {
   it('deja explícito que el dominio institucional es requisito', () => {
     render(createElement(LoginScreen));
 
-    expect(screen.getByText(/@utel\.edu\.mx/).textContent).toContain('@utel.edu.mx');
+    const note = screen.getByText(/@utel\.edu\.mx/).textContent ?? '';
+    expect(note).toContain('@utel.edu.mx');
+    expect(note).toContain('@s4learning.com');
   });
 });
 
 describe('avisos de rechazo del login', () => {
   it('muestra el motivo que devuelve el callback', () => {
-    render(createElement(LoginScreen, { authError: 'Solo se admiten correos de la UTEL (@utel.edu.mx).' }));
+    render(createElement(LoginScreen, { authError: 'Solo se admiten correos de @utel.edu.mx o @s4learning.com.' }));
 
     const alert = screen.getByRole('alert');
     expect(alert.textContent).toContain('@utel.edu.mx');
+    expect(alert.textContent).toContain('@s4learning.com');
   });
 
   it('el aviso es anunciable por lectores de pantalla (aria-live)', () => {

@@ -251,10 +251,11 @@ export interface SessionResult {
  * reemplaza la autorización: un dominio válido sin fila en `app_memberships`
  * sigue recibiendo 403 (`NO_SIGNUP`).
  */
-export const ALLOWED_EMAIL_DOMAIN = 'utel.edu.mx';
+export const ALLOWED_EMAIL_DOMAINS = ['utel.edu.mx', 's4learning.com'] as const;
 
 /**
- * `true` solo si el correo es exactamente `<cuenta>@utel.edu.mx`.
+ * `true` solo si el correo es exactamente `<cuenta>@` uno de los dominios
+ * institucionales permitidos.
  *
  * No se usa `endsWith` a secas: aceptaría `utel.edu.mx` a secas (sin cuenta),
  * `alumno@utel.edu.mx.evil.com` y `notutel.edu.mx@evil.com`. Se exige
@@ -266,7 +267,10 @@ export function isAllowedEmail(email: string): boolean {
   // Defaults explícitos: con `noUncheckedIndexedAccess` el destructuring de un
   // array devuelve `string | undefined` aunque el length ya esté comprobado.
   const [local = '', domain = ''] = parts;
-  return local.length > 0 && domain === ALLOWED_EMAIL_DOMAIN;
+  return (
+    local.length > 0 &&
+    ALLOWED_EMAIL_DOMAINS.some((allowedDomain) => domain === allowedDomain)
+  );
 }
 
 /** Cookie propia que transporta el `codeVerifier` de PKCE entre el inicio y el callback. */

@@ -39,7 +39,7 @@ export type AuthErrorReason =
   | 'fallo';
 
 const AUTH_ERROR_MESSAGES: Record<AuthErrorReason, string> = {
-  dominio: 'Solo se admiten correos de la UTEL (@utel.edu.mx).',
+  dominio: 'Solo se admiten correos de @utel.edu.mx o @s4learning.com.',
   no_verificado: 'Google no confirmó que tu correo esté verificado.',
   sin_acceso: 'Tu correo es válido pero no tienes acceso a esta aplicación. Solicítalo al responsable.',
   expirado: 'El inicio de sesión tardó demasiado o el navegador descartó la cookie del proceso. Vuelve a intentarlo.',

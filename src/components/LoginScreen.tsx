@@ -64,7 +64,7 @@ export function LoginScreen({ authError = null, sessionExpired = false }: LoginS
           </Button>
 
           <p className="login-access-note">
-            Solo se admiten correos de la UTEL (<span>@utel.edu.mx</span>) con autorización activa.
+            Solo se admiten correos de <span>@utel.edu.mx</span> o <span>@s4learning.com</span> con autorización activa.
           </p>
         </section>
       </div>

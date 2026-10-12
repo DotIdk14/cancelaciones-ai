@@ -35,7 +35,7 @@ Vercel Functions (frontera server-side)   ← TODA la validación ocurre aquí
 | Inicio y canje | 100 % server-side. El navegador nunca habla con Google ni con InsForge |
 | `codeVerifier` | Cookie `HttpOnly` propia, 10 min. Se borra al canjear, también en el camino feliz |
 | Callback sin verifier | `400` — no se toca el proveedor de identidad (fail-closed) |
-| Dominio de correo | `isAllowedEmail`: `<cuenta>@utel.edu.mx` **exacto**, sobre el email que devuelve InsForge |
+| Dominio de correo | `isAllowedEmail`: `<cuenta>@utel.edu.mx` o `<cuenta>@s4learning.com` **exactos**, sobre el email que devuelve InsForge |
 | Rechazo del login | Cierra la sesión en InsForge, borra el verifier y **no** escribe cookie de sesión |
 | Transporte | Cookies `HttpOnly; Secure; SameSite=Lax; Path=/` |
 | Access token | **Nunca** se decodifica en el servidor. `auth.getCurrentUser()` contra InsForge |
@@ -47,9 +47,9 @@ Vercel Functions (frontera server-side)   ← TODA la validación ocurre aquí
 
 ### El dominio NO es autorización
 
-El filtro `@utel.edu.mx` es una **condición necesaria, no suficiente**. Google no
+Los filtros `@utel.edu.mx` y `@s4learning.com` son **condiciones necesarias, no suficientes**. Google no
 garantiza que un correo sea institucional solo porque termina en el dominio, así
-que un dominio válido sin fila en `app_memberships` recibe `403` igual
+que un correo de esos dominios sin fila en `app_memberships` recibe `403` igual
 (`sin_acceso`). El orden en `completeGoogleOAuth` es deliberado y fail-closed:
 dominio → `emailVerified` → membership.
 
