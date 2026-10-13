@@ -1,4 +1,5 @@
 import ExcelJS from 'exceljs';
+import { classifyFlokzu, type FlokzuClassification } from '../shared/flokzu-review.js';
 import { ApiError } from './errors.js';
 
 export const FLOKZU_MAX_FILE_BYTES = 4 * 1024 * 1024;
@@ -43,6 +44,7 @@ export interface FlokzuCaseData {
     requesterReported: string | null;
     requesterArea: string | null;
   };
+  administrativeComments?: Array<{ label: string; value: string }>;
   evidenceReferences: FlokzuEvidenceReference[];
 }
 
@@ -59,6 +61,9 @@ export interface ParsedFlokzuRow {
   studentName: string;
   flokzuData: Omit<FlokzuCaseData, 'externalCaseId' | 'studentIdentifier' | 'studentName'>;
   eligibleForAuditAssignment: boolean;
+  classification: FlokzuClassification;
+  classificationReason: string;
+  discrepancy: boolean;
 }
 
 export interface ParsedFlokzuWorkbook {
@@ -343,9 +348,14 @@ export async function parseFlokzuWorkbook(buffer: Buffer): Promise<ParsedFlokzuW
           requesterReported: readText(row, 'requester'),
           requesterArea: readText(row, 'requesterArea'),
         },
+        administrativeComments: headers.flatMap((header, index) => {
+          if (!/comentario|observacion/.test(normalizeFlokzuHeader(header))) return [];
+          const value = cellText(row.getCell(index + 1).value);
+          return value ? [{ label: header, value }] : [];
+        }),
         evidenceReferences,
       };
-      const currentTask = normalizeFlokzuHeader(flokzuData.operations.currentTask ?? '');
+      const classification = classifyFlokzu(flokzuData);
       rows.push({
         rowNumber,
         externalCaseId,
@@ -353,7 +363,10 @@ export async function parseFlokzuWorkbook(buffer: Buffer): Promise<ParsedFlokzuW
         studentName,
         flokzuData,
         // Routing observed in the supplied export: only current CaVe back-office review enters the audit queue.
-        eligibleForAuditAssignment: currentTask === '[backoffice] [revision bo] [cv]',
+        eligibleForAuditAssignment: classification.classification === 'ACTIVE',
+        classification: classification.classification,
+        classificationReason: classification.reason,
+        discrepancy: classification.discrepancy,
       });
     } catch (error) {
       issues.push({ rowNumber, externalCaseId, message: error instanceof Error ? error.message : 'La fila no tiene una estructura válida.' });

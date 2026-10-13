@@ -33,6 +33,7 @@ import type { AppRoute } from './lib/useHashRoute';
 import { useSession } from './lib/useSession';
 import { capabilitiesForRole } from './server/capabilities';
 import { ReportProblemModal } from './components/ReportProblemModal';
+import { FlokzuReviewPage } from './components/FlokzuReviewPage';
 import { FlokzuImportPage } from './components/FlokzuImportPage';
 
 // -----------------------------------------------------------------------------
@@ -127,6 +128,8 @@ function renderRoute(
       return <AiCostsPage />;
     case 'incidents':
       return <IncidentsPage previewOnly={previewOnly} />;
+    case 'flokzu-review':
+      return <FlokzuReviewPage previewOnly={previewOnly} />;
     case 'flokzu-import':
       return <FlokzuImportPage previewOnly={previewOnly} />;
     case 'dashboard':
@@ -151,7 +154,7 @@ function Shell({
   const [reportOpen, setReportOpen] = useState(false);
   const restrictedRoute =
     (!capabilities.canReadAllCases && route.name === 'dashboard') ||
-    (route.name === 'flokzu-import' && !capabilities.canImportCases) ||
+    ((route.name === 'flokzu-import' || route.name === 'flokzu-review') && !capabilities.canImportCases) ||
     (!capabilities.canManageCases && (route.name === 'quality' || route.name === 'ai-costs' || route.name === 'incidents'));
   const displayRoute: AppRoute = restrictedRoute ? { name: 'cases' } : route;
   const routeKey = route.name === 'case' ? `${route.name}:${route.caseId}` : route.name;

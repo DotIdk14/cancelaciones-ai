@@ -4,9 +4,10 @@ Using openrouter/deepseek/deepseek-r1:free model with API key from environment.
 Aider v0.86.2
 Model: openrouter/deepseek/deepseek-r1:free with diff edit format, prompt 
 cache, infinite output
-Git repo: ..\..\..\..\Desktop\cancelaciones-ai\.git\worktrees\cancelaciones-ai 
+Git repo: ..\..\..\..\Desktop\cancelaciones-ai\.git\worktrees\cancelaciones-ai1
 with 304 files
 Repo-map: using 4096 tokens, auto refresh
+Initial repo scan can be slow in larger repos, but only happens once.
 Here are summaries of some files present in my git repository.
 Do not propose changes to these files, treat them as *read-only*.
 If you need to edit any of these files, ask me to *add them to the chat* first.
@@ -52,6 +53,20 @@ scripts\generate-policy.mjs:
 │  return JSON.stringify(value)
 │    .replace(/\u2028/g, '\\u2028')
 │    .replace(/\u2029/g, '\\u2029');
+⋮
+│function fullText(sections) {
+│  const parts = [
+│    `PROCEDIMIENTO ${manifest.code} — ${manifest.title} — VERSIÓN 
+${manifest.version}`,
+│    `Fuente oficial: ${manifest.sourceFile} (SHA-256: 
+${manifest.sourceSha256})`,
+│    '',
+│  ];
+│  for (const section of sections) {
+│    parts.push(`## Sección ${section.id} — ${section.title} (páginas 
+${section.pages.join(', ') || 
+│    parts.push(section.content);
+│    parts.push('');
 ⋮
 
 src\components\AppDock.tsx:
@@ -282,9 +297,6 @@ point.insufficient,
 
 src\components\ui.tsx:
 ⋮
-│export type Tone = 'neutral' | 'brand' | 'success' | 'warning' | 'danger';
-│
-⋮
 │export interface PanelProps extends Omit<HTMLAttributes<HTMLElement>, 'title'>
 {
 │  title?: ReactNode;
@@ -478,12 +490,6 @@ src\lib\dashboard-shared.ts:
 │  status: string | null;
 ⋮
 
-src\lib\dashboard.ts:
-⋮
-│export type CostGranularity = 'day' | 'week' | 'month';
-│
-⋮
-
 src\lib\layout.ts:
 ⋮
 │export function isDashboardRoute(name: AppRoute['name']): boolean {
@@ -659,6 +665,12 @@ src\server\dashboard-contracts.ts:
 │  provider: string;
 │  latency_ms: number | null;
 │  error_category: ErrorCategory | null;
+⋮
+
+src\server\dashboard-costs.ts:
+⋮
+│export type CostGranularity = 'day' | 'week' | 'month';
+│
 ⋮
 
 src\server\derived.ts:

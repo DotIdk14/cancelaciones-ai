@@ -1,3 +1,5 @@
+import { assertFlokzuCoordinator, decideFlokzuTicket } from './flokzu-review.js';
+import { resolveFlokzuEligibility, type FlokzuClassification, type FlokzuReviewState } from '../shared/flokzu-review.js';
 import type { InsForgeClient } from './insforge.js';
 import type { AuthContext } from './auth.js';
 import { ApiError, mapProviderError } from './http.js';
@@ -9,6 +11,10 @@ interface ImportedCaseRow {
   student_identifier: string | null;
   student_name: string | null;
   flokzu_data: unknown;
+  flokzu_review_state: FlokzuReviewState;
+  flokzu_classification: FlokzuClassification;
+  flokzu_audit_eligible: boolean;
+  assigned_to: string | null;
 }
 
 interface ImportBatchRow {
@@ -37,6 +43,14 @@ export interface FlokzuPreviewRow {
   assignmentUserId: string | null;
   assignmentName: string | null;
   canAutoAssign: boolean;
+  classification: FlokzuClassification;
+  reason: string;
+  previousStatus: string | null;
+  nextStatus: string | null;
+  previousTask: string | null;
+  nextTask: string | null;
+  previousFinalized: string | null;
+  nextFinalized: string | null;
 }
 
 export interface FlokzuPreview {
@@ -49,6 +63,8 @@ export interface FlokzuPreview {
   unchangedRows: number;
   errorRows: number;
   unassignedRows: number;
+  activeRows: number;
+  administrativeRows: number;
   issues: Array<{ rowNumber: number; externalCaseId: string | null; message: string }>;
   assignments: Array<{ userId: string; name: string | null; count: number }>;
   rows: FlokzuPreviewRow[];
@@ -90,12 +106,13 @@ export async function createFlokzuPreview(
   actor: AuthContext,
   fileBuffer: Buffer,
 ): Promise<FlokzuPreview> {
+  assertFlokzuCoordinator(actor);
   const parsed = await parseFlokzuWorkbook(fileBuffer);
   const identifiers = [...new Set(parsed.rows.map((row) => row.externalCaseId))];
   const existingByExternalId = new Map<string, ImportedCaseRow>();
   for (let offset = 0; offset < identifiers.length; offset += 100) {
     const { data, error } = await client.database.from('cases')
-      .select('id,external_case_id,student_identifier,student_name,flokzu_data')
+      .select('id,external_case_id,student_identifier,student_name,flokzu_data,flokzu_review_state,flokzu_classification,flokzu_audit_eligible,assigned_to')
       .eq('external_source', 'FLOKZU')
       .in('external_case_id', identifiers.slice(offset, offset + 100));
     if (error) databaseError(error);
@@ -104,8 +121,11 @@ export async function createFlokzuPreview(
 
   const previewRows: FlokzuPreviewRow[] = [];
   const actionCounts = { NEW: 0, UPDATE: 0, UNCHANGED: 0 };
-  const newRows = parsed.rows.filter((row) => !existingByExternalId.has(row.externalCaseId));
-  const newRoutable = newRows.filter((row) => row.eligibleForAuditAssignment);
+  const routableRows = parsed.rows.filter(row => {
+    const existing = existingByExternalId.get(row.externalCaseId);
+    return row.eligibleForAuditAssignment && !existing?.assigned_to && (!existing || existing.flokzu_review_state === 'OPEN');
+  });
+  const newRoutable = routableRows;
   const usersResult = await client.database.from('app_memberships').select('user_id,role').eq('role', 'user').order('user_id', { ascending: true });
   if (usersResult.error) databaseError(usersResult.error);
   const eligible = ((usersResult.data as Array<{ user_id: string; role: string }> | null) ?? []).map((row) => row.user_id);
@@ -124,7 +144,7 @@ export async function createFlokzuPreview(
   if (eligible.length > 0) {
     for (let offset = 0; offset < eligible.length; offset += 100) {
       const { data, error } = await client.database.from('cases').select('assigned_to')
-        .in('assigned_to', eligible.slice(offset, offset + 100)).neq('status', 'COMPLETED');
+        .in('assigned_to', eligible.slice(offset, offset + 100)).neq('status', 'COMPLETED').eq('flokzu_audit_eligible', true);
       if (error) databaseError(error);
       for (const row of (data as Array<{ assigned_to: string }> | null) ?? []) {
         load.set(row.assigned_to, (load.get(row.assigned_to) ?? 0) + 1);
@@ -132,7 +152,7 @@ export async function createFlokzuPreview(
     }
   }
 
-  const assignedPreview = distributeFlokzuAssignments(newRows, eligible, load);
+  const assignedPreview = distributeFlokzuAssignments(routableRows, eligible, load);
 
   const stagedRows: Array<ParsedFlokzuRow & { actionAtPreview: 'NEW' | 'UPDATE' | 'UNCHANGED' }> = [];
   for (const row of parsed.rows) {
@@ -143,7 +163,8 @@ export async function createFlokzuPreview(
       flokzu_data: existing.flokzu_data,
     }) ? 'UNCHANGED' : 'UPDATE';
     actionCounts[action] += 1;
-    const assignmentUserId = action === 'NEW' ? assignedPreview.get(row.externalCaseId) ?? null : null;
+    const assignmentUserId = existing?.assigned_to ?? assignedPreview.get(row.externalCaseId) ?? null;
+    const old = existing?.flokzu_data as ParsedFlokzuRow['flokzuData'] | undefined;
     previewRows.push({
       rowNumber: row.rowNumber,
       externalCaseId: row.externalCaseId,
@@ -152,7 +173,11 @@ export async function createFlokzuPreview(
       action,
       assignmentUserId,
       assignmentName: assignmentUserId ? userNames.get(assignmentUserId) ?? null : null,
-      canAutoAssign: row.eligibleForAuditAssignment,
+      canAutoAssign: resolveFlokzuEligibility(row.classification, existing?.flokzu_review_state ?? 'OPEN'),
+      classification: row.classification, reason: row.classificationReason,
+      previousStatus: old?.operations?.statusReported ?? null, nextStatus: row.flokzuData.operations.statusReported,
+      previousTask: old?.operations?.currentTask ?? null, nextTask: row.flokzuData.operations.currentTask,
+      previousFinalized: old?.operations?.finalizedReported ?? null, nextFinalized: row.flokzuData.operations.finalizedReported,
     });
     stagedRows.push({ ...row, actionAtPreview: action });
   }
@@ -168,7 +193,7 @@ export async function createFlokzuPreview(
     new_rows: actionCounts.NEW,
     changed_rows: actionCounts.UPDATE,
     unchanged_rows: actionCounts.UNCHANGED,
-    error_rows: issues.length,
+    error_rows: new Set(issues.map(issue => issue.rowNumber)).size,
     issues,
     staged_rows: stagedRows,
     preview_assignments: [...assignmentCounts].map(([userId, count]) => ({ userId, count })),
@@ -183,7 +208,9 @@ export async function createFlokzuPreview(
     newRows: actionCounts.NEW,
     changedRows: actionCounts.UPDATE,
     unchangedRows: actionCounts.UNCHANGED,
-    errorRows: issues.length,
+    errorRows: new Set(issues.map(issue => issue.rowNumber)).size,
+    activeRows: previewRows.filter(row => row.canAutoAssign).length,
+    administrativeRows: previewRows.filter(row => !row.canAutoAssign).length,
     unassignedRows: newRoutable.length - assignedPreview.size,
     issues,
     assignments: [...assignmentCounts].map(([userId, count]) => ({ userId, name: userNames.get(userId) ?? null, count })),
@@ -196,6 +223,7 @@ export async function confirmFlokzuImport(
   actor: AuthContext,
   batchId: string,
 ): Promise<unknown> {
+  assertFlokzuCoordinator(actor);
   const { data, error } = await client.database.rpc('commit_flokzu_import', { p_batch_id: batchId, p_actor: actor.sub });
   if (error) {
     const message = typeof error === 'object' && error !== null && 'message' in error ? String(error.message) : '';
@@ -280,12 +308,16 @@ export async function assignImportedCase(
   client: InsForgeClient,
   caseId: string,
   assignedTo: string | null,
+  actor: AuthContext,
 ): Promise<void> {
+  assertFlokzuCoordinator(actor);
   if (assignedTo !== null) {
     const { data, error } = await client.database.from('app_memberships').select('user_id').eq('user_id', assignedTo).eq('role', 'user').limit(1);
     if (error) databaseError(error);
     if (!data || data.length === 0) throw new ApiError(400, 'VALIDATION_ERROR', 'El responsable debe ser un Asesor activo.');
   }
-  const { error } = await client.database.from('cases').update({ assigned_to: assignedTo }).eq('id', caseId).eq('external_source', 'FLOKZU');
-  if (error) databaseError(error);
+  const result = await client.database.from('cases').select('flokzu_revision').eq('id', caseId).eq('external_source', 'FLOKZU').limit(1);
+  if (result.error) databaseError(result.error);
+  if (!result.data?.[0]) throw new ApiError(404, 'NOT_FOUND', 'Ticket no encontrado.');
+  await decideFlokzuTicket(client, actor, { caseId, revision: result.data[0].flokzu_revision, action: 'REASSIGN', assignedTo });
 }
