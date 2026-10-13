@@ -1,3 +1,4 @@
+import { resolveEvidenceMime } from '../../../../src/shared/evidence-formats.js';
 import { randomUUID } from 'node:crypto';
 import {
   ApiError,
@@ -57,8 +58,8 @@ export default handleRoute(async (req, res) => {
   try { decodedName = rawName ? decodeURIComponent(rawName) : ''; }
   catch { throw new ApiError(400, 'UPLOAD_ERROR', 'El nombre del archivo no tiene una codificación válida'); }
   let filename = sanitizeFilename(decodedName);
-  const mimeType = normalizeMime(headerValue(req.headers['content-type']));
   const buffer = await readRawBody(req);
+  const mimeType = normalizeMime(resolveEvidenceMime(new Uint8Array(buffer.subarray(0, 16)), headerValue(req.headers['content-type']), filename) ?? '');
 
   if (!mimeType) {
     throw new ApiError(400, 'UPLOAD_ERROR', 'Tipo de archivo no permitido (imágenes PNG/JPEG/WEBP/GIF, PDF, audio, texto)');
@@ -79,8 +80,8 @@ export default handleRoute(async (req, res) => {
   }
 
   // El `Content-Type` lo declara el cliente: no prueba nada. Se compara la
-  // FIRMA real del buffer con el tipo declarado y se rechaza con 415 si no
-  // coinciden (un .exe renombrado a .png, un HTML con image/png, etc.).
+  // FIRMA real con el MIME efectivo: PNG/JPEG legítimos se corrigen sin tocar
+  // el original; ejecutables y archivos dañados siguen rechazándose antes de guardar.
   const signature = verifyFileSignature(buffer, mimeType);
   if (!signature.ok) {
     const detail = signature.reason ?? 'El archivo no coincide con su tipo declarado';

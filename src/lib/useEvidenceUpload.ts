@@ -154,7 +154,7 @@ export function useEvidenceUpload(): EvidenceUploadController {
             // queda fuera de la allowlist, rechazamos localmente para no gastar
             // una petición que terminaría en 400/415.
             const head = await readEvidenceHead(file);
-            const acceptedMime = resolveEvidenceMime(head, file.type);
+            const acceptedMime = resolveEvidenceMime(head, file.type, file.name);
             if (!isAcceptedEvidenceMime(acceptedMime)) {
               const state = { category: 'UPLOAD_ERROR', message: EVIDENCE_TYPE_REJECTED_MESSAGE };
               patch(item.id, { status: 'error', message: state.message, category: state.category, ...('correlationId' in state ? { correlationId: state.correlationId as string } : {}) });

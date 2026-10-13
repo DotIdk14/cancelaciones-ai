@@ -26,6 +26,7 @@
 //     `saveAreaComment`. Guardar notas nunca dispara una auditoría.
 // =============================================================================
 
+import { captureEvidenceFile } from '../shared/evidence-formats';
 import type { ChangeEvent, FormEvent, ReactNode } from 'react';
 import { useEffect, useId, useRef, useState } from 'react';
 import { ArrowRight, FilePlus2, FolderOpen, ShieldCheck, Upload, FileText, Music2, MessageSquare, X } from 'lucide-react';
@@ -188,6 +189,7 @@ function NewCaseForm(): ReactNode {
   /** Se rellena tras `createCase`: permite reintentar sin duplicar el caso. */
   const [caseId, setCaseId] = useState<string | null>(null);
 
+  const [readingFiles, setReadingFiles] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   /** Fallo al guardar notas con el caso y la evidencia ya creados (paso 2.9). */
@@ -201,7 +203,7 @@ function NewCaseForm(): ReactNode {
 
   const { items: uploadItems, busy: uploading, announcement, runUploads } = useEvidenceUpload();
 
-  const busy = creating || uploading || notesPending;
+  const busy = creating || uploading || notesPending || readingFiles;
   // El error de notas se anuncia desde CADA textarea: solo uno de los dos puede
   // ser el que hay que corregir, y el lector de pantalla debe oírlo en ambos.
   const noteErrorDesc = notesError !== null || noteTooLong !== null ? ` ${notesErrorId}` : '';
@@ -227,8 +229,7 @@ function NewCaseForm(): ReactNode {
 
   function handleEvidenceChange(event: ChangeEvent<HTMLInputElement>): void {
     const picked = Array.from(event.target.files ?? []);
-    // Permite volver a seleccionar el mismo archivo después.
-    event.target.value = '';
+    const input = event.target;
     if (picked.length === 0) return;
     // Contador MONÓTONO, no `entries.length`: quitar una fila baja la longitud
     // del array y la siguiente adición heredaría una clave viva. Como
@@ -237,8 +238,22 @@ function NewCaseForm(): ReactNode {
       nextEntryKey.current += 1;
       return newEntry(file, `${formId}-new-${nextEntryKey.current}`);
     });
-    setEntries((current) => [...current, ...added]);
+    setEntries((current) => [...current.filter((entry) => !(entry.category === 'FILE_READ_ERROR' && picked.some((file) => file.name === entry.file.name && file.size === entry.file.size))), ...added]);
     setCreateError(null);
+    setReadingFiles(true);
+    // Leer antes de liberar la selección. La identidad original se conserva
+    // para reconciliar filas; uploadEvidence utiliza la copia del mismo archivo.
+    void Promise.allSettled(picked.map(captureEvidenceFile)).then((results) => {
+      const failure = results.find((result) => result.status === 'rejected');
+      if (failure?.status === 'rejected') setCreateError(toErrorState(failure.reason).message);
+      setEntries((current) => current.map((entry) => {
+        const index = added.findIndex((candidate) => candidate.key === entry.key);
+        const result = results[index];
+        return result?.status === 'rejected' ? { ...entry, status: 'error', ...toErrorState(result.reason) } : entry;
+      }));
+      input.value = '';
+      setReadingFiles(false);
+    });
   }
 
   function handleNoteChange(area: NoteArea, value: string): void {
@@ -495,7 +510,8 @@ function NewCaseForm(): ReactNode {
               Archivos de evidencia
             </label>
             <p id={evidenceHintId} className="mt-1 text-xs text-muted">
-              Formatos: PNG, JPG, WEBP, GIF, PDF, MP3, WAV, M4A, OGG, WEBM y TXT. Puedes seleccionar varios a la vez.
+              {readingFiles && <span role="status">Leyendo archivos seleccionados… </span>}
+              Formatos: PNG, JPG/JPEG/JFIF, WEBP, GIF, PDF, MP3, WAV, M4A, OGG, WEBM, TXT, CSV, MD, JSON y LOG. Puedes seleccionar varios a la vez.
             </p>
             <input
               id={evidenceId}
@@ -669,7 +685,7 @@ function NewCasePreview(): ReactNode {
               <span>Audio, documentos, capturas e historial de conversación</span>
               <span className="preview-file-button">Explorar archivos locales</span>
               <input type="file" multiple accept={EVIDENCE_ACCEPT} onChange={(event) => addFiles(event.target.files)} />
-              <small>PNG, JPG, WEBP, GIF, PDF, MP3, WAV, M4A, OGG y TXT</small>
+              <small>PNG, JPG/JPEG, WEBP, GIF, PDF, audio y texto</small>
             </label>
             <div className="preview-files-heading"><strong>Archivos seleccionados ({files.length})</strong><span>Sin carga al servidor</span></div>
             {files.length === 0 ? <p className="preview-no-files">Todavía no hay archivos seleccionados.</p> : <ul className="preview-file-list">{files.map((file, index) => <li key={`${file.name}-${index}`}><span className="preview-file-icon">{file.type.startsWith('audio/') ? <Music2 size={17} /> : file.type.startsWith('text/') ? <MessageSquare size={17} /> : <FileText size={17} />}</span><span className="min-w-0 flex-1"><strong>{file.name}</strong><small>{(file.size / 1024 / 1024).toFixed(1)} MB · Solo vista local</small></span><button type="button" aria-label={`Quitar ${file.name}`} onClick={() => setFiles((current) => current.filter((_, fileIndex) => fileIndex !== index))}><X size={16} /></button></li>)}</ul>}

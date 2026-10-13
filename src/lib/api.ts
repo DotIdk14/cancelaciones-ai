@@ -6,7 +6,7 @@
 import type { AuditResult } from '../skills/audit/schema';
 import type { AuditResultType, CaseStatus, ErrorCategory, EvidenceStatus, TranscriptData } from '../skills/audit/types';
 import type { ComparisonOutcomePayload } from '../skills/review/schema';
-import { readEvidenceHead, resolveEvidenceMime } from '../shared/evidence-formats.js';
+import { captureEvidenceFile, readEvidenceHead, resolveEvidenceMime } from '../shared/evidence-formats.js';
 
 // -----------------------------------------------------------------------------
 // Formas de la API (contrato compartido con el servidor)
@@ -461,6 +461,9 @@ export function isSessionExpiredError(error: unknown): error is SessionExpiredEr
 export function toErrorState(error: unknown): ErrorState {
   if (error instanceof SessionExpiredError) return { category: error.category, message: error.message };
   if (error instanceof ApiError) return { category: error.category, message: error.message, ...(error.correlationId ? { correlationId: error.correlationId } : {}) };
+  if (typeof error === 'object' && error !== null && 'name' in error && typeof error.name === 'string' && ['NotReadableError', 'NotFoundError', 'SecurityError'].includes(error.name)) {
+    return { category: 'FILE_READ_ERROR', message: 'El navegador no pudo leer el archivo. Descárgalo a una carpeta local y vuelve a seleccionarlo; puede haberse movido, cambiado o perdido el permiso de lectura. El expediente y las evidencias guardadas se conservan.' };
+  }
   if (error instanceof Error && error.message) {
     return { category: 'UNKNOWN', message: error.message };
   }
@@ -725,8 +728,9 @@ export async function setCycleStartDate(caseId: string, date: string, byName: st
 const uploadRequests = new WeakMap<File, Map<string, string>>();
 
 export async function uploadEvidence(caseId: string, file: File): Promise<Evidence> {
+  file = await captureEvidenceFile(file);
   const head = await readEvidenceHead(file);
-  const contentType = resolveEvidenceMime(head, file.type) ?? 'application/octet-stream';
+  const contentType = resolveEvidenceMime(head, file.type, file.name) ?? 'application/octet-stream';
   const requests = uploadRequests.get(file) ?? new Map<string, string>();
   let requestId = requests.get(caseId);
   if (!requestId && file.size <= 8 * 1024 * 1024 && typeof file.arrayBuffer === 'function' && crypto.subtle) {

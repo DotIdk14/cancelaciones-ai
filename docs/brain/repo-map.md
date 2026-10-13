@@ -5,7 +5,7 @@ Aider v0.86.2
 Model: openrouter/deepseek/deepseek-r1:free with diff edit format, prompt 
 cache, infinite output
 Git repo: ..\..\..\..\Desktop\cancelaciones-ai\.git\worktrees\cancelaciones-ai 
-with 291 files
+with 304 files
 Repo-map: using 4096 tokens, auto refresh
 Here are summaries of some files present in my git repository.
 Do not propose changes to these files, treat them as *read-only*.
@@ -52,20 +52,6 @@ scripts\generate-policy.mjs:
 │  return JSON.stringify(value)
 │    .replace(/\u2028/g, '\\u2028')
 │    .replace(/\u2029/g, '\\u2029');
-⋮
-│function fullText(sections) {
-│  const parts = [
-│    `PROCEDIMIENTO ${manifest.code} — ${manifest.title} — VERSIÓN 
-${manifest.version}`,
-│    `Fuente oficial: ${manifest.sourceFile} (SHA-256: 
-${manifest.sourceSha256})`,
-│    '',
-│  ];
-│  for (const section of sections) {
-│    parts.push(`## Sección ${section.id} — ${section.title} (páginas 
-${section.pages.join(', ') || 
-│    parts.push(section.content);
-│    parts.push('');
 ⋮
 
 src\components\AppDock.tsx:
@@ -295,6 +281,9 @@ point.insufficient,
 ⋮
 
 src\components\ui.tsx:
+⋮
+│export type Tone = 'neutral' | 'brand' | 'success' | 'warning' | 'danger';
+│
 ⋮
 │export interface PanelProps extends Omit<HTMLAttributes<HTMLElement>, 'title'>
 {
@@ -672,12 +661,6 @@ src\server\dashboard-contracts.ts:
 │  error_category: ErrorCategory | null;
 ⋮
 
-src\server\dashboard-costs.ts:
-⋮
-│export type CostGranularity = 'day' | 'week' | 'month';
-│
-⋮
-
 src\server\derived.ts:
 ⋮
 │export interface DerivedExtractionCarrier {
@@ -938,6 +921,22 @@ tests\evidence-mime-detection.test.ts:
 │          filename: 'captura.png',
 │          mimeType: 'image/jpeg',
 │          sizeBytes: JPEG_BYTES.length,
+⋮
+
+tests\flokzu-parser.test.ts:
+⋮
+│async function sampleWorkbook(rows: Array<Record<string, string>> = []): 
+Promise<Buffer> {
+│  const workbook = new ExcelJS.Workbook();
+│  const sheet = workbook.addWorksheet('FLOKZU-CaVe-2026-10-12');
+│  sheet.addRow(['FLOKZU', null, null, '2026-10-12', 'fixture sintético', 
+'CaVe']);
+│  sheet.addRow(headers);
+│  for (const [index, values] of rows.entries()) {
+│    const row = new Array<string | null>(headers.length).fill(null);
+│    for (const [name, value] of Object.entries(values)) {
+│      const column = headers.indexOf(name);
+│      if (column >= 0) row[column] = value;
 ⋮
 
 tests\helpers\fake-database.ts:

@@ -71,6 +71,47 @@ export const EVIDENCE_MIME_ALLOWLIST = new Set([
   'text/plain',
 ]);
 
+/** Alias de sistemas operativos: siempre persistimos el MIME canónico. */
+export function canonicalEvidenceMime(value: string): string {
+  const mime = value.toLowerCase().split(';')[0]?.trim() ?? '';
+  const aliases: Record<string, string> = {
+    'image/jpg': 'image/jpeg', 'image/pjpeg': 'image/jpeg', 'image/x-png': 'image/png',
+    'audio/x-wav': 'audio/wav', 'audio/wave': 'audio/wav', 'audio/vnd.wave': 'audio/wav',
+    'audio/x-mp3': 'audio/mpeg', 'application/x-pdf': 'application/pdf',
+    'text/csv': 'text/plain', 'text/markdown': 'text/plain', 'application/json': 'text/plain',
+  };
+  return aliases[mime] ?? mime;
+}
+
+// Una copia en memoria evita depender del archivo externo durante una creación
+// o un reintento. No modifica sus bytes, nombre ni fecha. Nunca copia archivos
+// arbitrariamente grandes: los límites de subida siguen siendo del servidor.
+const capturedFiles = new WeakMap<File, Promise<File>>();
+export function captureEvidenceFile(file: File): Promise<File> {
+  const saved = capturedFiles.get(file);
+  if (saved) return saved;
+  if (file.size > 8 * 1024 * 1024) return Promise.resolve(file);
+  const capture = (async () => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const reading = typeof file.arrayBuffer === 'function'
+      ? file.arrayBuffer() : readBlobWithFileReader(file);
+    let bytes: ArrayBuffer;
+    try {
+      bytes = await Promise.race([reading, new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new DOMException('File reading timed out', 'NotReadableError')), 15_000);
+      })]);
+    } finally { if (timer !== undefined) clearTimeout(timer); }
+    const snapshot = new File([bytes], file.name, { type: file.type, lastModified: file.lastModified });
+    headCache.set(file, new Uint8Array(bytes.slice(0, 16)));
+    headCache.set(snapshot, new Uint8Array(bytes.slice(0, 16)));
+    return snapshot;
+  })();
+  capturedFiles.set(file, capture);
+  // Un fallo de acceso no queda cacheado: una nueva lectura puede recuperarse.
+  void capture.catch(() => capturedFiles.delete(file));
+  return capture;
+}
+
 const headCache = new WeakMap<Blob, Uint8Array>();
 
 function readBlobWithFileReader(blob: Blob): Promise<ArrayBuffer> {
@@ -185,17 +226,19 @@ function isAmbiguousMimeDetection(head: Uint8Array, detected: string): boolean {
  * `moov`/handler. El servidor mantiene la cuota de transcripción como cota de
  * ese caso; no se resuelve aquí con más heurísticas.
  */
-export function resolveEvidenceMime(head: Uint8Array, declaredMime: string): string | null {
+export function resolveEvidenceMime(head: Uint8Array, declaredMime: string, filename = ''): string | null {
   const detected = detectEvidenceMime(head);
   if (detected === null) {
-    return declaredMime !== '' ? declaredMime : null;
+    const mime = canonicalEvidenceMime(declaredMime);
+    if ((!mime || mime === 'application/octet-stream') && /\.(txt|csv|md|json|log)$/i.test(filename)) return 'text/plain';
+    return mime || null;
   }
 
   if (!isAmbiguousMimeDetection(head, detected)) {
     return detected;
   }
 
-  const normalized = declaredMime.toLowerCase().split(';')[0]?.trim() ?? '';
+  const normalized = canonicalEvidenceMime(declaredMime);
   if (normalized !== '' && normalized !== 'application/octet-stream') {
     return normalized;
   }

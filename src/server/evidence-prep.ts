@@ -7,12 +7,12 @@
 // =============================================================================
 
 import { createHash } from 'node:crypto';
-import { EVIDENCE_MIME_ALLOWLIST, EVIDENCE_SIGNATURES } from '../shared/evidence-formats.js';
+import { canonicalEvidenceMime, EVIDENCE_MIME_ALLOWLIST, EVIDENCE_SIGNATURES } from '../shared/evidence-formats.js';
 import type { EvidenceKind, TranscriptData } from '../skills/audit/types.js';
 
 /** MIME normalizado y permitido, o null si el tipo no está soportado. */
 export function normalizeMime(rawInput: string): string | null {
-  const raw = rawInput.toLowerCase().split(';')[0]?.trim() ?? '';
+  const raw = canonicalEvidenceMime(rawInput);
   if (!raw) return null;
   if (EVIDENCE_MIME_ALLOWLIST.has(raw)) return raw;
   return null;
