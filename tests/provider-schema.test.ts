@@ -14,6 +14,33 @@ function collectKeys(value: unknown, output: string[] = []): string[] {
 }
 
 describe('provider schema proyectado desde Zod', () => {
+  it.each(['gemini', 'openai'] as const)('restringe todas las referencias al registro del expediente para %s', (profile) => {
+    const ids = ['30b5b238-1e3b-4fb8-997f-99e4e9ddb5b4', 'ev-2'];
+    const schema = buildProviderJsonSchema(AiAuditAssessmentSchema, profile, ids);
+    const fields: string[] = [];
+    const visit = (node: unknown): void => {
+      if (Array.isArray(node)) { node.forEach(visit); return; }
+      if (!node || typeof node !== 'object') return;
+      const object = node as Record<string, unknown>;
+      if (object.properties && typeof object.properties === 'object') {
+        for (const [name, raw] of Object.entries(object.properties)) {
+          const property = raw as Record<string, unknown>;
+          if (name === 'evidenceId') { expect(property.enum).toEqual(ids); fields.push(name); }
+          if (name === 'evidenceIds' || name.endsWith('EvidenceIds')) {
+            expect((property.items as Record<string, unknown>).enum).toEqual(ids); fields.push(name);
+          }
+        }
+      }
+      Object.values(object).forEach(visit);
+    };
+    visit(schema);
+    expect(fields).toContain('supportingEvidenceIds');
+    expect(fields).toContain('cycleStartEvidenceIds');
+    expect(fields).toContain('relatedEvidenceIds');
+    expect(() => assertProviderSchemaCompatible(schema, profile)).not.toThrow();
+    expect(JSON.stringify(buildProviderJsonSchema(AiAuditAssessmentSchema, profile))).not.toContain(ids[0]);
+    expect(JSON.stringify(schema)).not.toContain('99e9e9ddb5b4');
+  });
   it('el perfil Gemini omite keywords fuera de su subconjunto compatible', () => {
     const providerSchema = buildProviderJsonSchema(AiAuditAssessmentSchema, 'gemini');
     expect(() => assertProviderSchemaCompatible(providerSchema, 'gemini')).not.toThrow();

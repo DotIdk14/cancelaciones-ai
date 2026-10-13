@@ -22,6 +22,8 @@ export type OpenRouterContentPart =
   | { type: 'file'; file: { filename: string; file_data: string } };
 
 export interface CallOpenRouterAuditInput {
+  /** IDs autoritativos del expediente; restringen únicamente referencias. */
+  evidenceIds?: readonly string[];
   system: string;
   parts: OpenRouterContentPart[];
   /** Milisegundos por intento. */
@@ -285,7 +287,7 @@ async function singleAttempt(
 ): Promise<CallOpenRouterAuditOutput> {
   const env = getEnv();
   const startedAt = Date.now();
-  const contractSchema = buildProviderJsonSchema(input.schema ?? AiAuditAssessmentSchema, attempt.capabilities.schemaProfile);
+  const contractSchema = buildProviderJsonSchema(input.schema ?? AiAuditAssessmentSchema, attempt.capabilities.schemaProfile, input.evidenceIds);
   const messages: unknown[] = [
     {
       role: 'system',

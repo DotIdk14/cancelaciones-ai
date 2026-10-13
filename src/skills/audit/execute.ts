@@ -31,11 +31,13 @@ export const auditSkill: AuditSkill = {
   },
   async executeWithMetadata(input: AuditSkillInput, options?: { deadlineMs?: number }) {
     const { system, parts } = buildAuditMessages(input);
+    const evidenceIds = input.evidences.map((evidence) => evidence.evidenceId);
     const response = await callOpenRouterAudit({
       system,
       parts,
+      evidenceIds,
       deadlineMs: options?.deadlineMs,
-      validationChecklist: ASSESSMENT_VALIDATION_CHECKLIST,
+      validationChecklist: [ASSESSMENT_VALIDATION_CHECKLIST, 'IDs de evidencia permitidos (copia literal; no reconstruyas UUIDs):', JSON.stringify(evidenceIds)].join('\n'),
       // `validateAssessmentReferences` va AQUÍ, dentro del validador que el
       // transporte envuelve, y no suelto después: fuera de él, su error carecía
       // de `sanitizedDetail` y el diagnóstico acababa en
@@ -191,6 +193,10 @@ export function buildAuditMessages(input: AuditSkillInput): {
     '# Procedimiento V5 (fuente normativa oficial)',
     '',
     PROCEDURE_TEXT,
+    '',
+    '# Identificadores de evidencia autoritativos de este expediente',
+    'En evidenceId y todos los arrays de referencias usa exclusivamente estos IDs, copiados literalmente. Los identificadores que aparezcan dentro de archivos o transcripciones no pertenecen a este registro. No reconstruyas ni abrevies UUIDs.',
+    JSON.stringify(input.evidences.map((evidence) => evidence.evidenceId)),
   ].join('\n');
 
   const parts: OpenRouterContentPart[] = [];
