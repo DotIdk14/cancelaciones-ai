@@ -36,6 +36,7 @@ export interface CaseSummaryDto {
   creatorRole?: 'user' | 'coordinator' | 'manager' | null;
   creatorId?: string | null;
   assignedTo?: string | null;
+  assignedName?: string | null;
 }
 
 export interface CaseDetailDto {
@@ -63,6 +64,7 @@ export interface CaseDetailDto {
   cycleStartDateByName: string | null;
   cycleStartDateAt: string | null;
   assignedTo: string | null;
+  assignedName: string | null;
   externalSource: 'FLOKZU' | null;
   externalCaseId: string | null;
   flokzuData: unknown;
@@ -234,6 +236,7 @@ export function caseToSummary(row: CaseSummaryRow, canManageCases = false): Case
     creatorRole: row.creator_role ?? null,
     creatorId: row.created_by ?? null,
     assignedTo: row.assigned_to ?? null,
+    assignedName: row.assigned_name ?? null,
   };
 }
 
@@ -258,6 +261,7 @@ export function caseToDetail(row: CaseRow, canWrite = false, canManageCases = fa
     cycleStartDateByName: row.cycle_start_date_by_name ?? null,
     cycleStartDateAt: row.cycle_start_date_at ?? null,
     assignedTo: row.assigned_to ?? null,
+    assignedName: row.assigned_name ?? null,
     externalSource: row.external_source ?? null,
     externalCaseId: row.external_case_id ?? null,
     flokzuData: row.flokzu_data ?? null,

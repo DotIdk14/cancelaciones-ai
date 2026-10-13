@@ -42,13 +42,15 @@ async function renderList(cases: CaseSummary[], canReadAllCases = false, canFina
     const status = url.searchParams.get('status');
     const creatorRole = url.searchParams.get('creatorRole');
     const creatorId = url.searchParams.get('creatorId');
+    const assignedTo = url.searchParams.get('assignedTo');
     const workflowState = url.searchParams.get('workflowState');
     const filtered = cases.filter((item) => (!status || item.status === status)
       && (!creatorRole || item.creatorRole === creatorRole)
       && (!creatorId || item.creatorId === creatorId)
+      && (!assignedTo || (assignedTo === 'UNASSIGNED' ? !item.assignedTo : item.assignedTo === assignedTo))
       && (!workflowState || (item.workflowState === workflowState
         && (workflowState !== 'PENDING_ADVISOR' || item.effectiveResolution?.source === 'AI'))));
-    const scoped = creatorRole || creatorId ? filtered : cases;
+    const scoped = creatorRole || creatorId || assignedTo ? filtered : cases;
     const statusCounts = {
       ALL: scoped.length,
       READY: scoped.filter((item) => item.status === 'READY').length,
@@ -64,7 +66,8 @@ async function renderList(cases: CaseSummary[], canReadAllCases = false, canFina
         name: item.studentIdentifier === 'AGENTE-UNO' ? 'Ana Pérez' : item.studentIdentifier === 'AGENTE-DOS' ? 'Luis Gómez' : 'Mariana Ruiz',
       }]]
       : [])).values()];
-    return fakeResponse(200, { cases: filtered, nextCursor: null, statusCounts, creatorOptions });
+    const responsibleOptions = [...new Map(cases.flatMap(item => item.assignedTo ? [[item.assignedTo, { userId: item.assignedTo, name: item.assignedName ?? null }]] : [])).values()];
+    return fakeResponse(200, { cases: filtered, nextCursor: null, statusCounts, creatorOptions, responsibleOptions });
   }));
   const view = render(createElement(CasesPanel, { canReadAllCases, canFinalizeAnyCase }));
   // Espera a que la lista llegue del servidor.
@@ -80,6 +83,22 @@ afterEach(() => {
 });
 
 describe('CasesPanel — resolución efectiva', () => {
+  it('muestra Responsable y Sin asignar, mantiene la atribución del creador y filtra al asesor actual', async () => {
+    await renderList([
+      makeCase({ id: 'assigned', studentIdentifier: 'ASIGNADO', assignedTo: 'advisor-a', assignedName: 'Ana Pérez', creatorId: 'importer', creatorRole: 'coordinator' }),
+      makeCase({ id: 'unassigned', studentIdentifier: 'SIN-RESPONSABLE', assignedTo: null, creatorId: 'importer', creatorRole: 'coordinator' }),
+    ], true);
+    expect(screen.getByRole('columnheader', { name: 'Responsable' })).toBeTruthy();
+    expect(screen.getByRole('row', { name: /ASIGNADO/ }).textContent).toContain('Ana Pérez');
+    expect(screen.getByRole('row', { name: /SIN-RESPONSABLE/ }).textContent).toContain('Sin asignar');
+    expect(screen.getByRole('row', { name: /ASIGNADO/ }).textContent).not.toContain('Mariana Ruiz');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Filtrar por responsable' }), { target: { value: 'advisor-a' } });
+    await vi.waitFor(() => { expect(screen.queryByRole('row', { name: /SIN-RESPONSABLE/ })).toBeNull(); expect(screen.getByRole('row', { name: /ASIGNADO/ })).toBeTruthy(); });
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).includes('assignedTo=advisor-a'))).toBe(true);
+    fireEvent.change(screen.getByRole('combobox', { name: 'Filtrar por responsable' }), { target: { value: 'UNASSIGNED' } });
+    await vi.waitFor(() => expect(screen.getByRole('row', { name: /SIN-RESPONSABLE/ })).toBeTruthy());
+    expect(screen.queryByRole('row', { name: /ASIGNADO/ })).toBeNull();
+  });
   it('ofrece las bandejas de coordinación y el historial completo de dictámenes', async () => {
     await renderList([
       makeCase({ id: 'case-ai', studentIdentifier: 'IA-PENDIENTE', workflowState: 'PENDING_ADVISOR', effectiveResolution: { result: 'BAJA', source: 'AI' } }),
@@ -186,7 +205,7 @@ describe('CasesPanel — resolución efectiva', () => {
     expect(screen.queryByRole('row', { name: /ASESOR-001/ })).toBeNull();
   });
 
-  it('filtra por una persona creadora individual y muestra su nombre en la tabla', async () => {
+  it('conserva el filtro por creador y muestra Sin asignar cuando no hay responsable', async () => {
     const creatorOne = '10000000-0000-4000-8000-000000000001';
     const creatorTwo = '10000000-0000-4000-8000-000000000002';
     await renderList([
@@ -195,7 +214,7 @@ describe('CasesPanel — resolución efectiva', () => {
       makeCase({ id: 'case-coordinator', creatorRole: 'coordinator', creatorId: '20000000-0000-4000-8000-000000000001', studentIdentifier: 'COORD-001' }),
     ], true);
 
-    expect(screen.getByRole('row', { name: /AGENTE-UNO/ }).textContent).toContain('Ana Pérez');
+    expect(screen.getByRole('row', { name: /AGENTE-UNO/ }).textContent).toContain('Sin asignar');
     expect(screen.getByRole('row', { name: /AGENTE-UNO/ }).textContent).not.toContain(creatorOne);
     fireEvent.change(screen.getByRole('combobox', { name: /filtrar por creador de caso/i }), {
       target: { value: creatorTwo },

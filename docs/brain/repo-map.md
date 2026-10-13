@@ -4,8 +4,7 @@ Using openrouter/deepseek/deepseek-r1:free model with API key from environment.
 Aider v0.86.2
 Model: openrouter/deepseek/deepseek-r1:free with diff edit format, prompt 
 cache, infinite output
-Git repo: ..\..\..\..\Desktop\cancelaciones-ai\.git\worktrees\cancelaciones-ai 
-with 304 files
+Git repo: .git with 304 files
 Repo-map: using 4096 tokens, auto refresh
 Here are summaries of some files present in my git repository.
 Do not propose changes to these files, treat them as *read-only*.
@@ -162,23 +161,6 @@ src\components\NewCasePanel.tsx:
 │  category?: string;
 ⋮
 
-src\components\OperationProgressDialog.tsx:
-⋮
-│export function ModalShell({ title, onClose, children }: { title: string; 
-onClose: () => void; chil
-│  const ref = useRef<HTMLDialogElement>(null);
-│  const titleId = useId();
-│  useEffect(() => {
-│    const dialog = ref.current;
-│    const previous = document.activeElement as HTMLElement | null;
-│    if (dialog && typeof dialog.showModal === 'function') dialog.showModal();
-│    else dialog?.setAttribute('open', '');
-│    return () => { dialog?.close?.(); previous?.focus(); };
-│  }, []);
-│  return <dialog ref={ref} aria-labelledby={titleId} onCancel={(event) => { 
-event.preventDefault();
-⋮
-
 src\components\PdfCanvas.tsx:
 ⋮
 │interface PdfDocumentProxy {
@@ -194,21 +176,21 @@ src\components\PdfCanvas.tsx:
 │  filename: string;
 ⋮
 
+src\components\dashboard\OverviewPage.tsx:
+⋮
+│function isOnlyUndetermined(points: OriginBreakdownPoint[]): boolean {
+│  return points.length === 0 || (points.length === 1 && points[0]?.value === 
+'Sin determinar');
+⋮
+
 src\components\dashboard\QualityPage.tsx:
 ⋮
-│function HumanReviewNotice({ report }: { report: QualityReport | null }): 
-ReactNode {
-│  const message = report?.humanReview.message;
-│  if (message === undefined) return null;
-│
-│  return (
-│    <div className="flex flex-wrap items-start justify-between gap-3 
-rounded-2xl border border-line
-│      <div className="flex min-w-0 items-start gap-3">
-│        <Info size={18} aria-hidden="true" className="mt-0.5 shrink-0 
-text-muted" />
-│        <p className="max-w-3xl text-sm text-muted">{message}</p>
-│      </div>
+│function CasesTable({ rows }: { rows: QualityCase[] }): ReactNode {
+│  const [page, setPage] = useState(0);
+│  const totalPages = Math.max(1, Math.ceil(rows.length / 25));
+│  const current = Math.min(page, totalPages - 1);
+│  const visible = rows.slice(current * 25, (current + 1) * 25);
+│  return <>
 ⋮
 
 src\components\dashboard\RecentCasesTable.tsx:
@@ -281,9 +263,6 @@ point.insufficient,
 ⋮
 
 src\components\ui.tsx:
-⋮
-│export type Tone = 'neutral' | 'brand' | 'success' | 'warning' | 'danger';
-│
 ⋮
 │export interface PanelProps extends Omit<HTMLAttributes<HTMLElement>, 'title'>
 {
@@ -476,12 +455,12 @@ src\lib\dashboard-shared.ts:
 │  to: string;
 │  result: string | null;
 │  status: string | null;
+│  evaluation?: string | null;
 ⋮
-
-src\lib\dashboard.ts:
-⋮
-│export type CostGranularity = 'day' | 'week' | 'month';
-│
+│export type ExecutionOutcome =
+│  | 'SUCCESS_FIRST_ATTEMPT'
+│  | 'SUCCESS_AFTER_RETRY'
+│  | 'SUCCESS_WITH_FALLBACK'
 ⋮
 
 src\lib\layout.ts:
@@ -650,15 +629,21 @@ src\server\cases.ts:
 src\server\dashboard-contracts.ts:
 ⋮
 │export interface DashboardMetricRow {
+│  execution_kind?: 'AUDIT' | 'COMPARISON';
+│  call_metrics?: Array<{model: string; cost: number | null}> | null;
+│  usage_is_aggregate?: boolean;
+│  is_reaudit?: boolean;
+│  cost_incomplete?: boolean;
+│  tokens_incomplete?: boolean;
 │  id: string;
 │  case_id: string;
 │  case_status: CaseStatus;
-│  student_identifier: string | null;
-│  audit_status: AuditStatus;
-│  model: string;
-│  provider: string;
-│  latency_ms: number | null;
-│  error_category: ErrorCategory | null;
+⋮
+
+src\server\dashboard-costs.ts:
+⋮
+│export type CostGranularity = 'day' | 'week' | 'month';
+│
 ⋮
 
 src\server\derived.ts:
@@ -903,10 +888,23 @@ tests\case-dimensions.test.ts:
 
 tests\dashboard-human-review-query.test.ts:
 ⋮
-│interface QueryResult {
-│  data: Row[] | null;
-│  error: unknown;
-│  count: number | null;
+│async function caseRow(value = 1, test = false): Promise<void> {
+│  await db.query('INSERT INTO 
+cases(id,country,campus,responsible,guideline,is_test,external_case_i
+⋮
+│async function review(auditId = 11, final: 'APPROVE' | 'CHANGE' | null = 
+'APPROVE'): Promise<void> 
+│  await db.query('INSERT INTO 
+case_reviews(id,case_id,audit_id,result,coordinator_decision,coordina
+│    [id(21), id(1), id(auditId), 'BAJA', final, final === 'CHANGE' ? 
+'CANCELACION_VENTA' : null, fi
+│}
+│async function comparison(status = 'COMPLETED', agrees = true, at = 
+'2026-10-12T12:00:00Z'): Promis
+│  await db.query('INSERT INTO 
+case_comparisons(id,case_review_id,audit_id,status,provider,model,cre
+│    [id(31), id(21), id(11), status, 'openrouter', 'test/model', at, status 
+=== 'COMPLETED' ? { agr
 ⋮
 
 tests\evidence-mime-detection.test.ts:
@@ -925,15 +923,15 @@ tests\evidence-mime-detection.test.ts:
 
 tests\flokzu-parser.test.ts:
 ⋮
-│async function sampleWorkbook(rows: Array<Record<string, string>> = []): 
-Promise<Buffer> {
+│async function sampleWorkbook(rows: Array<Record<string, ExcelJS.CellValue>> =
+[]): Promise<Buffer>
 │  const workbook = new ExcelJS.Workbook();
 │  const sheet = workbook.addWorksheet('FLOKZU-CaVe-2026-10-12');
 │  sheet.addRow(['FLOKZU', null, null, '2026-10-12', 'fixture sintético', 
 'CaVe']);
 │  sheet.addRow(headers);
 │  for (const [index, values] of rows.entries()) {
-│    const row = new Array<string | null>(headers.length).fill(null);
+│    const row = new Array<ExcelJS.CellValue>(headers.length).fill(null);
 │    for (const [name, value] of Object.entries(values)) {
 │      const column = headers.indexOf(name);
 │      if (column >= 0) row[column] = value;

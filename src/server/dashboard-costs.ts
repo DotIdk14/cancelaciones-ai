@@ -22,8 +22,9 @@ export type CostGranularity = 'day' | 'week' | 'month';
 
 /** Cabecera de coste, latencia y volumen del periodo. */
 export interface AiCostsKpi {
+  comparisonsCounted?: number;
   totalCostUsd: number;
-  avgCostPerCaseUsd: number;
+  avgCostPerCaseUsd: number | null;
   totalTokens: number;
   promptTokens: number;
   completionTokens: number;
@@ -72,6 +73,7 @@ export interface ModelCostRow {
 
 /** Informe completo de `/api/dashboard/ai-costs`. */
 export interface AiCostsReport {
+  activity?: import('../lib/dashboard-metrics-contracts.js').MonthlyActivity;
   generatedAt: string;
   truncated: boolean;
   filters: DashboardFilters;
@@ -95,48 +97,17 @@ export interface AiCostsReport {
   };
 }
 
-/**
- * REGLA ÚNICA DE COSTE, en un solo sitio para que ningún consumidor pueda
- * inventarse la suya.
- *
- * `usage_cost_usd` es lo que OpenRouter Facturó en la llamada que terminó;
- * `attempts_cost_usd` es la suma de lo que costarían TODOS los intentos
- * registrados, incluido el que falló. Se prefiere el primero porque es el dato
- * real de gasto y el segundo es una estimación por SUMA de datos parciales; el
- * segundo solo aparece cuando el primero no existe (auditorías en `ERROR`, que
- * casi nunca llegan a `usage`).
- *
- * Si AMBOS son `null`, el resultado es `null`: el coste de esa auditoría es
- * DESCONOCIDO. No se devuelve 0 y NUNCA se recalcula un precio a partir de los
- * tokens: hacerlo sería inventar la tarifa del modelo aquí y dejarla congelada
- * para siempre, y además daría un 0 falso que la UI no puede distinguir de un
- * gasto real de 0 (una llamada gratis o un crédito a coste 0).
- *
- * Los tokens siguen la misma regla, cada magnitud con su propio COALESCE.
- *
- * LA TRIPLETA QUE ESTA EXPRESIÓN RESUELVE, y que fija un test:
- *   (null, null) -> null   el dato no existe.
- *   (0.02, null) -> 0.02   `usage_cost_usd` manda cuando existe.
- *   (null,    0) -> 0      un 0 LITERAL se respeta como 0.
- *
- * El tercer caso es el que hace que la función NO esté arreglando el defecto
- * que se le atribuyó: `public.audit_dashboard_metrics` antes devolvía
- * `attempts_cost_usd = 0` cuando ningún intento reportaba `cost`, así que este
- * `??` devolvía ese 0 y la UI pintaba `$0` para auditorías cuyo coste se
- * desconocía. La vista ya no lo emite (el CTE `att` devuelve NULL cuando ningún
- * intento trajo el valor), y `(null, 0) -> 0` sigue siendo lo correcto aquí:
- * un 0 explícito es un dato afirmado, y descartar un dato afirmado sería
- * inventar un hueco por la vía contraria. Esta función no valida de dónde viene
- * cada columna; la vista es la que garantiza no fabricar ceros.
- */
-export const COST_PER_ROW = (row: DashboardMetricRow): number | null => row.usage_cost_usd ?? row.attempts_cost_usd;
+/** Suma por intento reportada por el proveedor; usage representa el último intento.
+ * Si la fuente declara usage agregado, se utiliza sin añadir de nuevo los intentos.
+ * null conserva consumo desconocido; no se calculan tarifas ni estimaciones. */
+export const COST_PER_ROW = (row: DashboardMetricRow): number | null => row.usage_is_aggregate ? row.usage_cost_usd : row.attempts_cost_usd ?? row.usage_cost_usd;
 
-const TOTAL_TOKENS_PER_ROW = (row: DashboardMetricRow): number | null => row.usage_total_tokens ?? row.attempts_total_tokens;
+const TOTAL_TOKENS_PER_ROW = (row: DashboardMetricRow): number | null => row.usage_is_aggregate ? row.usage_total_tokens : row.attempts_total_tokens ?? row.usage_total_tokens;
 
-const PROMPT_TOKENS_PER_ROW = (row: DashboardMetricRow): number | null => row.usage_prompt_tokens ?? row.attempts_prompt_tokens;
+const PROMPT_TOKENS_PER_ROW = (row: DashboardMetricRow): number | null => row.usage_is_aggregate ? row.usage_prompt_tokens : row.attempts_prompt_tokens ?? row.usage_prompt_tokens;
 
 const COMPLETION_TOKENS_PER_ROW = (row: DashboardMetricRow): number | null =>
-  row.usage_completion_tokens ?? row.attempts_completion_tokens;
+  row.usage_is_aggregate ? row.usage_completion_tokens : row.attempts_completion_tokens ?? row.usage_completion_tokens;
 
 /** Milisegundos por día, para aritmética de periodos en UTC. */
 const COST_MS_PER_DAY = 86_400_000;
@@ -280,6 +251,17 @@ export function aggregateAiCosts(
     const completion = COMPLETION_TOKENS_PER_ROW(row);
     if (completion !== null && Number.isFinite(completion)) completionTokens += completion;
 
+    const modelCalls = row.call_metrics === null ? [] : row.call_metrics?.length ? row.call_metrics : [{model: row.model, cost}];
+    for (const call of modelCalls) {
+      const existing = byModel.get(call.model) ?? { calls: 0, costKnownCalls: 0, costUsd: 0 };
+      existing.calls += 1;
+      if (call.cost !== null && Number.isFinite(call.cost)) { existing.costKnownCalls += 1; existing.costUsd += call.cost; }
+      byModel.set(call.model, existing);
+    }
+
+    // Fiabilidad y latencia de AUDITORÍAS; el consumo sí incluye comparaciones.
+    if (row.execution_kind === 'COMPARISON') continue;
+
     // POR QUÉ SOLO `COMPLETED`: `latency_ms` es el tiempo que tardó la llamada
     // cuando la auditoría terminó bien. En una fila `ERROR` es el tiempo hasta
     // el fallo (o hasta el deadline), que no es la misma magnitud. Y en las
@@ -325,16 +307,7 @@ export function aggregateAiCosts(
       }
     }
 
-    const model = byModel.get(row.model);
-    if (model === undefined) {
-      byModel.set(row.model, { calls: 1, costKnownCalls: cost === null ? 0 : 1, costUsd: cost ?? 0 });
-    } else {
-      model.calls += 1;
-      if (cost !== null) {
-        model.costKnownCalls += 1;
-        model.costUsd += cost;
-      }
-    }
+
   }
 
   const casesCounted = casesWithCost.size;
@@ -374,14 +347,15 @@ export function aggregateAiCosts(
 
   const kpi = {
     totalCostUsd,
-    avgCostPerCaseUsd: casesCounted === 0 ? 0 : totalCostUsd / casesCounted,
+    avgCostPerCaseUsd: casesCounted === 0 || rows.some(row => COST_PER_ROW(row) === null || row.cost_incomplete) ? null : totalCostUsd / casesCounted,
     totalTokens,
     promptTokens,
     completionTokens,
     avgLatencyMs,
     p50LatencyMs: percentileNearestRank(latencyValues, 50),
     p95LatencyMs: percentileNearestRank(latencyValues, 95),
-    auditsCounted: rows.length,
+    auditsCounted: rows.filter(row => row.execution_kind !== 'COMPARISON').length,
+    comparisonsCounted: rows.filter(row => row.execution_kind === 'COMPARISON').length,
     casesCounted,
     costAvailable,
     tokensAvailable,

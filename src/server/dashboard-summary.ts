@@ -88,15 +88,7 @@ function bumpGroup(counts: GroupCounts, group: ResolutionGroup): void {
 /**
  * Serie temporal por día UTC.
  *
- * SEMÁNTICA DELIBERADAMENTE DISTINTA DE LA DE LOS KPIs:
- * la `timeline` muestra el **volumen de dictámenes emitidos por día** (un caso
- * reauditado cuenta una vez por cada dictamen emitido). Los KPIs cuentan **cada
- * caso una sola vez**, por su estado vigente. Por eso ambos números no tienen por
- * qué coincidir.
- *
- * Se agrupan TODAS las filas (no solo las vigentes por caso), porque lo que
- * mide la gráfica es la actividad del periodo: los dictámenes emitidos, no el
- * estado final de cada caso.
+ * Todas las ejecuciones completadas aportan a la serie y al reparto.
  *
  * Reglas:
  *  - Cada fila `COMPLETED` cuenta en SU propio grupo, según `RESULT_TO_GROUP`.
@@ -192,8 +184,7 @@ export function classifyExecution(row: DashboardMetricRow): ExecutionOutcome {
 /**
  * Reparto de resultados técnicos de las ejecuciones TERMINALES del periodo.
  *
- * Se cuenta sobre `terminal` (las vigentes de cada caso), no sobre todas las
- * filas: si un caso se auditó tres veces, lo que interesa es cómo terminó.
+ * Cada ejecución terminal aporta una observación, incluidas las reauditorías.
  */
 export function aggregateExecution(terminal: DashboardMetricRow[]): ExecutionReport {
   const counts = new Map<ExecutionOutcome, number>();
@@ -340,19 +331,9 @@ export function aggregateSummary(
 ): DashboardSummary {
   const current = currentAuditsByCase(rows);
 
-  // POR QUÉ UN CASO EN CURSO QUEDA FUERA DEL DENOMINADOR:
-  // `RUNNING` no ha emitido dictamen ni ha fallado, así que el caso todavía no
-  // está auditado: meterlo en `auditedCases` lo inflaría y, sobre todo, hacerlo
-  // aparecer en `errors` haría que una tarjeta titulada "Errores" mintiera. Una
-  // auditoría EN CURSO no es un fallo. Por lo tanto `auditedCases` cuenta solo
-  // los casos cuya auditoría vigente es TERMINAL (`COMPLETED` o `ERROR`), y los
-  // cinco grupos (cuatro de resolución + errores) suman exactamente ese número.
-  //
-  // Matiz: si un `COMPLETED` llega con `result` nulo o de otra versión, queda
-  // sin grupo y sin ser error (dato ausente, no fallo). Eso rompería el reparto,
-  // pero es una forma defensiva: el contrato Zod garantiza `COMPLETED` ⇒
-  // resultado válido, y así nunca ocurre con datos reales.
-  const terminal = current.filter(isTerminalAudit);
+  // El reparto de resultados solo usa ejecuciones terminales. La actividad
+  // principal incluye también RUNNING, sin tratarlas como fallos.
+  const terminal = rows.filter(isTerminalAudit);
   const auditedCases = terminal.length;
   const casesWithMissingEvidence = terminal.filter((row) => (row.missing_evidence_count ?? 0) > 0).length;
 

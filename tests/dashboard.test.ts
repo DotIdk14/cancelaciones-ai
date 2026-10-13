@@ -53,20 +53,20 @@ function summarize(rows: DashboardMetricRow[], totalAvailable = rows.length) {
   return aggregateSummary(rows, FILTERS, totalAvailable);
 }
 
-describe('aggregateSummary — auditoría vigente por caso', () => {
-  it('gana la última auditoría del caso, no la primera', () => {
+describe('aggregateSummary — todas las ejecuciones', () => {
+  it('cuenta ambas ejecuciones del caso', () => {
     const rows = [
       row({ id: 'a1', case_id: 'c1', result: 'BAJA', created_at: '2026-09-10T10:00:00.000Z' }),
       row({ id: 'a2', case_id: 'c1', result: 'DICTAMINACION', created_at: '2026-09-10T18:00:00.000Z' }),
     ];
     const summary = summarize(rows);
 
-    expect(summary.kpi.auditedCases).toBe(1);
+    expect(summary.kpi.auditedCases).toBe(2);
     expect(summary.kpi.needsRuling).toBe(1);
-    expect(summary.kpi.granted).toBe(0);
+    expect(summary.kpi.granted).toBe(1);
   });
 
-  it('en empate de timestamp gana la última que aparece en el array', () => {
+  it('el orden del array no elimina ejecuciones', () => {
     const tie = '2026-09-10T12:00:00.000Z';
     const rows = [
       row({ id: 'a1', case_id: 'c1', result: 'BAJA', created_at: tie }),
@@ -78,7 +78,7 @@ describe('aggregateSummary — auditoría vigente por caso', () => {
     const reversed = [rows[1] as DashboardMetricRow, rows[0] as DashboardMetricRow];
     const summary = summarize(reversed);
     expect(summary.kpi.granted).toBe(1);
-    expect(summary.kpi.needsRuling).toBe(0);
+    expect(summary.kpi.needsRuling).toBe(1);
   });
 
   it('los 4 grupos más los errores cuadran con auditedCases', () => {
@@ -192,8 +192,8 @@ describe('aggregateSummary — timeline', () => {
     expect(summary.timeline).toEqual([
       { bucket: '2026-09-10', granted: 1, needsRuling: 1, rejected: 0, insufficient: 0 },
     ]);
-    // Los KPIs, en cambio, cuentan el caso una sola vez, por su estado vigente.
-    expect(summary.kpi.granted).toBe(0);
+    // Los KPIs también cuentan cada dictamen emitido.
+    expect(summary.kpi.granted).toBe(1);
     expect(summary.kpi.needsRuling).toBe(1);
   });
 
@@ -321,15 +321,15 @@ describe('aggregateSummary — RUNNING no es un error', () => {
     expect(summary.kpi.errors).toBe(0);
   });
 
-  it('un COMPLETED más reciente deja de contar el ERROR anterior del mismo caso', () => {
+  it('un COMPLETED posterior conserva el ERROR anterior en actividad', () => {
     const rows = [
       row({ id: 'e1', case_id: 'c1', audit_status: 'ERROR', case_status: 'ERROR', error_category: 'AI_PROVIDER_ERROR', result: null, created_at: '2026-09-10T08:00:00.000Z' }),
       row({ id: 'c2', case_id: 'c1', result: 'DICTAMINACION', created_at: '2026-09-10T18:00:00.000Z' }),
     ];
     const summary = summarize(rows);
 
-    expect(summary.kpi.auditedCases).toBe(1);
-    expect(summary.kpi.errors).toBe(0);
+    expect(summary.kpi.auditedCases).toBe(2);
+    expect(summary.kpi.errors).toBe(1);
     expect(summary.kpi.needsRuling).toBe(1);
   });
 });
@@ -484,12 +484,12 @@ describe('aggregateAiCosts — regla de coste', () => {
       attempts_completion_tokens: null,
     });
 
-    expect(COST_PER_ROW(conUsage)).toBe(0.03);
+    expect(COST_PER_ROW(conUsage)).toBe(0.09);
     expect(COST_PER_ROW(soloAttempts)).toBe(0.04);
     expect(COST_PER_ROW(sinDato)).toBeNull();
 
     const report = costs([conUsage, soloAttempts, sinDato]);
-    expect(report.kpi.totalCostUsd).toBeCloseTo(0.07, 10);
+    expect(report.kpi.totalCostUsd).toBeCloseTo(0.13, 10);
     expect(report.kpi.costAvailable).toBe(true);
     // Los tokens de cada magnitud siguen su propio COALESCE: la fila `c` no
     // aporta a ninguna de las tres.
@@ -510,7 +510,7 @@ describe('aggregateAiCosts — regla de coste', () => {
     expect(report.kpi.costAvailable).toBe(false);
     expect(report.kpi.totalCostUsd).toBe(0);
     expect(report.kpi.casesCounted).toBe(0);
-    expect(report.kpi.avgCostPerCaseUsd).toBe(0);
+    expect(report.kpi.avgCostPerCaseUsd).toBeNull();
     expect(report.kpi.tokensAvailable).toBe(false);
     expect(report.costSeries).toEqual([]);
     // Un modelo sin coste se sigue listando: existe una llamada, aunque no sepamos
@@ -596,7 +596,7 @@ describe('COST_PER_ROW — contrato de la tripleta real', () => {
 });
 
 describe('aggregateAiCosts — coste medio por caso', () => {
-  it('el denominador son los casos CON coste conocido, contados una sola vez', () => {
+  it('un consumo parcial no publica una media completa por expediente', () => {
     const report = costs([
       completada({ id: 'a', case_id: 'c1', usage_cost_usd: 0.02, attempts_cost_usd: 0.02 }),
       completada({ id: 'b', case_id: 'c2', usage_cost_usd: 0.04, attempts_cost_usd: 0.04 }),
@@ -609,7 +609,7 @@ describe('aggregateAiCosts — coste medio por caso', () => {
     expect(report.kpi.totalCostUsd).toBeCloseTo(0.56, 10);
     // c1 y c2. No c3, y c2 no cuenta dos veces por tener dos auditorías.
     expect(report.kpi.casesCounted).toBe(2);
-    expect(report.kpi.avgCostPerCaseUsd).toBeCloseTo(0.28, 10);
+    expect(report.kpi.avgCostPerCaseUsd).toBeNull();
   });
 
   it('un solo caso con coste da el mismo total que el medio', () => {
@@ -685,7 +685,7 @@ describe('aggregateAiCosts — latencia', () => {
     const report = costs([]);
     expect(report.kpi.avgLatencyMs).toBeNull();
     expect(report.kpi.totalCostUsd).toBe(0);
-    expect(report.kpi.avgCostPerCaseUsd).toBe(0);
+    expect(report.kpi.avgCostPerCaseUsd).toBeNull();
     expect(report.costSeries).toEqual([]);
     expect(report.byModel).toEqual([]);
     expect(report.reliability).toEqual({
@@ -702,7 +702,8 @@ describe('aggregateAiCosts — latencia', () => {
         inProgress: 0,
       },
     });
-    for (const value of [report.kpi.totalCostUsd, report.kpi.avgCostPerCaseUsd, report.kpi.totalTokens]) {
+    expect(report.kpi.avgCostPerCaseUsd).toBeNull();
+    for (const value of [report.kpi.totalCostUsd, report.kpi.totalTokens]) {
       expect(Number.isFinite(value)).toBe(true);
     }
   });
@@ -1220,14 +1221,10 @@ describe('aggregateQuality — confianza según evidencia faltante', () => {
     });
   });
 
-  it('missing_evidence_count ausente se trata como expediente completo', () => {
-    // Igual que `recentCases` normaliza a 0: si no, la fila desaparecería del
-    // reparto y su confianza dejaría de contar en la media.
-    const report = quality([completada({ id: 'a', case_id: 'ca', confidence: 0.88, missing_evidence_count: null })]);
-
-    expect(report.confidence.confidenceByMissingEvidence).toEqual([
-      { bucket: '0', label: 'Expediente completo', count: 1, avgConfidence: 0.88 },
-    ]);
+  it('evidencia faltante desconocida no implica expediente completo', () => {
+    const report = quality([completada({ id:'a', case_id:'ca', confidence:0.88, missing_evidence_count:null })]);
+    expect(report.confidence.confidenceByMissingEvidence).toEqual([]);
+    expect(report.confidence.avgConfidence).toBe(0.88);
   });
 
   it('sin dictámenes no hay buckets, y no hay NaN en ninguna parte', () => {
@@ -1368,7 +1365,7 @@ describe('aggregateHumanReview — sólo las comparaciones COMPLETED cuentan', (
     expect(report.completedComparisons).toBe(1);
     expect(report.agreements).toBe(0);
     expect(report.disagreements).toBe(0);
-    expect(report.agreementRate).toBe(0);
+    expect(report.agreementRate).toBeNull();
     // La confianza ausente SÍ es un dato ausente: esa media no existe.
     expect(report.avgComparisonConfidence).toBeNull();
   });

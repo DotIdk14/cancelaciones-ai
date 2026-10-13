@@ -580,7 +580,7 @@ export async function rearmComparison(
   row.latency_ms = null;
   row.attempt_count = input.attemptCount;
   row.deadline_at = input.deadlineAt;
-  if (input.resetCreatedAt) row.created_at = input.resetCreatedAt;
+  row.created_at = new Date().toISOString();
   if (input.model) row.model = input.model;
   row.updated_at = new Date().toISOString();
   return { ...row };

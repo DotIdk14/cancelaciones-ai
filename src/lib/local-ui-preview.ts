@@ -1,4 +1,4 @@
-import type { AppRole, CaseSummary, WorkflowState } from './api';
+import type { AppRole, CaseSummary, FlokzuCaseData, WorkflowState } from './api';
 
 /**
  * Roles que la vista previa local puede representar. Es SOLO presentación: el
@@ -70,7 +70,7 @@ export function getLocalPreviewCases(): CaseSummary[] {
   const now = Date.now();
   const minute = 60_000;
   return [
-    { id: 'demo-case-001', workflowState: 'PENDING_ADVISOR', creatorRole: 'coordinator', creatorId: '20000000-0000-4000-8000-000000000001', status: 'COMPLETED', studentIdentifier: 'MAT-DEMO-001', evidenceCount: 4, createdAt: new Date(now - 18 * minute).toISOString(), updatedAt: new Date(now - 14 * minute).toISOString(), effectiveResolution: { result: 'CANCELACION_VENTA', source: 'AI' } },
+    { id: 'demo-case-001', assignedTo: '10000000-0000-4000-8000-000000000001', assignedName: 'Andrea Torres', workflowState: 'PENDING_ADVISOR', creatorRole: 'coordinator', creatorId: '20000000-0000-4000-8000-000000000001', status: 'COMPLETED', studentIdentifier: 'MAT-DEMO-001', evidenceCount: 4, createdAt: new Date(now - 18 * minute).toISOString(), updatedAt: new Date(now - 14 * minute).toISOString(), effectiveResolution: { result: 'CANCELACION_VENTA', source: 'AI' } },
     { id: 'demo-case-002', creatorRole: 'user', creatorId: '10000000-0000-4000-8000-000000000001', status: 'READY', studentIdentifier: 'MAT-DEMO-002', evidenceCount: 3, createdAt: new Date(now - 48 * minute).toISOString(), updatedAt: new Date(now - 48 * minute).toISOString() },
     { id: 'demo-case-003', creatorRole: 'coordinator', creatorId: '20000000-0000-4000-8000-000000000002', status: 'ERROR', studentIdentifier: null, evidenceCount: 2, createdAt: new Date(now - 3 * 60 * minute).toISOString(), updatedAt: new Date(now - 40 * minute).toISOString() },
     { id: 'demo-case-004', creatorRole: 'user', creatorId: '10000000-0000-4000-8000-000000000002', status: 'DRAFT', studentIdentifier: null, evidenceCount: 0, createdAt: new Date(now - 22 * minute).toISOString(), updatedAt: new Date(now - 22 * minute).toISOString() },
@@ -87,3 +87,11 @@ export function localPreviewCaseLabel(id: string): string {
   const match = /^demo-case-(\d{3})$/.exec(id);
   return match ? `DEMO-${match[1]}` : id;
 }
+
+/** Contexto ficticio para inspección visual local; no se importa ni llama a la API. */
+export const LOCAL_PREVIEW_FLOKZU: FlokzuCaseData = {
+  academic: { campus: 'UTEL Ecuador', university: 'UTEL', countryReported: 'Ecuador', program: 'Administración de empresas', level: 'Licenciatura', block: 'A', programKey: 'ADM-001', entryDate: '2026-08-01' },
+  procedure: { policyReported: '01 · Solicitud de cancelación de venta', motive: 'Solicitud del estudiante', description: 'Solicitud de demostración para revisar el contexto administrativo del expediente. El estudiante solicita seguimiento a su trámite. Los datos reportados por Flokzu se conservan separados de las evidencias cargadas. La fecha administrativa corresponde al registro del ticket y debe distinguirse del inicio de clases confirmado. Este texto es ficticio y no se envía al auditor.', requestDate: '2026-10-12', administrativeStartDate: '2026-10-10' },
+  operations: { currentTask: '[BACKOFFICE] [REVISION BO] [CV]', statusReported: 'En revisión', finalizedReported: 'No', reviewerReported: 'Asesor de muestra', supervisorReported: 'Supervisor de muestra', requesterReported: 'Solicitante de muestra', requesterArea: 'Éxito estudiantil' },
+  evidenceReferences: [{ label: 'Evidencia de acceso al aula', value: 'captura-demo.png' }],
+};

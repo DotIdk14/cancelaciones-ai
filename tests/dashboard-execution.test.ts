@@ -224,8 +224,8 @@ describe('aggregateSummaryCost — "no hay coste" NO es "costó cero"', () => {
   it('con coste, el promedio es sobre los CASOS, no sobre las auditorías', () => {
     // Dos auditorías del mismo caso: el caso cuenta una vez.
     const report = aggregateSummaryCost([
-      row({ id: 'a1', case_id: 'c1', usage_cost_usd: 0.1 }),
-      row({ id: 'a2', case_id: 'c1', usage_cost_usd: 0.1 }),
+      row({ id: 'a1', case_id: 'c1', usage_cost_usd: 0.1, attempts_cost_usd: 0.1 }),
+      row({ id: 'a2', case_id: 'c1', usage_cost_usd: 0.1, attempts_cost_usd: 0.1 }),
     ]);
     expect(report.totalCostUsd).toBeCloseTo(0.2, 6);
     expect(report.casesWithCost).toBe(1);
@@ -234,8 +234,8 @@ describe('aggregateSummaryCost — "no hay coste" NO es "costó cero"', () => {
 
   it('suma el coste de las ejecuciones FALLIDAS: también se pagó', () => {
     const report = aggregateSummaryCost([
-      row({ id: 'a1', case_id: 'c1', usage_cost_usd: 0.1 }),
-      row({ id: 'a2', case_id: 'c2', audit_status: 'ERROR', result: null, usage_cost_usd: 0.05 }),
+      row({ id: 'a1', case_id: 'c1', usage_cost_usd: 0.1, attempts_cost_usd: 0.1 }),
+      row({ id: 'a2', case_id: 'c2', audit_status: 'ERROR', result: null, usage_cost_usd: 0.05, attempts_cost_usd: 0.05 }),
     ]);
     expect(report.totalCostUsd).toBeCloseTo(0.15, 6);
   });

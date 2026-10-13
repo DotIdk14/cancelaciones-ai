@@ -4,7 +4,8 @@ import { ArrowLeft, AudioLines, BookOpenCheck, Clock3, FileCheck2, FileText, Mes
 import type { AppRole, CaseReviewDto, CoordinatorDecision, WorkflowState } from '../lib/api';
 import type { AuditResultType } from '../skills/audit/types';
 import { formatDateTime } from '../lib/format';
-import { getLocalPreviewCases, localPreviewCaseLabel } from '../lib/local-ui-preview';
+import { getLocalPreviewCases, localPreviewCaseLabel, LOCAL_PREVIEW_FLOKZU } from '../lib/local-ui-preview';
+import { FlokzuContextBar } from './FlokzuContext';
 import { CASE_STATUS_LABELS, CASE_STATUS_TONE, RESULT_LABELS, REVIEW_RESULT_OPTIONS, resolutionLabel } from '../lib/labels';
 import { CaseReviewRecord } from './CaseReviewPanel';
 import { CoordinatorDecisionRecord } from './CoordinatorReviewStage';
@@ -45,6 +46,7 @@ export function CaseDetailPreview({
         <div className="preview-case-title"><div><h1>{item.studentIdentifier ?? 'Expediente de demostración'}</h1><p>Matrícula: {item.studentIdentifier ?? 'Sin identificar'} <span>·</span> Expediente {localPreviewCaseLabel(item.id)}</p></div><Badge tone={CASE_STATUS_TONE[item.status]}>{CASE_STATUS_LABELS[item.status]}</Badge></div>
         <div className="preview-case-meta"><span><small>EXPEDIENTE / FOLIO</small><strong>{localPreviewCaseLabel(item.id)}</strong></span><span><small>APERTURA</small><strong>{formatDateTime(item.createdAt)}</strong></span><span><small>ESTADO ACTUAL</small><strong>{CASE_STATUS_LABELS[item.status]}</strong></span></div>
       </div>
+      <FlokzuContextBar externalCaseId="CaVe-30841" assignedTo={item.assignedTo} assignedName={item.assignedName} data={LOCAL_PREVIEW_FLOKZU} />
       <div className="case-detail-layout">
         <aside className="case-detail-evidence preview-evidence-column">
           <Panel title={`Evidencias (${item.evidenceCount})`} description="Archivos de muestra; no se almacenan ni se envían.">

@@ -52,6 +52,7 @@ const CaseCursorSchema = z.object({
   status: z.enum(CASE_STATUSES).optional(),
   creatorRole: z.enum(['user', 'coordinator', 'manager']).optional(),
   creatorId: z.string().uuid().optional(),
+  assignedTo: z.union([z.string().uuid(), z.literal('UNASSIGNED')]).optional(),
   workflowState: z.enum(['PENDING_ADVISOR', 'PENDING_COORDINATOR']).optional(),
 }).strict();
 
@@ -109,6 +110,9 @@ export default handleRoute(async (req, res) => {
       const creatorRoleParsed = rawCreatorRole === undefined ? undefined : z.enum(['user', 'coordinator', 'manager']).safeParse(rawCreatorRole);
       if (creatorRoleParsed && !creatorRoleParsed.success) throw new ApiError(400, 'VALIDATION_ERROR', 'creatorRole no es válido');
       const rawCreatorId = typeof req.query.creatorId === 'string' ? req.query.creatorId : undefined;
+      const assignedToParsed = z.union([z.string().uuid(), z.literal('UNASSIGNED')]).optional().safeParse(req.query.assignedTo);
+      if (!assignedToParsed.success) throw new ApiError(400, 'VALIDATION_ERROR', 'assignedTo no es válido');
+      const assignedTo = assignedToParsed.data;
       const creatorIdParsed = rawCreatorId === undefined ? undefined : z.string().uuid().safeParse(rawCreatorId);
       if (creatorIdParsed && !creatorIdParsed.success) throw new ApiError(400, 'VALIDATION_ERROR', 'creatorId no es válido');
       const rawWorkflowState = typeof req.query.workflowState === 'string' ? req.query.workflowState : undefined;
@@ -118,7 +122,7 @@ export default handleRoute(async (req, res) => {
       if (workflowStateParsed?.success && !capabilities.canFinalizeAnyCase) {
         throw new ApiError(403, 'AUTH_ERROR', 'No tienes permiso para consultar las bandejas de coordinación');
       }
-      if (cursor && (cursor.limit !== parsedLimit.data || cursor.status !== statusParsed?.data || cursor.creatorRole !== creatorRoleParsed?.data || cursor.creatorId !== creatorIdParsed?.data || cursor.workflowState !== workflowStateParsed?.data)) {
+      if (cursor && (cursor.limit !== parsedLimit.data || cursor.status !== statusParsed?.data || cursor.creatorRole !== creatorRoleParsed?.data || cursor.creatorId !== creatorIdParsed?.data || cursor.assignedTo !== assignedTo || cursor.workflowState !== workflowStateParsed?.data)) {
         throw new ApiError(400, 'VALIDATION_ERROR', 'El cursor no corresponde a los filtros solicitados');
       }
       const limit = cursor?.limit ?? parsedLimit.data;
@@ -135,6 +139,7 @@ export default handleRoute(async (req, res) => {
         ...(status ? { status } : {}),
         ...(creatorRole ? { creatorRole: creatorRole as CaseCreatorRole } : {}),
         ...(creatorId ? { creatorId } : {}),
+        ...(assignedTo ? { assignedTo } : {}),
       };
       let cases;
       let hasMore: boolean;
@@ -174,15 +179,16 @@ export default handleRoute(async (req, res) => {
         nextOffset = offset + limit;
       }
       const nextCursor = hasMore
-        ? Buffer.from(JSON.stringify({ offset: workflowState ? nextOffset : offset + limit, snapshot, limit, ...(status ? { status } : {}), ...(creatorRole ? { creatorRole } : {}), ...(creatorId ? { creatorId } : {}), ...(workflowState ? { workflowState } : {}) })).toString('base64url')
+        ? Buffer.from(JSON.stringify({ offset: workflowState ? nextOffset : offset + limit, snapshot, limit, ...(status ? { status } : {}), ...(creatorRole ? { creatorRole } : {}), ...(creatorId ? { creatorId } : {}), ...(assignedTo ? { assignedTo } : {}), ...(workflowState ? { workflowState } : {}) })).toString('base64url')
         : null;
       const statusCounts = cursor ? undefined : await countCaseSummaryStatuses(
         client,
         req.auth!,
         creatorRole as CaseCreatorRole | undefined,
         creatorId,
+        assignedTo,
       );
-      const creatorOptions = !cursor && capabilities.canReadAllCases && !creatorRole && !creatorId
+      const creatorOptions = !cursor && capabilities.canReadAllCases
         ? await listCaseCreatorOptions(client)
         : undefined;
       ok(res, {
@@ -190,6 +196,7 @@ export default handleRoute(async (req, res) => {
         nextCursor,
         statusCounts,
         ...(creatorOptions ? { creatorOptions } : {}),
+        ...(creatorOptions ? { responsibleOptions: creatorOptions.map((item) => ({ userId: item.creatorId, name: item.name })) } : {}),
       });
       return;
     }

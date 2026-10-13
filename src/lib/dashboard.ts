@@ -51,7 +51,7 @@ import {
 export { CASE_DIMENSION_COLUMN, DASHBOARD_DIMENSIONS, DIMENSION_LABELS };
 export type { DashboardDimension };
 
-export type DashboardFilterOptions = Record<DashboardDimension, string[]>;
+export type DashboardFilterOptions = Record<DashboardDimension, string[]> & { responsibleLabels?: Record<string, string> };
 
 export const EMPTY_DASHBOARD_FILTER_OPTIONS: DashboardFilterOptions = {
   country: [],
@@ -288,6 +288,7 @@ export interface HumanMismatchRow {
 }
 
 export interface DashboardSummary {
+  activity?: import('./dashboard-metrics-contracts').MonthlyActivity;
   generatedAt: string;
   /** `true` cuando el servidor truncó el conjunto para poder agregarlo. */
   truncated: boolean;
@@ -355,8 +356,9 @@ export type CostGranularity = 'day' | 'week' | 'month';
  * y la UI acabaría mintiendo con un `$0.0000` o un `0 ms` de Aspecto real.
  */
 export interface AiCostsKpi {
+  comparisonsCounted?: number;
   totalCostUsd: number;
-  avgCostPerCaseUsd: number;
+  avgCostPerCaseUsd: number | null;
   totalTokens: number;
   promptTokens: number;
   completionTokens: number;
@@ -418,6 +420,7 @@ export interface AiCostsReliability {
 
 /** Informe completo de `/api/dashboard/ai-costs`. */
 export interface AiCostsReport {
+  activity?: import('./dashboard-metrics-contracts').MonthlyActivity;
   generatedAt: string;
   /** `true` cuando el servidor truncó el conjunto para poder agregarlo. */
   truncated: boolean;
@@ -556,6 +559,7 @@ export interface ConfidenceReport {
 
 /** Informe completo de `/api/dashboard/quality`. */
 export interface QualityReport {
+  evaluation?: import('./dashboard-metrics-contracts').QualityEvaluation;
   generatedAt: string;
   /** `true` cuando el servidor truncó el conjunto para poder agregarlo. */
   truncated: boolean;
@@ -584,7 +588,8 @@ function buildFiltersParams(filters: DashboardFilters): URLSearchParams {
   params.set('to', filters.to);
   if (filters.result !== null) params.set('result', filters.result);
   if (filters.status !== null) params.set('status', filters.status);
-  for (const dimension of ['country', 'campus', 'modality', 'project', 'responsible', 'guideline'] as const) {
+  if (filters.evaluation) params.set('evaluation', filters.evaluation);
+  for (const dimension of ['channel', 'country', 'campus', 'modality', 'project', 'responsible', 'guideline'] as const) {
     const value = filters[dimension];
     if (value != null) params.set(dimension, value);
   }

@@ -31,6 +31,60 @@
   --motion-medium: 210ms;
 }
 
+/* El contexto importado acompaña el expediente sin ocupar su área de trabajo. */
+.flokzu-context-bar { display: flex; align-items: center; gap: 18px; min-height: 56px; margin-bottom: 16px; padding: 8px 16px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface-1); font-size: 12px; color: var(--text-secondary); }
+.flokzu-origin { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+.flokzu-origin span { color: var(--text-muted); }
+.flokzu-origin strong { color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
+.flokzu-bar-status, .flokzu-bar-task, .flokzu-bar-policy { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.flokzu-bar-status { max-width: 150px; color: var(--text-primary); }
+.flokzu-bar-task { flex: 0 1 210px; }
+.flokzu-bar-policy { flex: 1 1 140px; }
+.flokzu-context-trigger { display: inline-flex; align-items: center; gap: 8px; flex: 0 0 auto; min-height: 36px; margin-left: auto; padding: 6px 8px; border-radius: var(--radius-control); color: var(--accent); font-weight: 600; transition: background var(--motion-fast); }
+.flokzu-context-trigger:hover, .flokzu-text-action:hover { background: var(--surface-2); }
+.flokzu-context-panel { position: fixed; inset: 0 0 0 auto; margin: 0; width: min(420px, 100vw); max-width: 100vw; height: 100dvh; max-height: 100dvh; border: 0; padding: 0; color: var(--text-primary); background: var(--surface-1); box-shadow: -16px 0 42px rgba(0,0,0,.35); }
+.flokzu-context-panel[open] { display: flex; flex-direction: column; animation: flokzu-panel-enter 180ms cubic-bezier(.16,1,.3,1); }
+.flokzu-context-panel::backdrop { background: rgba(0,0,0,.4); }
+.flokzu-panel-header { display: flex; flex: 0 0 auto; align-items: flex-start; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--border); padding: 24px 24px 20px; }
+.flokzu-panel-header h2 { font-size: 18px; letter-spacing: -.02em; }
+.flokzu-panel-header button { flex: 0 0 auto; min-height: 40px; min-width: 40px; }
+.flokzu-panel-subtitle { margin-top: 5px; color: var(--text-muted); font-size: 12px; line-height: 1.6; }
+.flokzu-panel-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 20px 24px max(28px, env(safe-area-inset-bottom)); }
+.flokzu-disclaimer, .flokzu-section-note { color: var(--text-muted); font-size: 12px; line-height: 1.6; }
+.flokzu-section { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border); }
+.flokzu-section h3, .flokzu-operational summary { margin-bottom: 12px; color: var(--text-primary); font-size: 13px; font-weight: 600; }
+.flokzu-property { min-width: 0; margin-top: 12px; }
+.flokzu-property dt { color: var(--text-muted); font-size: 11px; line-height: 1.5; }
+.flokzu-property dd { margin-top: 3px; color: var(--text-secondary); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.flokzu-property-emphasis dd { color: var(--text-primary); font-weight: 550; }
+.flokzu-academic-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 0 20px; }
+.flokzu-description { color: var(--text-secondary); font-size: 13px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.flokzu-description-clamped { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; }
+.flokzu-text-action { margin: 8px 0 0 -6px; border-radius: 6px; padding: 6px; color: var(--accent); font-size: 12px; }
+.flokzu-evidence-links { margin-top: 8px; }
+.flokzu-evidence-links a { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px; margin-inline: -8px; padding: 8px; border-radius: 6px; color: var(--accent); font-size: 13px; line-height: 1.5; text-decoration: none; }
+.flokzu-evidence-links a:hover { background: var(--surface-2); text-decoration: underline; text-underline-offset: 3px; }
+.flokzu-evidence-links span { overflow-wrap: anywhere; }
+.flokzu-evidence-links svg { flex: 0 0 auto; }
+.flokzu-operational summary { display: flex; align-items: center; justify-content: space-between; cursor: pointer; list-style: none; }
+.flokzu-operational summary::-webkit-details-marker { display: none; }
+.flokzu-operational[open] summary svg { transform: rotate(180deg); }
+.flokzu-operational .flokzu-section-note { margin-top: 16px; }
+@keyframes flokzu-panel-enter { from { transform: translateX(20px); } to { transform: translateX(0); } }
+@media (max-width: 760px) {
+  .flokzu-context-bar { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 6px 12px; padding: 10px 12px; }
+  .flokzu-origin { min-width: 0; }
+  .flokzu-origin strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .flokzu-context-trigger { grid-column: 2; grid-row: 1 / 3; }
+  .flokzu-bar-status { max-width: none; grid-column: 1; grid-row: 2; }
+  .flokzu-bar-task { grid-column: 1 / -1; }
+  .flokzu-bar-policy { display: none; }
+  .flokzu-context-panel { width: 100vw; }
+  .flokzu-panel-header { padding: 20px; }
+  .flokzu-panel-scroll { padding: 18px 20px max(24px, env(safe-area-inset-bottom)); }
+}
+@media (prefers-reduced-motion: reduce) { .flokzu-context-panel[open] { animation: none; } .flokzu-context-trigger { transition: none; } }
+
 body {
   background: var(--background);
   color: var(--text-primary);

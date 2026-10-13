@@ -1,306 +1,123 @@
-// =============================================================================
-// Calidad: qué tan bien está auditando la IA y con qué evidencia.
-//
-// ESTA PANTALLA EMPEZABA EN SU REGLA, Y TODA SU ESTRUCTURA SALE DE AHÍ:
-// no existe revisión humana en ninguna tabla. `cases` y `audits` no guardan quién
-// revisó un dictamen, ni la resolución que una persona dio, ni una corrección
-// posterior. Así que la mitad "humana" de la calidad no se puede CALCULAR.
-//
-// La tentación sería rellenar los huecos con ceros y pintar "Coincidencia IA /
-// humano: 0 %". Eso es FALSO: no significa que la IA falle siempre, significa
-// que nadie la ha comparado con un humano. Por eso:
-//
-//   1. Las tres primeras tarjetas muestran `DASH` ("—") en `tone="neutral"`, con
-//      una pista que dice qué falta, y NUNCA un porcentaje de cero.
-//   2. Los dos paneles que dependen de revisión humana muestran su estado vacío
-//      con `emptyTitle="Todavía no hay datos suficientes."` y una descripción que
-//      explica qué habría que registrar.
-//   3. Arriba del todo va un aviso que dice, en palabras del servidor, POR QUÉ
-//      están vacías. Sin ese aviso, un "—" sin explicación parece un fallo de
-//      carga; con él, se lee como una limitación conocida del sistema.
-//
-// Lo que SÍ es real, y por eso tiene las dos gráficas de la fila 3: la
-// confianza que declaró el modelo en cada dictamen, y cómo se comporta cuando
-// falta evidencia. Esa es la versión honesta de "¿baja la calidad cuando faltan
-// evidencias?".
-// =============================================================================
-
 import type { ReactNode } from 'react';
-import { useCallback, useState } from 'react';
-import { ChevronDown, Gauge, Info, Scale, UserCheck } from 'lucide-react';
-import type {
-  DashboardFilters as DashboardFiltersValue,
-  QualityReport,
-} from '../../lib/dashboard';
+import { useState } from 'react';
+import type { DashboardFilters as Filters } from '../../lib/dashboard';
 import { defaultDateRange } from '../../lib/dashboard';
+import type { QualityCase } from '../../lib/dashboard-metrics-contracts';
 import { DASH, formatPercent } from '../../lib/format';
-import { CONFIDENCE_HIGH_THRESHOLD, resolutionLabel } from '../../lib/labels';
+import { resolutionLabel } from '../../lib/labels';
 import { useAiQuality } from '../../lib/useDashboard';
-import { Badge, ChartFrame, ErrorCard, Skeleton, StatCard } from '../ui';
+import { Button, ChartFrame, ErrorCard, Panel, Skeleton, StatCard } from '../ui';
 import { DashboardFilters } from './DashboardFilters';
 import { ConfidenceBandsChart } from './charts/ConfidenceBandsChart';
 import { ConfidenceByEvidenceChart } from './charts/ConfidenceByEvidenceChart';
 
-const ICON_PROPS = { size: 18, 'aria-hidden': true } as const;
+const percent = (value: number | null | undefined): string => value == null ? DASH : formatPercent(value);
+const states: Record<string, string> = {
+  AGREEMENT: 'Acuerdo final', DISAGREEMENT: 'Discrepancia final',
+  PENDING_ADVISOR: 'Pendiente de Asesor', PENDING_COORDINATOR: 'Pendiente de Coordinador',
+  PENDING_COMPARISON: 'Sin comparación final', COMPARISON_RUNNING: 'Comparación en curso',
+  COMPARISON_ERROR: 'Comparación fallida', AUDIT_ERROR: 'Error técnico de auditoría',
+  AUDIT_RUNNING: 'Auditoría en curso', INVALID_COMPARISON: 'Comparación sin resultado válido',
+  PENDING_EVALUATION: 'Pendientes de evaluación', WITHOUT_CONFIDENCE: 'Sin confianza original', ISSUED: 'Dictámenes emitidos', FINALIZED: 'Evaluados humanamente',
+};
+const dateFormat = new Intl.DateTimeFormat('es-MX', { dateStyle: 'short', timeStyle: 'short', timeZone: 'UTC' });
 
-/** Enteros con separador de miles en el formato local. */
-const INT_FMT = new Intl.NumberFormat('es-EC');
-
-/**
- * Estado vacío de los paneles SIN dato. Deliberadamente distinto del
- * `EMPTY_CHART_TITLE` de las otras vistas ("No hay suficientes datos para este
- * periodo"): aquí no es que falten datos del periodo, es que el sistema no
- * registra el dato. Confundir los dos mensajes sería tapar justo lo que esta
- * pantalla tiene que hacer visible.
- */
-const EMPTY_TITLE = 'Todavía no hay datos suficientes.';
-
-/** Qué haría falta para que "IA vs resolución humana" tuviera contenido. */
-// -----------------------------------------------------------------------------
-// Aviso de datos humanos ausentes
-// -----------------------------------------------------------------------------
-
-/**
- * Explica por qué las tres primeras tarjetas están vacías.
- *
- * `tone="neutral"` y `bg-surface-2`, NO `danger`: no es un error ni un fallo, es
- * una limitación conocida del sistema. Pintarlo en rojo haría que la gente
- * buscara un problema que no existe (o que arreglara algo que no está roto).
- *
- * El texto NO se redacta aquí: es `humanReview.message`, que viene del servidor
- * para que la explicación de por qué falta un dato viva junto al cálculo que la
- * produce, y no se desincronice si algún día cambia.
- */
-function HumanReviewNotice({ report }: { report: QualityReport | null }): ReactNode {
-  const message = report?.humanReview.message;
-  if (message === undefined) return null;
-
-  return (
-    <div className="flex flex-wrap items-start justify-between gap-3 rounded-2xl border border-line bg-surface-2 p-4">
-      <div className="flex min-w-0 items-start gap-3">
-        <Info size={18} aria-hidden="true" className="mt-0.5 shrink-0 text-muted" />
-        <p className="max-w-3xl text-sm text-muted">{message}</p>
-      </div>
-      <Badge tone="neutral" className="shrink-0">
-        {report?.humanReview.available ? 'Revisión humana registrada' : 'Sin revisión humana'}
-      </Badge>
+function CasesTable({ rows }: { rows: QualityCase[] }): ReactNode {
+  const [page, setPage] = useState(0);
+  const totalPages = Math.max(1, Math.ceil(rows.length / 25));
+  const current = Math.min(page, totalPages - 1);
+  const visible = rows.slice(current * 25, (current + 1) * 25);
+  return <>
+    <div role="region" aria-label="Expedientes del indicador de calidad" tabIndex={0} className="overflow-x-auto">
+      <table className="w-full text-left text-sm tabular-nums">
+        <thead><tr className="border-b border-line text-muted">{['CaVe / caso', 'Responsable', 'Auditoría · UTC', 'Resolución IA', 'Confianza original', 'Propuesta Asesor', 'Final Coordinador', 'Comparación', 'Confianza comparación', 'Evaluación', 'Expediente'].map(label => <th key={label} scope="col" className="whitespace-nowrap px-3 py-3 font-medium">{label}</th>)}</tr></thead>
+        <tbody>{visible.map(row => <tr key={row.auditId} className="border-b border-line text-ink">
+          <td className="px-3 py-3">{row.identifier}</td><td className="px-3 py-3">{row.responsibleName ?? row.responsible ?? DASH}</td>
+          <td className="whitespace-nowrap px-3 py-3">{dateFormat.format(new Date(row.auditedAt))}</td>
+          <td className="px-3 py-3">{row.aiResolution ? resolutionLabel(row.aiResolution) : DASH}</td>
+          <td className="px-3 py-3">{percent(row.originalConfidence)}</td>
+          <td className="px-3 py-3">{row.advisorResolution ? resolutionLabel(row.advisorResolution) : DASH}</td>
+          <td className="px-3 py-3">{row.finalResolution ? resolutionLabel(row.finalResolution) : DASH}</td>
+          <td className="px-3 py-3">{row.substantiveAgreement === null ? DASH : row.substantiveAgreement ? 'Acuerdo' : 'Discrepancia'}</td>
+          <td className="px-3 py-3">{percent(row.comparisonConfidence)}</td><td className="px-3 py-3">{states[row.state]}{row.aiResolution && row.latestExecutionStatus && row.latestExecutionStatus !== 'COMPLETED' && <p className="mt-1 text-xs text-muted">Última ejecución: {row.latestExecutionStatus === 'ERROR' ? 'error técnico' : 'en curso'}</p>}</td>
+          <td className="px-3 py-3"><a className="text-brand underline underline-offset-4" href={`#/casos/${row.caseId}`} aria-label={`Abrir expediente ${row.identifier}`}>Abrir</a></td>
+        </tr>)}</tbody>
+      </table>
+      {!rows.length && <p className="py-6 text-sm text-muted">No hay expedientes en el universo seleccionado.</p>}
     </div>
-  );
+    <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm text-muted">
+      <span>{rows.length} registros · Página {current + 1} de {totalPages}</span>
+      <div className="flex gap-2"><Button variant="secondary" disabled={!current} onClick={() => setPage(current - 1)}>Anterior</Button><Button variant="secondary" disabled={current + 1 >= totalPages} onClick={() => setPage(current + 1)}>Siguiente</Button></div>
+    </div>
+  </>;
 }
-
-// -----------------------------------------------------------------------------
-// Tarjetas sin dato
-// -----------------------------------------------------------------------------
-
-// -----------------------------------------------------------------------------
-// Página
-// -----------------------------------------------------------------------------
 
 export function QualityPage(): ReactNode {
-  const [filters, setFilters] = useState<DashboardFiltersValue>(defaultDateRange);
+  const [filters, setFilters] = useState<Filters>(defaultDateRange);
+  const [historical, setHistorical] = useState(false);
   const { data, isLoading, error, reload } = useAiQuality(filters);
-
-  // Un error global no debe vaciar la pantalla: se muestra arriba y el resto de
-  // la página sigue mostrando lo último conocido o su propio estado vacío.
-  const handleRetry = useCallback((): void => {
-    reload();
-  }, [reload]);
-
+  const e = data?.evaluation;
   const confidence = data?.confidence;
-  const humanReview = data?.humanReview ?? null;
-  const bands = confidence?.bands ?? [];
-  const byEvidence = confidence?.confidenceByMissingEvidence ?? [];
-
-  const showSkeleton = isLoading && data === null;
-  // Sin confianza declarada no hay media que promediar: `DASH`, no `0 %`.
-  const avgConfidence = showSkeleton ? null : (confidence?.avgConfidence ?? null);
-
-  // El rango mostrado es el que resolvió el servidor (`report.filters`), no el del
-  // control: si difieren, las cifras corresponden al otro.
+  const human = data?.humanReview;
+  const loading = isLoading && !data;
   const applied = data?.filters ?? filters;
-
-  // Ambos `aria-label` dicen QUÉ se mide y SOBRE QUÉ, con los números dentro: el
-  // texto alternativo de una gráfica tiene que poder sustituirla, no describirla.
-  const bandsAriaLabel =
-    `Distribución de la confianza declarada por el modelo en ${INT_FMT.format(confidence?.auditedCases ?? 0)} ` +
-    `dictamen(es) del periodo del ${applied.from} al ${applied.to}: ` +
-    `${bands.map((band) => `${band.label} ${band.count}`).join(', ')}.`;
-  const byEvidenceAriaLabel =
-    'Confianza media del modelo según la evidencia que falta en el expediente, con el umbral de ' +
-    `alta confianza marcado en el ${formatPercent(CONFIDENCE_HIGH_THRESHOLD)}. ` +
-    `${byEvidence.map((bucket) => `${bucket.label}: ${bucket.avgConfidence === null ? 'sin datos' : formatPercent(bucket.avgConfidence)}`).join('; ')}.`;
-
-  return (
-    <div className="dashboard-page quality-page flex flex-col gap-5">
-      {/* Fila 0: título + filtros */}
-      <section className="dashboard-toolbar quality-toolbar">
-        <header className="dashboard-page-heading">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-ink">Calibración y calidad auditora</h1>
-            <p className="mt-1 text-sm text-muted">
-              Qué tan bien está auditando la IA y con qué evidencia.
-            </p>
-          </div>
-        </header>
-        <DashboardFilters value={filters} onChange={setFilters} />
-      </section>
-
-      {/* Aviso de por qué las tres primeras tarjetas están vacías. Va lo PRIMERO
-          después del header, por encima incluso del error: es una propiedad
-          permanente de esta vista, no un estado transitorio, y sin él los `—` de
-          abajo se leen como un fallo de carga en lugar de como un dato que el
-          sistema no registra. Con el error de validación los datos anteriores se
-          descartan, así que aquí no se pinta nada y solo queda el `ErrorCard`. */}
-      <HumanReviewNotice report={data} />
-
-      {error !== null && (
-        <ErrorCard
-          title="No se pudo cargar el informe de calidad"
-          message={error}
-          onRetry={handleRetry}
-          retrying={isLoading}
-        />
-      )}
-
-      {/* Fila 1: KPIs */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {showSkeleton ? (
-          Array.from({ length: 4 }, (_, i) => (
-            <StatCard
-              key={i}
-              label="Cargando"
-              value={<Skeleton className="h-8 w-24" />}
-              isLoading
-            />
-          ))
-        ) : (
-          <>
-            <StatCard
-              label="Casos revisados por persona"
-              tone="neutral"
-              icon={<UserCheck {...ICON_PROPS} />}
-              value={humanReview === null ? DASH : humanReview.reviewedCases}
-              hint={humanReview?.available ? 'Revisiones enlazadas a la auditoría filtrada' : 'Sin revisiones en este periodo'}
-            />
-            <StatCard
-              label="Acuerdos"
-              tone="success"
-              icon={<Scale {...ICON_PROPS} />}
-              value={humanReview === null ? DASH : humanReview.agreements}
-              hint={humanReview === null ? 'Sin datos' : `${humanReview.comparableReviews} revisiones comparables`}
-            />
-            <StatCard
-              label="Discrepancias"
-              tone="warning"
-              icon={<Scale {...ICON_PROPS} />}
-              value={humanReview === null ? DASH : humanReview.disagreements}
-              hint="Resultado humano distinto al de la auditoría referenciada"
-            />
-            {/* Esta sí es real: la confianza que declaró el modelo. */}
-            <StatCard
-              label="Confianza promedio"
-              tone="brand"
-              icon={<Gauge {...ICON_PROPS} />}
-              value={avgConfidence === null ? <span className="text-muted">{DASH}</span> : formatPercent(avgConfidence)}
-              hint={
-                avgConfidence === null
-                  ? 'Sin confianza declarada'
-                  : `${INT_FMT.format(confidence?.auditedCases ?? 0)} dictamen(s) con confianza`
-              }
-            />
-          </>
-        )}
-      </div>
-
-      {/* Fila 2: comparaciones humanas */}
-      <div className="grid gap-6">
-        {data?.truncated === true && (
-          <div className="lg:col-span-2">
-            <Badge tone="warning">Se muestran los casos más recientes del periodo</Badge>
-          </div>
-        )}
-
-        <ChartFrame
-          title="Acuerdos y discrepancias"
-          description="Consulta los dictámenes donde la comparación reportó una discrepancia."
-          height={360}
-          isLoading={showSkeleton}
-          isEmpty={!showSkeleton && !humanReview?.available}
-          emptyTitle="Sin revisiones humanas en este periodo."
-          emptyDescription="No se fabrican acuerdos ni discrepancias mientras no existan revisiones."
-          error={null}
-        >
-          {humanReview?.available ? (
-            <div className="flex h-full flex-col gap-4">
-              <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                <span className="text-sm text-muted">Porcentaje de discrepancia</span>
-                <strong className="text-xl tabular-nums text-ink">
-                  {humanReview.agreements + humanReview.disagreements === 0
-                    ? DASH
-                    : formatPercent(humanReview.disagreements / (humanReview.agreements + humanReview.disagreements))}
-                </strong>
-                <span className="w-full text-xs text-muted">
-                  Sobre {humanReview.agreements + humanReview.disagreements} comparaciones clasificadas
-                </span>
-              </div>
-              <details className="quality-discrepancy-menu">
-                <summary>
-                  <span>Ver discrepancias ({humanReview.discrepancies.length}{humanReview.discrepanciesTruncated ? '+' : ''})</span>
-                  <ChevronDown size={16} aria-hidden="true" />
-                </summary>
-                <div className="quality-discrepancy-list">
-                  {humanReview.discrepancies.length === 0 ? (
-                    <p className="text-sm text-muted">No hay discrepancias con ambas resoluciones disponibles en este periodo.</p>
-                  ) : humanReview.discrepancies.map((item) => (
-                    <article key={`${item.caseId}:${item.createdAt}`} className="quality-discrepancy-row">
-                      <span className="text-xs text-muted">Expediente {item.caseId.slice(0, 8)}</span>
-                      <dl>
-                        <div><dt>Resolución IA</dt><dd>{resolutionLabel(item.aiResolution)}</dd></div>
-                        <div><dt>Resolución humana</dt><dd>{resolutionLabel(item.humanResolution)}</dd></div>
-                      </dl>
-                    </article>
-                  ))}
-                  {humanReview.discrepanciesTruncated && (
-                    <p className="px-3 py-2 text-xs text-muted">Se muestran las 100 discrepancias más recientes.</p>
-                  )}
-                </div>
-              </details>
-            </div>
-          ) : <div />}
-        </ChartFrame>
-      </div>
-
-      {/* Fila 3: los dos paneles con datos reales */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        <ChartFrame
-          title="Distribución de confianza"
-          description="Banda en la que cayó la confianza declarada por el modelo en cada dictamen del periodo."
-          height={300}
-          isLoading={showSkeleton}
-          // `bands` llega siempre con las 3, así que el único estado vacío posible
-          // es que no haya llegado nada todavía: de ahí el chequeo de longitud.
-          isEmpty={!showSkeleton && bands.length === 0}
-          emptyTitle={EMPTY_TITLE}
-          emptyDescription="Ningún dictamen del periodo declaró confianza, así que no hay bandas que repartir."
-          error={null}
-        >
-          <ConfidenceBandsChart data={bands} ariaLabel={bandsAriaLabel} />
-        </ChartFrame>
-
-        <ChartFrame
-          title="Confianza según evidencia faltante"
-          description="Confianza media del modelo por cantidad de evidencias ausentes en el expediente."
-          height={300}
-          isLoading={showSkeleton}
-          isEmpty={!showSkeleton && byEvidence.length === 0}
-          emptyTitle={EMPTY_TITLE}
-          emptyDescription="Ningún dictamen del periodo declaró cuántas evidencias le faltaban."
-          error={null}
-        >
-          <ConfidenceByEvidenceChart data={byEvidence} ariaLabel={byEvidenceAriaLabel} />
-        </ChartFrame>
-      </div>
+  const selectMetric = (evaluation: string): void => { setHistorical(false); setFilters({ ...filters, evaluation }); };
+  const metrics = [
+    { label: 'Dictámenes emitidos', value: e?.issued, filter: 'ISSUED', hint: 'Versiones vigentes con decisión válida' },
+    { label: 'Evaluados humanamente', value: e?.finalized, filter: 'FINALIZED', hint: 'Resolución final del Coordinador' },
+    { label: 'Acuerdos finales', value: e?.agreements, filter: 'AGREEMENT', hint: 'Acuerdo sustantivo del comparador' },
+    { label: 'Discrepancias finales', value: e?.disagreements, filter: 'DISAGREEMENT', hint: 'Discrepancia sustantiva del comparador' },
+    { label: 'Pendientes de evaluación', value: e?.pendingEvaluation, filter: 'PENDING_EVALUATION', hint: 'Sin resolución humana final comparable' },
+    { label: 'Pendientes de Asesor', value: e?.rows.filter(row => row.state === 'PENDING_ADVISOR').length, filter: 'PENDING_ADVISOR', hint: 'Sin propuesta para esta versión' },
+    { label: 'Pendientes de Coordinador', value: e?.rows.filter(row => row.state === 'PENDING_COORDINATOR').length, filter: 'PENDING_COORDINATOR', hint: 'La propuesta aún es provisional' },
+    { label: 'Sin comparación final', value: e?.rows.filter(row => row.state === 'PENDING_COMPARISON').length, filter: 'PENDING_COMPARISON', hint: 'Finalizados, sin llamada de comparación' },
+    { label: 'Comparaciones en curso', value: e?.rows.filter(row => row.state === 'COMPARISON_RUNNING').length, filter: 'COMPARISON_RUNNING', hint: 'Todavía sin acuerdo ni discrepancia' },
+    { label: 'Comparaciones fallidas', value: e?.failedComparisons, filter: 'COMPARISON_ERROR', hint: 'Fuera del denominador de concordancia' },
+    { label: 'Sin confianza disponible', value: e?.withoutConfidence, filter: 'WITHOUT_CONFIDENCE', hint: 'No equivale a confianza cero' },
+  ];
+  return <div className="dashboard-page quality-page flex flex-col gap-5" aria-busy={isLoading}>
+    <section className="dashboard-toolbar quality-toolbar">
+      <header className="dashboard-page-heading"><div><h1 className="text-2xl font-semibold tracking-tight text-ink">Calibración y calidad auditora</h1><p className="mt-1 text-sm text-muted">Concordancia con la resolución humana final · Producción · UTC.</p></div></header>
+      <DashboardFilters value={filters} onChange={setFilters} />
+      <label className="mt-3 block text-sm text-muted">Estado de evaluación
+        <select className="mt-1 w-full rounded-xl border border-line bg-surface-2 px-3 py-2 text-sm text-ink" value={filters.evaluation ?? ''} onChange={event => setFilters({ ...filters, evaluation: event.target.value || null })}>
+          <option value="">Todos los estados</option>{Object.entries(states).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select>
+      </label>
+    </section>
+    {error && <ErrorCard title="No se pudo cargar el informe de calidad" message={error} onRetry={reload} retrying={isLoading} />}
+    {human && <p className="text-sm text-muted">{human.message}</p>}
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <StatCard label="Concordancia final" value={percent(e?.agreementRate)} hint={`${e?.agreements ?? 0} acuerdos / ${e?.validComparisons ?? 0} comparaciones finales válidas`} />
+      <StatCard label="Cobertura de evaluación" value={percent(e?.coverageRate)} hint={`${e?.validComparisons ?? 0} comparaciones válidas / ${e?.issued ?? 0} dictámenes elegibles`} />
+      <StatCard label="Confianza promedio original" value={percent(confidence?.avgConfidence)} hint={`${confidence?.auditedCases ?? 0} dictámenes con confianza válida`} />
+      <StatCard label="Confianza de comparación" value={percent(human?.avgComparisonConfidence)} hint={`${e?.rows.filter(row => row.comparisonConfidence !== null).length ?? 0} comparaciones con confianza válida`} />
     </div>
-  );
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Consultar expedientes de cada indicador">
+      {metrics.map(metric => <div key={metric.filter} className="flex flex-col gap-2">
+        <StatCard label={metric.label} value={loading ? <Skeleton className="h-8 w-20" /> : metric.value ?? DASH} hint={metric.hint} />
+        <Button variant="secondary" className="text-sm" onClick={() => selectMetric(metric.filter)}>Ver {metric.label.toLowerCase()}</Button>
+      </div>)}
+    </div>
+    <Panel title="Universo de evaluación" description={`Del ${applied.from} al ${applied.to} · Una versión vigente por expediente. Las versiones anteriores conservan sus decisiones y confianza.`}>
+      <p className="mb-3 text-sm text-muted">{e?.pendingEvaluation ?? 0} pendientes de evaluación final. Última ejecución técnica: {e?.technicalErrors ?? 0} errores y {e?.runningAudits ?? 0} en curso. Un fallo posterior no borra un dictamen anterior.</p>
+      <p className="mb-3 text-sm text-muted">Acuerdo exacto de códigos: {e?.exactAgreements ?? 0} / {e?.exactComparisons ?? 0} resoluciones finales ({percent(e?.exactComparisons ? e.exactAgreements / e.exactComparisons : null)}). Se mide por separado del acuerdo sustantivo.</p>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3"><h2 className="font-semibold text-ink">{historical ? 'Histórico de versiones del periodo' : 'Expedientes del indicador'}</h2><Button variant="secondary" onClick={() => setHistorical(!historical)}>{historical ? 'Ver dictamen vigente' : `Ver histórico (${e?.historicalVersions ?? 0})`}</Button></div>
+      <CasesTable key={`${JSON.stringify(applied)}:${historical}`} rows={(historical ? e?.historicalRows : e?.rows) ?? []} />
+    </Panel>
+    <Panel title="Calibración observada" description="Confianza original y concordancia sobre la misma muestra evaluada. Una brecha positiva sugiere sobreconfianza; negativa, subconfianza. Las muestras pequeñas no permiten conclusiones firmes.">
+      <div role="region" aria-label="Calibración por banda de confianza" tabIndex={0} className="overflow-x-auto">
+        <table className="w-full text-left text-sm tabular-nums"><thead><tr className="border-b border-line text-muted">{['Confianza original', 'Casos', 'Evaluados', 'Acuerdos', 'Discrepancias', 'Confianza media', 'Concordancia observada', 'Brecha'].map(label => <th scope="col" key={label} className="whitespace-nowrap px-3 py-3">{label}</th>)}</tr></thead>
+        <tbody>{e?.calibration.map(band => <tr key={band.band} className="border-b border-line text-ink">{[band.band, band.cases, band.evaluated, band.agreements, band.disagreements, percent(band.declaredConfidence), percent(band.observedAgreement), band.gap === null ? DASH : `${(band.gap * 100).toFixed(1)} pp`].map((value, index) => <td key={index} className="px-3 py-3">{value}</td>)}</tr>)}</tbody></table>
+      </div>
+    </Panel>
+    <div className="grid gap-6 lg:grid-cols-2">
+      <ChartFrame title="Distribución de confianza original" description="Solo dictámenes vigentes con confianza válida." height={300} isLoading={loading} isEmpty={!confidence?.auditedCases} emptyTitle="Sin confianza disponible" error={null}>
+        <ConfidenceBandsChart data={confidence?.bands ?? []} ariaLabel={`Confianza original en ${confidence?.auditedCases ?? 0} dictámenes vigentes.`} />
+      </ChartFrame>
+      <ChartFrame title="Confianza según evidencia faltante" description="La ausencia de confianza queda fuera del promedio." height={300} isLoading={loading} isEmpty={!confidence?.confidenceByMissingEvidence.length} emptyTitle="Sin datos disponibles" error={null}>
+        <ConfidenceByEvidenceChart data={confidence?.confidenceByMissingEvidence ?? []} ariaLabel="Confianza original por cantidad de evidencias faltantes." />
+      </ChartFrame>
+    </div>
+  </div>;
 }
-
