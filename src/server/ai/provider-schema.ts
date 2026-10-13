@@ -52,10 +52,30 @@ function project(node: unknown, profile: ProviderSchemaProfile): unknown {
   return output;
 }
 
-export function buildProviderJsonSchema(zodSchema: unknown, profile: ProviderSchemaProfile): Record<string, unknown> {
+export function buildProviderJsonSchema(zodSchema: unknown, profile: ProviderSchemaProfile, evidenceIds?: readonly string[]): Record<string, unknown> {
   const generated = zodToJsonSchema(zodSchema as never, { $refStrategy: 'none' });
   const root = inlineRootReference(generated as unknown as Record<string, unknown>);
   const projected = project(root, profile);
+  if (evidenceIds?.length) {
+    const allowed = [...new Set(evidenceIds)];
+    const constrain = (node: unknown): void => {
+      if (Array.isArray(node)) { node.forEach(constrain); return; }
+      if (!node || typeof node !== 'object') return;
+      const object = node as Record<string, unknown>;
+      if (object.properties && typeof object.properties === 'object') {
+        for (const [name, value] of Object.entries(object.properties)) {
+          if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+          const property = value as Record<string, unknown>;
+          if (name === 'evidenceId' && property.type === 'string') property.enum = allowed;
+          if ((name === 'evidenceIds' || name.endsWith('EvidenceIds')) && property.type === 'array' && property.items && typeof property.items === 'object') {
+            (property.items as Record<string, unknown>).enum = allowed;
+          }
+        }
+      }
+      Object.values(object).forEach(constrain);
+    };
+    constrain(projected);
+  }
   assertProviderSchemaCompatible(projected, profile);
   return projected as Record<string, unknown>;
 }

@@ -47,6 +47,18 @@ const baseInput: AuditSkillInput = {
 };
 
 describe('auditSkill.execute', () => {
+  it('envía IDs literales al contrato y al feedback; no corrige un UUID inventado', async () => {
+    const valid = structuredClone(validAuditResult);
+    mockedCall.mockResolvedValue({ parsed: valid, model: 'test', usage: valid.usage, attempts: [] });
+    await auditSkill.execute(baseInput);
+    const request = mockedCall.mock.calls.at(-1)![0];
+    expect(request.evidenceIds).toEqual(['ev-1', 'ev-2']);
+    expect(request.validationChecklist).toContain('["ev-1","ev-2"]');
+    expect(request.system).toContain('copiados literalmente');
+    const corrupt = structuredClone(valid);
+    corrupt.evidenceSummary[0]!.evidenceId = 'ev-inventada';
+    expect(() => request.validate!(corrupt)).toThrow('evidencia inexistente');
+  });
   beforeEach(() => {
     mockedCall.mockReset();
   });
