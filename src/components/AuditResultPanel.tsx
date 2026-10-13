@@ -36,9 +36,10 @@ import { SectionTitle } from './ui';
 
 export interface AuditResultPanelProps {
   audit: AuditDetail;
+  canEditComments?: boolean;
 }
 
-export function AuditResultPanel({ audit }: AuditResultPanelProps): ReactNode {
+export function AuditResultPanel({ audit, canEditComments = false }: AuditResultPanelProps): ReactNode {
   const result = audit.resultJson;
 
   if (result === null) {
@@ -97,7 +98,7 @@ export function AuditResultPanel({ audit }: AuditResultPanelProps): ReactNode {
           mientras se lee el dictamen: son la respuesta de las áreas a ESTE
           razonamiento. Va al final para que el operador lea primero el criterio
           y después las observaciones que lo comentan. */}
-      <AreaComments caseId={audit.caseId} />
+      <AreaComments caseId={audit.caseId} canEdit={canEditComments} />
     </div>
   );
 }

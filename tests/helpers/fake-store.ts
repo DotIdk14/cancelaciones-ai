@@ -254,7 +254,7 @@ export async function persistDerivedExtraction(
 
 /**
  * Scoping por dueño, replicando la regla real: se ve el caso propio y, además,
- * cualquier caso si el rol tiene `canReadAllCases` (coordinador y gerente).
+ * cualquier caso si el rol tiene `canReadAllCases` (los tres roles actuales).
  * "Ajeno" e "inexistente" responden igual (404).
  *
  * Reutiliza la MISMA `capabilitiesForRole` de producción en vez de copiar la
@@ -274,7 +274,7 @@ export async function getScopedCaseOr404(
 ): Promise<CaseRow> {
   const row = getCase(caseId);
   if (!row) throw new ApiError(404, 'NOT_FOUND', 'Caso no encontrado');
-  const foreign = row.created_by !== auth.sub;
+  const foreign = !caseOwnedBy(row, auth.sub);
   if (foreign && !capabilitiesForRole(auth.role).canReadAllCases) {
     throw new ApiError(404, 'NOT_FOUND', 'Caso no encontrado');
   }
@@ -282,8 +282,13 @@ export async function getScopedCaseOr404(
 }
 
 /** Mutación: solo el dueño. Responde 404 (no 403) para no enumerar existencia. */
-export function assertCaseOwner(row: { created_by?: string | null }, auth: { sub: string }): void {
-  if (row.created_by !== auth.sub) {
+export function caseOwnedBy(row: Pick<CaseRow, 'created_by' | 'assigned_to' | 'external_source'>, userId: string): boolean {
+  if (row.external_source === 'FLOKZU') return row.assigned_to === userId;
+  return row.created_by === userId || row.assigned_to === userId;
+}
+
+export function assertCaseOwner(row: Pick<CaseRow, 'created_by' | 'assigned_to' | 'external_source'>, auth: { sub: string }): void {
+  if (!caseOwnedBy(row, auth.sub)) {
     throw new ApiError(404, 'NOT_FOUND', 'Caso no encontrado');
   }
 }
@@ -301,7 +306,7 @@ export async function listCaseSummaries(
 ): Promise<unknown[]> {
   const canReadAll = auth ? capabilitiesForRole(auth.role).canReadAllCases : true;
   return caseRows
-    // Espejo de la producción: sin capacidad de lectura global (Asesor) solo se
+    // Espejo de la producción: sin capacidad de lectura global solo se
     // devuelven los casos propios. Se trata un `created_by` nulo como visible
     // para no obligar a cada test a declarar el dueño (la producción real nunca
     // crea un caso sin `created_by`).

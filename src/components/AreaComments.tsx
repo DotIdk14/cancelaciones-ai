@@ -35,9 +35,10 @@ const MAX_LENGTH = 4000;
 
 export interface AreaCommentsProps {
   caseId: string;
+  canEdit?: boolean;
 }
 
-export function AreaComments({ caseId }: AreaCommentsProps): ReactNode {
+export function AreaComments({ caseId, canEdit = false }: AreaCommentsProps): ReactNode {
   const [saved, setSaved] = useState<Record<string, AreaComment>>({});
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [busyArea, setBusyArea] = useState<AreaCommentArea | null>(null);
@@ -140,15 +141,19 @@ export function AreaComments({ caseId }: AreaCommentsProps): ReactNode {
 
           return (
             <div key={area} className="rounded-xl border border-line bg-surface-2 p-3">
-              <label htmlFor={`area-comment-${area}`} className="text-sm font-semibold text-ink">
-                {AREA_COMMENT_LABELS[area]}
-              </label>
+              {canEdit ? (
+                <label htmlFor={`area-comment-${area}`} className="text-sm font-semibold text-ink">
+                  {AREA_COMMENT_LABELS[area]}
+                </label>
+              ) : (
+                <p className="text-sm font-semibold text-ink">{AREA_COMMENT_LABELS[area]}</p>
+              )}
 
               {existing !== undefined && (
                 <p className="mt-0.5 text-xs text-muted">Guardado {formatDateTime(existing.updatedAt)}</p>
               )}
 
-              <textarea
+              {canEdit ? <textarea
                 id={`area-comment-${area}`}
                 value={draft}
                 onChange={(event) =>
@@ -158,9 +163,13 @@ export function AreaComments({ caseId }: AreaCommentsProps): ReactNode {
                 aria-describedby={`area-comment-${area}-count`}
                 placeholder={`Comentario de ${AREA_COMMENT_LABELS[area]}`}
                 className="mt-2 w-full resize-y rounded-lg border border-line bg-surface-1 p-2 text-sm text-ink placeholder:text-muted"
-              />
+              /> : (
+                <p className="mt-2 whitespace-pre-wrap break-words text-sm text-ink">
+                  {existing?.comment ?? 'Sin comentario registrado.'}
+                </p>
+              )}
 
-              <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+              {canEdit && <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
                 <span
                   id={`area-comment-${area}-count`}
                   className={`text-xs tabular-nums ${tooLong ? 'text-danger' : 'text-muted'}`}
@@ -177,7 +186,7 @@ export function AreaComments({ caseId }: AreaCommentsProps): ReactNode {
                   {existing === undefined ? 'Guardar' : 'Actualizar'}
                   <span className="sr-only"> el comentario de {AREA_COMMENT_LABELS[area]}</span>
                 </Button>
-              </div>
+              </div>}
             </div>
           );
         })}

@@ -50,6 +50,7 @@ vi.mock('../src/server/cases', async () => {
     derivedExtractionOf: store.derivedExtractionOf,
     persistDerivedExtraction: store.persistDerivedExtraction,
     assertCaseOwner: store.assertCaseOwner,
+    caseOwnedBy: store.caseOwnedBy,
     assertCaseNotFinalized: store.assertCaseNotFinalized,
     listCaseSummaries: store.listCaseSummaries,
     createCase: store.createCase,
@@ -850,8 +851,12 @@ async function postReview(
 }
 
 /** Deja el caso en PENDING_COORDINATOR con la revisión del asesor ya escrita. */
-function seedAwaitingCoordinator(result: 'BAJA' | 'CANCELACION_VENTA' = 'BAJA') {
+function seedAwaitingCoordinator(result: 'BAJA' | 'CANCELACION_VENTA' = 'BAJA', coordinatorOwner = false) {
   const audit = seedAuditableCase();
+  if (coordinatorOwner) {
+    const row = getCase('case-1');
+    if (row) row.assigned_to = FAKE_COORDINATOR_SUB;
+  }
   const review = seedReview({ audit_id: audit.id, result, created_by: FAKE_USER_SUB, reviewer_name: FAKE_USER_EMAIL });
   return { audit, review };
 }
@@ -938,7 +943,7 @@ describe('etapa 2 · el coordinador finaliza cualquier caso', () => {
   it('PENDING_COORDINATOR → APPROVE → FINALIZED conservando la resolución del asesor', async () => {
     seedAwaitingCoordinator('BAJA');
 
-    const res = await postReview({ decision: 'APPROVE', comment: 'De acuerdo con el asesor.' }, COORDINADOR);
+    const res = await postReview({ decision: 'APPROVE' }, COORDINADOR);
 
     expect(res.statusCode).toBe(200);
     const payload = (await getReview(COORDINADOR)) as ReviewPayload;
@@ -953,7 +958,7 @@ describe('etapa 2 · el coordinador finaliza cualquier caso', () => {
   });
 
   it('CHANGE guarda una resolución DISTINTA y no toca la del asesor', async () => {
-    seedAwaitingCoordinator('BAJA');
+    seedAwaitingCoordinator('BAJA', true);
 
     const res = await postReview(
       { decision: 'CHANGE', resolution: 'EVIDENCIA_INSUFICIENTE', comment: 'Falta acreditar el retiro.' },
@@ -975,6 +980,8 @@ describe('etapa 2 · el coordinador finaliza cualquier caso', () => {
   it('la comparación se ejecuta al finalizar y usa la resolución y comentario del Coordinador', async () => {
     seedAuditableCase();
     await postReview({ result: 'BAJA', comment: HUMAN_COMMENT }, ASESOR);
+    const row = getCase('case-1');
+    if (row) row.assigned_to = FAKE_COORDINATOR_SUB;
     expect(listComparisons()).toHaveLength(0);
 
     const response = await postReview({
@@ -999,7 +1006,7 @@ describe('etapa 2 · el coordinador finaliza cualquier caso', () => {
     ]) {
       resetStore();
       mockedCall.mockClear();
-      seedAwaitingCoordinator('BAJA');
+      seedAwaitingCoordinator('BAJA', true);
 
       const res = await postReview(body, COORDINADOR);
 
@@ -1012,7 +1019,7 @@ describe('etapa 2 · el coordinador finaliza cualquier caso', () => {
   });
 
   it('una segunda finalización es 409 estable y NO pisa la decisión ya tomada', async () => {
-    seedAwaitingCoordinator('BAJA');
+    seedAwaitingCoordinator('BAJA', true);
     await postReview({ decision: 'APPROVE', comment: 'De acuerdo.' }, COORDINADOR);
     const first = listReviews()[0];
 
@@ -1092,7 +1099,7 @@ describe('capacidades · quién puede hacer qué en esta pantalla', () => {
     expect(listReviews()).toHaveLength(0);
   });
 
-  it('el asesor tampoco LEE el caso de otro: 404 sin filtrar el workflow state', async () => {
+  it('el asesor lee el dictamen y el workflow del caso de otro', async () => {
     seedAwaitingCoordinator('BAJA');
     const row = getCase('case-1');
     if (row) row.created_by = '00000000-0000-0000-0000-0000-0000000000ff';
@@ -1100,8 +1107,8 @@ describe('capacidades · quién puede hacer qué en esta pantalla', () => {
     const res = makeApiResponse();
     await reviewHandler(makeApiRequest('GET', { caseId: 'case-1' }, undefined, ASESOR), res);
 
-    expect(res.statusCode).toBe(404);
-    expect(res.body).not.toContain('BAJA');
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain('BAJA');
   });
 });
 
@@ -1145,7 +1152,7 @@ describe('atribución · nada de lo que dice el cuerpo se cree', () => {
   });
 
   it('el servidor sella la hora y el actor de la finalización, no el cliente', async () => {
-    seedAwaitingCoordinator('BAJA');
+    seedAwaitingCoordinator('BAJA', true);
     const before = Date.now();
 
     const res = await postReview({ decision: 'APPROVE', comment: 'De acuerdo.' }, COORDINADOR);
@@ -1162,7 +1169,7 @@ describe('atribución · nada de lo que dice el cuerpo se cree', () => {
   });
 
   it('la decisión del coordinador viaja separada y con su propio comentario', async () => {
-    seedAwaitingCoordinator('BAJA');
+    seedAwaitingCoordinator('BAJA', true);
 
     await postReview({ decision: 'APPROVE', comment: 'Se comparte la lectura del caso.' }, COORDINADOR);
 

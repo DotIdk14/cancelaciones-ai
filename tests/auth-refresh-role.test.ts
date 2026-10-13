@@ -138,7 +138,7 @@ describe('POST /api/auth/refresh expone el rol resuelto en el servidor', () => {
     await handler(makeRequest(), res);
 
     expect(res.statusCode).toBe(200);
-    expect(JSON.parse(res.body)).toEqual({ ok: true, role: 'manager', capabilities: { canReadAllCases: true, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false, canManageCases: true } });
+    expect(JSON.parse(res.body)).toEqual({ ok: true, role: 'manager', capabilities: { canReadAllCases: true, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false, canManageCases: true, canImportCases: false } });
   });
 
   it('conserva la forma anterior de la respuesta: `ok: true` sigue ahí', async () => {
@@ -157,7 +157,7 @@ describe('POST /api/auth/refresh expone el rol resuelto en el servidor', () => {
 
     await handler(makeRequest(), res);
 
-    expect(JSON.parse(res.body)).toEqual({ ok: true, role: 'user', capabilities: { canReadAllCases: false, canReviewOwnCases: true, canFinalizeAnyCase: false, canWriteOwnedCases: true, canManageCases: false } });
+    expect(JSON.parse(res.body)).toEqual({ ok: true, role: 'user', capabilities: { canReadAllCases: true, canReviewOwnCases: true, canFinalizeAnyCase: false, canWriteOwnedCases: true, canManageCases: false, canImportCases: false } });
   });
 
   it('no filtra datos de la membresía: solo devuelve `ok`, `role` y capacidades', async () => {

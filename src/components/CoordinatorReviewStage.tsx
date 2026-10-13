@@ -46,6 +46,8 @@ export function CoordinatorStage({
   workflowState,
   role,
   canFinalize = false,
+  canChangeResolution = false,
+  canAddComment = false,
   caseCountry = null,
   caseChannel = null,
   onSubmitted,
@@ -55,6 +57,8 @@ export function CoordinatorStage({
   workflowState?: WorkflowState;
   role: AppRole | null;
   canFinalize?: boolean;
+  canChangeResolution?: boolean;
+  canAddComment?: boolean;
   caseCountry?: string | null;
   caseChannel?: string | null;
   onSubmitted?: () => void;
@@ -64,7 +68,7 @@ export function CoordinatorStage({
     return <CoordinatorDecisionRecord review={review} />;
   }
   if (canFinalize) {
-    return <CoordinatorFinalizeForm caseId={caseId} review={review} caseCountry={caseCountry} caseChannel={caseChannel} onSubmitted={onSubmitted} />;
+    return <CoordinatorFinalizeForm caseId={caseId} review={review} caseCountry={caseCountry} caseChannel={caseChannel} canChangeResolution={canChangeResolution} canAddComment={canAddComment} onSubmitted={onSubmitted} />;
   }
   const message =
     role === 'manager'
@@ -88,12 +92,16 @@ function CoordinatorFinalizeForm({
   review,
   caseCountry,
   caseChannel,
+  canChangeResolution,
+  canAddComment,
   onSubmitted,
 }: {
   caseId: string;
   review: CaseReviewDto;
   caseCountry: string | null;
   caseChannel: string | null;
+  canChangeResolution: boolean;
+  canAddComment: boolean;
   onSubmitted?: () => void;
 }): ReactNode {
   const [decision, setDecision] = useState<CoordinatorDecision | ''>('');
@@ -112,7 +120,8 @@ function CoordinatorFinalizeForm({
   // se ofrece, así que "misma" no es una opción representable.
   const resolutionOptions = REVIEW_RESULT_OPTIONS.filter((option) => option !== review.result);
   const canSubmit =
-    (decision === 'APPROVE' || (decision === 'CHANGE' && resolution !== '')) && !tooLong && !sending;
+    (decision === 'APPROVE' || (decision === 'CHANGE' && canChangeResolution && resolution !== '')) &&
+    (canAddComment || trimmed === '') && !tooLong && !sending;
 
   const submitDecision = useCallback(async (): Promise<void> => {
       if (decision === '' || !canSubmit || !country || !channel) return;
@@ -156,7 +165,9 @@ function CoordinatorFinalizeForm({
   return (
     <Panel
       title="Decisión del Coordinador"
-      description="Aprueba la resolución del Asesor o cámbiala por otra distinta. No se modifica la decisión del Asesor."
+      description={canChangeResolution
+        ? 'Aprueba la resolución del Asesor o cámbiala por otra distinta. No se modifica la decisión del Asesor.'
+        : 'Puedes aprobar la resolución del Asesor. Solo el propietario puede cambiarla o agregar comentarios.'}
     >
       <form className="flex flex-col gap-5" onSubmit={handleSubmit} aria-busy={sending}>
         <fieldset className="flex flex-col gap-2" disabled={sending}>
@@ -164,7 +175,7 @@ function CoordinatorFinalizeForm({
           <p className="text-xs text-muted">
             La resolución propuesta por el Asesor es <strong>{resolutionLabel(review.result)}</strong>.
           </p>
-          {DECISION_OPTIONS.map((option) => {
+          {DECISION_OPTIONS.filter((option) => option.value !== 'CHANGE' || canChangeResolution).map((option) => {
             const inputId = `coordinador-decision-${option.value}`;
             const descId = `${inputId}-desc`;
             return (
@@ -251,7 +262,7 @@ function CoordinatorFinalizeForm({
             rows={4}
             value={comment}
             onChange={(event) => setComment(event.target.value)}
-            disabled={sending}
+            disabled={sending || !canAddComment}
             aria-invalid={tooLong ? true : undefined}
             aria-describedby={tooLong ? commentErrorId : undefined}
             className={cx(
@@ -260,6 +271,7 @@ function CoordinatorFinalizeForm({
               tooLong ? 'border-danger/60' : 'border-line',
             )}
           />
+          {!canAddComment && <p className="text-xs text-muted">Solo el propietario puede agregar comentarios.</p>}
           {tooLong && (
             <p id={commentErrorId} className="text-xs text-danger">
               El comentario excede el máximo de {REVIEW_COMMENT_LIMITS.max} caracteres.

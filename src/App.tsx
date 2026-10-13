@@ -33,6 +33,7 @@ import type { AppRoute } from './lib/useHashRoute';
 import { useSession } from './lib/useSession';
 import { capabilitiesForRole } from './server/capabilities';
 import { ReportProblemModal } from './components/ReportProblemModal';
+import { FlokzuImportPage } from './components/FlokzuImportPage';
 
 // -----------------------------------------------------------------------------
 // Dashboard en carga diferida
@@ -126,6 +127,8 @@ function renderRoute(
       return <AiCostsPage />;
     case 'incidents':
       return <IncidentsPage previewOnly={previewOnly} />;
+    case 'flokzu-import':
+      return <FlokzuImportPage previewOnly={previewOnly} />;
     case 'dashboard':
       return <OverviewPage />;
   }
@@ -136,7 +139,7 @@ function Shell({
   previewOnly = false,
   role = null,
   previewWorkflow = 'PENDING_COORDINATOR',
-  capabilities = { canReadAllCases: false, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false, canManageCases: false },
+  capabilities = { canReadAllCases: false, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false, canManageCases: false, canImportCases: false },
 }: {
   onSignOut?: () => void;
   previewOnly?: boolean;
@@ -148,6 +151,7 @@ function Shell({
   const [reportOpen, setReportOpen] = useState(false);
   const restrictedRoute =
     (!capabilities.canReadAllCases && route.name === 'dashboard') ||
+    (route.name === 'flokzu-import' && !capabilities.canImportCases) ||
     (!capabilities.canManageCases && (route.name === 'quality' || route.name === 'ai-costs' || route.name === 'incidents'));
   const displayRoute: AppRoute = restrictedRoute ? { name: 'cases' } : route;
   const routeKey = route.name === 'case' ? `${route.name}:${route.caseId}` : route.name;

@@ -13,12 +13,14 @@ function database(rows: Row[], related: Record<string, Row[]> = {}) {
       from(table: string) {
         let page: [number, number] = [0, 9999];
         let predicates: Array<[string, string, unknown]> = [];
+        let disjunction: Array<[string, unknown]> = [];
         const orders: Array<[string, boolean]> = [];
         const query = {
           select() { return query; },
           eq(column: string, value: unknown) { predicates.push([column, 'eq', value]); return query; },
           lte(column: string, value: unknown) { predicates.push([column, 'lte', value]); return query; },
           in(column: string, value: unknown[]) { predicates.push([column, 'in', value]); return query; },
+          or(expression: string) { filters.push(['created_by|assigned_to', 'or', expression]); disjunction = expression.split(',').map((part) => { const [column, , value] = part.split('.'); return [column!, value]; }); return query; },
           order(column: string, options?: { ascending?: boolean }) { orders.push([column, options?.ascending ?? true]); return query; },
           range(from: number, to: number) { page = [from, to]; return query; },
           then(resolve: (value: unknown) => unknown) {
@@ -29,7 +31,7 @@ function database(rows: Row[], related: Record<string, Row[]> = {}) {
               if (op === 'in') return (value as unknown[]).includes(row[column]);
               return String(row[column] ?? '') <= String(value);
             }));
-            let found = matches(table === 'cases' ? rows : related[table] ?? []);
+            let found = matches(table === 'cases' ? rows : related[table] ?? []).filter((row) => disjunction.length === 0 || disjunction.some(([column, value]) => row[column] === value));
             if (table === 'cases') found = found.map((row) => ({ ...row, evidence: [] }));
             for (const [column, ascending] of [...orders].reverse()) {
               found = [...found].sort((a, b) => {
@@ -40,6 +42,7 @@ function database(rows: Row[], related: Record<string, Row[]> = {}) {
             }
             const data = found.slice(page[0], page[1] + 1);
             predicates = [];
+            disjunction = [];
             return Promise.resolve({ data, error: null }).then(resolve);
           },
         };
@@ -70,7 +73,7 @@ describe('listCaseSummaries — paginación segura y sin límite de 100', () => 
     expect(ranges.some(([table, from]) => table === 'cases' && from > 0)).toBe(count >= 100);
   });
 
-  it('aplica el alcance del Asesor en la consulta antes de paginar', async () => {
+  it('incluye los casos de otros propietarios para el Asesor', async () => {
     const rows = [
       ...caseRows(250),
       { ...caseRows(1)[0], id: 'foreign-case', created_by: 'another-user' },
@@ -78,12 +81,12 @@ describe('listCaseSummaries — paginación segura y sin límite de 100', () => 
     const { client, filters } = database(rows);
     const cases = await listCaseSummaries(client, fakeAuthContext('user'));
 
-    expect(cases).toHaveLength(250);
-    expect(filters).toContainEqual(['created_by', 'eq', FAKE_USER_SUB]);
-    expect(cases.some((row) => row.id === 'foreign-case')).toBe(false);
+    expect(cases).toHaveLength(251);
+    expect(filters.some(([column, op]) => column === 'created_by|assigned_to' && op === 'or')).toBe(false);
+    expect(cases.some((row) => row.id === 'foreign-case')).toBe(true);
   });
 
-  it('sirve páginas acotadas y aplica propietario, estado y snapshot en la consulta', async () => {
+  it('sirve páginas globales acotadas y aplica estado y snapshot en la consulta', async () => {
     const rows = [
       ...caseRows(4),
       { ...caseRows(1)[0], id: 'foreign-case', created_by: 'another-user' },
@@ -97,10 +100,10 @@ describe('listCaseSummaries — paginación segura y sin límite de 100', () => 
     });
     expect(page).toHaveLength(2);
     expect(ranges).toContainEqual(['cases', 1, 2]);
-    expect(filters).toContainEqual(['created_by', 'eq', FAKE_USER_SUB]);
+    expect(filters.some(([column, op]) => column === 'created_by|assigned_to' && op === 'or')).toBe(false);
     expect(filters).toContainEqual(['status', 'eq', 'READY']);
     expect(filters).toContainEqual(['created_at', 'lte', '2026-01-01T00:00:10.000Z']);
-    expect(page.every((row) => row.created_by === FAKE_USER_SUB && row.status === 'READY')).toBe(true);
+    expect(page.every((row) => row.status === 'READY')).toBe(true);
   });
 
   it('filtra por el rol creador antes de paginar para no ocultar casos de otras páginas', async () => {

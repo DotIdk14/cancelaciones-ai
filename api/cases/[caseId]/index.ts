@@ -6,6 +6,7 @@ import { createServerClient } from '../../../src/server/insforge.js';
 import { assertCaseWriteCapability } from '../../../src/server/auth.js';
 import {
   assertCaseOwner,
+  caseOwnedBy,
   assertCaseNotFinalized,
   getCaseOr404,
   getScopedCaseOr404,
@@ -33,6 +34,7 @@ import { refreshTranscriptions } from '../../../src/server/audit-service.js';
 import { healStaleComparison } from '../../../src/server/comparison-service.js';
 import { capabilitiesForRole } from '../../../src/server/capabilities.js';
 import { computeEvidenceFingerprint } from '../../../src/server/audit-fingerprint.js';
+import { assignImportedCase } from '../../../src/server/flokzu-import.js';
 
 // GET   /api/cases/:caseId → { case, evidences, audit, audits, review, comparison, effectiveResolution }
 // PATCH /api/cases/:caseId → 200 { case } | 400 | 404
@@ -43,20 +45,30 @@ import { computeEvidenceFingerprint } from '../../../src/server/audit-fingerprin
 // clases que aporta una persona cuando el dictamen no pudo acreditarla; como
 // método de una ruta que ya existe, no gasta una Function (HOBBY_FUNCTION_BUDGET).
 //
-// Sin lógica de negocio: valida el body con Zod, delega y traduce errores. El
-// alcance del caso lo resuelve el SERVIDOR (`getScopedCaseOr404` +
-// `assertCaseOwner`), no la RLS: el cliente de la base es superusuario y para él
-// las políticas no aplican. Un caso ajeno responde 404, nunca 403
-// (NO_RESOURCE_EXISTENCE_LEAK), y el alcance se resuelve ANTES de validar el
-// cuerpo: un 400 en un caso ajeno confirmaría que el caso existe.
+// Sin lógica de negocio: valida el body con Zod, delega y traduce errores. La
+// lectura global y escritura por propietario las resuelve el SERVIDOR
+// (`getScopedCaseOr404` + `assertCaseOwner`), no la RLS: el cliente de la base
+// es superusuario y para él las políticas no aplican. Las mutaciones ocultan
+// casos ajenos con 404 antes de validar el cuerpo (NO_RESOURCE_EXISTENCE_LEAK).
 export default handleRoute(async (req, res) => {
   if (req.method === 'PATCH') {
     const client = createServerClient();
     const caseId = requiredUuid(req.query, 'caseId');
-    // Un coordinador puede LEER cualquier caso (visibilidad global de auditoría),
-    // así que el alcance de escritura no se resuelve solo al leer.
+    // Los roles autenticados pueden LEER cualquier caso, así que el alcance de
+    // escritura no se resuelve solo al leer.
     const caseRow = await getScopedCaseOr404(client, caseId, req.auth!);
     const body = await readJsonBody(req);
+    if (body !== null && typeof body === 'object' && !Array.isArray(body) && 'assignedTo' in body) {
+      if (!capabilitiesForRole(req.auth!.role).canImportCases) {
+        throw new ApiError(403, 'AUTH_ERROR', 'No tienes permiso para reasignar expedientes importados.');
+      }
+      if (caseRow.external_source !== 'FLOKZU') throw new ApiError(404, 'NOT_FOUND', 'Caso no encontrado');
+      const parsed = z.object({ assignedTo: z.string().uuid().nullable() }).strict().safeParse(body);
+      if (!parsed.success) throw new ApiError(400, 'VALIDATION_ERROR', 'El responsable indicado no es válido.');
+      await assignImportedCase(client, caseId, parsed.data.assignedTo);
+      ok(res, { ok: true });
+      return;
+    }
     if (body !== null && typeof body === 'object' && !Array.isArray(body) && 'isTest' in body) {
       if (!capabilitiesForRole(req.auth!.role).canManageCases) {
         throw new ApiError(403, 'AUTH_ERROR', 'No tienes permiso para clasificar casos');
@@ -139,7 +151,7 @@ export default handleRoute(async (req, res) => {
   ok(res, {
     case: caseToDetail(
       audit?.status === 'COMPLETED' && auditIsCurrent === true && caseRow.status === 'AUDITING' ? { ...caseRow, status: 'COMPLETED' } : caseRow,
-      capabilitiesForRole(req.auth!.role).canWriteOwnedCases && caseRow.created_by === req.auth!.sub && review?.coordinator_decision == null,
+      capabilitiesForRole(req.auth!.role).canWriteOwnedCases && caseOwnedBy(caseRow, req.auth!.sub) && review?.coordinator_decision == null,
       capabilitiesForRole(req.auth!.role).canManageCases,
     ),
     evidences: evidences.map(evidenceToDto),

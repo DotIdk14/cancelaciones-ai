@@ -122,9 +122,9 @@ GET /api/health/ai
 
 ## Otros
 
-### Caso ajeno devuelve 404 en lugar de 403
+### Una escritura sobre caso ajeno devuelve 404
 
-- Es el comportamiento esperado. La app no revela la existencia de un caso que no pertenece al usuario; `getScopedCaseOr404` devuelve 404 tanto para inexistente como para no autorizado.
+- Es el comportamiento esperado. Los tres roles autenticados pueden leer cualquier expediente; las mutaciones de un caso ajeno responden 404 mediante `assertCaseOwner`. En `/review`, un Coordinador sí puede aprobar un caso ajeno sin comentario, pero `CHANGE` y los comentarios requieren propiedad.
 
 ### Dashboard vacío
 

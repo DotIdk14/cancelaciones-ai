@@ -9,7 +9,7 @@ import {
 } from '../../../../src/server/http.js';
 import { createServerClient } from '../../../../src/server/insforge.js';
 import { capabilitiesForRole } from '../../../../src/server/auth.js';
-import { assertCaseOwner, getScopedCaseOr404, latestCompletedAudit, updateCaseDimensions } from '../../../../src/server/cases.js';
+import { assertCaseOwner, caseOwnedBy, getScopedCaseOr404, latestCompletedAudit, updateCaseDimensions } from '../../../../src/server/cases.js';
 import { DUPLICATE_FINALIZATION_MESSAGE, finalizeCaseReview, getCaseReview, listComparisonsForCase } from '../../../../src/server/reviews.js';
 import { parseCoordinatorReviewInput, parseHumanReviewInput } from '../../../../src/skills/review/schema.js';
 import {
@@ -29,7 +29,8 @@ import { healStaleComparison, startComparison, submitCaseReview } from '../../..
 //   - Asesor (`canReviewOwnCases`, caso propio): registra `{ result, comment? }`
 //     y crea la fila de `case_reviews` (solo en PENDING_ADVISOR; después, 409).
 //   - Coordinador (`canFinalizeAnyCase`): finaliza `{ decision, resolution?, comment? }`
-//     (solo en PENDING_COORDINATOR; después, 409).
+//     (solo en PENDING_COORDINATOR; después, 409). En casos ajenos solo puede
+//     aprobar sin comentario; cambiar la resolución o comentar requiere propiedad.
 //   - Gerente: sin capacidad de mutación → 403 (ya puede leer el caso, no filtra nada).
 //
 // El actor y la hora los deriva SIEMPRE el servidor de `req.auth`; un
@@ -110,7 +111,9 @@ export default handleRoute(async (req, res) => {
       return;
     }
 
-    // Coordinador: finaliza cualquier caso.
+    // Coordinador: puede cerrar la segunda etapa de cualquier caso. En un caso
+    // ajeno solo puede aprobar sin comentario; cambiar la resolución o agregar
+    // un comentario requiere propiedad explícita.
     //
     // PENDING_ADVISOR → 400: no hay nada que finalizar. FINALIZED NO se rechaza
     // aquí a propósito —se deja pasar hasta `finalizeCaseReview`— para que una
@@ -125,6 +128,10 @@ export default handleRoute(async (req, res) => {
     }
     const input = parseCoordinatorReviewInput(await readJsonBody(req));
     if (workflowState === 'FINALIZED') throw new ApiError(409, 'VALIDATION_ERROR', DUPLICATE_FINALIZATION_MESSAGE);
+    const ownsCase = caseOwnedBy(row, req.auth!.sub);
+    if (!ownsCase && (input.decision === 'CHANGE' || input.comment.trim() !== '')) {
+      throw new ApiError(403, 'AUTH_ERROR', 'Solo el propietario puede cambiar la resolución o agregar comentarios.');
+    }
     const country = input.country ?? row.country ?? null;
     const channel = input.channel ?? row.channel ?? null;
     if (!country || !channel) {

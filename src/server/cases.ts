@@ -21,6 +21,10 @@ export interface CaseRow {
   student_identifier: string | null;
   student_name?: string | null;
   created_by: string | null;
+  assigned_to?: string | null;
+  external_source?: 'FLOKZU' | null;
+  external_case_id?: string | null;
+  flokzu_data?: unknown;
   created_at: string;
   updated_at: string;
   /** Proyección del origen del dictamen, usada también como validación de cierre. */
@@ -390,7 +394,7 @@ export async function listCaseSummaryPage(
     .lte('created_at', options.snapshot)
     .order('created_at', { ascending: false })
     .order('id', { ascending: false });
-  if (!capabilitiesForRole(auth.role).canReadAllCases) query = query.eq('created_by', auth.sub);
+  if (!capabilitiesForRole(auth.role).canReadAllCases) query = query.or(`created_by.eq.${auth.sub},assigned_to.eq.${auth.sub}`);
   if (options.status) query = query.eq('status', options.status);
   if (options.creatorId) query = query.eq('created_by', options.creatorId);
   if (creatorIds) query = query.in('created_by', creatorIds);
@@ -412,7 +416,7 @@ export async function countCaseSummaryStatuses(
   }
   const count = async (status?: CaseStatus): Promise<number> => {
     let query = client.database.from('cases').select('id', { count: 'exact', head: true });
-    if (!capabilitiesForRole(auth.role).canReadAllCases) query = query.eq('created_by', auth.sub);
+    if (!capabilitiesForRole(auth.role).canReadAllCases) query = query.or(`created_by.eq.${auth.sub},assigned_to.eq.${auth.sub}`);
     if (creatorId) query = query.eq('created_by', creatorId);
     if (creatorIds) query = query.in('created_by', creatorIds);
     if (status) query = query.eq('status', status);
@@ -436,7 +440,7 @@ export async function listCaseSummaries(client: InsForgeClient, auth: AuthContex
       .lte('created_at', snapshot)
       .order('created_at', { ascending: false })
       .order('id', { ascending: false });
-    if (!capabilitiesForRole(auth.role).canReadAllCases) query = query.eq('created_by', auth.sub);
+    if (!capabilitiesForRole(auth.role).canReadAllCases) query = query.or(`created_by.eq.${auth.sub},assigned_to.eq.${auth.sub}`);
     const { data, error } = await query.range(offset, offset + pageSize - 1);
     if (error || !data) dbError(error);
     const page = data as CaseSummaryRow[];
@@ -461,7 +465,8 @@ export async function getCaseOr404(client: InsForgeClient, caseId: string): Prom
  * Caso visible para el usuario autenticado.
  *
  * - El dueño siempre lo ve.
- * - Un rol con `canReadAllCases` (coordinador, gerente) puede LEER cualquier caso.
+ * - Un rol con `canReadAllCases` puede leer cualquier caso completo, incluidas
+ *   sus evidencias; las mutaciones siguen protegidas por guards separados.
  * - Ajeno o inexistente → el mismo 404 (sin enumerar existencia).
  *
  * La pregunta que se hace es "¿TIENE la capacidad de leer todos?", no "¿el rol
@@ -474,7 +479,7 @@ export async function getScopedCaseOr404(
   auth: AuthContext,
 ): Promise<CaseRow> {
   const row = await getCaseOr404(client, caseId);
-  if (!capabilitiesForRole(auth.role).canReadAllCases && row.created_by !== auth.sub) {
+  if (!capabilitiesForRole(auth.role).canReadAllCases && !caseOwnedBy(row, auth.sub)) {
     throw new ApiError(404, 'NOT_FOUND', 'Caso no encontrado');
   }
   return row;
@@ -482,9 +487,15 @@ export async function getScopedCaseOr404(
 
 /** Garantiza que una mutación solo toca un caso propio. */
 export function assertCaseOwner(row: CaseRow, auth: AuthContext): void {
-  if (row.created_by !== auth.sub) {
+  if (!caseOwnedBy(row, auth.sub)) {
     throw new ApiError(404, 'NOT_FOUND', 'Caso no encontrado');
   }
+}
+
+/** El creador conserva atribución; en Flokzu la capacidad de trabajo pertenece a assigned_to. */
+export function caseOwnedBy(row: CaseRow, userId: string): boolean {
+  if (row.external_source === 'FLOKZU') return row.assigned_to === userId;
+  return row.created_by === userId || row.assigned_to === userId;
 }
 
 /** Los expedientes finalizados son inmutables en todas las rutas de escritura. */

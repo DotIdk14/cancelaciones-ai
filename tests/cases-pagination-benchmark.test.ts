@@ -18,6 +18,7 @@ function syntheticClient(rows: Row[]): InsForgeClient {
           eq(column: string, value: unknown) { filters.push((row) => row[column] === value); return query; },
           lte(column: string, value: unknown) { filters.push((row) => String(row[column] ?? '') <= String(value)); return query; },
           in(column: string, values: unknown[]) { filters.push((row) => values.includes(row[column])); return query; },
+          or(expression: string) { const alternatives = expression.split(',').map((part) => { const [column, , value] = part.split('.'); return [column!, value] as const; }); filters.push((row) => alternatives.some(([column, value]) => row[column] === value)); return query; },
           order() { return query; },
           range(from: number, to: number) { range = [from, to]; return query; },
           then(resolve: (value: unknown) => unknown) {

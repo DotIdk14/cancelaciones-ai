@@ -127,7 +127,7 @@ describe('AuditResultPanel — alcance del dictamen', () => {
     expect(screen.queryByText('Razonamiento')).toBeNull();
   });
 
-  it('pide y muestra los comentarios del caso del dictamen', async () => {
+  it.each([false, true])('pide y muestra comentarios con edición explícita: %s', async (canEditComments) => {
     fetchSpy.mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -146,12 +146,17 @@ describe('AuditResultPanel — alcance del dictamen', () => {
       ),
     );
 
-    render(createElement(AuditResultPanel, { audit: makeAudit(validAuditResult) }));
+    render(createElement(AuditResultPanel, { audit: makeAudit(validAuditResult), canEditComments }));
 
-    expect(await screen.findByDisplayValue('El pago no se reflejó en el corte.')).toBeTruthy();
+    if (canEditComments) {
+      expect(await screen.findByDisplayValue('El pago no se reflejó en el corte.')).toBeTruthy();
+    } else {
+      expect(await screen.findByText('El pago no se reflejó en el corte.')).toBeTruthy();
+      expect(screen.queryByRole('textbox')).toBeNull();
+    }
     // Los cinco campos del vocabulario cerrado están, aunque no tengan texto.
     for (const area of ['Back Office', 'HelpDesk', 'Servicios Escolares', 'Finanzas', 'Adicional']) {
-      expect(screen.getByLabelText(area)).toBeTruthy();
+      expect(canEditComments ? screen.getByLabelText(area) : screen.getByText(area)).toBeTruthy();
     }
 
     const url = String(fetchSpy.mock.calls[0]?.[0]);

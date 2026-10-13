@@ -66,6 +66,7 @@ export interface CaseSummary {
   creatorRole?: 'user' | 'coordinator' | 'manager' | null;
   /** UUID estable del usuario que creó el expediente; no hay nombre autoritativo disponible. */
   creatorId?: string | null;
+  assignedTo?: string | null;
 }
 
 export type CaseCreatorRole = 'user' | 'coordinator' | 'manager';
@@ -101,6 +102,58 @@ export interface CaseDetail {
   canManageCases?: boolean;
   country?: string | null;
   channel?: string | null;
+  assignedTo?: string | null;
+  externalSource?: 'FLOKZU' | null;
+  externalCaseId?: string | null;
+  flokzuData?: FlokzuCaseData | null;
+}
+
+export interface FlokzuCaseData {
+  academic: { campus: string | null; university: string | null; countryReported: string | null; program: string | null; level: string | null; block: string | null; programKey: string | null; entryDate: string | null };
+  procedure: { policyReported: string | null; motive: string | null; description: string | null; requestDate: string | null; administrativeStartDate: string | null };
+  operations: { currentTask: string | null; statusReported: string | null; finalizedReported: string | null; reviewerReported: string | null; supervisorReported: string | null; requesterReported: string | null; requesterArea: string | null };
+  evidenceReferences: Array<{ label: string; value: string }>;
+}
+
+export interface FlokzuImportPreview {
+  batchId: string;
+  exportedAt: string | null;
+  totalRows: number;
+  validRows: number;
+  newRows: number;
+  changedRows: number;
+  unchangedRows: number;
+  errorRows: number;
+  unassignedRows: number;
+  issues: Array<{ rowNumber: number; externalCaseId: string | null; message: string }>;
+  assignments: Array<{ userId: string; name: string | null; count: number }>;
+  rows: Array<{ rowNumber: number; externalCaseId: string; studentIdentifier: string; studentName: string; action: 'NEW' | 'UPDATE' | 'UNCHANGED'; assignmentUserId: string | null; assignmentName: string | null; canAutoAssign: boolean }>;
+}
+
+export interface FlokzuImportHistoryItem {
+  id: string;
+  status: 'PREVIEWED' | 'COMPLETED' | 'EXPIRED';
+  totalRows: number;
+  validRows: number;
+  newRows: number;
+  changedRows: number;
+  unchangedRows: number;
+  errorRows: number;
+  issues: FlokzuImportPreview['issues'];
+  result: { created?: number; updated?: number; unchanged?: number; errors?: number; unassigned?: number } | null;
+  createdAt: string;
+  completedAt: string | null;
+}
+
+export interface FlokzuImportedCase {
+  id: string;
+  externalCaseId: string;
+  studentIdentifier: string | null;
+  studentName: string | null;
+  status: CaseStatus;
+  assignedTo: string | null;
+  assignedName: string | null;
+  createdAt: string;
 }
 
 export interface CaseSummaryPage {
@@ -565,6 +618,37 @@ export async function createCase(studentIdentifier?: string, studentName?: strin
   return data.case;
 }
 
+export async function previewFlokzuImport(file: File): Promise<FlokzuImportPreview> {
+  const form = new FormData();
+  form.set('file', file);
+  const response = await safeFetch('/api/cases', { method: 'POST', body: form, timeoutMs: 60_000 });
+  if (response.status !== 201) throw await readError(response);
+  return (await responseJson<{ preview: FlokzuImportPreview }>(response)).preview;
+}
+
+export async function confirmFlokzuImport(batchId: string): Promise<NonNullable<FlokzuImportHistoryItem['result']>> {
+  const data = await request<{ result: NonNullable<FlokzuImportHistoryItem['result']> }>('/api/cases', {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ batchId }),
+    timeoutMs: 60_000,
+  }, [200]);
+  return data.result;
+}
+
+export async function getFlokzuImportHistory(importOffset = 0): Promise<{ imports: FlokzuImportHistoryItem[]; assignmentOptions: Array<{ userId: string; name: string | null }>; cases: FlokzuImportedCase[]; casesNextOffset: number | null }> {
+  const params = new URLSearchParams({ view: 'imports', importOffset: String(importOffset) });
+  return request(`/api/cases?${params.toString()}`, {}, [200]);
+}
+
+export async function assignImportedCase(caseId: string, assignedTo: string | null): Promise<void> {
+  await request<{ ok: true }>(casePath(caseId), {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ assignedTo }),
+  }, [200]);
+}
+
 export async function setCaseTestFlag(caseId: string, isTest: boolean): Promise<CaseDetail> {
   const data = await request<{ case: CaseDetail }>(casePath(caseId), {
     method: 'PATCH',
@@ -960,6 +1044,7 @@ export interface SessionSnapshot {
     canFinalizeAnyCase: boolean;
     canWriteOwnedCases: boolean;
     canManageCases: boolean;
+    canImportCases: boolean;
   };
 }
 
@@ -995,8 +1080,9 @@ export async function refreshSession(): Promise<SessionSnapshot | null> {
       canFinalizeAnyCase: caps?.canFinalizeAnyCase === true,
       canWriteOwnedCases: caps?.canWriteOwnedCases === true,
       canManageCases: caps?.canManageCases === true,
+      canImportCases: caps?.canImportCases === true,
     } };
   } catch {
-    return { role: null, capabilities: { canReadAllCases: false, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false, canManageCases: false } };
+    return { role: null, capabilities: { canReadAllCases: false, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false, canManageCases: false, canImportCases: false } };
   }
 }

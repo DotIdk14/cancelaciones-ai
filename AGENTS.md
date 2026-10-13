@@ -36,9 +36,11 @@ Tres roles persistidos en `app_memberships.role` (vocabulario cerrado, `CHECK` e
 
 | Rol | Presentación | `canReadAllCases` | `canReviewOwnCases` | `canFinalizeAnyCase` | `canWriteOwnedCases` |
 | --- | --- | --- | --- | --- | --- |
-| `user` | Asesor | no | sí | no | sí |
+| `user` | Asesor | sí | sí | no | sí |
 | `coordinator` | Coordinador | sí | no | sí | sí |
 | `manager` | Gerente | sí | no | no | no |
+
+Los tres roles pueden leer el expediente completo, incluidas evidencias y comentarios. Cambiar la resolución o escribir comentarios requiere propiedad y la capacidad de escritura correspondiente. El Coordinador puede aprobar un caso ajeno sin comentario.
 
 La autorización se decide SIEMPRE con `capabilitiesForRole(role)`, nunca con un `if (role === 'user')` repartido por los endpoints: preguntar "¿TIENE la capacidad?" y no "¿el rol es exactamente este?" es lo que evita congelar el vocabulario en cada guard. Rol desconocido, `null` o `undefined` → `DENY_ALL_CAPABILITIES` (fail-closed). Los dos guards de casos son `assertCaseWriteCapability` (capacidad antes que propiedad: un Gerente no muta ni su propio caso) y `assertCaseOwner` (propiedad: un caso ajeno es `404`).
 

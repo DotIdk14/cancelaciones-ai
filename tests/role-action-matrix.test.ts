@@ -50,6 +50,7 @@ vi.mock('../src/server/cases', async () => {
     derivedExtractionOf: store.derivedExtractionOf,
     persistDerivedExtraction: store.persistDerivedExtraction,
     assertCaseOwner: store.assertCaseOwner,
+    caseOwnedBy: store.caseOwnedBy,
     assertCaseNotFinalized: store.assertCaseNotFinalized,
     listCaseSummaries: store.listCaseSummaries,
     createCase: store.createCase,
@@ -265,11 +266,11 @@ describe('leer · GET /api/cases (listado con scope del servidor)', () => {
     seedCase({ id: OTHER_CASE, created_by: OTHER_OWNER });
   });
 
-  it('Asesor solo ve los propios; Coordinador y Gerente ven todo', async () => {
+  it('los tres roles ven todos los casos', async () => {
     const asUser = await listCases('user');
     expect(asUser.statusCode).toBe(200);
     const userCases = (JSON.parse(asUser.body) as { cases: Array<{ id: string }> }).cases;
-    expect(userCases.map((c) => c.id)).toEqual([OWN_CASE]);
+    expect(userCases.map((c) => c.id).sort()).toEqual([OTHER_CASE, OWN_CASE].sort());
 
     for (const role of ['coordinator', 'manager'] as const) {
       const res = await listCases(role);
@@ -293,9 +294,9 @@ describe('leer un caso · GET /api/cases/:id/review', () => {
     }
   });
 
-  it('caso AJENO: Asesor 404 (no enumera existencia); Coordinador y Gerente 200', async () => {
+  it('caso AJENO: los tres roles pueden leer la revisión', async () => {
     const asUser = await readReview('user', OTHER_CASE);
-    expect(asUser.statusCode).toBe(404);
+    expect(asUser.statusCode).toBe(200);
     for (const role of ['coordinator', 'manager'] as const) {
       const res = await readReview(role, OTHER_CASE);
       expect(res.statusCode, `rol ${role}`).toBe(200);
@@ -378,6 +379,31 @@ describe('revisar como asesor · POST /api/cases/:id/review {result}', () => {
 });
 
 describe('finalizar como coordinador · POST /api/cases/:id/review {decision}', () => {
+  it.each([
+    { decision: 'CHANGE', resolution: 'TICKET_RECHAZADO' },
+    { decision: 'APPROVE', comment: 'Comentario en expediente ajeno.' },
+  ])('rechaza cambios y comentarios ajenos antes de persistir: %j', async (body) => {
+    seedCase({ id: OTHER_CASE, created_by: OTHER_OWNER });
+    const review = seedReview({ case_id: OTHER_CASE, result: 'BAJA', coordinator_decision: null });
+    const res = await postReview('coordinator', OTHER_CASE, { country: 'MX', channel: 'WHATSAPP', ...body });
+    expect(res.statusCode, res.body).toBe(403);
+    expect(review.coordinator_decision).toBeNull();
+    expect(review.coordinator_comment).toBeNull();
+  });
+
+  it('permite cambiar resolución y comentar al coordinador propietario', async () => {
+    seedCase({ id: OWN_CASE, created_by: FAKE_USER_SUB });
+    seedReview({ case_id: OWN_CASE, result: 'BAJA', coordinator_decision: null });
+    const res = await postReview('coordinator', OWN_CASE, {
+      country: 'MX', channel: 'WHATSAPP', decision: 'CHANGE', resolution: 'TICKET_RECHAZADO', comment: 'Cambio por nueva revisión humana.',
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    const payload = JSON.parse(res.body) as { review: { coordinatorResolution: string; coordinatorComment: string; result: string } };
+    expect(payload.review.coordinatorResolution).toBe('TICKET_RECHAZADO');
+    expect(payload.review.coordinatorComment).toBe('Cambio por nueva revisión humana.');
+    expect(payload.review.result).toBe('BAJA');
+  });
+
   it('Coordinador sobre caso PENDING_COORDINATOR: 200 (finaliza el caso de un asesor)', async () => {
     seedCase({ id: OTHER_CASE, created_by: OTHER_OWNER });
     seedReview({ case_id: OTHER_CASE, result: 'BAJA', coordinator_decision: null });

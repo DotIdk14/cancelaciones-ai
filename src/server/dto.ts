@@ -35,6 +35,7 @@ export interface CaseSummaryDto {
   auditHasHumanReview: boolean;
   creatorRole?: 'user' | 'coordinator' | 'manager' | null;
   creatorId?: string | null;
+  assignedTo?: string | null;
 }
 
 export interface CaseDetailDto {
@@ -61,6 +62,10 @@ export interface CaseDetailDto {
   cycleStartDate: string | null;
   cycleStartDateByName: string | null;
   cycleStartDateAt: string | null;
+  assignedTo: string | null;
+  externalSource: 'FLOKZU' | null;
+  externalCaseId: string | null;
+  flokzuData: unknown;
 }
 
 export interface EvidenceDto {
@@ -228,6 +233,7 @@ export function caseToSummary(row: CaseSummaryRow, canManageCases = false): Case
     auditHasHumanReview: row.audit !== undefined && row.audit !== null && row.review?.audit_id === row.audit.id,
     creatorRole: row.creator_role ?? null,
     creatorId: row.created_by ?? null,
+    assignedTo: row.assigned_to ?? null,
   };
 }
 
@@ -251,6 +257,10 @@ export function caseToDetail(row: CaseRow, canWrite = false, canManageCases = fa
     cycleStartDate: row.cycle_start_date ?? null,
     cycleStartDateByName: row.cycle_start_date_by_name ?? null,
     cycleStartDateAt: row.cycle_start_date_at ?? null,
+    assignedTo: row.assigned_to ?? null,
+    externalSource: row.external_source ?? null,
+    externalCaseId: row.external_case_id ?? null,
+    flokzuData: row.flokzu_data ?? null,
   };
 }
 

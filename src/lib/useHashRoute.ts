@@ -21,6 +21,7 @@ export type AppRoute =
   | { name: 'new-case' } // #/nuevo
   | { name: 'cases' } // #/casos
   | { name: 'incidents' } // #/incidencias
+  | { name: 'flokzu-import' } // #/importacion-tickets
   | { name: 'case'; caseId: string }; // #/casos/:id
 
 function decodeSegment(segment: string): string {
@@ -61,6 +62,8 @@ export function parseHash(hash: string): AppRoute {
       return { name: 'new-case' };
     case 'incidencias':
       return { name: 'incidents' };
+    case 'importacion-tickets':
+      return { name: 'flokzu-import' };
     default:
       // Ruta desconocida: nunca dejamos al usuario en una pantalla rota.
       return { name: 'dashboard' };

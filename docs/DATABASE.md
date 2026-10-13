@@ -271,7 +271,7 @@ RLS habilitada; `anon` y `authenticated` sin privilegios. La fila la escribe la 
 
 - `src/server/insforge.ts` crea un cliente con `createAdminClient({ apiKey: INSFORGE_API_KEY })`. Este rol (`project_admin`) tiene BYPASSRLS y puede leer/escribir cualquier fila.
 - La RLS no es la frontera primaria; lo es el hecho de que **el navegador nunca habla con InsForge**. La RLS existe como segundo muro en caso de fuga de token/cookie.
-- Todas las consultas del backend usan el cliente admin, pero el alcance y los permisos se implementan en código: `getScopedCaseOr404` y `assertCaseOwner` resuelven el alcance (dueño, o cualquier caso si el rol tiene `canReadAllCases`), y `assertCaseWriteCapability` decide la mutación con las capacidades del rol (`capabilitiesForRole`), no con el nombre del rol ni con la RLS. Un caso ajeno es `404`; en alcance pero sin permiso es `403`.
+- Todas las consultas del backend usan el cliente admin, pero el alcance y los permisos se implementan en código: los tres roles autenticados tienen `canReadAllCases` para consultar expedientes completos; `assertCaseOwner` mantiene la frontera de escritura. `assertCaseWriteCapability` aplica además las capacidades del rol. En la revisión del Coordinador, aprobar un caso ajeno sin comentario sigue permitido; cambiar la resolución o agregar comentarios exige propiedad.
 
 ## Forward-only y rollback
 

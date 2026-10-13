@@ -94,8 +94,8 @@ INSERT INTO public.app_memberships (user_id, role) VALUES
 
 Roles (vocabulario cerrado, `CHECK` en la base desde `20261008100000`):
 
-- `user` (**Asesor**): ve y muta solo sus propios casos; registra la decisión de asesor.
-- `coordinator` (**Coordinador**): lee cualquier caso y finaliza cualquiera; crea y muta los suyos, pero NO escribe en casos ajenos (el scoping de escritura sigue siendo de dueño).
+- `user` (**Asesor**): lee cualquier caso; crea, muta y registra la decisión de asesor en los propios.
+- `coordinator` (**Coordinador**): lee cualquier caso y finaliza cualquiera; crea y muta los suyos. En casos ajenos solo puede aprobar sin comentario; no cambia resolución ni agrega comentarios.
 - `manager` (**Gerente**): solo lectura global; no crea, no muta, no revisa ni finaliza (un `POST` suyo es `403`).
 
 Los permisos los decide `capabilitiesForRole` (`src/server/capabilities.ts`), no la RLS: el servidor escribe como `project_admin` y para él las políticas no aplican. Un rol fuera del vocabulario, o sin fila, recibe `403` (fail-closed).
@@ -182,9 +182,10 @@ Después de crear el preview:
 4. **403 sin membership**:
    - Autenticar con un usuario de InsForge que **no** esté en `app_memberships` → 403.
 
-5. **Descarga autorizada**:
-   - Subir evidencia, intentar descargar con el dueño → 200.
-   - Con otro usuario autenticado → 404 (no 403, para no enumerar existencia).
+5. **Lectura y escritura de evidencias**:
+   - Subir evidencia e intentar descargar con el propietario → 200.
+   - Con otro usuario autenticado con membership → 200; todos los roles pueden leer el expediente completo.
+   - Intentar subir, reemplazar o eliminar evidencia ajena → 404 (no 403, para no enumerar existencia).
 
 6. **Flujo completo**:
    - Crear caso → subir PDF/TXT/imagen → evidencia `READY`.

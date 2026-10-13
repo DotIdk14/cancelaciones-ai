@@ -93,7 +93,7 @@ export function applyTestScope<T extends { eq(column: string, value: unknown): T
 
 /**
  * Acota una lectura de dashboard a los casos del actor cuando su rol NO tiene
- * capacidad de lectura global (Asesor).
+ * capacidad de lectura global.
  *
  * Se aplica EN SQL y ANTES del `count`/`limit`. Antes esto se hacía en memoria
  * DESPUÉS del recorte: con más filas que
@@ -116,10 +116,9 @@ function applyOwnerScope<T extends { eq(column: string, value: unknown): T }>(
 /**
  * Valores presentes en la vista; los valores nulos o vacíos no crean opciones.
  *
- * Recibe el alcance autenticado: un Asesor solo ve las dimensiones de SUS casos y
- * ninguna opción debe provenir de un caso de prueba ni de un caso ajeno. Ofrecer
- * una opción que el actor no podría consultar sería un callejón sin salida
- * silencioso (elegirla devuelve cero filas).
+ * Recibe el alcance autenticado: los miembros ven dimensiones de todos los
+ * casos; ninguna opción proviene de casos de prueba. Así cada filtro disponible
+ * corresponde a filas que el actor puede consultar.
  */
 export async function getDashboardFilterOptions(
   client: InsForgeClient,

@@ -230,7 +230,7 @@ describe('POST /api/cases — nombre de estudiante y clasificación protegida', 
 });
 
 describe('GET /api/cases — alcance por capacidad, no por nombre de rol', () => {
-  it('un Asesor solo ve sus propios casos', async () => {
+  it('un Asesor ve todos los casos', async () => {
     seedCase({ id: 'mio', created_by: FAKE_USER_SUB });
     seedCase({ id: 'ajeno', created_by: FAKE_COORDINATOR_SUB });
 
@@ -239,8 +239,7 @@ describe('GET /api/cases — alcance por capacidad, no por nombre de rol', () =>
 
     expect(res.statusCode).toBe(200);
     const ids = (JSON.parse(res.body) as { cases: Array<{ id: string }> }).cases.map((c) => c.id);
-    expect(ids).toContain('mio');
-    expect(ids).not.toContain('ajeno');
+    expect(ids).toEqual(expect.arrayContaining(['mio', 'ajeno']));
   });
 
   it('un Coordinador ve todos los casos', async () => {

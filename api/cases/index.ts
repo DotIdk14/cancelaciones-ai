@@ -6,6 +6,7 @@ import {
   created,
   methodNotAllowed,
   readJsonBody,
+  readRawBodyLimited,
   idempotencyKey,
 } from '../../src/server/http.js';
 import { createServerClient } from '../../src/server/insforge.js';
@@ -14,12 +15,18 @@ import { caseToSummary, deriveWorkflowState } from '../../src/server/dto.js';
 import { assertCaseWriteCapability } from '../../src/server/auth.js';
 import { CASE_STATUSES } from '../../src/skills/audit/types.js';
 import { capabilitiesForRole } from '../../src/server/capabilities.js';
+import { createFlokzuPreview, confirmFlokzuImport, listFlokzuImportData } from '../../src/server/flokzu-import.js';
+import { FLOKZU_MAX_FILE_BYTES } from '../../src/server/flokzu-parser.js';
+import { parseSingleXlsxMultipart } from '../../src/server/flokzu-multipart.js';
+import { z as zod } from 'zod';
+
+export const config = { api: { bodyParser: false } };
 
 // GET  /api/cases            → { cases: CaseSummary[] }
 // POST /api/cases { studentIdentifier?, studentName? } → 201 { case: CaseSummary }
 //
 // El alcance de la lectura lo aplica `listCaseSummaries` desde las capacidades
-// del rol (Asesor: solo propios; Coordinador/Gerente: todos).
+// del rol (los tres roles autenticados pueden consultar todos los casos).
 //
 // El cuerpo es ESTRICTO: rechaza cualquier campo que no sea `studentIdentifier` o
 // `studentName`, de modo que un `created_by`, `role`, `actor` o `isTest` del cliente
@@ -60,6 +67,18 @@ function decodeCursor(value: string): z.infer<typeof CaseCursorSchema> {
 
 export default handleRoute(async (req, res) => {
   if (req.method === 'GET') {
+    if (req.query.view === 'imports') {
+      if (!capabilitiesForRole(req.auth!.role).canImportCases) {
+        throw new ApiError(403, 'AUTH_ERROR', 'No tienes permiso para consultar importaciones de Flokzu.');
+      }
+      const rawImportOffset = req.query.importOffset;
+      if (rawImportOffset !== undefined && (Array.isArray(rawImportOffset) || !/^\d{1,7}$/.test(rawImportOffset))) {
+        throw new ApiError(400, 'VALIDATION_ERROR', 'importOffset debe ser un entero no negativo.');
+      }
+      const client = createServerClient();
+      ok(res, await listFlokzuImportData(client, rawImportOffset === undefined ? 0 : Number(rawImportOffset)));
+      return;
+    }
     const client = createServerClient();
     const rawLimit = req.query.limit;
     if (rawLimit !== undefined) {
@@ -181,6 +200,16 @@ export default handleRoute(async (req, res) => {
   }
 
   if (req.method === 'POST') {
+    if ((req.headers['content-type'] ?? '').toLowerCase().startsWith('multipart/form-data')) {
+      if (!capabilitiesForRole(req.auth!.role).canImportCases) {
+        throw new ApiError(403, 'AUTH_ERROR', 'Solo un Coordinador puede importar tickets de Flokzu.');
+      }
+      const body = await readRawBodyLimited(req, FLOKZU_MAX_FILE_BYTES + 64 * 1024);
+      const uploaded = parseSingleXlsxMultipart(req.headers['content-type'] as string, body);
+      const preview = await createFlokzuPreview(createServerClient(), req.auth!, uploaded.buffer);
+      created(res, { preview });
+      return;
+    }
     // Autorización ANTES de leer el cuerpo: un Gerente (solo lectura global) no
     // crea casos y no debe llegar a validar ni a escribir. Es 403 y no 404 porque
     // el recurso (la colección de casos) está en alcance; lo que falta es permiso.
@@ -215,5 +244,16 @@ export default handleRoute(async (req, res) => {
     return;
   }
 
-  methodNotAllowed(req, res);
+  if (req.method === 'PATCH') {
+    if (!capabilitiesForRole(req.auth!.role).canImportCases) {
+      throw new ApiError(403, 'AUTH_ERROR', 'Solo un Coordinador puede confirmar importaciones de Flokzu.');
+    }
+    const parsed = zod.object({ batchId: zod.string().uuid() }).strict().safeParse(await readJsonBody(req));
+    if (!parsed.success) throw new ApiError(400, 'VALIDATION_ERROR', 'La vista previa indicada no es válida.');
+    const result = await confirmFlokzuImport(createServerClient(), req.auth!, parsed.data.batchId);
+    ok(res, { result });
+    return;
+  }
+
+  methodNotAllowed(req, res, 'GET, POST, PATCH');
 });

@@ -540,14 +540,14 @@ claves ni habla directamente con la plataforma.
 | `POST` | `/api/auth/refresh` | pública | `200` — rota el access token con el refresh |
 | `GET` | `/api/cases` | sesión | `200 { cases: CaseSummary[] }` (máx. 100) |
 | `POST` | `/api/cases` | sesión | `201 { case }` · body `{ studentIdentifier? }` |
-| `GET` | `/api/cases/:caseId` | sesión + dueño | `200 { case, evidences, audit }` |
+| `GET` | `/api/cases/:caseId` | sesión | `200 { case, evidences, audit }` — lectura global para los tres roles |
 | `POST` | `/api/cases/:caseId/evidence` | sesión + dueño | `201 { evidence }` · body binario crudo |
 | `DELETE` | `/api/cases/:caseId/evidence/:evidenceId` | sesión + dueño | `200 { ok: true }` |
 | `GET` `POST` | `/api/cases/:caseId/audit` | sesión + dueño | `200 { audit }` \| `202 { audit: null, pendingEvidence }` |
 | `POST` | `/api/cases/:caseId/comparison` | sesión + dueño | `200` — lanza el comparador entre dos casos |
-| `GET` `POST` | `/api/cases/:caseId/area-comments` | sesión + **dueño** | `GET 200 { comments }` \| `POST 200 { comment }` — body `{ area, comment }`. **Dueño, no "sesión + dueño"**: un `coordinator` lee cualquier caso pero no escribe en el ajeno. Es un UPSERT, por eso `200` y no `201`. |
-| `GET` `POST` | `/api/cases/:caseId/review` | sesión + dueño | `GET 200 { review \| null }` · `POST 200 { review }` (revisión humana) |
-| `GET` | `/api/evidence/:evidenceId/download` | sesión + dueño | `200` binario (`?preview=1` → `inline`) |
+| `GET` `POST` | `/api/cases/:caseId/area-comments` | sesión | `GET 200 { comments }` global · `POST 200 { comment }` solo propietario — body `{ area, comment }`. Es un UPSERT, por eso `200` y no `201`. |
+| `GET` `POST` | `/api/cases/:caseId/review` | sesión | `GET 200 { review \| null }` global · POST requiere la etapa y propiedad; el coordinador solo puede aprobar casos ajenos sin comentario |
+| `GET` | `/api/evidence/:evidenceId/download` | sesión | `200` binario (`?preview=1` → `inline`); lectura global |
 | `GET` | `/api/dashboard/summary` | sesión + rol | `200 { summary }` |
 | `GET` | `/api/dashboard/quality` | sesión + rol | `200 { quality }` |
 | `GET` | `/api/dashboard/ai-costs` | sesión + rol | `200 { costs }` |
@@ -618,9 +618,11 @@ Los mensajes del proveedor se sanean (se ocultan `api_key`, `secret`, `token`,
 - **CSRF.** Todo método mutante (`POST`/`PUT`/`PATCH`/`DELETE`) exige que el
   `Origin` coincida con `APP_URL` y que llegue `X-App-Request: 1`. Ambas
   condiciones; sin `Origin` (p. ej. mismo origen en algunos clientes) se rechaza.
-- **Autorización por dueño.** Cada ruta de caso pasa por
-  `getScopedCaseOr404`/`assertCaseOwner`. Un caso ajeno devuelve **404, no 403**:
-  responder 403 confirmaría que el identificador existe.
+- **Lectura y escritura separadas.** Los tres roles autenticados pueden leer
+  cualquier expediente completo, incluidas evidencias y dictámenes. Las
+  mutaciones pasan por `assertCaseOwner`: un intento de escritura sobre un caso
+  ajeno responde **404**. El Coordinador puede aprobar la resolución de un caso
+  ajeno sin comentario; cambiarla o agregar comentarios requiere propiedad.
 - **Roles.** `user`, `coordinator` y `manager` salen de `app_memberships`. Un rol
   desconocido se trata como "sin permiso" (fail-closed), no como `user`.
 

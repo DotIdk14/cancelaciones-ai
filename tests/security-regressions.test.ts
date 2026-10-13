@@ -57,16 +57,6 @@ function makeApiRequest(overrides: Partial<ApiRequest> = {}): ApiRequest {
   } as unknown as ApiRequest;
 }
 
-/** Cliente InsForge que devuelve siempre una lista vacía: "el caso no es mío". */
-function emptyClient(): InsForgeClient {
-  const chain = {
-    select: () => chain,
-    eq: () => chain,
-    single: () => Promise.resolve({ data: null, error: null }),
-  };
-  return { database: { from: () => chain } } as unknown as InsForgeClient;
-}
-
 beforeEach(() => {
   setTestEnv();
 });
@@ -262,11 +252,16 @@ describe('Comentarios de area · el alcance lo decide el servidor', () => {
   });
 });
 
-describe('R6/R7 · ownership: un caso ajeno no existe para el usuario', () => {
-  it('rol user sobre un caso de otro responde 404 (no 403: no se enumera existencia)', async () => {
-    await expect(getScopedCaseOr404(emptyClient(), 'c-ajeno', fakeAuthContext('user'))).rejects.toMatchObject({
-      status: 404,
-    });
+describe('R6/R7 · lectura global, escritura por propiedad', () => {
+  it('rol user puede leer el expediente ajeno', async () => {
+    const row = { id: 'c-ajeno', created_by: 'otro-usuario' };
+    const chain = {
+      select: () => chain,
+      eq: () => chain,
+      single: () => Promise.resolve({ data: row, error: null }),
+    };
+    const client = { database: { from: () => chain } } as unknown as InsForgeClient;
+    await expect(getScopedCaseOr404(client, 'c-ajeno', fakeAuthContext('user'))).resolves.toBe(row);
   });
 
   it('rol coordinator SI lee un caso ajeno (visibilidad global de auditoria)', async () => {
@@ -428,15 +423,14 @@ describe('matriz de capacidades sobre /review · el servidor resuelve la etapa',
     }
   });
 
-  it('el asesor sobre el caso de OTRO responde 404 en POST y en GET: no se enumera existencia', async () => {
+  it('el asesor no revisa el caso de OTRO (404), pero sí lee su revisión (200)', async () => {
     const post = await callReview('user', 'POST', { result: 'BAJA' });
     expect(post.res.statusCode).toBe(404);
     expect(post.store.advisorReview.coordinator_created_by).toBeNull();
 
     const get = await callReview('user', 'GET');
-    expect(get.res.statusCode).toBe(404);
-    // Ni la resolución del asesor ni la etapa del flujo se filtran en el 404.
-    expect(get.res.body).not.toContain('BAJA');
+    expect(get.res.statusCode).toBe(200);
+    expect(get.res.body).toContain('BAJA');
   });
 
   it('sin sesión / sin rol resuelto, /review nunca responde 200 con datos', async () => {

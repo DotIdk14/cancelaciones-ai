@@ -41,16 +41,18 @@ const CAPABILITIES = [
   'canFinalizeAnyCase',
   'canWriteOwnedCases',
   'canManageCases',
+  'canImportCases',
 ] as const;
 
 describe('mapeo rol -> capacidades (derivado en el servidor)', () => {
-  it('user (Asesor): lectura, escritura y revisión propias; nada global ni finalización', () => {
+  it('user (Asesor): lectura global y escritura/revisión propias; sin finalización', () => {
     expect(capabilitiesForRole('user')).toEqual({
-      canReadAllCases: false,
+      canReadAllCases: true,
       canReviewOwnCases: true,
       canFinalizeAnyCase: false,
       canWriteOwnedCases: true,
       canManageCases: false,
+      canImportCases: false,
     });
   });
 
@@ -62,6 +64,7 @@ describe('mapeo rol -> capacidades (derivado en el servidor)', () => {
       // Default denegar: la revisión de un caso de Asesor no se le concede.
       canWriteOwnedCases: true,
       canManageCases: false,
+      canImportCases: true,
     });
   });
 
@@ -72,6 +75,7 @@ describe('mapeo rol -> capacidades (derivado en el servidor)', () => {
       canFinalizeAnyCase: false,
       canWriteOwnedCases: false,
       canManageCases: true,
+      canImportCases: false,
     });
   });
 
@@ -82,12 +86,19 @@ describe('mapeo rol -> capacidades (derivado en el servidor)', () => {
     expect(caps.canFinalizeAnyCase).toBe(false);
   });
 
-  it('solo coordinator lee y finalize globalmente', () => {
+  it('solo coordinator puede importar y reasignar tickets de Flokzu', () => {
+    expect(capabilitiesForRole('coordinator').canImportCases).toBe(true);
+    expect(capabilitiesForRole('user').canImportCases).toBe(false);
+    expect(capabilitiesForRole('manager').canImportCases).toBe(false);
+    expect(capabilitiesForRole(null).canImportCases).toBe(false);
+  });
+
+  it('todos leen globalmente; solo coordinator finaliza globalmente', () => {
     for (const role of ['user', 'coordinator', 'manager'] as AppRole[]) {
       const caps = capabilitiesForRole(role);
       const isCoordinator = role === 'coordinator';
-      // Lectura global: coordinador Y gerente. Finalización: solo coordinador.
-      expect(caps.canReadAllCases).toBe(isCoordinator || role === 'manager');
+      // Los tres roles leen globalmente. Finalización: solo coordinador.
+      expect(caps.canReadAllCases).toBe(true);
       expect(caps.canFinalizeAnyCase).toBe(isCoordinator);
     }
   });

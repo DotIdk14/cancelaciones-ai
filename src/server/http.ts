@@ -227,6 +227,31 @@ export async function readRawBody(req: ApiRequest): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
+export async function readRawBodyLimited(req: ApiRequest, maxBytes: number): Promise<Buffer> {
+  if (typeof req.body === 'string') {
+    const body = Buffer.from(req.body, 'utf8');
+    if (body.length > maxBytes) throw new ApiError(413, 'VALIDATION_ERROR', 'El archivo excede el tamaño permitido.');
+    return body;
+  }
+  if (Buffer.isBuffer(req.body)) {
+    if (req.body.length > maxBytes) throw new ApiError(413, 'VALIDATION_ERROR', 'El archivo excede el tamaño permitido.');
+    return req.body;
+  }
+  if (req.body instanceof Uint8Array) {
+    if (req.body.byteLength > maxBytes) throw new ApiError(413, 'VALIDATION_ERROR', 'El archivo excede el tamaño permitido.');
+    return Buffer.from(req.body);
+  }
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req) {
+    const value = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array);
+    size += value.length;
+    if (size > maxBytes) throw new ApiError(413, 'VALIDATION_ERROR', 'El archivo excede el tamaño permitido.');
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks, size);
+}
+
 const MAX_JSON_BODY_BYTES = 1 * 1024 * 1024;
 
 export async function readJsonBody(req: ApiRequest): Promise<unknown> {

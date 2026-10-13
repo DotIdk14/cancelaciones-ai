@@ -199,16 +199,16 @@ sequenceDiagram
   else Con membership
     A-->>H: AuthContext {sub, email, role}
     H->>C: getScopedCaseOr404 (usa capabilitiesForRole)
-    C->>C: canReadAllCases: cualquier caso<br/>si no: created_by = sub
-    C-->>B: caso / 404
+    C->>C: canReadAllCases: expediente completo<br/>si no: creado/asignado al actor
+    C-->>B: expediente y evidencias / 404
   end
 ```
 
 ## Límite de confianza
 
-El navegador envía cookies de sesión a `/api/*`, pero no recibe tokens de InsForge ni claves de proveedores. `handleRoute` (`src/server/http.ts`) valida CSRF en métodos mutantes y resuelve la sesión y el membership antes de ejecutar cada handler protegido. Las rutas usan un cliente administrativo server-side, por lo que aplican además alcance por propietario con `getScopedCaseOr404`; quien tiene `canReadAllCases` (`coordinator`, `manager`) puede consultar cualquier caso, y solo el propietario puede modificarlo.
+El navegador envía cookies de sesión a `/api/*`, pero no recibe tokens de InsForge ni claves de proveedores. `handleRoute` (`src/server/http.ts`) valida CSRF en métodos mutantes y resuelve la sesión y el membership antes de ejecutar cada handler protegido. Los tres roles autenticados tienen `canReadAllCases` y pueden consultar el expediente completo, incluidas las evidencias. La propiedad sigue separada de la lectura: las rutas mutantes comprueban el propietario; en la etapa del Coordinador se permite aprobar un caso ajeno sin comentario, pero `CHANGE` y cualquier comentario requieren propiedad.
 
-**La autorización se decide por capacidad, no por nombre de rol.** `capabilitiesForRole` (`src/server/capabilities.ts`) deriva cuatro capacidades del rol verificado y los endpoints preguntan "¿TIENE la capacidad?", nunca "¿el rol es exactamente este?". Los guards son `assertCaseWriteCapability` (capacidad antes que propiedad) y `assertCaseOwner` (propiedad: un caso ajeno es `404`). Rol desconocido, `null` o `undefined` → todo negado (fail-closed). **La RLS no es la frontera**: el servidor escribe con `project_admin` (BYPASSRLS), así que las políticas no lo restringen; son defensa en profundidad ante una fuga de cookie.
+**La autorización se decide por capacidad, no por nombre de rol.** `capabilitiesForRole` (`src/server/capabilities.ts`) deriva las capacidades del rol verificado y los endpoints preguntan "¿TIENE la capacidad?", nunca "¿el rol es exactamente este?". Los guards son `assertCaseWriteCapability` (capacidad antes que propiedad) y `assertCaseOwner` (propiedad: una mutación sobre caso ajeno responde `404`). Rol desconocido, `null` o `undefined` → todo negado (fail-closed). **La RLS no es la frontera**: el servidor escribe con `project_admin` (BYPASSRLS), así que las políticas no lo restringen; son defensa en profundidad ante una fuga de cookie.
 
 El backend separa transporte y criterio: `api/**` valida y delega; `src/server/**` coordina persistencia e integraciones; `src/skills/audit/**` es la única fuente de criterio asistido por IA. `cases.country` y `cases.channel` son proyecciones de `audits.result_json.origin`, no datos normativos independientes.
 
@@ -218,7 +218,7 @@ Tres roles persistidos en `app_memberships.role`; `user` se presenta como **Ases
 
 | Rol | Presentación | `canReadAllCases` | `canReviewOwnCases` | `canFinalizeAnyCase` | `canWriteOwnedCases` |
 | --- | --- | --- | --- | --- | --- |
-| `user` | Asesor | no | sí | no | sí |
+| `user` | Asesor | sí | sí | no | sí |
 | `coordinator` | Coordinador | sí | no | sí | sí |
 | `manager` | Gerente | sí | no | no | no |
 
@@ -232,7 +232,7 @@ stateDiagram-v2
 ```
 
 - **Asesor**: `POST /api/cases/:id/review { result, comment? }` sobre su caso → `201`, dispara la comparación IA; un segundo intento es `409`.
-- **Coordinador**: `POST ... { decision: 'APPROVE'|'CHANGE', resolution?, comment? }` sobre cualquier caso → `200`. `APPROVE` conserva `result`; `CHANGE` exige `resolution` distinta. La decisión del coordinador se guarda aparte y no pisa la del Asesor.
+- **Coordinador**: `POST ... { decision: 'APPROVE'|'CHANGE', resolution?, comment? }` → `200`. Puede aprobar cualquier caso sin comentario. Cambiar la resolución y agregar comentarios requiere que sea propietario. `APPROVE` conserva `result`; `CHANGE` exige `resolution` distinta. La decisión del coordinador se guarda aparte y no pisa la del Asesor.
 - **Gerente**: lee, pero `POST /review` es `403`.
 
 En la UI, `CaseReviewPanel` presenta la etapa del Asesor y el estado/reintento de
@@ -327,7 +327,7 @@ Razón: las pruebas no deben inflar las métricas operativas, y filtrarlas en me
 - **Idempotencia**: fingerprint canónico evita re-auditar un expediente idéntico; un solo `RUNNING` por `(case_id, fingerprint)`.
 - **Dashboard**: las vistas `audit_dashboard_metrics` y `case_comparisons_dashboard_metrics` proyectan escalares para no traer jsonb completos al servidor.
 - **Consultas del dashboard**: `dashboard-queries.ts` aplica filtros de rol y exclusión de pruebas en SQL y recorre todas las páginas PostgREST antes de agregar. El tamaño de página es 500; no hay un límite total silencioso. `dashboard-summary.ts`, `dashboard-costs.ts` y `dashboard-quality.ts` transforman los registros completos en métricas puras. `dashboard.ts` conserva un barrel para los consumidores existentes.
-- **Listado de casos**: `cases.ts` recorre páginas estables de 100 filas, aplica el alcance del propietario en la consulta y carga revisiones, auditorías y huellas de evidencia por bloques para evitar N+1. La API todavía entrega el conjunto accesible completo en una respuesta; el listado de UI permite buscar en ese conjunto, pero no ofrece carga incremental por cursor.
+- **Listado de casos**: `cases.ts` recorre páginas estables de 100 filas, aplica el alcance de lectura por capacidad en la consulta y carga revisiones, auditorías y huellas de evidencia por bloques para evitar N+1. La API pagina el conjunto accesible por cursor y el listado permite buscar en las páginas cargadas.
 - **Vigencia**: las proyecciones del listado y del detalle comparan `evidence_fingerprint` con la huella actual de las evidencias y la fecha capturada por el equipo. Una auditoría obsoleta se conserva como historial, pero no se presenta como dictamen vigente.
 - **Expediente**: `CaseDetailPage` conserva la composición y presentación; `useCaseAuditWorkflow` concentra el POST de auditoría, la recuperación al abrir un caso y el polling acotado de transcripción y ejecución.
 - **Vercel Functions**: `maxDuration = 300` en handlers de auditoría/comparación para acomodar llamadas largas a OpenRouter.

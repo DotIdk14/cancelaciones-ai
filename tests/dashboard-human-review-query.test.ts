@@ -422,7 +422,7 @@ describe('getHumanReviewInput — pruebas y alcance', () => {
     expect(input.reviewedCases).toBe(1);
   });
 
-  it('un Asesor solo ve lo propio; global ve todo lo real pero nunca las pruebas', async () => {
+  it('todos los roles ven revisiones globales, pero nunca las pruebas', async () => {
     const seed = {
       comparisons: [
         comparisonRow({ id: 'mio', case_review_id: 'r-mio', created_by: FAKE_USER_SUB }),
@@ -436,14 +436,10 @@ describe('getHumanReviewInput — pruebas y alcance', () => {
 
     const asesor = createFakeClient(seed);
     const propio = await getHumanReviewInput(asesor.client, FILTERS, fakeAuthContext('user'));
-    expect(propio.comparisons.map((c) => c.id)).toEqual(['mio']);
-    expect(propio.reviewedCases).toBe(1);
-    expect(asesor.callFor(VIEW)?.predicates).toContainEqual({ op: 'eq', column: 'created_by', value: FAKE_USER_SUB });
-    expect(asesor.callFor(REVIEWS)?.predicates).toContainEqual({
-      op: 'eq',
-      column: 'cases.created_by',
-      value: FAKE_USER_SUB,
-    });
+    expect(propio.comparisons.map((c) => c.id).sort()).toEqual(['ajeno', 'mio']);
+    expect(propio.reviewedCases).toBe(2);
+    expect(asesor.callFor(VIEW)?.predicates.map((p) => p.column)).not.toContain('created_by');
+    expect(asesor.callFor(REVIEWS)?.predicates.map((p) => p.column)).not.toContain('cases.created_by');
 
     const gerente = createFakeClient(seed);
     const global = await getHumanReviewInput(gerente.client, FILTERS, fakeAuthContext('manager'));

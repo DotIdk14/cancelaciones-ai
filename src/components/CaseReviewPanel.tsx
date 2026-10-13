@@ -94,6 +94,8 @@ export interface CaseReviewPanelProps {
   role?: AppRole | null;
   canReviewOwnCase?: boolean;
   canFinalizeAnyCase?: boolean;
+  canChangeResolution?: boolean;
+  canAddComments?: boolean;
   caseCountry?: string | null;
   caseChannel?: string | null;
   /** Se llama tras registrar la revisión o la decisión final, para refrescar el caso. */
@@ -112,6 +114,8 @@ export function CaseReviewPanel({
   role = null,
   canReviewOwnCase = false,
   canFinalizeAnyCase = false,
+  canChangeResolution = false,
+  canAddComments = false,
   caseCountry = null,
   caseChannel = null,
   onSubmitted,
@@ -242,6 +246,8 @@ export function CaseReviewPanel({
           workflowState={workflowState}
           role={role}
           canFinalize={canFinalizeAnyCase}
+          canChangeResolution={canChangeResolution}
+          canAddComment={canAddComments}
           caseCountry={caseCountry}
           caseChannel={caseChannel}
           onSubmitted={onSubmitted}
@@ -278,6 +284,8 @@ export function CaseReviewPanel({
           workflowState={workflowState}
           role={role}
           canFinalize={canFinalizeAnyCase}
+          canChangeResolution={canChangeResolution}
+          canAddComment={canAddComments}
           caseCountry={caseCountry}
           caseChannel={caseChannel}
           onSubmitted={onSubmitted}

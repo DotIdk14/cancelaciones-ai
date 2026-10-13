@@ -89,7 +89,7 @@ No se confirmó una vulnerabilidad crítica explotable en el runtime de producci
 |---|---|
 | API | 12 archivos de Function; wrappers `handleRoute`, métodos explícitos, validación/delegación y cuota donde corresponde. No se añadieron endpoints. |
 | Autenticación | Google OAuth PKCE server-side; cookies `httpOnly`, `Secure`, `SameSite=Lax`; verificación remota y membership en `app_memberships`. |
-| Autorización | Control server-side por rol y propietario; `404` para caso ajeno; coordinación puede leer globalmente, escritura del propietario. |
+| Autorización | Los tres roles leen expedientes completos; las escrituras usan guards server-side de rol y propietario. Coordinación puede aprobar un caso ajeno sin comentario, pero `CHANGE` y los comentarios requieren propiedad. |
 | CSRF | Mutaciones protegidas por `Origin` propio y `X-App-Request: 1`. No se encontraron handlers mutantes que acepten `PUT`. |
 | Secretos | `.env.local` está ignorado; `.env.example` contiene nombres y defaults sin valores de claves; `lint:secrets` pasó. La validez de los secretos configurados en proveedores no fue comprobada. |
 | Base de datos | Acceso centralizado server-side, parámetros estructurados del SDK, migraciones SQL versionadas; no se detectó SQL dinámico en las rutas revisadas. Configuración remota/RLS **NO VERIFICADA**. |

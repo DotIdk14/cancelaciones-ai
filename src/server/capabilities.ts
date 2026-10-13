@@ -30,6 +30,7 @@ export interface AuthCapabilities {
   readonly canFinalizeAnyCase: boolean;
   readonly canWriteOwnedCases: boolean;
   readonly canManageCases: boolean;
+  readonly canImportCases: boolean;
 }
 
 function freezeCapabilities(caps: AuthCapabilities): AuthCapabilities {
@@ -43,25 +44,28 @@ export const DENY_ALL_CAPABILITIES: AuthCapabilities = freezeCapabilities({
   canFinalizeAnyCase: false,
   canWriteOwnedCases: false,
   canManageCases: false,
+  canImportCases: false,
 });
 
 const CAPABILITIES_BY_ROLE: Record<AppRole, AuthCapabilities> = {
-  // Asesor: lectura/escritura/revisión propias; nada global ni finalización.
+  // Asesor: consulta global; muta y registra su propia revisión únicamente.
   user: freezeCapabilities({
-    canReadAllCases: false,
+    canReadAllCases: true,
     canReviewOwnCases: true,
     canFinalizeAnyCase: false,
     canWriteOwnedCases: true,
     canManageCases: false,
+    canImportCases: false,
   }),
-  // Coordinador: lectura global y finalización; la revisión de un caso de Asesor
-  // NO se le concede (default denegar), solo escribe los propios.
+  // Coordinador: consulta global y puede cerrar la etapa del Coordinador; la
+  // API exige propiedad para cambiar la resolución o agregar comentarios.
   coordinator: freezeCapabilities({
     canReadAllCases: true,
     canReviewOwnCases: false,
     canFinalizeAnyCase: true,
     canWriteOwnedCases: true,
     canManageCases: false,
+    canImportCases: true,
   }),
   // Gerente: lectura global y mantenimiento administrativo acotado.
   manager: freezeCapabilities({
@@ -70,6 +74,7 @@ const CAPABILITIES_BY_ROLE: Record<AppRole, AuthCapabilities> = {
     canFinalizeAnyCase: false,
     canWriteOwnedCases: false,
     canManageCases: true,
+    canImportCases: false,
   }),
 };
 
