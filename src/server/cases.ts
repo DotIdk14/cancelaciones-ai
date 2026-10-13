@@ -22,6 +22,8 @@ export interface CaseRow {
   student_name?: string | null;
   created_by: string | null;
   assigned_to?: string | null;
+  /** Nombre consultado en el perfil del responsable actual; nunca proviene del creador. */
+  assigned_name?: string | null;
   external_source?: 'FLOKZU' | null;
   external_case_id?: string | null;
   flokzu_data?: unknown;
@@ -123,6 +125,15 @@ export async function listCaseCreatorOptions(client: InsForgeClient): Promise<Ca
       return { ...creator, name: null };
     }
   }));
+}
+
+async function assignedProfileName(client: InsForgeClient, userId: string): Promise<string | null> {
+  try {
+    const { data } = await client.auth.getProfile(userId);
+    const profile = data as { name?: unknown; profile?: { name?: unknown } | null } | null;
+    const name = profile?.name ?? profile?.profile?.name;
+    return typeof name === 'string' && name.trim() ? name.trim().slice(0, 200) : null;
+  } catch { return null; }
 }
 
 export interface EvidenceRow {
@@ -364,6 +375,13 @@ async function enrichCaseSummaries(
     }
   }
 
+  const assignedNames = new Map<string, string | null>();
+  const assignedIds = [...new Set(rows.flatMap((row) => row.assigned_to ? [row.assigned_to] : []))];
+  for (let offset = 0; offset < assignedIds.length; offset += 10) {
+    await Promise.all(assignedIds.slice(offset, offset + 10).map(async (id) => {
+      assignedNames.set(id, await assignedProfileName(client, id));
+    }));
+  }
   return rows.map((row) => {
     const review = reviewMap.get(row.id) ?? null;
     const audit = auditMap.get(row.id) ?? null;
@@ -372,6 +390,7 @@ async function enrichCaseSummaries(
       : audit.evidence_fingerprint === computeEvidenceFingerprint(evidencesByCase.get(row.id) ?? [], row.cycle_start_date ?? null, areaContext.get(row.id) ?? []);
     return {
       ...row,
+      assigned_name: row.assigned_to ? assignedNames.get(row.assigned_to) ?? null : null,
       review,
       audit,
       auditIsCurrent,
@@ -384,7 +403,7 @@ async function enrichCaseSummaries(
 export async function listCaseSummaryPage(
   client: InsForgeClient,
   auth: AuthContext,
-  options: { offset: number; limit: number; snapshot: string; status?: CaseStatus; creatorRole?: CaseCreatorRole; creatorId?: string },
+  options: { offset: number; limit: number; snapshot: string; status?: CaseStatus; creatorRole?: CaseCreatorRole; creatorId?: string; assignedTo?: string },
 ): Promise<CaseSummaryRow[]> {
   const creatorIds = options.creatorRole ? await caseCreatorIdsForRole(client, options.creatorRole) : null;
   if (creatorIds?.length === 0) return [];
@@ -397,6 +416,7 @@ export async function listCaseSummaryPage(
   if (!capabilitiesForRole(auth.role).canReadAllCases) query = query.or(`created_by.eq.${auth.sub},assigned_to.eq.${auth.sub}`);
   if (options.status) query = query.eq('status', options.status);
   if (options.creatorId) query = query.eq('created_by', options.creatorId);
+  if (options.assignedTo) query = options.assignedTo === 'UNASSIGNED' ? query.is('assigned_to', null) : query.eq('assigned_to', options.assignedTo);
   if (creatorIds) query = query.in('created_by', creatorIds);
   const { data, error } = await query.range(options.offset, options.offset + options.limit - 1);
   if (error || !data) dbError(error);
@@ -408,6 +428,7 @@ export async function countCaseSummaryStatuses(
   auth: AuthContext,
   creatorRole?: CaseCreatorRole,
   creatorId?: string,
+  assignedTo?: string,
 ): Promise<Record<CaseStatus | 'ALL', number>> {
   const statuses: CaseStatus[] = ['DRAFT', 'READY', 'AUDITING', 'COMPLETED', 'ERROR'];
   const creatorIds = creatorRole ? await caseCreatorIdsForRole(client, creatorRole) : null;
@@ -418,6 +439,7 @@ export async function countCaseSummaryStatuses(
     let query = client.database.from('cases').select('id', { count: 'exact', head: true });
     if (!capabilitiesForRole(auth.role).canReadAllCases) query = query.or(`created_by.eq.${auth.sub},assigned_to.eq.${auth.sub}`);
     if (creatorId) query = query.eq('created_by', creatorId);
+    if (assignedTo) query = assignedTo === 'UNASSIGNED' ? query.is('assigned_to', null) : query.eq('assigned_to', assignedTo);
     if (creatorIds) query = query.in('created_by', creatorIds);
     if (status) query = query.eq('status', status);
     const result = await query;
@@ -482,7 +504,7 @@ export async function getScopedCaseOr404(
   if (!capabilitiesForRole(auth.role).canReadAllCases && !caseOwnedBy(row, auth.sub)) {
     throw new ApiError(404, 'NOT_FOUND', 'Caso no encontrado');
   }
-  return row;
+  return row.assigned_to ? { ...row, assigned_name: await assignedProfileName(client, row.assigned_to) } : row;
 }
 
 /** Garantiza que una mutación solo toca un caso propio. */

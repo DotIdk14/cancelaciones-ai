@@ -67,6 +67,7 @@ export interface CaseSummary {
   /** UUID estable del usuario que creó el expediente; no hay nombre autoritativo disponible. */
   creatorId?: string | null;
   assignedTo?: string | null;
+  assignedName?: string | null;
 }
 
 export type CaseCreatorRole = 'user' | 'coordinator' | 'manager';
@@ -103,6 +104,7 @@ export interface CaseDetail {
   country?: string | null;
   channel?: string | null;
   assignedTo?: string | null;
+  assignedName?: string | null;
   externalSource?: 'FLOKZU' | null;
   externalCaseId?: string | null;
   flokzuData?: FlokzuCaseData | null;
@@ -112,7 +114,7 @@ export interface FlokzuCaseData {
   academic: { campus: string | null; university: string | null; countryReported: string | null; program: string | null; level: string | null; block: string | null; programKey: string | null; entryDate: string | null };
   procedure: { policyReported: string | null; motive: string | null; description: string | null; requestDate: string | null; administrativeStartDate: string | null };
   operations: { currentTask: string | null; statusReported: string | null; finalizedReported: string | null; reviewerReported: string | null; supervisorReported: string | null; requesterReported: string | null; requesterArea: string | null };
-  evidenceReferences: Array<{ label: string; value: string }>;
+  evidenceReferences: Array<{ label: string; value: string; url?: string }>;
 }
 
 export interface FlokzuImportPreview {
@@ -161,6 +163,7 @@ export interface CaseSummaryPage {
   nextCursor: string | null;
   statusCounts?: Record<CaseStatus | 'ALL', number>;
   creatorOptions?: CaseCreatorOption[];
+  responsibleOptions?: Array<{ userId: string; name: string | null }>;
 }
 
 export interface Evidence {
@@ -594,6 +597,7 @@ export async function listCasePage(options: {
   workflowState?: Exclude<WorkflowState, 'FINALIZED'>;
   creatorRole?: CaseCreatorRole | 'ALL';
   creatorId?: string | 'ALL';
+  assignedTo?: string | 'ALL';
   limit?: number;
 } = {}): Promise<CaseSummaryPage> {
   const params = new URLSearchParams({ limit: String(options.limit ?? 50) });
@@ -602,6 +606,7 @@ export async function listCasePage(options: {
   if (options.workflowState) params.set('workflowState', options.workflowState);
   if (options.creatorRole && options.creatorRole !== 'ALL') params.set('creatorRole', options.creatorRole);
   if (options.creatorId && options.creatorId !== 'ALL') params.set('creatorId', options.creatorId);
+  if (options.assignedTo && options.assignedTo !== 'ALL') params.set('assignedTo', options.assignedTo);
   return request<CaseSummaryPage>(`/api/cases?${params.toString()}`, {}, [200]);
 }
 

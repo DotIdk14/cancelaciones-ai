@@ -76,6 +76,8 @@ export function CasesPanel({ canReadAllCases = false, canFinalizeAnyCase = false
   const [statusFilter, setStatusFilter] = useState<CaseStatus | 'ALL'>('ALL');
   const [workflowFilter, setWorkflowFilter] = useState<Exclude<WorkflowState, 'FINALIZED'> | 'ALL'>('PENDING_ADVISOR');
   const [creatorRole, setCreatorRole] = useState<CaseCreatorRole | 'ALL'>('ALL');
+  const [assignedTo, setAssignedTo] = useState('ALL');
+  const [responsibleOptions, setResponsibleOptions] = useState<Array<{ userId: string; name: string | null }>>(() => preview ? getLocalPreviewCases().flatMap(item => item.assignedTo ? [{userId:item.assignedTo,name:item.assignedName ?? null}] : []).filter((item,index,all)=>all.findIndex(other=>other.userId===item.userId)===index) : []);
   const [creatorId, setCreatorId] = useState<string | 'ALL'>('ALL');
   const [creatorOptions, setCreatorOptions] = useState<CaseCreatorOption[]>(() => {
     if (!preview) return [];
@@ -111,10 +113,11 @@ export function CasesPanel({ canReadAllCases = false, canFinalizeAnyCase = false
     const currentRequest = ++requestId.current;
     setLoading(true);
     try {
-      const page = await listCasePage({ status: statusFilter, creatorRole, creatorId, ...(canFinalizeAnyCase && workflowFilter !== 'ALL' ? { workflowState: workflowFilter } : {}), limit: 50 });
+      const page = await listCasePage({ status: statusFilter, creatorRole, creatorId, assignedTo, ...(canFinalizeAnyCase && workflowFilter !== 'ALL' ? { workflowState: workflowFilter } : {}), limit: 50 });
       if (currentRequest !== requestId.current) return;
       setCases(page.cases);
       if (page.creatorOptions) setCreatorOptions(page.creatorOptions);
+      if (page.responsibleOptions) setResponsibleOptions(page.responsibleOptions);
       setNextCursor(page.nextCursor);
       if (page.statusCounts) setStatusCounts(page.statusCounts);
       setListError(null);
@@ -125,24 +128,25 @@ export function CasesPanel({ canReadAllCases = false, canFinalizeAnyCase = false
     } finally {
       if (currentRequest === requestId.current) setLoading(false);
     }
-  }, [canFinalizeAnyCase, creatorId, creatorRole, preview, statusFilter, workflowFilter]);
+  }, [assignedTo, canFinalizeAnyCase, creatorId, creatorRole, preview, statusFilter, workflowFilter]);
 
   const loadAllForSearch = useCallback(async (): Promise<void> => {
     if (preview) return;
     const currentRequest = ++requestId.current;
     setLoading(true);
     try {
-      const first = await listCasePage({ status: statusFilter, creatorRole, creatorId, ...(canFinalizeAnyCase && workflowFilter !== 'ALL' ? { workflowState: workflowFilter } : {}), limit: 50 });
+      const first = await listCasePage({ status: statusFilter, creatorRole, creatorId, assignedTo, ...(canFinalizeAnyCase && workflowFilter !== 'ALL' ? { workflowState: workflowFilter } : {}), limit: 50 });
       const all = [...first.cases];
       let cursor = first.nextCursor;
       while (cursor) {
-        const page = await listCasePage({ status: statusFilter, creatorRole, creatorId, ...(canFinalizeAnyCase && workflowFilter !== 'ALL' ? { workflowState: workflowFilter } : {}), cursor, limit: 50 });
+        const page = await listCasePage({ status: statusFilter, creatorRole, creatorId, assignedTo, ...(canFinalizeAnyCase && workflowFilter !== 'ALL' ? { workflowState: workflowFilter } : {}), cursor, limit: 50 });
         all.push(...page.cases);
         cursor = page.nextCursor;
       }
       if (currentRequest !== requestId.current) return;
       setCases(all);
       if (first.creatorOptions) setCreatorOptions(first.creatorOptions);
+      if (first.responsibleOptions) setResponsibleOptions(first.responsibleOptions);
       setNextCursor(null);
       if (first.statusCounts) setStatusCounts(first.statusCounts);
       setListError(null);
@@ -153,14 +157,14 @@ export function CasesPanel({ canReadAllCases = false, canFinalizeAnyCase = false
     } finally {
       if (currentRequest === requestId.current) setLoading(false);
     }
-  }, [canFinalizeAnyCase, creatorId, creatorRole, preview, statusFilter, workflowFilter]);
+  }, [assignedTo, canFinalizeAnyCase, creatorId, creatorRole, preview, statusFilter, workflowFilter]);
 
   const loadMore = useCallback(async (): Promise<void> => {
     if (!nextCursor || preview) return;
     const currentRequest = ++requestId.current;
     setLoading(true);
     try {
-      const page = await listCasePage({ status: statusFilter, creatorRole, creatorId, ...(canFinalizeAnyCase && workflowFilter !== 'ALL' ? { workflowState: workflowFilter } : {}), cursor: nextCursor, limit: 50 });
+      const page = await listCasePage({ status: statusFilter, creatorRole, creatorId, assignedTo, ...(canFinalizeAnyCase && workflowFilter !== 'ALL' ? { workflowState: workflowFilter } : {}), cursor: nextCursor, limit: 50 });
       if (currentRequest !== requestId.current) return;
       setCases((current) => [...(current ?? []), ...page.cases]);
       setNextCursor(page.nextCursor);
@@ -172,7 +176,7 @@ export function CasesPanel({ canReadAllCases = false, canFinalizeAnyCase = false
     } finally {
       if (currentRequest === requestId.current) setLoading(false);
     }
-  }, [canFinalizeAnyCase, creatorId, creatorRole, nextCursor, preview, statusFilter, workflowFilter]);
+  }, [assignedTo, canFinalizeAnyCase, creatorId, creatorRole, nextCursor, preview, statusFilter, workflowFilter]);
 
   const loadAll = useCallback(async (): Promise<void> => {
     if (preview || !nextCursor) return;
@@ -182,7 +186,7 @@ export function CasesPanel({ canReadAllCases = false, canFinalizeAnyCase = false
       const all = [...(cases ?? [])];
       let cursor: string | null = nextCursor;
       while (cursor) {
-        const page = await listCasePage({ status: statusFilter, creatorRole, creatorId, ...(canFinalizeAnyCase && workflowFilter !== 'ALL' ? { workflowState: workflowFilter } : {}), cursor, limit: 50 });
+        const page = await listCasePage({ status: statusFilter, creatorRole, creatorId, assignedTo, ...(canFinalizeAnyCase && workflowFilter !== 'ALL' ? { workflowState: workflowFilter } : {}), cursor, limit: 50 });
         all.push(...page.cases);
         cursor = page.nextCursor;
       }
@@ -197,7 +201,7 @@ export function CasesPanel({ canReadAllCases = false, canFinalizeAnyCase = false
     } finally {
       if (currentRequest === requestId.current) setLoading(false);
     }
-  }, [canFinalizeAnyCase, cases, creatorId, creatorRole, nextCursor, preview, statusFilter, workflowFilter]);
+  }, [assignedTo, canFinalizeAnyCase, cases, creatorId, creatorRole, nextCursor, preview, statusFilter, workflowFilter]);
 
   useEffect(() => { if (!preview) void load(); }, [load, preview]);
 
@@ -210,7 +214,8 @@ export function CasesPanel({ canReadAllCases = false, canFinalizeAnyCase = false
   const counts = useMemo(() => {
     const countableCases = preview
       ? (cases ?? []).filter((item) => (creatorRole === 'ALL' || item.creatorRole === creatorRole)
-        && (creatorId === 'ALL' || item.creatorId === creatorId))
+        && (creatorId === 'ALL' || item.creatorId === creatorId)
+        && (assignedTo === 'ALL' || (assignedTo === 'UNASSIGNED' ? !item.assignedTo : item.assignedTo === assignedTo)))
       : cases ?? [];
     const result: Record<CaseStatus | 'ALL', number> = {
       ALL: countableCases.length,
@@ -222,7 +227,7 @@ export function CasesPanel({ canReadAllCases = false, canFinalizeAnyCase = false
     };
     for (const item of countableCases) result[item.status] += 1;
     return statusCounts ?? result;
-  }, [cases, creatorId, creatorRole, preview, statusCounts]);
+  }, [assignedTo, cases, creatorId, creatorRole, preview, statusCounts]);
 
   const filteredCases = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase('es');
@@ -234,6 +239,7 @@ export function CasesPanel({ canReadAllCases = false, canFinalizeAnyCase = false
       }
       if (statusFilter !== 'ALL' && item.status !== statusFilter) return false;
       if (preview && creatorRole !== 'ALL' && item.creatorRole !== creatorRole) return false;
+      if (preview && assignedTo !== 'ALL' && (assignedTo === 'UNASSIGNED' ? Boolean(item.assignedTo) : item.assignedTo !== assignedTo)) return false;
       if (preview && creatorId !== 'ALL' && item.creatorId !== creatorId) return false;
       if (!normalized) return true;
       const result = item.effectiveResolution === null || item.effectiveResolution === undefined
@@ -242,7 +248,7 @@ export function CasesPanel({ canReadAllCases = false, canFinalizeAnyCase = false
       return [item.id, shortId(item.id), item.studentIdentifier ?? '', result]
         .some((value) => value.toLocaleLowerCase('es').includes(normalized));
     });
-  }, [canFinalizeAnyCase, cases, creatorId, creatorRole, preview, query, statusFilter, workflowFilter]);
+  }, [assignedTo, canFinalizeAnyCase, cases, creatorId, creatorRole, preview, query, statusFilter, workflowFilter]);
 
   const visibleCreatorOptions = creatorOptions
     .filter((item) => creatorRole === 'ALL' || item.role === creatorRole)
@@ -378,7 +384,7 @@ export function CasesPanel({ canReadAllCases = false, canFinalizeAnyCase = false
         </div>
           {canReadAllCases && (
             <label className="case-creator-filter">
-              <span>Perfil</span>
+              <span>Perfil del creador</span>
               <select
                 aria-label="Filtrar por perfil del creador"
                 value={creatorRole}
@@ -399,7 +405,7 @@ export function CasesPanel({ canReadAllCases = false, canFinalizeAnyCase = false
           )}
           {canReadAllCases && (
             <label className="case-creator-filter">
-              <span>Persona</span>
+              <span>Creador</span>
               <select
                 aria-label="Filtrar por creador de caso"
                 value={creatorId}
@@ -417,6 +423,7 @@ export function CasesPanel({ canReadAllCases = false, canFinalizeAnyCase = false
               </select>
             </label>
           )}
+          {canReadAllCases && <label className="case-creator-filter"><span>Responsable</span><select aria-label="Filtrar por responsable" value={assignedTo} onChange={(event) => { setSelectedCaseIds(new Set()); if (!preview) setCases(null); setNextCursor(null); setAssignedTo(event.target.value); }}><option value="ALL">Todos los responsables</option><option value="UNASSIGNED">Sin asignar</option>{[...responsibleOptions].sort((a,b)=>(a.name ?? "").localeCompare(b.name ?? "", "es")).map(item=><option key={item.userId} value={item.userId}>{item.name || "Nombre no disponible"}</option>)}</select></label>}
           <label className="case-search">
           <Search size={16} aria-hidden="true" />
           <span className="sr-only">Buscar por folio, matrícula o resolución</span>
@@ -501,7 +508,7 @@ export function CasesPanel({ canReadAllCases = false, canFinalizeAnyCase = false
                     </th>
                   )}
                   <th scope="col">Caso</th>
-                  {canReadAllCases && <th scope="col">Perfil · creador</th>}
+                  {canReadAllCases && <th scope="col">Responsable</th>}
                   <th scope="col">Evidencias</th>
                   <th scope="col">Dictamen vigente</th>
                   <th scope="col">Estado</th>
@@ -549,9 +556,7 @@ export function CasesPanel({ canReadAllCases = false, canFinalizeAnyCase = false
                       </td>
                       {canReadAllCases && (
                         <td>
-                          {item.creatorRole && item.creatorId ? (
-                            <span>{creatorOptions.find((creator) => creator.creatorId === item.creatorId)?.name || 'Nombre no disponible'}</span>
-                          ) : <span className="text-muted">Creador sin identificar</span>}
+                          {item.assignedTo ? <span>{item.assignedName || 'Nombre no disponible'}</span> : <span className="text-muted">Sin asignar</span>}
                         </td>
                       )}
                       <td><span className="inline-flex items-center gap-1.5"><FileText size={15} aria-hidden="true" />{item.evidenceCount}</span></td>
