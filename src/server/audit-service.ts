@@ -7,6 +7,7 @@
 // (b) se marca ERROR si es antiguo (self-healing). Sin colas de jobs.
 // =============================================================================
 
+import { prepareFlokzuContext } from '../lib/flokzu-administrative.js';
 import type { InsForgeClient } from './insforge.js';
 import { randomUUID } from 'node:crypto';
 import { getEnv } from './env.js';
@@ -274,11 +275,14 @@ export async function buildAuditInputs(
     areaComments = [];
   }
 
+  const administrativeContext = prepareFlokzuContext(caseRow.flokzu_data).compact;
+  enforceAggregateTextLimit(aggregateTextChars + areaComments.reduce((sum, entry) => sum + entry.comment.length, 0) + administrativeContext.length);
   return {
     caseId: caseRow.id,
     studentIdentifier: caseRow.student_identifier,
     evidences: items,
     areaComments,
+    administrativeContext,
     // Fecha de inicio aportada por el equipo. Se lee como OPCIONAL a propósito
     // (`?? null`): si la migración `case-cycle-start-date-human` todavía no está
     // aplicada, el `select('*')` no trae la columna, `cycle_start_date` es
@@ -403,7 +407,7 @@ export async function runAudit(
     console.warn('[audit] contexto de áreas no disponible; snapshot opcional vacío', { caseId, category: 'DATABASE_ERROR' });
     return [];
   });
-  const fingerprint = computeEvidenceFingerprint(evidences, caseRow.cycle_start_date ?? null, areaRows);
+  const fingerprint = computeEvidenceFingerprint(evidences, caseRow.cycle_start_date ?? null, areaRows, caseRow.flokzu_data);
   const completed = await latestCompletedAuditByFingerprint(client, caseId, fingerprint);
   if (completed) return { phase: 'done', audit: auditToDto(completed) };
   const running = await latestRunningAuditByFingerprint(client, caseId, fingerprint);
@@ -465,7 +469,16 @@ export async function runAudit(
       error_category: null,
       latency_ms: latencyMs,
       model: execution.model,
-      provider_metadata: { usage: execution.usage, openrouterAttempts: execution.attempts },
+      provider_metadata: {
+        usage: execution.usage, openrouterAttempts: execution.attempts,
+        administrativeContext: inputs.administrativeContext ?? '',
+        preparationMetrics: {
+          evidenceTextChars: inputs.evidences.reduce((sum, item) => sum + (item.text?.length ?? item.transcript?.transcript.length ?? 0), 0),
+          administrativeTextChars: inputs.administrativeContext?.length ?? 0,
+          visualFiles: inputs.evidences.filter((item) => item.imageBase64 || item.pdfBase64 || item.pagesBase64?.length).length,
+          usefulFlokzuObservations: prepareFlokzuContext(caseRow.flokzu_data).claims.length,
+        },
+      },
     });
     try {
       await updateCaseStatus(client, caseId, 'COMPLETED');

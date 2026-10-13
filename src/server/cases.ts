@@ -369,7 +369,7 @@ async function enrichCaseSummaries(
     const audit = auditMap.get(row.id) ?? null;
     const auditIsCurrent = audit === null
       ? null
-      : audit.evidence_fingerprint === computeEvidenceFingerprint(evidencesByCase.get(row.id) ?? [], row.cycle_start_date ?? null, areaContext.get(row.id) ?? []);
+      : audit.evidence_fingerprint === computeEvidenceFingerprint(evidencesByCase.get(row.id) ?? [], row.cycle_start_date ?? null, areaContext.get(row.id) ?? [], row.flokzu_data);
     return {
       ...row,
       review,

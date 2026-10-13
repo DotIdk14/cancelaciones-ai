@@ -1,3 +1,4 @@
+import { prepareFlokzuContext } from '../lib/flokzu-administrative.js';
 import { EvidenceReferences } from './EvidenceReferences';
 import { OperationProgressDialog } from './OperationProgressDialog';
 import { ReportProblemModal } from './ReportProblemModal';
@@ -804,6 +805,7 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
 }
 
 function FlokzuCaseInfo({ externalCaseId, assignedTo, data }: { externalCaseId: string | null | undefined; assignedTo: string | null | undefined; data: FlokzuCaseData }): ReactNode {
+  const context = prepareFlokzuContext(data);
   const fields: Array<[string, string | null]> = [
     ['Campus', data.academic.campus],
     ['Universidad', data.academic.university],
@@ -826,7 +828,8 @@ function FlokzuCaseInfo({ externalCaseId, assignedTo, data }: { externalCaseId: 
     ['Solicitante', data.operations.requesterReported],
     ['Área solicitante', data.operations.requesterArea],
   ];
-  return <Panel title={`Información importada · ${externalCaseId ?? 'FLOKZU'}`} description="Datos administrativos reportados por Flokzu. No determinan el resultado de auditoría ni acreditan la fecha real de inicio académico.">
+  return <Panel title={`Contexto previo de Flokzu · ${externalCaseId ?? 'FLOKZU'}`} description="Datos administrativos reportados por Flokzu. No determinan el resultado de auditoría ni acreditan la fecha real de inicio académico.">
+    {context.observations.length > 0 && <section className="mb-4 space-y-3"><h3 className="text-sm font-semibold text-ink">Afirmaciones de áreas · requieren corroboración</h3>{context.observations.map((entry, index) => <details key={index}><summary className="cursor-pointer text-sm text-ink">{entry.area === 'BACK_OFFICE' ? 'BackOffice' : entry.area === 'HELPDESK' ? 'HelpDesk' : 'Dato administrativo'} · {entry.field}</summary><p className="mt-2 whitespace-pre-wrap break-words text-sm text-muted">{entry.text}</p><p className="mt-1 text-xs text-muted">Origen: {entry.externalCaseId} · Exportación: {entry.exportedAt ?? 'Sin fecha explícita'}</p></details>)}<p className="text-xs text-muted">Hechos acreditados: consultar las evidencias reales y el dictamen. Las discrepancias entre afirmaciones requieren revisión humana.</p>{context.references.length > 0 && <p className="text-sm text-muted">Tickets relacionados: {context.references.join(', ')}</p>}{context.dates.length > 0 && <p className="text-sm text-muted">Fechas mencionadas (sin inferir año): {context.dates.map((date) => date.reference).join(', ')}</p>}{context.corroboration.length > 0 && <p className="text-sm text-muted">Por corroborar: {context.corroboration.join('; ')}</p>}{!context.automaticEligible && <p className="text-sm text-warning">Este ticket no está en la tarea activa de BackOffice o está finalizado. Revisar antes de solicitar una auditoría.</p>}</section>}
     <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">{fields.filter(([, value]) => value).map(([label, value]) => <div key={label} className="min-w-0"><div className="text-xs font-medium text-muted">{label}</div><div className="mt-0.5 break-words text-sm text-ink">{value}</div></div>)}</div>
     {data.evidenceReferences.length > 0 && <section className="mt-5 border-t border-line pt-4"><h3 className="text-sm font-semibold text-ink">Referencias de evidencia reportadas</h3><p className="mt-1 text-xs text-muted">Son nombres o descripciones del Excel. No son archivos cargados al expediente.</p><ul className="mt-3 grid gap-2 sm:grid-cols-2">{data.evidenceReferences.map((reference, index) => <li key={`${reference.label}-${index}`} className="rounded-lg border border-line bg-surface-2 px-3 py-2"><span className="block text-xs font-medium text-muted">{reference.label}</span><span className="mt-0.5 block break-all text-sm text-ink">{reference.value}</span></li>)}</ul></section>}
     <p className="mt-4 border-t border-line pt-3 text-xs text-muted">Responsable: {assignedTo ? 'asignado' : 'pendiente de asignación'}. La fecha de inicio académica confirmada se registra por separado con evidencia o intervención humana.</p>
