@@ -12,7 +12,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { BookOpenCheck, Clock3, FileCheck2, FileText, Paperclip, Search } from 'lucide-react';
 import { deleteEvidence, getAreaComments, getCase, toErrorState, workflowStateOf } from '../lib/api';
 import type { AppRole, AreaComment, CaseDetailResponse, ErrorState, Evidence, SessionSnapshot } from '../lib/api';
-import { formatDateTime, formatDuration, formatPercent, formatFactValue, textOrDash } from '../lib/format';
+import { formatDateTime, formatLatency, formatPercent, formatFactValue, textOrDash } from '../lib/format';
 import {
   RESULT_LABELS,
   EVIDENCE_STATUS_LABELS,
@@ -106,7 +106,7 @@ function AuditFailureDetail({ attempts }: { attempts: FailureAttemptDetail[] }):
         {failed.map((attempt, index) => (
           <li key={`${attempt.failureCategory}-${index}`}>
             <p className="text-xs text-ink/70">
-              Intento {index + 1} · {formatDuration(attempt.latencyMs)} · {errorCategoryLabel(attempt.failureCategory)}
+              Intento {index + 1} · {formatLatency(attempt.latencyMs)} · {errorCategoryLabel(attempt.failureCategory)}
             </p>
             <dl className="mt-1 grid grid-cols-[auto,1fr] gap-x-3 gap-y-1">
               <dt className="font-mono text-xs text-danger/80">Categoría</dt>
