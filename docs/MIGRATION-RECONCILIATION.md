@@ -1,5 +1,31 @@
 # Auditoría y conciliación de migraciones
 
+## Cierre de Flokzu en producción · 12 de octubre de 2026
+
+Con autorización del propietario para integrar y publicar en `main`, se aplicó
+`20261012100000_flokzu-case-import.sql` exclusivamente por destino explícito
+con `db migrations up`. No se reejecutó el baseline ni se modificó manualmente
+el ledger. Las 21 sentencias locales coincidieron con las ya registradas en el
+backend aislado `cancelaciones-predeploy-20261009`.
+
+El runner oficial ejecutó el bloque `DO $verify$`. La lectura posterior confirmó
+las cuatro columnas nuevas, la tabla de batches y ejecución de los RPC solo
+para `project_admin`: `anon` y `authenticated` no pueden ejecutarlos. Producción
+conservó sus 8 casos, 5 auditorías y 47 evidencias; la tabla de importaciones
+quedó vacía. Los datos de pruebas de staging permanecen en ese entorno.
+
+El intento de respaldo manual nuevo fue rechazado por cuota llena (`1/1`). Se
+conservó el respaldo `completed` del 9 de octubre y se guardó una exportación
+SQL privada actual en `tmp/release-flokzu/production-before-flokzu.sql`, ignorada
+por Git. SHA-256:
+`9F00E22C790C11B2E5AF4E8BAA47E0A5BC6C6DC43F789A03DA363A785E24D95F`.
+Esta exportación es un recurso complementario; no se ensayó su restauración
+integral ni se declara equivalente a un respaldo de DB + Storage.
+
+Antes de publicar se completó `npm run verify:release`: lint, TypeScript,
+102 pruebas de contrato, 1,110 pruebas de aplicación y build correctos.
+Tres pruebas de integración real permanecieron omitidas por su configuración.
+
 Snapshot inicial observado el 9 de octubre de 2026. Las lecturas iniciales y la
 conciliación histórica se conservan abajo; el cierre de producción del mismo día
 se registra en la sección actualizada.

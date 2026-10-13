@@ -55,7 +55,7 @@ Los nombres incluidos en las columnas de evidencia son referencias reportadas, n
 
 La migración incremental es `migrations/20261012100000_flokzu-case-import.sql`. Añade el identificador externo único, `assigned_to`, la proyección Flokzu, historial/staging aislado y RPCs disponibles solo para `project_admin`.
 
-No aplicar la migración directamente a producción. El repositorio requiere seguir `docs/MIGRATION-RECONCILIATION.md`: respaldo restaurable, backend aislado, conciliación del ledger y prueba del SQL antes de una ventana aprobada. La implementación mantiene los 12 archivos de `api/`; reutiliza `api/cases/index.ts` y `api/cases/[caseId]/index.ts` para permanecer dentro del límite Hobby.
+La migración quedó aplicada en staging y producción por el runner oficial de InsForge. El cierre del 12 de octubre de 2026 se registra en `docs/MIGRATION-RECONCILIATION.md`. Para cambios posteriores, seguir ese procedimiento y comprobar el ledger antes de aplicar una migración. La implementación mantiene los 12 archivos de `api/`; reutiliza `api/cases/index.ts` y `api/cases/[caseId]/index.ts` para permanecer dentro del límite Hobby.
 
 Verificaciones de código:
 
