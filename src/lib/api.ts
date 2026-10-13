@@ -255,6 +255,12 @@ export interface AuditHistoryItem {
   evidenceFingerprint: string | null;
   attemptNumber: number | null;
   createdAt: string;
+  procedureSection?: string | null;
+}
+
+export async function getHistoricalAudit(caseId: string, auditId: string): Promise<AuditDetail> {
+  const data = await request<{ audit: AuditDetail }>(`${casePath(caseId)}?auditId=${encodeURIComponent(auditId)}`, {}, [200]);
+  return data.audit;
 }
 
 /**

@@ -1,15 +1,14 @@
 import type { ReactNode } from 'react';
 import { useState } from 'react';
-import { ArrowLeft, AudioLines, BookOpenCheck, Clock3, FileCheck2, FileText, MessageSquareText, Search, ShieldAlert } from 'lucide-react';
-import type { AppRole, CaseReviewDto, CoordinatorDecision, WorkflowState } from '../lib/api';
+import { ArrowLeft, AudioLines, BookOpenCheck, Clock3, FileCheck2, FileText, MessageSquareText, Search } from 'lucide-react';
+import type { CaseDetailResponse, AppRole, CaseReviewDto, CoordinatorDecision, WorkflowState } from '../lib/api';
 import type { AuditResultType } from '../skills/audit/types';
-import { formatDateTime } from '../lib/format';
-import { getLocalPreviewCases, localPreviewCaseLabel, LOCAL_PREVIEW_FLOKZU } from '../lib/local-ui-preview';
-import { FlokzuContextBar } from './FlokzuContext';
-import { CASE_STATUS_LABELS, CASE_STATUS_TONE, RESULT_LABELS, REVIEW_RESULT_OPTIONS, resolutionLabel } from '../lib/labels';
+import { getLocalPreviewCases, LOCAL_PREVIEW_FLOKZU } from '../lib/local-ui-preview';
+import { CaseContextMenu, type ContextTab } from './CaseContextMenu';
+import { RESULT_LABELS, REVIEW_RESULT_OPTIONS, resolutionLabel } from '../lib/labels';
 import { CaseReviewRecord } from './CaseReviewPanel';
 import { CoordinatorDecisionRecord } from './CoordinatorReviewStage';
-import { Badge, Button, Panel } from './ui';
+import { Button, Panel } from './ui';
 
 const SAMPLE_FILES = [
   { name: 'llamada_retencion_demo.mp3', detail: 'Audio · 03:41', icon: AudioLines },
@@ -36,18 +35,19 @@ export function CaseDetailPreview({
   workflowState?: WorkflowState;
 }): ReactNode {
   const [activeTab, setActiveTab] = useState<'evidence' | 'findings' | 'timeline' | 'verdict'>('evidence');
+  const [contextOpen, setContextOpen] = useState(false);
+  const [contextTab, setContextTab] = useState<ContextTab>('data');
   const item = getLocalPreviewCases().find((candidate) => candidate.id === caseId) ?? getLocalPreviewCases()[0];
   if (!item) return null;
 
+  const contextDetail: CaseDetailResponse = { case: { ...item, canWrite: false, studentName: item.studentName || 'Estudiante de demostración', externalSource: 'FLOKZU', externalCaseId: 'CaVe-30841', flokzuData: LOCAL_PREVIEW_FLOKZU }, evidences: [], audit: null, audits: [], review: null, comparison: null, effectiveResolution: null, workflowState };
+
   return (
     <div className="case-detail-preview-page">
-      <div className="preview-case-heading">
-        <a href="#/casos" className="preview-back"><ArrowLeft size={16} /> Regresar</a>
-        <div className="preview-case-title"><div><h1>{item.studentIdentifier ?? 'Expediente de demostración'}</h1><p>Matrícula: {item.studentIdentifier ?? 'Sin identificar'} <span>·</span> Expediente {localPreviewCaseLabel(item.id)}</p></div><Badge tone={CASE_STATUS_TONE[item.status]}>{CASE_STATUS_LABELS[item.status]}</Badge></div>
-        <div className="preview-case-meta"><span><small>EXPEDIENTE / FOLIO</small><strong>{localPreviewCaseLabel(item.id)}</strong></span><span><small>APERTURA</small><strong>{formatDateTime(item.createdAt)}</strong></span><span><small>ESTADO ACTUAL</small><strong>{CASE_STATUS_LABELS[item.status]}</strong></span></div>
-      </div>
-      <FlokzuContextBar externalCaseId="CaVe-30841" assignedTo={item.assignedTo} assignedName={item.assignedName} data={LOCAL_PREVIEW_FLOKZU} />
-      <div className="case-detail-layout">
+      <header className="case-workspace-header"><div><a href="#/casos" className="case-workspace-back"><ArrowLeft size={16} /> Volver a casos</a><h1>{item.studentIdentifier ?? 'Sin matrícula'}<span> · CaVe-30841</span></h1></div><Button aria-expanded={contextOpen} onClick={() => setContextOpen(!contextOpen)}>{contextOpen ? 'Cerrar contexto' : 'Ver datos y dictamen'}</Button></header>
+      <div className={`case-workspace${contextOpen ? ' case-workspace-context-open' : ''}`}>
+        <div className="case-context-slot"><CaseContextMenu key={caseId} detail={contextDetail} open={contextOpen} tab={contextTab} onTabChange={setContextTab} onClose={() => setContextOpen(false)} preview reviewContent={<PreviewReviewFlow caseId={caseId} role={role} workflowState={workflowState} />} /></div>
+      <div className="case-detail-layout case-detail-workspace">
         <aside className="case-detail-evidence preview-evidence-column">
           <Panel title={`Evidencias (${item.evidenceCount})`} description="Archivos de muestra; no se almacenan ni se envían.">
             <div className="preview-search-box"><Search size={15} /><span>Buscar evidencia…</span></div>
@@ -70,21 +70,8 @@ export function CaseDetailPreview({
             {activeTab === 'verdict' && (item.effectiveResolution ? <div className="preview-demo-result"><small>Resultado ilustrativo</small><strong>{resolutionLabel(item.effectiveResolution.result)}</strong><p>No procede de una auditoría ni de una decisión humana real.</p></div> : <div className="case-workspace-empty"><FileText size={22} /><strong>Sin dictamen vinculado</strong><p>La vista local no ejecuta auditorías reales.</p></div>)}
           </Panel>
         </section>
-        <aside className="case-detail-review preview-verdict-column">
-          <Panel title={<span className="inline-flex items-center gap-2"><ShieldAlert size={18} /> Dictamen</span>} description="Las decisiones se generan solo al ejecutar la auditoría real.">
-            {item.effectiveResolution ? <div className="preview-demo-result"><small>Resultado ficticio del listado</small><strong>{resolutionLabel(item.effectiveResolution.result)}</strong><Badge tone={item.effectiveResolution.source === 'HUMAN' ? 'success' : 'brand'}>Origen {item.effectiveResolution.source === 'HUMAN' ? 'humano' : 'IA'}</Badge><p>Este dato es ilustrativo y no proviene de una auditoría ni de una decisión humana real.</p></div> : <div className="preview-verdict-empty"><span>—</span><strong>Sin evaluación en esta vista</strong><p>No existe un resultado de auditoría vinculado a estos datos de demostración.</p></div>}
-            {role === 'manager' ? (
-              <p role="status" className="text-xs text-muted">
-                Solo lectura: el Gerente no ejecuta auditorías ni modifica el caso.
-              </p>
-            ) : (
-              <Button disabled className="w-full" title="Vista local: requiere una sesión productiva">
-                Ejecutar auditoría · requiere sesión
-              </Button>
-            )}
-          </Panel>
-          <PreviewReviewFlow caseId={caseId} role={role} workflowState={workflowState} />
-        </aside>
+
+      </div>
       </div>
     </div>
   );

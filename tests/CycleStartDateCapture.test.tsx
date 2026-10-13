@@ -366,6 +366,7 @@ describe('CycleStartDateCapture · "Volver a auditar" enfoca el botón que ya ex
     const { requests } = stubFetch(caseResponse);
 
     render(<CaseDetailPage caseId="case-1" />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Ver datos y dictamen' }));
 
     await fillAndSave('2026-08-21', 'Ana Ruiz');
     expect(await screen.findByText(/guardada/i)).toBeTruthy();
