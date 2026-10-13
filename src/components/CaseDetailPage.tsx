@@ -1,3 +1,4 @@
+import { StudentHistory } from './StudentHistory';
 import { FlokzuContextBar } from './FlokzuContext';
 import { EvidenceReferences } from './EvidenceReferences';
 import { OperationProgressDialog } from './OperationProgressDialog';
@@ -475,6 +476,8 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
       </div>
 
       {detail.case.externalSource === 'FLOKZU' && detail.case.flokzuData && <FlokzuContextBar externalCaseId={detail.case.externalCaseId} assignedTo={detail.case.assignedTo} assignedName={detail.case.assignedName} data={detail.case.flokzuData} />}
+
+      {detail.case.studentIdentifier && <StudentHistory key={caseId} caseId={caseId} />}
 
       {(auditBusy || auditError) && <Button variant="secondary" onClick={() => setProgressOpen(true)}>Ver progreso de auditoría</Button>}
       {progressOpen && !reportOpen && <OperationProgressDialog title="Progreso de auditoría" stages={[
