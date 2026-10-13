@@ -73,7 +73,7 @@ export function CaseContextMenu({ detail, open, tab, onTabChange, onClose, notes
     finally { if (mounted.current && token === generation.current) setPending(false); }
   }
 
-  const source = selection?.owner ?? detail;
+  const source = selection && selection.owner.case.id !== detail.case.id ? selection.owner : detail;
   const audit = selection?.audit ?? detail.audit;
   const assessment = audit?.status === 'COMPLETED' ? audit.resultJson?.audit : null;
   const matchedReview = audit && source.review?.auditId === audit.id ? source.review : null;
