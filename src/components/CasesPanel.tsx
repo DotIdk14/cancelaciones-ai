@@ -296,7 +296,7 @@ export function CasesPanel({ canReadAllCases = false, canFinalizeAnyCase = false
       ? ' Se excluirán de las métricas operativas.'
       : action === 'mark-real'
         ? ' Volverán a incluirse en las métricas operativas.'
-        : ` Se eliminarán también todos los archivos de evidencia de esos casos. Esta acción no se puede deshacer${targets.length < selectedCases.length ? `; se omitirá${selectedCases.length - targets.length === 1 ? '' : 'n'} ${selectedCases.length - targets.length} ${selectedCases.length - targets.length === 1 ? 'caso' : 'casos'} sin dictamen elegible, con revisión humana o con auditoría en curso` : ''}.`;
+        : ` Se retirarán de la selección vigente; las evidencias, versiones y costos se conservarán${targets.length < selectedCases.length ? `; se omitirá${selectedCases.length - targets.length === 1 ? '' : 'n'} ${selectedCases.length - targets.length} ${selectedCases.length - targets.length === 1 ? 'caso' : 'casos'} sin dictamen elegible, con revisión humana o con auditoría en curso` : ''}.`;
     const targetDescription = action === 'delete-audits'
       ? `${targets.length} ${targets.length === 1 ? 'dictamen seleccionado' : 'dictámenes seleccionados'}`
       : `${targets.length} ${targets.length === 1 ? 'expediente seleccionado' : 'expedientes seleccionados'}`;
@@ -560,7 +560,7 @@ export function CasesPanel({ canReadAllCases = false, canFinalizeAnyCase = false
                         </td>
                       )}
                       <td><span className="inline-flex items-center gap-1.5"><FileText size={15} aria-hidden="true" />{item.evidenceCount}</span></td>
-                      <td>{resolution ? <><Badge tone={resolutionTone(resolution.result)}>{resolutionLabel(resolution.result)}</Badge><span className="case-cell-secondary">{RESOLUTION_SOURCE_LABELS[resolution.source]}</span></> : <span className="text-muted">Sin dictamen</span>}</td>
+                      <td>{resolution ? <><Badge tone={resolutionTone(resolution.result)}>{resolutionLabel(resolution.result)}</Badge><span className="case-cell-secondary">{RESOLUTION_SOURCE_LABELS[resolution.source]}</span></> : <span className="text-muted">{item.auditIsCurrent === false ? 'Dictamen histórico' : 'Sin dictamen'}</span>}</td>
                       <td>
                         <div className="flex flex-col items-start gap-1">
                           <Badge tone={CASE_STATUS_TONE[item.status]}>{CASE_STATUS_LABELS[item.status]}</Badge>

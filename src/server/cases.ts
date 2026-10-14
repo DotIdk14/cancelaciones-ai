@@ -13,7 +13,7 @@ import type { AuthContext } from './auth.js';
 import { capabilitiesForRole } from './auth.js';
 import { ApiError, mapProviderError } from './http.js';
 import { computeEvidenceFingerprint } from './audit-fingerprint.js';
-import { getEnv } from './env.js';
+
 
 export interface CaseRow {
   id: string;
@@ -160,6 +160,7 @@ export interface EvidenceRow {
 export type AuditStatus = 'RUNNING' | 'COMPLETED' | 'ERROR';
 
 export interface AuditRow {
+  retired_at?: string | null;
   id: string;
   case_id: string;
   status: AuditStatus;
@@ -245,7 +246,7 @@ export async function deleteUnusedDraftCase(client: InsForgeClient, caseId: stri
 }
 
 /** Elimina un intento de auditoría sin revisión humana asociada. */
-export async function deleteUnreviewedAudit(client: InsForgeClient, caseId: string, auditId: string): Promise<void> {
+export async function deleteUnreviewedAudit(client: InsForgeClient, caseId: string, auditId: string, retiredBy?: string): Promise<void> {
   const [
     { data: audit, error: auditError },
     { data: review, error: reviewError },
@@ -262,29 +263,10 @@ export async function deleteUnreviewedAudit(client: InsForgeClient, caseId: stri
     throw new ApiError(409, 'VALIDATION_ERROR', 'No se puede borrar un dictamen con revisión o comparación humana');
   }
 
-  // La acción administrativa borra el dictamen y los archivos fuente del caso.
-  // El objeto se elimina antes de su fila para no perder la ruta si Storage falla.
-  const { data: evidenceRows, error: evidenceError } = await client.database
-    .from('evidence')
-    .select('id,storage_path')
-    .eq('case_id', caseId);
-  if (evidenceError) dbError(evidenceError);
-  const bucket = client.storage.from(getEnv().INSFORGE_STORAGE_BUCKET);
-  for (const evidence of (evidenceRows as Array<{ id: string; storage_path: string }> | null) ?? []) {
-    const removal = await bucket.remove(evidence.storage_path);
-    if (removal?.error) {
-      console.error('[audit-delete] no se pudo remover evidencia del almacenamiento', {
-        evidenceId: evidence.id,
-        category: 'STORAGE_ERROR',
-        message: 'Error de almacenamiento',
-      });
-      throw new ApiError(500, 'STORAGE_ERROR', 'No se pudieron eliminar todos los archivos; inténtalo de nuevo');
-    }
-    await deleteEvidenceRow(client, evidence.id);
-  }
-  const { error } = await client.database.from('audits').delete().eq('id', auditId).eq('case_id', caseId);
+  // Retiro administrativo: conserva originales, resultado y gastos históricos.
+  const { error } = await client.database.from('audits').update({ retired_at: new Date().toISOString(), ...(retiredBy ? { retired_by: retiredBy } : {}) }).eq('id', auditId).eq('case_id', caseId);
   if (error) dbError(error);
-  await updateCaseStatus(client, caseId, 'DRAFT');
+  await updateCaseStatus(client, caseId, 'READY');
 }
 
 async function enrichCaseSummaries(
@@ -313,7 +295,7 @@ async function enrichCaseSummaries(
       const { data: auditsData, error: auditsError } = await client.database
         .from('audits')
         .select('id,case_id,status,provider,model,result_json,error_category,latency_ms,evidence_fingerprint,created_at')
-        .eq('status', 'COMPLETED')
+        .eq('status', 'COMPLETED').is('retired_at', null)
         .lte('created_at', snapshot)
         .in('case_id', caseIds)
         .order('created_at', { ascending: false })
@@ -696,7 +678,7 @@ export async function latestCompletedAudit(
     .from('audits')
     .select('*')
     .eq('case_id', caseId)
-    .eq('status', 'COMPLETED')
+    .eq('status', 'COMPLETED').is('retired_at', null)
     .order('created_at', { ascending: false })
     .limit(1);
   if (error) dbError(error);
@@ -745,7 +727,7 @@ export async function latestCompletedAuditByFingerprint(
     .from('audits')
     .select('*')
     .eq('case_id', caseId)
-    .eq('status', 'COMPLETED')
+    .eq('status', 'COMPLETED').is('retired_at', null)
     .eq('evidence_fingerprint', fingerprint)
     .order('created_at', { ascending: false })
     .limit(1);

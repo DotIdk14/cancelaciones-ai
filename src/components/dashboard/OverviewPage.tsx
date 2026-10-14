@@ -64,7 +64,8 @@ export function OverviewPage(): ReactNode {
       </header>
 
       <section className="dashboard-toolbar" aria-label="Filtros del resumen">
-        <DashboardFilters value={filters} onChange={setFilters} allowResultFilter={false} />
+        {data?.identities && <p className="text-sm text-muted">En las auditorías del periodo: {data.identities.students} matrículas únicas · {data.identities.tickets} tickets CaVe · {data.identities.caseFiles} expedientes · {data.identities.requests} solicitudes según ticket y conciliación · {data.identities.auditExecutions} ejecuciones de auditoría. Las ejecuciones y sus costos se conservan completos.</p>}
+      <DashboardFilters value={filters} onChange={setFilters} allowResultFilter={false} />
       </section>
 
       {error !== null && (

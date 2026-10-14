@@ -288,6 +288,7 @@ export interface HumanMismatchRow {
 }
 
 export interface DashboardSummary {
+  identities?: {students:number;tickets:number;caseFiles:number;requests:number;auditExecutions:number} | null;
   activity?: import('./dashboard-metrics-contracts').MonthlyActivity;
   generatedAt: string;
   /** `true` cuando el servidor truncó el conjunto para poder agregarlo. */

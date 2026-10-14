@@ -1,5 +1,6 @@
 import { StudentHistory } from './StudentHistory';
-import { CaseContextMenu, type ContextTab } from './CaseContextMenu';
+import { AUDIT_LIFECYCLE_LABELS } from '../lib/audit-lifecycle';
+import { FlokzuContextBar } from './FlokzuContext';
 import { EvidenceReferences } from './EvidenceReferences';
 import { OperationProgressDialog } from './OperationProgressDialog';
 import { ReportProblemModal } from './ReportProblemModal';
@@ -15,8 +16,13 @@ import { deleteEvidence, getAreaComments, getCase, toErrorState, workflowStateOf
 import type { AppRole, AreaComment, CaseDetailResponse, ErrorState, Evidence, SessionSnapshot } from '../lib/api';
 import { formatDateTime, formatLatency, formatPercent, formatFactValue, textOrDash } from '../lib/format';
 import {
-  RESULT_LABELS,
+  CASE_STATUS_LABELS,
+  CASE_STATUS_TONE,
   EVIDENCE_STATUS_LABELS,
+  RESULT_LABELS,
+  RESULT_TONE,
+  caseKindLabel,
+  caseKindTone,
   errorCategoryLabel,
   errorCategoryMessage,
 } from '../lib/labels';
@@ -164,8 +170,6 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
   const [actionError, setActionError] = useState<ErrorState | null>(null);
   const [activeTab, setActiveTab] = useState<CaseDetailTab>('evidence');
   const [search, setSearch] = useState('');
-  const [contextOpen, setContextOpen] = useState(false);
-  const [contextTab, setContextTab] = useState<ContextTab>('data');
 
   const [quickComments, setQuickComments] = useState<AreaComment[] | null>(null);
   const [showNotesPrompt, setShowNotesPrompt] = useState(false);
@@ -222,8 +226,6 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
     setConfirmId(null);
     setViewingEvidenceId(null);
     setActiveTab('evidence');
-    setContextOpen(false);
-    setContextTab('data');
     setSearch('');
     setQuickComments(null);
     setShowNotesPrompt(false);
@@ -441,108 +443,42 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
   else if (hasTranscribing) auditHint = 'Las evidencias de audio se están transcribiendo. Podrás auditar cuando terminen.';
   else if (!allReady) auditHint = 'Aún hay evidencias sin procesar.';
 
-  const notesContent = (<>
-          <AreaQuickComments
-            caseId={caseId}
-            hasCompletedAudit={detail?.audit?.status === 'COMPLETED'}
-            autoFocus={focusNotesRequest}
-            initialComments={quickComments ?? undefined}
-            onSaved={() => void loadQuickComments()}
-            readOnly={readOnly}
-          />
-          {/* La fecha de inicio es un dato humano con procedencia, no evidencia:
-              vive junto a las notas de las áreas, antes del dictamen, y nunca
-              se audita sola. */}
-          <CycleStartDateCapture
-            caseId={caseId}
-            assessment={result?.temporalAnalysis ?? null}
-            cycleStartDate={detail.case.cycleStartDate ?? null}
-            cycleStartDateByName={detail.case.cycleStartDateByName ?? null}
-            cycleStartDateAt={detail.case.cycleStartDateAt ?? null}
-            readOnly={readOnly}
-            onSaved={() => void load()}
-          />
-  </>);
-  const reviewContent = (<>
-          <CaseReviewPanel
-            caseId={caseId}
-            audit={detail.auditIsCurrent === false && review === null ? null : audit}
-            review={review}
-            comparison={comparison}
-            effectiveResolution={effectiveResolution}
-            reviewAuditResult={reviewAuditResult}
-            evidenceNames={Object.fromEntries(evidences.map((evidence) => [evidence.id, evidence.filename]))}
-            workflowState={workflowState}
-            role={role}
-            canReviewOwnCase={capabilities.canReviewOwnCases && detail.case.canWrite}
-            canFinalizeAnyCase={capabilities.canFinalizeAnyCase}
-            canChangeResolution={detail.case.canWrite}
-            canAddComments={detail.case.canWrite}
-            caseCountry={detail.case.country ?? null}
-            caseChannel={detail.case.channel ?? null}
-            onSubmitted={() => void load()}
-          />
-  </>);
-  const auditControls = (<>
-            {!readOnly && (
-              <Button id={AUDIT_TRIGGER_ID} variant="primary" className="w-full" onClick={() => void maybeRunAudit()} disabled={!canAudit} loading={auditBusy} loadingLabel="Consultando auditoría">
-                {auditPhase === 'waiting' ? 'Esperando transcripción…' : auditPhase === 'running' || auditPhase === 'starting' ? 'Auditando con IA…' : caseIsError ? 'Reintentar auditoría' : shouldShowReauditLabel ? 'Volver a auditar' : 'Auditar con IA'}
-              </Button>
-            )}
-            {readOnly && (
-              <p role="status" className="text-xs text-muted">
-                Solo lectura: tu rol no puede ejecutar ni modificar el caso.
-              </p>
-            )}
-
-            {showNotesPrompt && (
-              <section
-                aria-label="Confirmación antes de auditar"
-                aria-live="polite"
-                className="mt-3 rounded-xl border border-warning/40 bg-warning/10 p-3 text-sm"
-              >
-                <p className="text-ink">
-                  No hay notas de Back Office ni HelpDesk para este caso. La IA audita mejor con contexto de las áreas.
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <Button
-                    variant="secondary"
-                    onClick={() => {
-                      setShowNotesPrompt(false);
-                      setContextOpen(true);
-                      setContextTab('data');
-                      setFocusNotesRequest((n) => n + 1);
-                    }}
-                  >
-                    Agregar notas ahora
-                  </Button>
-                  <Button
-                    variant="primary"
-                    onClick={() => {
-                      setSkipNotesPrompt(true);
-                      setShowNotesPrompt(false);
-                      setProgressOpen(true);
-                      void auditWorkflow.recoverAudit();
-                    }}
-                  >
-                    Auditar sin notas
-                  </Button>
-                </div>
-              </section>
-            )}
-
-            {auditBusy && <p role="status" className="case-audit-progress"><Spinner label="Auditoría en curso" className="h-3.5 w-3.5" />{auditPhase === 'waiting' ? `Esperando transcripción de ${pendingEvidence.length} evidencia(s)…` : `Auditando… ${audit ? `${audit.provider}/${audit.model}` : ''}`}</p>}
-  </>);
-
   return (
     <div className="case-detail-page flex flex-col gap-4">
-      <header className="case-workspace-header">
-        <div><button type="button" onClick={goToCases} className="case-workspace-back">← Volver a casos</button><h1>{detail.case.studentIdentifier || 'Sin matrícula'}<span>{detail.case.externalCaseId ? ` · ${detail.case.externalCaseId}` : ''}</span></h1></div>
-        <div className="case-workspace-actions"><Button aria-expanded={contextOpen} aria-controls="case-context-slot" onClick={() => setContextOpen(!contextOpen)}>{contextOpen ? 'Cerrar contexto' : 'Ver datos y dictamen'}</Button><Button onClick={() => void load()} loading={loading} loadingLabel="Actualizando">Actualizar</Button></div>
-      </header>
-      <div className="case-workspace-audit-actions">{auditControls}</div>
+      {/* ------------------------------------------------------ cabecera */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <button
+            type="button"
+            onClick={goToCases}
+            className="rounded-lg px-2 py-1 text-sm font-medium text-muted transition-colors hover:bg-surface-3 hover:text-ink"
+          >
+            ← Volver a casos
+          </button>
+          <div className="mt-1 flex flex-wrap items-center gap-3">
+            <h1 className="text-lg font-semibold text-ink">
+              {detail.case.studentIdentifier || 'Sin matrícula'}{detail.case.studentName ? ` · ${detail.case.studentName}` : ''}
+            </h1>
+            <Badge tone={CASE_STATUS_TONE[detail.case.status]}>
+              {CASE_STATUS_LABELS[detail.case.status]}
+            </Badge>
+            <Badge tone={caseKindTone(detail.case.isTest)}>{caseKindLabel(detail.case.isTest)}</Badge>
+          </div>
+          <p className="mt-1 text-xs text-muted">
+            {detail.case.studentIdentifier !== null && detail.case.studentIdentifier !== ''
+              ? `Matrícula ${detail.case.studentIdentifier} · `
+              : ''}
+            Creado {formatDateTime(detail.case.createdAt)} · Actualizado {formatDateTime(detail.case.updatedAt)}
+          </p>
+        </div>
+        <Button onClick={() => void load()} loading={loading} loadingLabel="Actualizando">
+          Actualizar
+        </Button>
+      </div>
 
-      {detail.case.studentIdentifier && <StudentHistory key={caseId} caseId={caseId} />}
+      <StudentHistory caseId={caseId} studentIdentifier={detail.case.studentIdentifier} canReconcile={capabilities.canFinalizeAnyCase} />
+      {detail.auditLifecycle && <p className="text-sm text-muted">{AUDIT_LIFECYCLE_LABELS[detail.auditLifecycle]}</p>}
+      {detail.case.externalSource === 'FLOKZU' && detail.case.flokzuData && <FlokzuContextBar externalCaseId={detail.case.externalCaseId} assignedTo={detail.case.assignedTo} assignedName={detail.case.assignedName} data={detail.case.flokzuData} />}
 
       {(auditBusy || auditError) && <Button variant="secondary" onClick={() => setProgressOpen(true)}>Ver progreso de auditoría</Button>}
       {progressOpen && !reportOpen && <OperationProgressDialog title="Progreso de auditoría" stages={[
@@ -556,11 +492,7 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
       )}
       {actionError !== null && <ErrorCard message={actionError.message} category={actionError.category} />}
 
-      <div className={`case-workspace${contextOpen ? ' case-workspace-context-open' : ''}`}>
-        <div id="case-context-slot" className="case-context-slot">
-          <CaseContextMenu key={caseId} detail={detail} open={contextOpen} tab={contextTab} onTabChange={setContextTab} onClose={() => setContextOpen(false)} notesContent={notesContent} reviewContent={reviewContent} />
-        </div>
-      <div className="case-detail-layout case-detail-workspace">
+      <div className="case-detail-layout">
         <aside className="case-detail-evidence">
           <Panel title={`Evidencias (${evidences.length})`} description="Selecciona un archivo para revisarlo en el expediente.">
             <EvidenceList
@@ -585,6 +517,26 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
               <EvidenceUploader caseId={caseId} onUploaded={() => load()} />
             </details>
           )}
+          <AreaQuickComments
+            caseId={caseId}
+            hasCompletedAudit={detail?.audit?.status === 'COMPLETED'}
+            autoFocus={focusNotesRequest}
+            initialComments={quickComments ?? undefined}
+            onSaved={() => void loadQuickComments()}
+            readOnly={readOnly}
+          />
+          {/* La fecha de inicio es un dato humano con procedencia, no evidencia:
+              vive junto a las notas de las áreas, antes del dictamen, y nunca
+              se audita sola. */}
+          <CycleStartDateCapture
+            caseId={caseId}
+            assessment={result?.temporalAnalysis ?? null}
+            cycleStartDate={detail.case.cycleStartDate ?? null}
+            cycleStartDateByName={detail.case.cycleStartDateByName ?? null}
+            cycleStartDateAt={detail.case.cycleStartDateAt ?? null}
+            readOnly={readOnly}
+            onSaved={() => void load()}
+          />
         </aside>
 
         <section className="case-detail-assessment">
@@ -731,7 +683,7 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
             )}
 
             {activeTab === 'verdict' && (
-              audit?.status === 'COMPLETED' && detail.auditIsCurrent !== false ? <section className="case-detail-full-verdict"><h2>Dictamen original de IA</h2><AuditResultPanel audit={audit} canEditComments={detail.case.canWrite} /></section> : <Panel title="Dictamen original de IA"><div className="case-workspace-empty"><FileText size={22} /><strong>No hay un dictamen vigente</strong><p>La evidencia cambió o aún no se ha evaluado. Consulta el historial para ver resultados anteriores y vuelve a auditar para obtener el vigente.</p></div></Panel>
+              audit?.status === 'COMPLETED' && detail.auditIsCurrent !== false ? <section className="case-detail-full-verdict"><h2>Dictamen original de IA</h2><AuditResultPanel audit={audit} canEditComments={detail.case.canWrite} /></section> : <Panel title="Dictamen original de IA"><div className="case-workspace-empty"><FileText size={22} /><strong>No hay un dictamen vigente</strong><p>Consulta el historial de matrícula para revisar las versiones. Si cambió la evidencia, los datos o la preparación técnica, el dictamen anterior sigue siendo histórico. No se ejecutará otra auditoría automáticamente.</p>{audit?.status === 'COMPLETED' && audit.resultJson && <details><summary>Consultar dictamen histórico</summary><AuditResultPanel audit={audit} canEditComments={false} /></details>}</div></Panel>
             )}
 
             {activeTab === 'evidence' && (
@@ -766,8 +718,91 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
           El dictamen de arriba NO se modifica ni se oculta. La revisión humana
           va debajo, como una capa aparte: o existe (y entonces es la resolución
           final) o se ofrece el formulario para registrarla. Nunca ambas. */}
+        <aside className="case-detail-review">
+          <Panel title="Dictamen de IA" description="Resultado original de la auditoría.">
+            {detail?.auditIsCurrent === false && (
+              <p role="status" className="mb-3 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm text-ink">
+                Este dictamen es histórico: las evidencias o la fecha de inicio cambiaron después de la auditoría. La resolución de IA no se considera vigente; vuelve a auditar para evaluar los datos actuales.
+              </p>
+            )}
+            {result === null ? <div className="case-verdict-pending"><span>—</span><strong>{audit?.status === 'RUNNING' ? 'Auditoría en curso' : 'Sin dictamen completado'}</strong><p>{audit?.status === 'RUNNING' ? 'El resultado aparecerá al terminar.' : 'Ejecuta la auditoría para revisar la propuesta del modelo.'}</p></div> : <div className="case-verdict-summary">
+              <div><span className="case-verdict-confidence">{formatPercent(result.audit.confidence)}</span><span>Confianza declarada</span></div>
+              <Badge tone={RESULT_TONE[result.audit.result]}>{RESULT_LABELS[result.audit.result]}</Badge>
+              <p>{result.audit.reasoning}</p><EvidenceReferences text={result.audit.reasoning} evidenceIds={result.audit.supportingEvidenceIds} evidences={evidences} onOpen={(id, seconds) => { setViewingEvidenceId(id); setActiveTab('evidence'); setSeekRequest(seconds === null ? null : { seconds, requestId: Date.now() }); }} />
+              {result.audit.result === 'EVIDENCIA_INSUFICIENTE' && (
+                <p role="status" className="mt-3 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm text-ink">
+                  Resultado de auditoría: la evidencia disponible no permite concluir. Revisa la explicación y agrega los documentos o datos faltantes antes de volver a auditar.
+                </p>
+              )}
+              <div className="case-verdict-section"><span>Sección</span><strong>{result.audit.procedureSection}</strong></div>
+              <button type="button" onClick={() => setActiveTab('verdict')}>Abrir dictamen completo <span aria-hidden="true">→</span></button>
+            </div>}
+            {!readOnly && (
+              <Button id={AUDIT_TRIGGER_ID} variant="primary" className="w-full" onClick={() => void maybeRunAudit()} disabled={!canAudit} loading={auditBusy} loadingLabel="Consultando auditoría">
+                {auditPhase === 'waiting' ? 'Esperando transcripción…' : auditPhase === 'running' || auditPhase === 'starting' ? 'Auditando con IA…' : caseIsError ? 'Reintentar auditoría' : shouldShowReauditLabel ? 'Volver a auditar' : 'Auditar con IA'}
+              </Button>
+            )}
+            {readOnly && (
+              <p role="status" className="text-xs text-muted">
+                Solo lectura: tu rol no puede ejecutar ni modificar el caso.
+              </p>
+            )}
 
-      </div>
+            {showNotesPrompt && (
+              <section
+                aria-label="Confirmación antes de auditar"
+                aria-live="polite"
+                className="mt-3 rounded-xl border border-warning/40 bg-warning/10 p-3 text-sm"
+              >
+                <p className="text-ink">
+                  No hay notas de Back Office ni HelpDesk para este caso. La IA audita mejor con contexto de las áreas.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      setShowNotesPrompt(false);
+                      setFocusNotesRequest((n) => n + 1);
+                    }}
+                  >
+                    Agregar notas ahora
+                  </Button>
+                  <Button
+                    variant="primary"
+                    onClick={() => {
+                      setSkipNotesPrompt(true);
+                      setShowNotesPrompt(false);
+                      setProgressOpen(true);
+                      void auditWorkflow.recoverAudit();
+                    }}
+                  >
+                    Auditar sin notas
+                  </Button>
+                </div>
+              </section>
+            )}
+
+            {auditBusy && <p role="status" className="case-audit-progress"><Spinner label="Auditoría en curso" className="h-3.5 w-3.5" />{auditPhase === 'waiting' ? `Esperando transcripción de ${pendingEvidence.length} evidencia(s)…` : `Auditando… ${audit ? `${audit.provider}/${audit.model}` : ''}`}</p>}
+          </Panel>
+          <CaseReviewPanel
+            caseId={caseId}
+            audit={detail.auditIsCurrent === false && review === null ? null : audit}
+            review={review}
+            comparison={comparison}
+            effectiveResolution={effectiveResolution}
+            reviewAuditResult={reviewAuditResult}
+            evidenceNames={Object.fromEntries(evidences.map((evidence) => [evidence.id, evidence.filename]))}
+            workflowState={workflowState}
+            role={role}
+            canReviewOwnCase={capabilities.canReviewOwnCases && detail.case.canWrite}
+            canFinalizeAnyCase={capabilities.canFinalizeAnyCase}
+            canChangeResolution={detail.case.canWrite}
+            canAddComments={detail.case.canWrite}
+            caseCountry={detail.case.country ?? null}
+            caseChannel={detail.case.channel ?? null}
+            onSubmitted={() => void load()}
+          />
+        </aside>
       </div>
     </div>
   );

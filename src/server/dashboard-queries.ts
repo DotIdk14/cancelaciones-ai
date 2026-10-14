@@ -188,14 +188,11 @@ export async function getDashboardSummary(
   query = query.order('created_at', { ascending: false }).order('id', { ascending: false });
   const rows = await readAllPages<DashboardMetricRow>(query as never);
   const comparisons = await getComparisonActivity(client, filters, auth);
-  const ids = [...new Set(rows.map(row => row.case_id))];
-  for (let start = 0; start < ids.length; start += 100) {
-    const { data, error } = await client.database.from('cases').select('id,student_identifier,external_case_id').in('id', ids.slice(start, start + 100)).limit(100);
-    if (error) throw mapProviderError(error);
-    const identities = new Map(((data ?? []) as Array<{ id: string; student_identifier: string | null; external_case_id: string | null }>).map(item => [item.id, item]));
-    for (const row of rows) { const identity = identities.get(row.case_id); if (identity) { row.student_identifier = identity.student_identifier; row.external_case_id = identity.external_case_id; } }
-  }
-  return { ...aggregateSummary(rows, filters, rows.length), activity: aggregateMonthlyActivity(rows, comparisons) };
+  let identities = null;
+  try { const result = await client.database.rpc('dashboard_request_identities', { p_case_ids: [...new Set(rows.map(row=>row.case_id))] });
+    if (!result.error && result.data) identities = { ...(result.data as {students:number;tickets:number;caseFiles:number;requests:number}),auditExecutions:rows.length };
+  } catch { /* Contadores no disponibles hasta validar la migración; no inventar ceros. */ }
+  return { ...aggregateSummary(rows, filters, rows.length), activity: aggregateMonthlyActivity(rows, comparisons), identities };
 }
 
 

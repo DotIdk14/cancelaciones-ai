@@ -338,6 +338,6 @@ describe('CasesPanel — acciones múltiples de administración', () => {
       expect(JSON.parse(String(deletions[0]?.[1]?.body))).toEqual({ target: 'audit', auditId: 'audit-eligible' });
     });
     expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('se omitirá 1 caso'));
-    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('Se eliminarán también todos los archivos de evidencia'));
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('Se retirarán de la selección vigente'));
   });
 });

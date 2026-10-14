@@ -1,3 +1,4 @@
+import { getStudentHistory } from '../../src/server/student-history.js';
 import { z } from 'zod';
 import {
   ApiError,
@@ -68,6 +69,12 @@ function decodeCursor(value: string): z.infer<typeof CaseCursorSchema> {
 }
 
 export default handleRoute(async (req, res) => {
+  if (req.method === 'GET' && req.query.historyForCase !== undefined) {
+    const input = zod.object({ historyForCase: zod.string().uuid(), offset: zod.coerce.number().int().min(0).max(1000000).default(0), limit: zod.coerce.number().int().min(1).max(50).default(20) }).safeParse(req.query);
+    if (!input.success) throw new ApiError(400, 'VALIDATION_ERROR', 'Consulta de historial inválida.');
+    ok(res, { history: await getStudentHistory(createServerClient(), input.data.historyForCase, req.auth!, input.data.offset, input.data.limit) });
+    return;
+  }
   if (req.method === 'GET') {
     if (req.query.view === 'flokzu-review') {
       assertFlokzuCoordinator(req.auth!);

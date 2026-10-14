@@ -364,7 +364,7 @@ export async function deleteUnreviewedAudit(_client: unknown, caseId: string, au
   if (!row) throw new ApiError(404, 'NOT_FOUND', 'Dictamen no encontrado');
   if (row.status === 'RUNNING') throw new ApiError(409, 'VALIDATION_ERROR', 'No se puede borrar una auditoría en curso');
   if (reviewRows.some((review) => review.audit_id === auditId)) throw new ApiError(409, 'VALIDATION_ERROR', 'No se puede borrar un dictamen con revisión humana');
-  auditRows.splice(auditRows.indexOf(row), 1);
+  row.retired_at = new Date().toISOString();
 }
 
 export async function listEvidenceRows(_client: unknown, caseId: string): Promise<EvidenceRow[]> {
@@ -405,7 +405,7 @@ export async function latestAudit(_client: unknown, caseId: string): Promise<Aud
 }
 
 export async function latestCompletedAuditByFingerprint(_client: unknown, caseId: string, fingerprint: string): Promise<AuditRow | null> {
-  const rows = auditRows.filter((row) => row.case_id === caseId && row.status === 'COMPLETED' && row.evidence_fingerprint === fingerprint);
+  const rows = auditRows.filter((row) => row.case_id === caseId && row.status === 'COMPLETED' && !row.retired_at && row.evidence_fingerprint === fingerprint);
   const last = rows[rows.length - 1];
   return last ? { ...last } : null;
 }
@@ -699,6 +699,7 @@ export const fakeClient = {
   // `tests/quotas.test.ts`.
   database: {
     rpc: async (fn: string): Promise<{ data: unknown; error: unknown }> => {
+      if (fn === 'audit_relation_preflight') return { data: { blocked: false }, error: null };
       if (fn === 'admit_or_reject_quota') {
         return { data: [{ admitted: true, retry_after_seconds: 0 }], error: null };
       }

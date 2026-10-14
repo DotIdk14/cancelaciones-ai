@@ -1,3 +1,5 @@
+import type { StudentHistory } from './student-history';
+import type { AuditLifecycle } from './audit-lifecycle';
 // =============================================================================
 // Cliente HTTP de la SPA. Sin URLs absolutas y sin estado: solo fetch.
 // El cliente solo llama a la API propia; InsForge permanece server-side.
@@ -52,6 +54,7 @@ export interface CaseSummary {
   effectiveResolution?: EffectiveResolution | null;
   /** `false` indica dictamen de IA histórico y desactualizado. */
   auditIsCurrent?: boolean | null;
+  auditLifecycle?: AuditLifecycle;
   /**
    * Clasificación del caso: `true` = prueba, `false` = real.
    *
@@ -386,6 +389,7 @@ export interface CaseDetailResponse {
   effectiveResolution: EffectiveResolution | null;
   /** Si el último dictamen completado usa evidencias y datos actuales. */
   auditIsCurrent?: boolean | null;
+  auditLifecycle?: AuditLifecycle;
   /** Estado derivado del flujo humano; opcional por compatibilidad. */
   workflowState?: WorkflowState;
 }
@@ -701,6 +705,7 @@ export async function getCase(caseId: string): Promise<CaseDetailResponse> {
     comparison: data.comparison ?? null,
     effectiveResolution: data.effectiveResolution ?? null,
     auditIsCurrent: data.auditIsCurrent ?? null,
+    auditLifecycle: data.auditLifecycle,
     workflowState: data.workflowState,
   };
 }
@@ -1124,4 +1129,15 @@ export function getFlokzuTicket(caseId: string, historyOffset = 0): Promise<Flok
 }
 export function decideFlokzuTicket(decision: import('../shared/flokzu-review').FlokzuDecision): Promise<unknown> {
   return request('/api/cases?view=flokzu-review', {method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify(decision)}, [200]);
+}
+
+export async function getStudentHistory(caseId: string, offset = 0): Promise<StudentHistory> {
+  return (await request<{ history: StudentHistory }>('/api/cases?historyForCase=' + encodeURIComponent(caseId) + '&offset=' + offset, {}, [200])).history;
+}
+export async function reconcileCaseRequests(caseId: string, relation: { otherId: string; primaryId: string | null; sameRequest: boolean; note: string }): Promise<void> {
+  await request(casePath(caseId), { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ relation }) }, [200]);
+}
+
+export async function getAuditVersion(caseId:string,auditId:string): Promise<AuditDetail> {
+ return (await request<{audit:AuditDetail}>(casePath(caseId)+'?auditId='+encodeURIComponent(auditId),{},[200])).audit;
 }

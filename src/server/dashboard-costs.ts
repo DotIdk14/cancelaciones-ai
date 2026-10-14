@@ -251,7 +251,7 @@ export function aggregateAiCosts(
     const completion = COMPLETION_TOKENS_PER_ROW(row);
     if (completion !== null && Number.isFinite(completion)) completionTokens += completion;
 
-    const modelCalls = row.call_metrics === null ? [] : row.call_metrics?.length ? row.call_metrics : [{model: row.model, cost}];
+    const modelCalls = row.call_metrics?.length ? row.call_metrics : [{model: row.model, cost}];
     for (const call of modelCalls) {
       const existing = byModel.get(call.model) ?? { calls: 0, costKnownCalls: 0, costUsd: 0 };
       existing.calls += 1;

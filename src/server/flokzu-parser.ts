@@ -50,6 +50,8 @@ export interface FlokzuCaseData {
   };
   observations?: FlokzuObservation[];
   administrativeComments?: Array<{ label: string; value: string }>;
+  comments?: string | null;
+  originalTicketId?: string | null;
   evidenceReferences: FlokzuEvidenceReference[];
 }
 
@@ -90,6 +92,8 @@ const OPTIONAL_HEADER_ALIASES = {
   helpDesk: ['comentarios helpdesk (cave)'],
   helpDeskComplement: ['complementario de helpdesk (cave)'],
   studentMessage: ['mensaje al estudiante (cave)'],
+  comments: ['comentarios', 'comentarios (cave)'],
+  originalTicket: ['ticket original', 'ticket original (cave)'],
   campus: ['campus (cave)'],
   university: ['universidad. (cave)', 'universidad (cave)'],
   program: ['programa (cave)'],
@@ -393,6 +397,8 @@ export async function parseFlokzuWorkbook(buffer: Buffer): Promise<ParsedFlokzuW
           const value = cellText(row.getCell(index + 1).value);
           return value ? [{ label: header, value }] : [];
         }),
+        comments: readText(row, 'comments'),
+        originalTicketId: readText(row, 'originalTicket'),
         evidenceReferences,
       };
       const classification = classifyFlokzu(flokzuData);

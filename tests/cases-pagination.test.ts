@@ -20,7 +20,7 @@ function database(rows: Row[], related: Record<string, Row[]> = {}) {
         const query = {
           select() { return query; },
           eq(column: string, value: unknown) { predicates.push([column, 'eq', value]); return query; },
-          is(column: string, value: unknown) { predicates.push([column, 'eq', value]); return query; },
+          is(column: string, value: unknown) { predicates.push([column, 'is', value]); return query; },
           lte(column: string, value: unknown) { predicates.push([column, 'lte', value]); return query; },
           in(column: string, value: unknown[]) { predicates.push([column, 'in', value]); return query; },
           or(expression: string) { filters.push(['created_by|assigned_to', 'or', expression]); disjunction = expression.split(',').map((part) => { const [column, , value] = part.split('.'); return [column!, value]; }); return query; },
@@ -30,6 +30,7 @@ function database(rows: Row[], related: Record<string, Row[]> = {}) {
             filters.push(...predicates);
             ranges.push([table, page[0], page[1]]);
             const matches = (rowsForTable: Row[]) => rowsForTable.filter((row) => predicates.every(([column, op, value]) => {
+              if (op === 'is') return (row[column] ?? null) === value;
               if (op === 'eq') return (column === 'flokzu_audit_eligible' ? row[column] ?? true : row[column]) === value;
               if (op === 'in') return (value as unknown[]).includes(row[column]);
               return String(row[column] ?? '') <= String(value);

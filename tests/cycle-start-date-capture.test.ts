@@ -566,17 +566,18 @@ describe('PATCH y DELETE administrativos en /api/cases/:id', () => {
     const deleted = makeApiResponse();
     await caseHandler(makeApiRequest({ method: 'DELETE', body: { target: 'audit', auditId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }, auth: fakeAuthContext('manager') }), deleted);
     expect(deleted.statusCode).toBe(200);
-    expect(db.rows('audits')).toHaveLength(0);
-    expect(db.rows('evidence')).toHaveLength(0);
-    expect(db.removedStoragePaths).toEqual(['case-1/file-1']);
-    expect(casesRows()[0]?.status).toBe('DRAFT');
+    expect(db.rows('audits')).toHaveLength(1);
+    expect(db.rows('audits')[0]?.retired_at).toBeTruthy();
+    expect(db.rows('evidence')).toHaveLength(1);
+    expect(db.removedStoragePaths).toEqual([]);
+    expect(casesRows()[0]?.status).toBe('READY');
 
     db.seed('audits', { id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', case_id: 'case-1', status: 'COMPLETED' });
     db.seed('case_reviews', { id: 'review-1', audit_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' });
     const protectedAudit = makeApiResponse();
     await caseHandler(makeApiRequest({ method: 'DELETE', body: { target: 'audit', auditId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }, auth: fakeAuthContext('manager') }), protectedAudit);
     expect(protectedAudit.statusCode).toBe(409);
-    expect(db.rows('audits')).toHaveLength(1);
+    expect(db.rows('audits')).toHaveLength(2);
   });
 
   it('Asesor no puede borrar aunque tenga el caso propio', async () => {

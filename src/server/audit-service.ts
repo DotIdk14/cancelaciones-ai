@@ -1,3 +1,4 @@
+import { assertNoRedundantAudit } from './student-history.js';
 // =============================================================================
 // Servicio de auditoría — orquesta el flujo durable (secciones 13 y 14).
 // =============================================================================
@@ -426,6 +427,7 @@ export async function runAudit(
 
   // Prepara y valida expediente antes de crear RUNNING: errores 413/validación
   // son accionables por el usuario y no deben dejar una auditoría técnica fallida.
+  await assertNoRedundantAudit(client, caseId);
   const inputs = await buildAuditInputs(client, caseRow, evidences, areaRows);
 
   // Cuota ANTES de la fila durable y ANTES del proveedor, y DESPUÉS de las
@@ -460,6 +462,8 @@ export async function runAudit(
   let executionMetadata: Record<string, unknown> | null = null;
   try {
     await updateCaseStatus(client, caseId, 'AUDITING');
+    // Relee la conciliación después de adquirir la fila RUNNING.
+    await assertNoRedundantAudit(client, caseId);
     const execution = await auditSkill.executeWithMetadata(inputs, { deadlineMs });
     executionMetadata = { usage: execution.usage, usageScope: 'last_attempt', openrouterAttempts: execution.attempts };
     const result = execution.result;
