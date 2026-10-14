@@ -7,46 +7,55 @@ import type { QualityCase } from '../../lib/dashboard-metrics-contracts';
 import { DASH, formatPercent } from '../../lib/format';
 import { resolutionLabel } from '../../lib/labels';
 import { useAiQuality } from '../../lib/useDashboard';
-import { Button, ChartFrame, ErrorCard, Panel, Skeleton, StatCard } from '../ui';
+import { Button, ErrorCard, Panel, Skeleton } from '../ui';
 import { DashboardFilters } from './DashboardFilters';
-import { ConfidenceBandsChart } from './charts/ConfidenceBandsChart';
-import { ConfidenceByEvidenceChart } from './charts/ConfidenceByEvidenceChart';
 
-const percent = (value: number | null | undefined): string => value == null ? DASH : formatPercent(value);
+const percent = (value: number | null | undefined): string => value == null ? 'Sin datos' : formatPercent(value);
 const states: Record<string, string> = {
-  AGREEMENT: 'Acuerdo final', DISAGREEMENT: 'Discrepancia final',
-  PENDING_ADVISOR: 'Pendiente de Asesor', PENDING_COORDINATOR: 'Pendiente de Coordinador',
-  PENDING_COMPARISON: 'Sin comparación final', COMPARISON_RUNNING: 'Comparación en curso',
-  COMPARISON_ERROR: 'Comparación fallida', AUDIT_ERROR: 'Error técnico de auditoría',
+  AGREEMENT: 'Coincide con la decisión final', DISAGREEMENT: 'Difiere de la decisión final',
+  PENDING_ADVISOR: 'Falta revisión del Asesor', PENDING_COORDINATOR: 'Falta cierre del Coordinador',
+  PENDING_COMPARISON: 'Falta comparar con la decisión final', COMPARISON_RUNNING: 'Comparación en curso',
+  COMPARISON_ERROR: 'Comparación fallida', AUDIT_ERROR: 'Auditoría fallida',
   AUDIT_RUNNING: 'Auditoría en curso', INVALID_COMPARISON: 'Comparación sin resultado válido',
-  PENDING_EVALUATION: 'Pendientes de evaluación', WITHOUT_CONFIDENCE: 'Sin confianza original', ISSUED: 'Dictámenes emitidos', FINALIZED: 'Evaluados humanamente',
+  PENDING_EVALUATION: 'Sin decisión humana final', WITHOUT_CONFIDENCE: 'Sin confianza declarada',
+  ISSUED: 'Con dictamen de IA', FINALIZED: 'Con decisión humana final',
 };
-const dateFormat = new Intl.DateTimeFormat('es-MX', { dateStyle: 'short', timeStyle: 'short', timeZone: 'UTC' });
+const dateFormat = new Intl.DateTimeFormat('es-MX', { dateStyle: 'short', timeZone: 'UTC' });
+type View = 'results' | 'pending' | 'confidence';
+
+function matches(row: QualityCase, selection: string): boolean {
+  if (!selection) return true;
+  if (selection === 'ISSUED') return row.aiResolution !== null;
+  if (selection === 'FINALIZED') return row.aiResolution !== null && row.finalResolution !== null;
+  if (selection === 'PENDING_EVALUATION') return row.aiResolution !== null && row.finalResolution === null;
+  if (selection === 'WITHOUT_CONFIDENCE') return row.aiResolution !== null && row.originalConfidence === null;
+  return row.state === selection;
+}
 
 function CasesTable({ rows }: { rows: QualityCase[] }): ReactNode {
   const [page, setPage] = useState(0);
+  const [technical, setTechnical] = useState(false);
   const [historyCase, setHistoryCase] = useState<string | null>(null);
   const totalPages = Math.max(1, Math.ceil(rows.length / 25));
   const current = Math.min(page, totalPages - 1);
   const visible = rows.slice(current * 25, (current + 1) * 25);
   return <>
-    {historyCase && <Panel title="Historial de matrícula"><Button variant="ghost" onClick={()=>setHistoryCase(null)}>Cerrar</Button><HistoryForCase caseId={historyCase} /></Panel>}
-    <div role="region" aria-label="Expedientes del indicador de calidad" tabIndex={0} className="overflow-x-auto">
+    <label className="mb-4 flex items-center gap-2 text-sm text-muted"><input type="checkbox" checked={technical} onChange={event => setTechnical(event.target.checked)} />Mostrar propuesta del Asesor y confianza de la IA</label>
+    {historyCase && <Panel title="Historial de matrícula"><Button variant="ghost" onClick={() => setHistoryCase(null)}>Cerrar historial</Button><HistoryForCase caseId={historyCase} /></Panel>}
+    <div role="region" aria-label="Casos de calidad" tabIndex={0} className="overflow-x-auto">
       <table className="w-full text-left text-sm tabular-nums">
-        <thead><tr className="border-b border-line text-muted">{['CaVe / caso', 'Responsable', 'Auditoría · UTC', 'Resolución IA', 'Confianza original', 'Propuesta Asesor', 'Final Coordinador', 'Comparación', 'Confianza comparación', 'Evaluación', 'Expediente'].map(label => <th key={label} scope="col" className="whitespace-nowrap px-3 py-3 font-medium">{label}</th>)}</tr></thead>
+        <thead><tr className="border-b border-line text-muted">{['CaVe / caso', 'Responsable', 'Fecha · UTC', 'Dictamen de IA', 'Decisión humana final', 'Situación', ...(technical ? ['Propuesta del Asesor', 'Confianza del dictamen', 'Confianza de comparación'] : []), 'Consultar'].map(label => <th key={label} scope="col" className="whitespace-nowrap px-3 py-3 font-medium">{label}</th>)}</tr></thead>
         <tbody>{visible.map(row => <tr key={row.auditId} className="border-b border-line text-ink">
-          <td className="px-3 py-3">{row.identifier}</td><td className="px-3 py-3">{row.responsibleName ?? row.responsible ?? DASH}</td>
+          <td className="px-3 py-3">{row.identifier}</td><td className="px-3 py-3">{row.responsibleName ?? row.responsible ?? 'Sin responsable disponible'}</td>
           <td className="whitespace-nowrap px-3 py-3">{dateFormat.format(new Date(row.auditedAt))}</td>
-          <td className="px-3 py-3">{row.aiResolution ? resolutionLabel(row.aiResolution) : DASH}</td>
-          <td className="px-3 py-3">{percent(row.originalConfidence)}</td>
-          <td className="px-3 py-3">{row.advisorResolution ? resolutionLabel(row.advisorResolution) : DASH}</td>
-          <td className="px-3 py-3">{row.finalResolution ? resolutionLabel(row.finalResolution) : DASH}</td>
-          <td className="px-3 py-3">{row.substantiveAgreement === null ? DASH : row.substantiveAgreement ? 'Acuerdo' : 'Discrepancia'}</td>
-          <td className="px-3 py-3">{percent(row.comparisonConfidence)}</td><td className="px-3 py-3">{states[row.state]}{row.aiResolution && row.latestExecutionStatus && row.latestExecutionStatus !== 'COMPLETED' && <p className="mt-1 text-xs text-muted">Última ejecución: {row.latestExecutionStatus === 'ERROR' ? 'error técnico' : 'en curso'}</p>}</td>
-          <td className="px-3 py-3"><a className="text-brand underline underline-offset-4" href={`#/casos/${row.caseId}`} aria-label={`Abrir expediente ${row.identifier}`}>Abrir</a><Button variant="ghost" onClick={()=>setHistoryCase(row.caseId)}>Ver historial</Button></td>
+          <td className="px-3 py-3">{row.aiResolution ? resolutionLabel(row.aiResolution) : 'Sin dictamen'}</td>
+          <td className="px-3 py-3">{row.finalResolution ? resolutionLabel(row.finalResolution) : 'Pendiente'}</td>
+          <td className="px-3 py-3"><span className={row.state === 'DISAGREEMENT' ? 'text-warning' : row.state === 'AGREEMENT' ? 'text-brand' : ''}>{states[row.state]}</span>{row.aiResolution && row.latestExecutionStatus && row.latestExecutionStatus !== 'COMPLETED' && <p className="mt-1 text-xs text-muted">Última auditoría: {row.latestExecutionStatus === 'ERROR' ? 'fallida; se conserva este dictamen' : 'en curso; se conserva este dictamen'}</p>}</td>
+          {technical && <><td className="px-3 py-3">{row.advisorResolution ? resolutionLabel(row.advisorResolution) : DASH}</td><td className="px-3 py-3">{percent(row.originalConfidence)}</td><td className="px-3 py-3">{percent(row.comparisonConfidence)}</td></>}
+          <td className="px-3 py-3"><a className="text-brand underline underline-offset-4" href={`#/casos/${row.caseId}`} aria-label={`Abrir expediente ${row.identifier}`}>Abrir</a><Button variant="ghost" onClick={() => setHistoryCase(row.caseId)}>Historial</Button></td>
         </tr>)}</tbody>
       </table>
-      {!rows.length && <p className="py-6 text-sm text-muted">No hay expedientes en el universo seleccionado.</p>}
+      {!rows.length && <p className="py-6 text-sm text-muted">No hay casos que coincidan con esta selección.</p>}
     </div>
     <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm text-muted">
       <span>{rows.length} registros · Página {current + 1} de {totalPages}</span>
@@ -55,72 +64,93 @@ function CasesTable({ rows }: { rows: QualityCase[] }): ReactNode {
   </>;
 }
 
+/** Las barras seleccionan el detalle local; nunca cambian el denominador del resumen. */
+function CountBar({ label, count, total, selection, tone = 'var(--accent)', onSelect }: {
+  label: string; count: number; total: number; selection: string; tone?: string; onSelect: (value: string) => void;
+}): ReactNode {
+  return <button type="button" className="quality-count-bar" onClick={() => onSelect(selection)} aria-label={`${label}: ${count} casos. Ver casos en la tabla`}>
+    <span className="quality-bar-label">{label}</span>
+    <span className="quality-bar-track" aria-hidden="true"><span style={{ width: `${total ? count / total * 100 : 0}%`, backgroundColor: tone }} /></span>
+    <span className="quality-bar-value">{count}<small>{total ? formatPercent(count / total) : 'Sin casos'}</small></span>
+  </button>;
+}
+
 export function QualityPage(): ReactNode {
   const [filters, setFilters] = useState<Filters>(defaultDateRange);
   const [historical, setHistorical] = useState(false);
+  const [selection, setSelection] = useState('');
+  const [view, setView] = useState<View>('results');
   const { data, isLoading, error, reload } = useAiQuality(filters);
   const e = data?.evaluation;
-  const confidence = data?.confidence;
-  const human = data?.humanReview;
   const loading = isLoading && !data;
   const applied = data?.filters ?? filters;
-  const selectMetric = (evaluation: string): void => { setHistorical(false); setFilters({ ...filters, evaluation }); };
-  const metrics = [
-    { label: 'Dictámenes emitidos', value: e?.issued, filter: 'ISSUED', hint: 'Versiones vigentes con decisión válida' },
-    { label: 'Evaluados humanamente', value: e?.finalized, filter: 'FINALIZED', hint: 'Resolución final del Coordinador' },
-    { label: 'Acuerdos finales', value: e?.agreements, filter: 'AGREEMENT', hint: 'Acuerdo sustantivo del comparador' },
-    { label: 'Discrepancias finales', value: e?.disagreements, filter: 'DISAGREEMENT', hint: 'Discrepancia sustantiva del comparador' },
-    { label: 'Pendientes de evaluación', value: e?.pendingEvaluation, filter: 'PENDING_EVALUATION', hint: 'Sin resolución humana final comparable' },
-    { label: 'Pendientes de Asesor', value: e?.rows.filter(row => row.state === 'PENDING_ADVISOR').length, filter: 'PENDING_ADVISOR', hint: 'Sin propuesta para esta versión' },
-    { label: 'Pendientes de Coordinador', value: e?.rows.filter(row => row.state === 'PENDING_COORDINATOR').length, filter: 'PENDING_COORDINATOR', hint: 'La propuesta aún es provisional' },
-    { label: 'Sin comparación final', value: e?.rows.filter(row => row.state === 'PENDING_COMPARISON').length, filter: 'PENDING_COMPARISON', hint: 'Finalizados, sin llamada de comparación' },
-    { label: 'Comparaciones en curso', value: e?.rows.filter(row => row.state === 'COMPARISON_RUNNING').length, filter: 'COMPARISON_RUNNING', hint: 'Todavía sin acuerdo ni discrepancia' },
-    { label: 'Comparaciones fallidas', value: e?.failedComparisons, filter: 'COMPARISON_ERROR', hint: 'Fuera del denominador de concordancia' },
-    { label: 'Sin confianza disponible', value: e?.withoutConfidence, filter: 'WITHOUT_CONFIDENCE', hint: 'No equivale a confianza cero' },
-  ];
+  const rows = e?.rows ?? [];
+  const count = (state: string): number => rows.filter(row => row.state === state).length;
+  const selectCases = (value: string): void => { setHistorical(false); setSelection(value); };
+  const withoutComparison = e ? e.issued - e.validComparisons : 0;
+  const pendingComparison = count('PENDING_COMPARISON') + count('COMPARISON_RUNNING') + count('COMPARISON_ERROR') + count('INVALID_COMPARISON');
+  const currentRows = (historical ? e?.historicalRows ?? [] : rows).filter(row => matches(row, selection));
+  const changeFilters = (next: Filters): void => { setFilters(next); setSelection(''); };
+  const scopeActive = Object.entries(applied).some(([key, value]) => !['from', 'to'].includes(key) && value != null && value !== '');
+
   return <div className="dashboard-page quality-page flex flex-col gap-5" aria-busy={isLoading}>
     <section className="dashboard-toolbar quality-toolbar">
-      <header className="dashboard-page-heading"><div><h1 className="text-2xl font-semibold tracking-tight text-ink">Calibración y calidad auditora</h1><p className="mt-1 text-sm text-muted">Concordancia con la resolución humana final · Producción · UTC.</p></div></header>
-      <DashboardFilters value={filters} onChange={setFilters} />
-      <label className="mt-3 block text-sm text-muted">Estado de evaluación
-        <select className="mt-1 w-full rounded-xl border border-line bg-surface-2 px-3 py-2 text-sm text-ink" value={filters.evaluation ?? ''} onChange={event => setFilters({ ...filters, evaluation: event.target.value || null })}>
-          <option value="">Todos los estados</option>{Object.entries(states).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-        </select>
-      </label>
+      <header className="dashboard-page-heading"><div><h1 className="text-2xl font-semibold tracking-tight text-ink">Calidad de las auditorías</h1><p className="mt-2 text-sm text-muted">¿La IA coincide con la decisión final? ¿Qué casos faltan por revisar?</p></div></header>
+      <details className="quality-disclosure"><summary>Periodo: {applied.from} al {applied.to} · {scopeActive ? 'Filtros aplicados' : 'Todos los casos de producción'} · Cambiar filtros</summary><div className="pt-4"><DashboardFilters value={filters} onChange={changeFilters} /></div></details>
     </section>
     {error && <ErrorCard title="No se pudo cargar el informe de calidad" message={error} onRetry={reload} retrying={isLoading} />}
-    {human && <p className="text-sm text-muted">{human.message}</p>}
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-      <StatCard label="Concordancia final" value={percent(e?.agreementRate)} hint={`${e?.agreements ?? 0} acuerdos / ${e?.validComparisons ?? 0} comparaciones finales válidas`} />
-      <StatCard label="Cobertura de evaluación" value={percent(e?.coverageRate)} hint={`${e?.validComparisons ?? 0} comparaciones válidas / ${e?.issued ?? 0} dictámenes elegibles`} />
-      <StatCard label="Confianza promedio original" value={percent(confidence?.avgConfidence)} hint={`${confidence?.auditedCases ?? 0} dictámenes con confianza válida`} />
-      <StatCard label="Confianza de comparación" value={percent(human?.avgComparisonConfidence)} hint={`${e?.rows.filter(row => row.comparisonConfidence !== null).length ?? 0} comparaciones con confianza válida`} />
-    </div>
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Consultar expedientes de cada indicador">
-      {metrics.map(metric => <div key={metric.filter} className="flex flex-col gap-2">
-        <StatCard label={metric.label} value={loading ? <Skeleton className="h-8 w-20" /> : metric.value ?? DASH} hint={metric.hint} />
-        <Button variant="secondary" className="text-sm" onClick={() => selectMetric(metric.filter)}>Ver {metric.label.toLowerCase()}</Button>
-      </div>)}
-    </div>
-    <Panel title="Universo de evaluación" description={`Del ${applied.from} al ${applied.to} · Una versión vigente por expediente. Las versiones anteriores conservan sus decisiones y confianza.`}>
-      <p className="mb-3 text-sm text-muted">{e?.pendingEvaluation ?? 0} pendientes de evaluación final. Última ejecución técnica: {e?.technicalErrors ?? 0} errores y {e?.runningAudits ?? 0} en curso. Un fallo posterior no borra un dictamen anterior.</p>
-      <p className="mb-3 text-sm text-muted">Acuerdo exacto de códigos: {e?.exactAgreements ?? 0} / {e?.exactComparisons ?? 0} resoluciones finales ({percent(e?.exactComparisons ? e.exactAgreements / e.exactComparisons : null)}). Se mide por separado del acuerdo sustantivo.</p>
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3"><h2 className="font-semibold text-ink">{historical ? 'Histórico de versiones del periodo' : 'Expedientes del indicador'}</h2><Button variant="secondary" onClick={() => setHistorical(!historical)}>{historical ? 'Ver dictamen vigente' : `Ver histórico (${e?.historicalVersions ?? 0})`}</Button></div>
-      <CasesTable key={`${JSON.stringify(applied)}:${historical}`} rows={(historical ? e?.historicalRows : e?.rows) ?? []} />
-    </Panel>
-    <Panel title="Calibración observada" description="Confianza original y concordancia sobre la misma muestra evaluada. Una brecha positiva sugiere sobreconfianza; negativa, subconfianza. Las muestras pequeñas no permiten conclusiones firmes.">
-      <div role="region" aria-label="Calibración por banda de confianza" tabIndex={0} className="overflow-x-auto">
-        <table className="w-full text-left text-sm tabular-nums"><thead><tr className="border-b border-line text-muted">{['Confianza original', 'Casos', 'Evaluados', 'Acuerdos', 'Discrepancias', 'Confianza media', 'Concordancia observada', 'Brecha'].map(label => <th scope="col" key={label} className="whitespace-nowrap px-3 py-3">{label}</th>)}</tr></thead>
-        <tbody>{e?.calibration.map(band => <tr key={band.band} className="border-b border-line text-ink">{[band.band, band.cases, band.evaluated, band.agreements, band.disagreements, percent(band.declaredConfidence), percent(band.observedAgreement), band.gap === null ? DASH : `${(band.gap * 100).toFixed(1)} pp`].map((value, index) => <td key={index} className="px-3 py-3">{value}</td>)}</tr>)}</tbody></table>
+    {loading ? <Skeleton height={160} /> : e && <>
+      <section className="quality-overview" aria-label="Resumen de calidad">
+        <div><h2>Casos con dictamen de IA</h2><strong>{e.issued}</strong><p>Un dictamen vigente por expediente.</p></div>
+        <div><h2>Coincidencia con la decisión final</h2><strong>{e.validComparisons ? percent(e.agreementRate) : 'Aún sin evaluar'}</strong><p>{e.validComparisons ? `${e.agreements} de ${e.validComparisons} casos comparados coinciden; ${e.disagreements} difieren.` : 'Todavía no hay comparaciones finales válidas.'}</p></div>
+        <div><h2>Sin decisión humana final</h2><strong>{e.pendingEvaluation}</strong><p>{count('PENDING_ADVISOR')} esperan al Asesor · {count('PENDING_COORDINATOR')} al Coordinador.</p></div>
+      </section>
+      <p className="text-sm text-muted" role="status">{e.issued === 0 ? 'No hay dictámenes emitidos para los filtros elegidos.' : e.validComparisons === 0 ? `Hay ${e.issued} dictámenes, pero todavía no podemos medir cuánto coincide la IA con la decisión final.${pendingComparison ? ` ${pendingComparison} casos ya tienen decisión final y falta una comparación válida.` : ''}` : `La coincidencia se ha medido en ${e.validComparisons} de ${e.issued} dictámenes (${percent(e.coverageRate)}).${withoutComparison ? ` Quedan ${withoutComparison} sin comparación final válida.` : ''}`}</p>
+    </>}
+    <Panel title="Explorar la calidad" description="Elige una pregunta. Los filtros de periodo, país y canal se aplican a todas las vistas.">
+      <div className="mb-5 flex flex-wrap gap-2" role="group" aria-label="Vista de la gráfica">
+        {([['results', '¿Coincide la IA?'], ['pending', '¿Qué falta revisar?'], ['confidence', '¿Qué tan segura está la IA?']] as const).map(([value, label]) => <Button key={value} variant={view === value ? 'primary' : 'secondary'} aria-pressed={view === value} onClick={() => setView(value)}>{label}</Button>)}
       </div>
+      {loading ? <Skeleton height={200} /> : !e ? <p className="text-sm text-muted">{error ? 'El informe no está disponible. Usa Reintentar para volver a cargarlo.' : 'Sin datos disponibles.'}</p> : view === 'results' ? <>
+        <h3 className="mb-2 font-semibold text-ink">Resultado frente a la decisión humana final</h3>
+        <p className="mb-5 text-sm text-muted">Las barras muestran los {e.issued} dictámenes. La coincidencia se calcula solo con los casos ya comparados.</p>
+        <CountBar label="Coinciden" count={e.agreements} total={e.issued} selection="AGREEMENT" onSelect={selectCases} />
+        <CountBar label="Difieren" count={e.disagreements} total={e.issued} selection="DISAGREEMENT" tone="var(--warning)" onSelect={selectCases} />
+        <div className="quality-count-bar quality-count-static"><span className="quality-bar-label">Sin comparación final</span><span className="quality-bar-track" aria-hidden="true"><span style={{ width: `${e.issued ? withoutComparison / e.issued * 100 : 0}%`, backgroundColor: 'var(--text-muted)' }} /></span><span className="quality-bar-value">{withoutComparison}<small>{e.issued ? formatPercent(withoutComparison / e.issued) : 'Sin casos'}</small></span></div>
+        {withoutComparison > 0 && <Button variant="ghost" onClick={() => setView('pending')}>Ver qué falta para completar la evaluación</Button>}
+        <p className="mt-4 text-sm text-muted">Coincidir con la decisión humana no garantiza que el dictamen sea correcto. Las diferencias requieren revisar el expediente.</p>
+      </> : view === 'pending' ? <>
+        <h3 className="mb-2 font-semibold text-ink">Dónde se detiene la evaluación</h3><p className="mb-5 text-sm text-muted">Casos con dictamen que aún no tienen una comparación final válida. Selecciona una barra para consultar los casos.</p>
+        {(['PENDING_ADVISOR', 'PENDING_COORDINATOR', 'PENDING_COMPARISON', 'COMPARISON_RUNNING', 'COMPARISON_ERROR', 'INVALID_COMPARISON'] as const).filter(state => count(state) > 0 || state === 'PENDING_ADVISOR' || state === 'PENDING_COORDINATOR').map(state => <CountBar key={state} label={states[state]!} count={count(state)} total={withoutComparison} selection={state} tone={state === 'COMPARISON_ERROR' || state === 'INVALID_COMPARISON' ? 'var(--warning)' : 'var(--accent)'} onSelect={selectCases} />)}
+        {!withoutComparison && <p className="mt-4 text-sm text-muted">{e.issued ? 'Todos los dictámenes tienen comparación final válida.' : 'No hay dictámenes para evaluar en esta selección.'}</p>}
+      </> : <>
+        <h3 className="mb-2 font-semibold text-ink">Seguridad declarada frente a coincidencia observada</h3>
+        <p className="mb-4 text-sm text-muted">La confianza es lo que declara la IA; no es un porcentaje de aciertos comprobados. Ambas barras usan los mismos casos ya comparados.</p>
+        <div className="mb-5 flex flex-wrap gap-5 text-sm text-muted"><span><i className="quality-legend" style={{ backgroundColor: 'var(--text-muted)' }} />Confianza declarada</span><span><i className="quality-legend" style={{ backgroundColor: 'var(--accent)' }} />Coincidencia observada</span></div>
+        {e.calibration.filter(band => band.cases > 0).map(band => <div className="quality-calibration" key={band.band}>
+          <div className="mb-2 flex flex-wrap justify-between gap-2 text-sm"><strong className="text-ink">Confianza de {band.band}</strong><span className="text-muted">{band.evaluated} de {band.cases} casos comparados</span></div>
+          {band.evaluated ? <>{[['Confianza declarada', band.declaredConfidence, 'var(--text-muted)'], ['Coincidencia observada', band.observedAgreement, 'var(--accent)']].map(([label, value, color]) => <div className="quality-count-bar quality-count-static" key={String(label)}><span className="quality-bar-label">{label}</span><span className="quality-bar-track" aria-hidden="true"><span style={{ width: `${Number(value) * 100}%`, backgroundColor: String(color) }} /></span><span className="quality-bar-value">{percent(value as number | null)}</span></div>)}</> : <p className="text-sm text-muted">Aún no hay casos comparados en este grupo. No se puede contrastar su confianza.</p>}
+        </div>)}
+        {!e.calibration.some(band => band.cases > 0) && <p className="text-sm text-muted">No hay dictámenes con confianza disponible.</p>}
+        <p className="mt-4 text-sm text-muted">{e.withoutConfidence} dictámenes sin confianza declarada. Con pocos casos comparados, la muestra no permite conclusiones firmes.</p>
+      </>}
     </Panel>
-    <div className="grid gap-6 lg:grid-cols-2">
-      <ChartFrame title="Distribución de confianza original" description="Solo dictámenes vigentes con confianza válida." height={300} isLoading={loading} isEmpty={!confidence?.auditedCases} emptyTitle="Sin confianza disponible" error={null}>
-        <ConfidenceBandsChart data={confidence?.bands ?? []} ariaLabel={`Confianza original en ${confidence?.auditedCases ?? 0} dictámenes vigentes.`} />
-      </ChartFrame>
-      <ChartFrame title="Confianza según evidencia faltante" description="La ausencia de confianza queda fuera del promedio." height={300} isLoading={loading} isEmpty={!confidence?.confidenceByMissingEvidence.length} emptyTitle="Sin datos disponibles" error={null}>
-        <ConfidenceByEvidenceChart data={confidence?.confidenceByMissingEvidence ?? []} ariaLabel="Confianza original por cantidad de evidencias faltantes." />
-      </ChartFrame>
-    </div>
+    <Panel title={historical ? 'Histórico de dictámenes' : 'Consultar casos'} description="El filtro de esta tabla no cambia los indicadores ni la gráfica de arriba.">
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <label className="flex flex-col gap-2 text-sm text-muted" htmlFor="quality-case-selection">Casos que quieres consultar<select id="quality-case-selection" className="rounded-lg border border-line bg-surface-2 px-3 py-2 text-ink" value={selection} onChange={event => setSelection(event.target.value)}><option value="">Todos los casos</option>{Object.entries(states).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+        <Button variant="secondary" onClick={() => setHistorical(!historical)}>{historical ? 'Volver a dictámenes vigentes' : `Consultar histórico (${e?.historicalVersions ?? 0})`}</Button>
+      </div>
+      {selection && <p className="mb-3 text-sm text-muted" role="status">Mostrando: {states[selection]}. <button className="text-brand underline underline-offset-4" onClick={() => setSelection('')}>Ver todos los casos</button></p>}
+      {loading ? <Skeleton height={150} /> : <CasesTable key={`${JSON.stringify(applied)}:${historical}:${selection}`} rows={currentRows} />}
+    </Panel>
+    <details className="quality-disclosure"><summary>Cómo se calculan estos datos y estado técnico</summary><div className="quality-method text-sm text-muted">
+      <p>Se usa un dictamen vigente por expediente, seleccionado antes de aplicar el periodo. Las fechas corresponden a la auditoría y se muestran en UTC. Los casos de prueba quedan fuera.</p>
+      <p>La decisión final pertenece al Coordinador. La propuesta del Asesor queda pendiente hasta ese cierre. El comparador de IA evalúa el acuerdo con la decisión final de la misma versión.</p>
+      <p>Coincidencia: casos que coinciden / comparaciones finales válidas. Avance de comparación: comparaciones válidas / dictámenes emitidos. Los errores y las comparaciones en curso no cuentan como diferencias.</p>
+      <p>Coincidencia exacta del código de resolución: {e?.exactAgreements ?? DASH} de {e?.exactComparisons ?? DASH}. Se calcula aparte de la coincidencia que evalúa el comparador.</p>
+      <p>Confianza media del dictamen: {percent(data?.confidence.avgConfidence)}. Confianza media del comparador: {percent(data?.humanReview.avgComparisonConfidence)}. Un valor ausente no equivale a cero.</p>
+      <p>Últimas auditorías: {e?.technicalErrors ?? DASH} fallidas y {e?.runningAudits ?? DASH} en curso. Un fallo posterior no borra un dictamen anterior.</p>
+      {data?.confidence.confidenceByMissingEvidence.map(bucket => <p key={bucket.bucket}>{bucket.label}: confianza media {percent(bucket.avgConfidence)} en {bucket.count} dictámenes.</p>)}
+    </div></details>
   </div>;
 }

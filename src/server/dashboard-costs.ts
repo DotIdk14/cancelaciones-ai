@@ -233,7 +233,7 @@ export function aggregateAiCosts(
 
   for (const row of rows) {
     const cost = COST_PER_ROW(row);
-    if (cost !== null && Number.isFinite(cost)) {
+    if (cost !== null && Number.isFinite(cost) && cost >= 0) {
       totalCostUsd += cost;
       costAvailable = true;
       casesWithCost.add(row.case_id);
@@ -255,7 +255,7 @@ export function aggregateAiCosts(
     for (const call of modelCalls) {
       const existing = byModel.get(call.model) ?? { calls: 0, costKnownCalls: 0, costUsd: 0 };
       existing.calls += 1;
-      if (call.cost !== null && Number.isFinite(call.cost)) { existing.costKnownCalls += 1; existing.costUsd += call.cost; }
+      if (call.cost !== null && Number.isFinite(call.cost) && call.cost >= 0) { existing.costKnownCalls += 1; existing.costUsd += call.cost; }
       byModel.set(call.model, existing);
     }
 
@@ -347,7 +347,7 @@ export function aggregateAiCosts(
 
   const kpi = {
     totalCostUsd,
-    avgCostPerCaseUsd: casesCounted === 0 || rows.some(row => COST_PER_ROW(row) === null || row.cost_incomplete) ? null : totalCostUsd / casesCounted,
+    avgCostPerCaseUsd: casesCounted === 0 || rows.some(row => { const cost = COST_PER_ROW(row); return cost === null || !Number.isFinite(cost) || cost < 0 || row.cost_incomplete; }) ? null : totalCostUsd / casesCounted,
     totalTokens,
     promptTokens,
     completionTokens,

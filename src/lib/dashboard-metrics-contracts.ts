@@ -17,6 +17,7 @@ export interface ActivityMetrics {
   tokens: number;
   executionsWithoutTokenTrace: number;
   knownCostUsd: number;
+  costReportedExecutions?: number;
   executionsWithUnknownCost: number;
   avgKnownCostPerExecutionUsd: number | null;
   avgKnownCostPerCaseUsd: number | null;

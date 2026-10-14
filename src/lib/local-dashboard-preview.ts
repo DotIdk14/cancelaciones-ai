@@ -217,7 +217,41 @@ export function getLocalDashboardPreviewCosts(
           { bucket: '2026-10-02', costUsd: 0.09 },
         ];
 
+  const activity = previewActivity();
+  activity.audits = { ...activity.audits, executions: 28, completed: 25, failed: 3, running: 0,
+    uniqueCases: 28, knownCostUsd: 0.5, costReportedExecutions: 28, executionsWithUnknownCost: 0,
+    tokens: 428600, executionsWithoutTokenTrace: 0, avgKnownCostPerExecutionUsd: 0.5 / 28, avgKnownCostPerCaseUsd: 0.5 / 28 };
+  activity.comparisons = { executions: 0, completed: 0, failed: 0, running: 0, uniqueCases: 0,
+    reaudits: 0, retried: 0, fallback: 0, providerCalls: 0, executionsWithoutCallTrace: 0,
+    tokens: 0, executionsWithoutTokenTrace: 0, knownCostUsd: 0, costReportedExecutions: 0, executionsWithUnknownCost: 0,
+    avgKnownCostPerExecutionUsd: null, avgKnownCostPerCaseUsd: null };
+  activity.knownTotalCostUsd = 0.5;
+  activity.unknownCostExecutions = 0;
+  activity.series = buckets.map((point, index) => {
+    const audits = Math.floor(28 / buckets.length) + (index < 28 % buckets.length ? 1 : 0);
+    const date = new Date(`${filters.from}T00:00:00Z`);
+    const end = new Date(`${filters.to}T00:00:00Z`);
+    date.setTime(Math.min(end.getTime(), date.getTime() + index * 86400000));
+    if (granularity === 'week') date.setUTCDate(date.getUTCDate() - (date.getUTCDay() + 6) % 7);
+    return { bucket: date.toISOString().slice(0, granularity === 'month' ? 7 : 10),
+      audits, completed: Math.floor(25 / buckets.length) + (index < 25 % buckets.length ? 1 : 0), comparisons: 0,
+      tokens: Math.floor(428600 / buckets.length), knownCostUsd: point.costUsd,
+      unknownCostExecutions: 0, avgCostPerAuditUsd: point.costUsd / audits };
+  });
+  const grouped = new Map<string, NonNullable<typeof activity.series>[number]>();
+  for (const point of activity.series) {
+    const previous = grouped.get(point.bucket);
+    if (!previous) grouped.set(point.bucket, { ...point });
+    else {
+      previous.audits += point.audits; previous.completed += point.completed;
+      previous.tokens = (previous.tokens ?? 0) + (point.tokens ?? 0);
+      previous.knownCostUsd = (previous.knownCostUsd ?? 0) + (point.knownCostUsd ?? 0);
+      previous.avgCostPerAuditUsd = previous.knownCostUsd / previous.audits;
+    }
+  }
+  activity.series = [...grouped.values()];
   return {
+    activity,
     generatedAt: new Date().toISOString(),
     truncated: false,
     filters,

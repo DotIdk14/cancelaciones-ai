@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { aggregateActivitySeries } from '../src/server/dashboard-activity';
+import { aggregateActivity, aggregateActivitySeries } from '../src/server/dashboard-activity';
+import { aggregateAiCosts } from '../src/server/dashboard-costs';
+import { defaultDateRange } from '../src/lib/dashboard';
 import type { DashboardMetricRow } from '../src/server/dashboard-contracts';
 
 const row = (overrides: Partial<DashboardMetricRow> = {}): DashboardMetricRow => ({
@@ -9,6 +11,19 @@ const row = (overrides: Partial<DashboardMetricRow> = {}): DashboardMetricRow =>
 } as DashboardMetricRow);
 
 describe('series reales de actividad', () => {
+  it('costos inválidos son desconocidos y no producen promedios ni gasto negativo', () => {
+    for (const cost of [NaN, Infinity, -1]) {
+      const rows = [row({ attempts_cost_usd: cost })];
+      expect(aggregateActivity(rows)).toMatchObject({ knownCostUsd: 0, executionsWithUnknownCost: 1, avgKnownCostPerExecutionUsd: null });
+      expect(aggregateActivitySeries(rows, [], 'day')[0]).toMatchObject({ knownCostUsd: null, avgCostPerAuditUsd: null });
+      expect(aggregateAiCosts(rows, defaultDateRange(), 'day', 1).kpi).toMatchObject({ costAvailable: false, avgCostPerCaseUsd: null });
+    }
+  });
+  it('identificadores no consultados no se presentan como cero matrículas o tickets', () => {
+    expect(aggregateActivity([row()]).uniqueStudents).toBeUndefined();
+    expect(aggregateActivity([row()]).uniqueCaveTickets).toBeUndefined();
+    expect(aggregateActivity([row({ student_identifier: '001', external_case_id: 'cave-1' }), row({ id: 'b', student_identifier: '001', external_case_id: 'cave-1' })])).toMatchObject({ uniqueStudents: 1, uniqueCaveTickets: 1, executions: 2, uniqueCases: 1 });
+  });
   it('separa ejecuciones de auditoría y comparación sin duplicar consumo agregado', () => {
     const points = aggregateActivitySeries([row({ usage_is_aggregate: true, usage_total_tokens: 200, usage_cost_usd: 0.02 })], [row({ id: 'comparison', attempts_cost_usd: 0.01 })], 'day');
     expect(points[0]).toMatchObject({ bucket: '2026-10-13', audits: 1, comparisons: 1, tokens: 300, knownCostUsd: 0.03, avgCostPerAuditUsd: 0.02 });

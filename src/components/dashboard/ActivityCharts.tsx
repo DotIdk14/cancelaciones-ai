@@ -1,36 +1,39 @@
-import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { useState } from 'react';
+import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import type { MonthlyActivity } from '../../lib/dashboard-metrics-contracts';
-import type { ModelCostRow } from '../../lib/dashboard';
-import { ChartFrame } from '../ui';
+import type { CostGranularity } from '../../lib/dashboard';
+import { Button, Panel, Skeleton } from '../ui';
 import { AXIS_TICK_STYLE, GRID_STROKE, TOOLTIP_STYLE } from './charts/chartTheme';
 
-export function ActivityCharts({ activity, models, loading }: { activity?: MonthlyActivity; models: ModelCostRow[]; loading: boolean }) {
-  const series = activity?.series ?? [];
-  const plots = [
-    { key: 'knownCostUsd', title: 'Costo conocido de IA · USD', color: 'var(--accent)' },
-    { key: 'tokens', title: 'Tokens a lo largo del tiempo', color: '#8ab9ee' },
-    { key: 'audits', title: 'Actividad de auditorías', color: 'var(--accent)' },
-    { key: 'avgCostPerAuditUsd', title: 'Costo promedio por auditoría · USD', color: '#c0a1e5' },
-  ] as const;
-  return <>
-    <p className="text-sm text-muted">Producción · UTC · Las semanas empiezan en lunes. Costo conocido de auditorías y comparaciones; el promedio corresponde solo a auditorías. Tokens y promedio sin consumo completo quedan vacíos.</p>
-    <div className="grid gap-5 lg:grid-cols-2">
-      {plots.map(plot => <ChartFrame key={plot.key} title={plot.title} height={250} isLoading={loading} isEmpty={!series.some(point => point[plot.key] != null)} emptyTitle="Sin datos registrados" error={null}>
-        <ResponsiveContainer width="100%" height="100%"><LineChart data={series} title={plot.title} margin={{ top: 8, right: 12, bottom: 0, left: 8 }}>
-          <CartesianGrid stroke={GRID_STROKE} vertical={false} /><XAxis dataKey="bucket" tick={AXIS_TICK_STYLE} minTickGap={25} /><YAxis tick={AXIS_TICK_STYLE} width={65} />
-          <Tooltip contentStyle={TOOLTIP_STYLE} formatter={value => typeof value === 'number' ? value.toLocaleString('es-MX', { maximumFractionDigits: plot.key.includes('Cost') ? 6 : 0 }) : 'Sin dato'} />
-          <Line dataKey={plot.key} name={plot.title} stroke={plot.color} strokeWidth={2} dot={{ r: 3 }} connectNulls={false} isAnimationActive={false} />
-          {plot.key === 'audits' && <Line dataKey="completed" name="Auditorías completadas" stroke="var(--success)" strokeDasharray="4 4" dot={{ r: 3 }} isAnimationActive={false} />}
-        </LineChart></ResponsiveContainer>
-      </ChartFrame>)}
-    </div>
-    <ChartFrame title="Distribución del costo conocido por modelo · USD" height={280} isLoading={loading} isEmpty={!models.some(model => (model.costKnownCalls ?? 0) > 0)} emptyTitle="Sin costos reportados por modelo" error={null}>
-      <ResponsiveContainer width="100%" height="100%"><BarChart data={models.filter(model => (model.costKnownCalls ?? 0) > 0)} title="Costo conocido por modelo" layout="vertical" margin={{ left: 12, right: 20 }}>
-        <CartesianGrid stroke={GRID_STROKE} horizontal={false} /><YAxis type="category" dataKey="model" width={140} tick={AXIS_TICK_STYLE} /><XAxis type="number" tick={AXIS_TICK_STYLE} />
-        <Tooltip contentStyle={TOOLTIP_STYLE} formatter={value => typeof value === 'number' ? `$${value.toFixed(6)} USD` : 'Sin dato'} /><Bar dataKey="totalCostUsd" name="Costo conocido" fill="var(--accent)" isAnimationActive={false} />
-      </BarChart></ResponsiveContainer>
-    </ChartFrame>
-    <details className="text-sm text-muted"><summary className="cursor-pointer text-brand">Consultar valores exactos y cobertura</summary><div className="overflow-x-auto" role="region" aria-label="Datos de actividad" tabIndex={0}><table className="student-history-comparison"><thead><tr>{['Periodo UTC', 'Ejecuciones de auditoría', 'Completadas', 'Comparaciones', 'Tokens', 'Costo conocido USD', 'Costo incompleto', 'Promedio auditoría USD'].map(label => <th key={label} scope="col">{label}</th>)}</tr></thead><tbody>{series.map(point => <tr key={point.bucket}>{[point.bucket, point.audits, point.completed, point.comparisons, point.tokens ?? 'No disponible', point.knownCostUsd?.toFixed(6) ?? 'No disponible', point.unknownCostExecutions, point.avgCostPerAuditUsd?.toFixed(6) ?? 'No disponible'].map((value, i) => <td key={i}>{value}</td>)}</tr>)}</tbody></table></div></details>
-  </>;
-}
+const money = (value: number | null | undefined): string => value == null ? 'No disponible' : `$${value.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 6 })} USD`;
+type View = 'cost' | 'activity' | 'average';
 
+export function ActivityCharts({ activity, loading, granularity, onGranularityChange }: {
+  activity?: MonthlyActivity; loading: boolean; granularity: CostGranularity; onGranularityChange: (value: CostGranularity) => void;
+}) {
+  const [view, setView] = useState<View>('cost');
+  const series = activity?.series ?? [];
+  const hasData = series.some(point => view === 'cost' ? point.knownCostUsd !== null : view === 'average' ? point.avgCostPerAuditUsd !== null : point.audits + point.comparisons > 0);
+  const title = view === 'cost' ? 'Gasto registrado de IA' : view === 'activity' ? 'Trabajo realizado por la IA' : 'Costo por ejecución de auditoría';
+  const description = view === 'cost' ? 'Incluye auditorías y comparaciones. Los costos no reportados quedan fuera de la suma.' : view === 'activity' ? 'Un expediente puede tener varias ejecuciones. Las auditorías completadas forman parte de las iniciadas.' : 'Incluye las ejecuciones fallidas y en curso. Excluye comparaciones. No es el costo por expediente.';
+  return <Panel title="Explorar actividad y consumo" description="Una gráfica, tres formas de consultar el periodo.">
+    <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap gap-2" role="group" aria-label="Vista de consumo">
+        {([['cost', 'Gasto'], ['activity', 'Actividad'], ['average', 'Costo promedio']] as const).map(([value, label]) => <Button key={value} variant={view === value ? 'primary' : 'secondary'} aria-pressed={view === value} onClick={() => setView(value)}>{label}</Button>)}
+      </div>
+      <div className="flex items-center gap-2 text-sm text-muted"><label htmlFor="consumption-group">Agrupar por</label><select id="consumption-group" className="rounded-lg border border-line bg-surface-2 px-3 py-2 text-ink" value={granularity} onChange={event => onGranularityChange(event.target.value as CostGranularity)}><option value="day">Día</option><option value="week">Semana</option><option value="month">Mes</option></select></div>
+    </div>
+    <h3 className="font-semibold text-ink">{title}{view !== 'activity' && ' · USD'}</h3><p className="mt-2 mb-5 text-sm text-muted">{description}</p>
+    {loading ? <Skeleton height={280} /> : !hasData ? <div className="py-10 text-sm text-muted" role="status">{view === 'average' && series.length ? 'No hay promedios disponibles: faltan costos completos o no hubo auditorías.' : view === 'cost' && series.length ? 'Hubo actividad, pero el proveedor no reportó costos válidos.' : 'No hay actividad registrada para este periodo.'}</div> : <>
+      <div className="h-[300px] w-full">
+        <ResponsiveContainer width="100%" height="100%"><BarChart data={series} title={title} desc={description} margin={{ top: 12, right: 8, bottom: 4, left: 0 }}>
+          <CartesianGrid stroke={GRID_STROKE} vertical={false} /><XAxis dataKey="bucket" tick={AXIS_TICK_STYLE} minTickGap={30} /><YAxis tick={AXIS_TICK_STYLE} width={65} allowDecimals={view !== 'activity'} tickFormatter={value => view === 'activity' ? String(value) : `$${Number(value).toLocaleString('es-MX', { maximumSignificantDigits: 3 })}`} />
+          <Tooltip contentStyle={TOOLTIP_STYLE} formatter={value => typeof value === 'number' ? view === 'activity' ? `${value} ejecuciones` : money(value) : 'No disponible'} />
+          {view === 'activity' ? <><Legend /><Bar dataKey="audits" name="Auditorías iniciadas" fill="var(--accent)" maxBarSize={48} isAnimationActive={false} /><Bar dataKey="completed" name="Auditorías completadas" fill="var(--success)" maxBarSize={48} isAnimationActive={false} /><Bar dataKey="comparisons" name="Comparaciones iniciadas" fill="var(--text-muted)" maxBarSize={48} isAnimationActive={false} /></> : <Bar dataKey={view === 'cost' ? 'knownCostUsd' : 'avgCostPerAuditUsd'} name={title} fill="var(--accent)" maxBarSize={64} isAnimationActive={false} />}
+        </BarChart></ResponsiveContainer>
+      </div>
+      <p className="mt-3 text-xs text-muted">Solo se muestran periodos con actividad. Fechas en UTC; semanas desde el lunes. Un espacio sin costo disponible no equivale a costo cero.</p>
+    </>}
+    <details className="quality-disclosure"><summary>Consultar valores exactos de la gráfica</summary><div className="overflow-x-auto" role="region" aria-label="Valores de actividad y consumo" tabIndex={0}><table className="student-history-comparison"><caption className="sr-only">Actividad y gasto por periodo UTC</caption><thead><tr>{['Periodo UTC', 'Auditorías iniciadas', 'Completadas', 'Comparaciones', 'Gasto registrado', 'Ejecuciones con costo incompleto', 'Promedio por ejecución de auditoría'].map(label => <th key={label} scope="col">{label}</th>)}</tr></thead><tbody>{series.map(point => <tr key={point.bucket}><th scope="row">{point.bucket}</th><td>{point.audits}</td><td>{point.completed}</td><td>{point.comparisons}</td><td>{money(point.knownCostUsd)}</td><td>{point.unknownCostExecutions}</td><td>{money(point.avgCostPerAuditUsd)}</td></tr>)}</tbody></table>{!series.length && <p className="py-4 text-sm text-muted">Sin registros para el periodo elegido.</p>}</div></details>
+  </Panel>;
+}
