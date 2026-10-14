@@ -50,6 +50,7 @@ export interface CaseDetailDto {
   updatedAt: string;
   isTest: boolean;
   /** Capacidad efectiva para mutar este caso, resuelta por rol y propiedad. */
+  mergedIntoCaseId?: string | null;
   canWrite: boolean;
   canManageCases: boolean;
   country: string | null;
@@ -253,6 +254,7 @@ export function caseToDetail(row: CaseRow, canWrite = false, canManageCases = fa
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     isTest: row.is_test ?? false,
+    mergedIntoCaseId: row.merged_into_case_id ?? null,
     canWrite,
     canManageCases,
     country: row.country ?? null,

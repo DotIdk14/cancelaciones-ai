@@ -29,6 +29,7 @@ function actionTone(action: 'NEW' | 'UPDATE' | 'UNCHANGED'): 'brand' | 'warning'
 export function FlokzuImportPage({ previewOnly = false }: { previewOnly?: boolean }): ReactNode {
   const fileInput = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
+  const [linkSelections, setLinkSelections] = useState<Record<string, string>>({});
   const [preview, setPreview] = useState<FlokzuImportPreview | null>(null);
   const [imports, setImports] = useState<FlokzuImportHistoryItem[]>([]);
   const [cases, setCases] = useState<FlokzuImportedCase[]>([]);
@@ -111,6 +112,7 @@ export function FlokzuImportPage({ previewOnly = false }: { previewOnly?: boolea
     try {
       const result = await previewFlokzuImport(file);
       setPreview(result);
+      setLinkSelections({});
       await refreshHistory();
       if (result.validRows === 0) setError('El archivo no tiene filas importables. Revisa los errores antes de continuar.');
     } catch (cause) {
@@ -126,8 +128,8 @@ export function FlokzuImportPage({ previewOnly = false }: { previewOnly?: boolea
     setError(null);
     setSuccess(null);
     try {
-      const result = await confirmFlokzuImport(preview.batchId);
-      setSuccess(`Importación completada: ${result.created ?? 0} nuevos, ${result.updated ?? 0} actualizados, ${result.unchanged ?? 0} sin cambios.`);
+      const result = await confirmFlokzuImport(preview.batchId, Object.entries(linkSelections).map(([externalCaseId, selected]) => ({ externalCaseId, caseId: selected === 'NEW' ? null : selected })));
+      setSuccess(`Importación completada: ${result.linked ?? 0} vinculados, ${result.created ?? 0} nuevos, ${result.updated ?? 0} actualizados, ${result.unchanged ?? 0} sin cambios.`);
       setPreview(null);
       setFile(null);
       await refreshHistory();
@@ -193,6 +195,17 @@ export function FlokzuImportPage({ previewOnly = false }: { previewOnly?: boolea
         </div>
       </Panel>
 
+      {preview && preview.rows.some(row => row.manualMatch?.candidates.length) && <Panel title="Vincular expedientes existentes" description="Al vincular se conserva el expediente manual, su responsable y todos sus archivos. Confirma una solicitud distinta solo si corresponde a otro trámite.">
+        <div className="flex flex-col gap-4">{preview.rows.filter(row => row.manualMatch?.candidates.length).map(row => <div key={row.externalCaseId}>
+          <label htmlFor={'link-' + row.externalCaseId} className="mb-1 block text-sm font-medium text-ink">{row.externalCaseId} · Matrícula {row.studentIdentifier} · {row.studentName}</label>
+          <select id={'link-' + row.externalCaseId} className="w-full rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm text-ink" value={linkSelections[row.externalCaseId] ?? row.manualMatch?.linkCaseId ?? ''} onChange={event => setLinkSelections(current => ({ ...current, [row.externalCaseId]: event.target.value }))} disabled={confirming}>
+            <option value="" disabled>Selecciona el expediente correspondiente</option>
+            {row.manualMatch!.candidates.map(candidate => <option key={candidate.id} value={candidate.id}>Vincular: {candidate.studentName ?? 'Sin nombre'} · {formatDateTime(candidate.createdAt)} · {candidate.id.slice(0, 8)}</option>)}
+            <option value="NEW">Confirmar que es otra solicitud y crear un expediente separado</option>
+          </select>
+          {row.manualMatch?.linkCaseId && !linkSelections[row.externalCaseId] && <p className="mt-1 text-xs text-muted">Se propone el único expediente reciente con matrícula y nombre coincidentes. La confirmación de importación aplicará esta vinculación.</p>}
+        </div>)}</div>
+      </Panel>}
       {preview && <Panel title="Vista previa de importación" description={`Exportación ${preview.exportedAt ?? 'sin fecha de exportación'} · ${preview.totalRows} filas detectadas · ${preview.validRows} válidas`} actions={<Badge tone="brand">CaVe como clave · Flokzu</Badge>}>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <Metric label="Expedientes activos" value={preview.activeRows} />
@@ -220,7 +233,7 @@ export function FlokzuImportPage({ previewOnly = false }: { previewOnly?: boolea
         </div>
         {preview.issues.length > 0 && <section className="mt-5" aria-labelledby="fl-preview-errors"><h3 id="fl-preview-errors" className="text-sm font-semibold text-danger">Errores por fila</h3><ul className="mt-2 max-h-40 space-y-1 overflow-auto rounded-xl border border-danger/30 bg-danger/5 p-3 text-xs text-muted">{preview.issues.slice(0, 100).map((issue, index) => <li key={`${issue.rowNumber}-${index}`}>Fila {issue.rowNumber}{issue.externalCaseId ? ` · ${issue.externalCaseId}` : ''}: {issue.message}</li>)}</ul></section>}
         <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-line pt-4">
-          <Button onClick={() => { void handleConfirm(); }} disabled={preview.validRows === 0 || confirming || uploading}>
+          <Button onClick={() => { void handleConfirm(); }} disabled={preview.validRows === 0 || confirming || uploading || preview.rows.some(row => row.manualMatch?.requiresSelection && !linkSelections[row.externalCaseId])}>
             {confirming ? <><Spinner label="Importando expedientes" /> Importando…</> : 'Confirmar importación'}
           </Button>
           <p className="max-w-2xl text-xs text-muted">Los tickets fuera de auditoría pasan a Revisión Flokzu. Un CaVe existente se sincroniza sin duplicarlo; se conservan evidencias, dictámenes y decisiones manuales.</p>

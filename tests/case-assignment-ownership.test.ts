@@ -35,4 +35,11 @@ describe('propiedad de tickets importados', () => {
     const manual = { ...flokzuCase, external_source: null, external_case_id: null, assigned_to: null };
     expect(caseOwnedBy(manual, FAKE_COORDINATOR_SUB)).toBe(true);
   });
+  it('permite al Coordinador terminar la carga de un manual con CaVe asignado a un Asesor', () => {
+    const manualWithCave = { ...flokzuCase, flokzu_data: null };
+    expect(caseOwnedBy(manualWithCave, FAKE_COORDINATOR_SUB)).toBe(true);
+    expect(caseOwnedBy(manualWithCave, FAKE_USER_SUB)).toBe(true);
+    expect(caseOwnedBy({ ...manualWithCave, flokzu_data: {} }, FAKE_COORDINATOR_SUB)).toBe(false);
+    expect(caseOwnedBy({ ...manualWithCave, merged_into_case_id: 'principal' }, FAKE_COORDINATOR_SUB)).toBe(false);
+  });
 });

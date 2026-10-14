@@ -1,3 +1,5 @@
+import type { ManualCaseMatch, ImportLinkResolution } from '../shared/case-links.js';
+import { assignmentError } from './case-assignment.js';
 import { assertFlokzuCoordinator, decideFlokzuTicket } from './flokzu-review.js';
 import { resolveFlokzuEligibility, type FlokzuClassification, type FlokzuReviewState } from '../shared/flokzu-review.js';
 import type { InsForgeClient } from './insforge.js';
@@ -40,6 +42,7 @@ export interface FlokzuPreviewRow {
   studentIdentifier: string;
   studentName: string;
   action: 'NEW' | 'UPDATE' | 'UNCHANGED';
+  manualMatch?: ManualCaseMatch;
   assignmentUserId: string | null;
   assignmentName: string | null;
   canAutoAssign: boolean;
@@ -119,10 +122,16 @@ export async function createFlokzuPreview(
     for (const row of (data as ImportedCaseRow[] | null) ?? []) existingByExternalId.set(row.external_case_id, row);
   }
 
+  const { data: matchData, error: matchError } = await client.database.rpc('get_flokzu_manual_matches', { p_rows: parsed.rows });
+  if (matchError) databaseError(matchError);
+  if (!matchData || typeof matchData !== 'object' || Array.isArray(matchData)) throw new ApiError(503, 'DATABASE_ERROR', 'No se pudieron verificar coincidencias de expedientes.');
+  const manualMatches = matchData as Record<string, ManualCaseMatch>;
   const previewRows: FlokzuPreviewRow[] = [];
   const actionCounts = { NEW: 0, UPDATE: 0, UNCHANGED: 0 };
   const routableRows = parsed.rows.filter(row => {
     const existing = existingByExternalId.get(row.externalCaseId);
+    const match = manualMatches[row.externalCaseId];
+    if (match?.requiresSelection || match?.candidates.find(c => c.id === match.linkCaseId)?.assignedTo) return false;
     return row.eligibleForAuditAssignment && !existing?.assigned_to && (!existing || existing.flokzu_review_state === 'OPEN');
   });
   const newRoutable = routableRows;
@@ -154,7 +163,7 @@ export async function createFlokzuPreview(
 
   const assignedPreview = distributeFlokzuAssignments(routableRows, eligible, load);
 
-  const stagedRows: Array<ParsedFlokzuRow & { actionAtPreview: 'NEW' | 'UPDATE' | 'UNCHANGED' }> = [];
+  const stagedRows: Array<ParsedFlokzuRow & { actionAtPreview: 'NEW' | 'UPDATE' | 'UNCHANGED'; manualMatch?: ManualCaseMatch }> = [];
   for (const row of parsed.rows) {
     const existing = existingByExternalId.get(row.externalCaseId);
     const action = !existing ? 'NEW' : normalizedComparable(row) === stableJson({
@@ -163,9 +172,11 @@ export async function createFlokzuPreview(
       flokzu_data: existing.flokzu_data,
     }) ? 'UNCHANGED' : 'UPDATE';
     actionCounts[action] += 1;
-    const assignmentUserId = existing?.assigned_to ?? assignedPreview.get(row.externalCaseId) ?? null;
+    const manualMatch = manualMatches[row.externalCaseId];
+    const assignmentUserId = existing?.assigned_to ?? manualMatch?.candidates.find(c => c.id === manualMatch.linkCaseId)?.assignedTo ?? assignedPreview.get(row.externalCaseId) ?? null;
     const old = existing?.flokzu_data as ParsedFlokzuRow['flokzuData'] | undefined;
     previewRows.push({
+      manualMatch,
       rowNumber: row.rowNumber,
       externalCaseId: row.externalCaseId,
       studentIdentifier: row.studentIdentifier,
@@ -179,7 +190,7 @@ export async function createFlokzuPreview(
       previousTask: old?.operations?.currentTask ?? null, nextTask: row.flokzuData.operations.currentTask,
       previousFinalized: old?.operations?.finalizedReported ?? null, nextFinalized: row.flokzuData.operations.finalizedReported,
     });
-    stagedRows.push({ ...row, actionAtPreview: action });
+    stagedRows.push({ ...row, actionAtPreview: action, ...(manualMatch ? { manualMatch } : {}) });
   }
   const assignmentCounts = new Map<string, number>();
   for (const userId of assignedPreview.values()) assignmentCounts.set(userId, (assignmentCounts.get(userId) ?? 0) + 1);
@@ -222,15 +233,16 @@ export async function confirmFlokzuImport(
   client: InsForgeClient,
   actor: AuthContext,
   batchId: string,
+  resolutions: ImportLinkResolution[] = [],
 ): Promise<unknown> {
   assertFlokzuCoordinator(actor);
-  const { data, error } = await client.database.rpc('commit_flokzu_import', { p_batch_id: batchId, p_actor: actor.sub });
+  const { data, error } = await client.database.rpc('commit_flokzu_import', { p_batch_id: batchId, p_actor: actor.sub, p_resolutions: resolutions });
   if (error) {
     const message = typeof error === 'object' && error !== null && 'message' in error ? String(error.message) : '';
     if (message.includes('Importación no encontrada')) throw new ApiError(404, 'NOT_FOUND', 'Vista previa no encontrada.');
     if (message.includes('venció')) throw new ApiError(409, 'VALIDATION_ERROR', 'La vista previa venció; vuelve a subir el archivo.');
     if (message.includes('Solo un Coordinador')) throw new ApiError(403, 'AUTH_ERROR', 'No tienes permiso para confirmar importaciones.');
-    databaseError(error);
+    assignmentError(error);
   }
   return data;
 }
@@ -248,7 +260,7 @@ export async function listFlokzuImportData(client: InsForgeClient, caseOffset = 
     .select('id,status,total_rows,valid_rows,new_rows,changed_rows,unchanged_rows,error_rows,issues,result_json,created_at,completed_at')
       .order('created_at', { ascending: false }).limit(30),
     client.database.from('cases').select('id,external_case_id,student_identifier,student_name,status,assigned_to,created_at')
-      .eq('external_source', 'FLOKZU').order('created_at', { ascending: false }).order('id', { ascending: false })
+      .eq('external_source', 'FLOKZU').is('merged_into_case_id', null).order('created_at', { ascending: false }).order('id', { ascending: false })
       .range(caseOffset, caseOffset + 49),
   ]);
   if (error) databaseError(error);

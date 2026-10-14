@@ -5,6 +5,7 @@ export type RelationKind =
   | "UNVERIFIED";
 export interface StudentHistoryItem {
   id: string;
+  mergedIntoCaseId?: string | null;
   externalCaseId: string | null;
   createdAt: string;
   status: string;

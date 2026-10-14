@@ -110,8 +110,10 @@ export async function reconcileCases(
       "AUTH_ERROR",
       "Solo Coordinación puede conciliar solicitudes.",
     );
-  await getScopedCaseOr404(client, caseId, auth);
-  await getScopedCaseOr404(client, otherId, auth);
+  const first = await getScopedCaseOr404(client, caseId, auth);
+  const second = await getScopedCaseOr404(client, otherId, auth);
+  if (first.merged_into_case_id || second.merged_into_case_id)
+    throw new ApiError(409, 'VALIDATION_ERROR', 'La ficha ya está consolidada. Consulta el expediente principal.');
   const { error } = await client.database.rpc("reconcile_case_requests", {
     p_case_id: caseId,
     p_other_id: otherId,

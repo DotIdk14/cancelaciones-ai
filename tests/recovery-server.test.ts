@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import type { InsForgeClient } from '../src/server/insforge';
+import { describe, expect, it, vi } from 'vitest';
 import { createCase, claimEvidencePreparationRetry } from '../src/server/cases';
 import { sendBinary, idempotencyKey, type ApiRequest, type ApiResponse } from '../src/server/http';
 import { safeRoute } from '../src/server/incidents';
@@ -7,20 +8,17 @@ import { computeEvidenceFingerprint } from '../src/server/audit-fingerprint';
 const key = '00000000-0000-4000-8000-000000000111';
 
 describe('recuperación de solicitudes persistidas', () => {
-  it('repetir la creación con la misma identidad devuelve una fila', async () => {
-    const db = createFakeDatabase();
-    const first = await createCase(db.client, 'M-1', 'Nombre sintético', 'owner', key);
-    const replay = await createCase(db.client, 'M-1', 'Nombre sintético', 'owner', key);
-    expect(first.id).toBe(key);
-    expect(replay.id).toBe(first.id);
-    expect(db.rows('cases')).toHaveLength(1);
+  it('envía la identidad y el actor al RPC transaccional', async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: { id: key, created_by: 'owner' }, error: null });
+    const client = { database: { rpc } } as unknown as InsForgeClient;
+    expect((await createCase(client, 'M-1', 'Nombre sintético', 'owner', key)).id).toBe(key);
+    expect(rpc).toHaveBeenCalledWith('create_assigned_case', expect.objectContaining({ p_actor: 'owner', p_request_id: key }));
   });
-  it('una identidad ajena da 404 y un payload distinto da 409', async () => {
-    const db = createFakeDatabase();
-    await createCase(db.client, 'M-1', 'Nombre sintético', 'owner', key);
-    await expect(createCase(db.client, 'M-1', 'Nombre sintético', 'other', key)).rejects.toMatchObject({ status: 404 });
-    await expect(createCase(db.client, 'M-2', 'Nombre sintético', 'owner', key)).rejects.toMatchObject({ status: 409 });
-    expect(db.rows('cases')).toHaveLength(1);
+  it('traduce conflictos del RPC sin filtrar detalles de la base', async () => {
+    for (const [code, status] of [['P0002',404],['40001',409],['23505',409]]) {
+      const rpc = vi.fn().mockResolvedValue({ data: null, error: { code, message: 'detalle privado' } });
+      await expect(createCase({ database: { rpc } } as unknown as InsForgeClient, 'M-1', null, 'owner', key)).rejects.toMatchObject({ status });
+    }
   });
   it('rechaza identidades no UUID antes del efecto', () => {
     expect(() => idempotencyKey({ headers: { 'x-idempotency-key': 'bad' } } as ApiRequest)).toThrow();

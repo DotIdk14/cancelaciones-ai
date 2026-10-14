@@ -1,5 +1,26 @@
 # Auditoría y conciliación de migraciones
 
+## Asignación y vinculación · 14 de octubre de 2026
+
+Con autorización expresa del propietario para corregir también la base real,
+se ensayaron y aplicaron individualmente con el runner oficial las versiones
+`20261014180000`, `20261014180100`, `20261014180200` y `20261014180300` en el
+backend aislado existente y después en producción. Sus bloques `DO $verify$`
+terminaron correctamente. No se modificó el ledger manualmente ni el baseline.
+
+La reparación archivó tres importados vacíos, completó cuatro CaVe y mantuvo
+activos dos manuales con discrepancia, según la elección del propietario. Las
+huellas anteriores y posteriores confirmaron la conservación de 22 evidencias,
+siete auditorías, una revisión y siete comentarios en los expedientes afectados.
+Los manuales reales creados por Asesores o Coordinación no dejaron responsables
+pendientes después del backfill. Los originales y dictámenes no se trasladaron
+ni eliminaron, y no se llamó a IA.
+
+Las exportaciones de esquema/datos y comprobaciones están fuera de Git en
+`tmp/assignment-repair/` del checkout original. No incluyen una prueba de
+restauración de Storage. Los detalles y el estado de la entrega de código se
+registran en `docs/asignacion-y-vinculacion-contactos.md`.
+
 ## Integración en producción · 13 de octubre de 2026
 
 La integración `6ed7b8f` incorpora `a1ec64d` y las correcciones del menú contextual,

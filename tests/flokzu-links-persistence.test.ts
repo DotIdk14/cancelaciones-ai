@@ -18,7 +18,7 @@ describe('persistencia de referencias externas', () => {
     const existing: Array<Record<string, unknown>> = [];
     const batches: Array<Record<string, unknown>> = [];
     const tables: string[] = [];
-    const rpc = vi.fn(async () => ({ data: null, error: null }));
+    const rpc = vi.fn(async (name: string) => ({ data: name === 'get_flokzu_manual_matches' ? (existing.length ? {} : { 'CaVe-1': { candidates: [], linkCaseId: null, requiresSelection: false } }) : null, error: null }));
     const client = { database: { rpc, from(table: string) {
       tables.push(table);
       const query = {
@@ -44,6 +44,6 @@ describe('persistencia de referencias externas', () => {
     expect(existing[0]).toMatchObject({ assigned_to: 'advisor-a', created_by: 'importer' });
     expect(tables).not.toContain('evidence');
     expect(tables).not.toContain('audits');
-    expect(rpc.mock.calls.every(([name]) => name === 'expire_flokzu_import_previews')).toBe(true);
+    expect(rpc.mock.calls.every(([name]) => ['get_flokzu_manual_matches', 'expire_flokzu_import_previews'].includes(name))).toBe(true);
   });
 });

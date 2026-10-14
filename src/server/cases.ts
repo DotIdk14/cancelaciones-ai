@@ -1,3 +1,4 @@
+import { assignmentError } from './case-assignment.js';
 // =============================================================================
 // Capa de datos — casos, evidencias y auditorías (solo persistencia).
 // =============================================================================
@@ -17,6 +18,7 @@ import { computeEvidenceFingerprint } from './audit-fingerprint.js';
 
 export interface CaseRow {
   id: string;
+  merged_into_case_id?: string | null;
   status: CaseStatus;
   student_identifier: string | null;
   student_name?: string | null;
@@ -181,36 +183,17 @@ function dbError(error: unknown, fallback: ErrorCategory = 'DATABASE_ERROR'): ne
 }
 
 export async function createCase(
-  client: InsForgeClient,
-  studentIdentifier: string | null,
-  studentName: string | null,
-  createdBy: string,
-  requestId?: string,
+  client: InsForgeClient, studentIdentifier: string | null, studentName: string | null,
+  createdBy: string, requestId?: string, options: { externalCaseId?: string; assignedTo?: string; separateRequest?: boolean } = {},
 ): Promise<CaseRow> {
-  const recover = async (): Promise<CaseRow | null> => {
-    if (!requestId) return null;
-    const { data, error } = await client.database.from('cases').select('*').eq('id', requestId).limit(1);
-    if (error) dbError(error);
-    const existing = (data as CaseRow[] | null)?.[0];
-    if (!existing) return null;
-    if (existing.created_by !== createdBy) throw new ApiError(404, 'NOT_FOUND', 'Caso no encontrado');
-    if (existing.student_identifier !== studentIdentifier || existing.student_name !== studentName) {
-      throw new ApiError(409, 'VALIDATION_ERROR', 'Esta solicitud ya creó un expediente con otros datos. Abre el expediente guardado para continuar.');
-    }
-    return existing;
-  };
-  const previous = await recover();
-  if (previous) return previous;
-  const { data, error } = await client.database
-    .from('cases')
-    .insert([{ ...(requestId ? { id: requestId } : {}), status: 'DRAFT', student_identifier: studentIdentifier, student_name: studentName, created_by: createdBy, is_test: false }])
-    .select()
-    .single();
-  if (error || !data) {
-    const concurrent = await recover();
-    if (concurrent) return concurrent;
-    dbError(error);
-  }
+  const { data, error } = await client.database.rpc('create_assigned_case', {
+    p_actor: createdBy, p_student_identifier: studentIdentifier, p_student_name: studentName,
+    p_request_id: requestId ?? null, p_external_case_id: options.externalCaseId ?? null,
+    p_assigned_to: options.assignedTo ?? null,
+    p_separate_request: options.separateRequest ?? false,
+  });
+  if (error) assignmentError(error);
+  if (!data || typeof data !== 'object' || !('id' in data)) throw new ApiError(503, 'DATABASE_ERROR', 'No se pudo confirmar la creación del expediente.');
   return data as CaseRow;
 }
 
@@ -223,6 +206,7 @@ export async function setCaseTestFlag(client: InsForgeClient, caseId: string, is
 /** Borra un borrador solo cuando está realmente vacío y nunca fue auditado. */
 export async function deleteUnusedDraftCase(client: InsForgeClient, caseId: string): Promise<void> {
   const existing = await getCaseOr404(client, caseId);
+  if (existing.merged_into_case_id) throw new ApiError(409, 'VALIDATION_ERROR', 'Este expediente fue consolidado y conserva su historial.');
   if (existing.external_source === 'FLOKZU') throw new ApiError(409, 'VALIDATION_ERROR', 'Los tickets de Flokzu se conservan; confirma el cierre administrativo.');
   const [
     { data: evidence, error: evidenceError },
@@ -398,7 +382,7 @@ export async function listCaseSummaryPage(
   if (creatorIds?.length === 0) return [];
   let query = client.database
     .from('cases')
-    .select('*,evidence(count)')
+    .select('*,evidence(count)').is('merged_into_case_id', null)
     .lte('created_at', options.snapshot)
     .order('created_at', { ascending: false })
     .order('id', { ascending: false });
@@ -425,7 +409,7 @@ export async function countCaseSummaryStatuses(
     return { ALL: 0, DRAFT: 0, READY: 0, AUDITING: 0, COMPLETED: 0, ERROR: 0 };
   }
   const count = async (status?: CaseStatus): Promise<number> => {
-    let query = client.database.from('cases').select('id', { count: 'exact', head: true });
+    let query = client.database.from('cases').select('id', { count: 'exact', head: true }).is('merged_into_case_id', null);
     if (!capabilitiesForRole(auth.role).canReadAllCases) query = query.or(`created_by.eq.${auth.sub},assigned_to.eq.${auth.sub}`);
     if (creatorId) query = query.eq('created_by', creatorId);
     if (assignedTo) query = assignedTo === 'UNASSIGNED' ? query.is('assigned_to', null) : query.eq('assigned_to', assignedTo);
@@ -447,7 +431,7 @@ export async function listCaseSummaries(client: InsForgeClient, auth: AuthContex
   for (let offset = 0; ; offset += pageSize) {
     let query = client.database
       .from('cases')
-      .select('*,evidence(count)')
+      .select('*,evidence(count)').is('merged_into_case_id', null)
       .lte('created_at', snapshot)
       .order('created_at', { ascending: false })
       .order('id', { ascending: false });
@@ -503,14 +487,19 @@ export function assertCaseOwner(row: CaseRow, auth: AuthContext): void {
   }
 }
 
-/** El creador conserva atribución; en Flokzu la capacidad de trabajo pertenece a assigned_to. */
+/** Un CaVe capturado manualmente conserva al creador hasta su primera sincronización. */
 export function caseOwnedBy(row: CaseRow, userId: string): boolean {
-  if (row.external_source === 'FLOKZU') return row.flokzu_audit_eligible !== false && row.assigned_to === userId;
+  if (row.merged_into_case_id) return false;
+  if (row.external_source === 'FLOKZU') return row.flokzu_audit_eligible !== false && (
+    row.assigned_to === userId || (row.flokzu_data === null && row.created_by === userId)
+  );
   return row.created_by === userId || row.assigned_to === userId;
 }
 
 /** Los expedientes finalizados son inmutables en todas las rutas de escritura. */
 export async function assertCaseNotFinalized(client: InsForgeClient, caseId: string): Promise<void> {
+  const row = await getCaseOr404(client, caseId);
+  if (row.merged_into_case_id) throw new ApiError(409, 'VALIDATION_ERROR', 'Este expediente fue consolidado. Abre el expediente principal para continuar.');
   const { data, error } = await client.database
     .from('case_reviews')
     .select('coordinator_decision')
