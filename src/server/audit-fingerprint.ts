@@ -1,3 +1,4 @@
+import { prepareFlokzuContext } from '../lib/flokzu-administrative.js';
 import { createHash } from 'node:crypto';
 import { readTranscriptFromJson } from './evidence-prep.js';
 import type { EvidenceRow } from './cases.js';
@@ -6,8 +7,8 @@ import type { EvidenceRow } from './cases.js';
 export const AUDIT_PIPELINE_VERSION = 'audit-v5-pipeline-2';
 
 /** Huella canónica compartida por la ejecución y la proyección de vigencia. */
-export function computeEvidenceFingerprint(evidences: EvidenceRow[], humanCycleStartDate?: string | null, areaComments: Array<{ area: string; comment: string }> = []): string {
-  return computeEvidenceFingerprintFor(AUDIT_PIPELINE_VERSION, evidences, humanCycleStartDate, areaComments);
+export function computeEvidenceFingerprint(evidences: EvidenceRow[], humanCycleStartDate?: string | null, areaComments: Array<{ area: string; comment: string }> = [], flokzuData?: unknown): string {
+  return computeEvidenceFingerprintFor(AUDIT_PIPELINE_VERSION, evidences, humanCycleStartDate, areaComments, flokzuData);
 }
 
 export function computeEvidenceFingerprintFor(
@@ -15,6 +16,7 @@ export function computeEvidenceFingerprintFor(
   evidences: EvidenceRow[],
   humanCycleStartDate?: string | null,
   areaComments: Array<{ area: string; comment: string }> = [],
+  flokzuData?: unknown,
 ): string {
   const canonical = evidences
     .map((evidence) => {
@@ -31,5 +33,7 @@ export function computeEvidenceFingerprintFor(
     ? { pipeline: version, evidence: canonical, humanCycleStartDate }
     : { pipeline: version, evidence: canonical };
   const context = areaComments.filter((row) => row.area === 'BACK_OFFICE' || row.area === 'HELPDESK').map(({ area, comment }) => ({ area, comment })).sort((a, b) => a.area.localeCompare(b.area));
-  return createHash('sha256').update(JSON.stringify(context.length ? { ...payload, areaComments: context } : payload)).digest('hex');
+  const base = context.length ? { ...payload, areaComments: context } : payload;
+  const administrativeContext = prepareFlokzuContext(flokzuData).compact;
+  return createHash('sha256').update(JSON.stringify(administrativeContext ? { ...base, administrativeContext } : base)).digest('hex');
 }

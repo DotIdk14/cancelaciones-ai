@@ -146,7 +146,7 @@ export default handleRoute(async (req, res) => {
   const areaRows = await listAreaComments(client, caseId).catch(() => null);
   const auditIsCurrent = completedAudit === null
     ? null
-    : areaRows !== null && completedAudit.evidence_fingerprint === computeEvidenceFingerprint(evidences, caseRow.cycle_start_date ?? null, areaRows);
+    : areaRows !== null && completedAudit.evidence_fingerprint === computeEvidenceFingerprint(evidences, caseRow.cycle_start_date ?? null, areaRows, caseRow.flokzu_data);
 
   ok(res, {
     case: caseToDetail(

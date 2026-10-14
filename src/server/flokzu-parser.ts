@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import { prepareFlokzuContext, normalizeAdministrativeText, usefulAdministrativeText, type FlokzuObservation } from '../lib/flokzu-administrative.js';
 import ExcelJS from 'exceljs';
 import { ApiError } from './errors.js';
 import { flokzuUrlsInText, literalFlokzuHyperlink, normalizeFlokzuUrl } from '../lib/flokzu-links.js';
@@ -45,6 +47,7 @@ export interface FlokzuCaseData {
     requesterReported: string | null;
     requesterArea: string | null;
   };
+  observations?: FlokzuObservation[];
   evidenceReferences: FlokzuEvidenceReference[];
 }
 
@@ -78,6 +81,10 @@ const REQUIRED_HEADERS = [
 ] as const;
 
 const OPTIONAL_HEADER_ALIASES = {
+  backOffice: ['comentario de backoffice (cave)'],
+  helpDesk: ['comentarios helpdesk (cave)'],
+  helpDeskComplement: ['complementario de helpdesk (cave)'],
+  studentMessage: ['mensaje al estudiante (cave)'],
   campus: ['campus (cave)'],
   university: ['universidad. (cave)', 'universidad (cave)'],
   program: ['programa (cave)'],
@@ -366,6 +373,16 @@ export async function parseFlokzuWorkbook(buffer: Buffer): Promise<ParsedFlokzuW
           requesterReported: readText(row, 'requester'),
           requesterArea: readText(row, 'requesterArea'),
         },
+        observations: (['backOffice', 'helpDesk', 'helpDeskComplement', 'description', 'studentMessage'] as const).flatMap((field) => {
+          if (requiredIndex(field) < 0) return [];
+          const raw = row.getCell(requiredIndex(field) + 1).value;
+          const validated = readText(row, field);
+          const original = typeof raw === 'string' && validated ? raw : validated;
+          if (!original) return [];
+          const text = normalizeAdministrativeText(original);
+          if (!usefulAdministrativeText(text)) return [];
+          return [{ field, original, text, externalCaseId: `CaVe-${rawId.slice(rawId.indexOf('-') + 1)}`, area: field === 'backOffice' ? 'BACK_OFFICE' as const : field.startsWith('helpDesk') ? 'HELPDESK' as const : 'ADMINISTRATIVE' as const, exportedAt: cellText(metadataValues[4] ?? null), version: createHash('sha256').update(text).digest('hex') }];
+        }),
         evidenceReferences,
       };
       const currentTask = normalizeFlokzuHeader(flokzuData.operations.currentTask ?? '');
@@ -376,7 +393,7 @@ export async function parseFlokzuWorkbook(buffer: Buffer): Promise<ParsedFlokzuW
         studentName,
         flokzuData,
         // Routing observed in the supplied export: only current CaVe back-office review enters the audit queue.
-        eligibleForAuditAssignment: currentTask === '[backoffice] [revision bo] [cv]',
+        eligibleForAuditAssignment: currentTask === '[backoffice] [revision bo] [cv]' && prepareFlokzuContext(flokzuData).automaticEligible,
       });
     } catch (error) {
       issues.push({ rowNumber, externalCaseId, message: error instanceof Error ? error.message : 'La fila no tiene una estructura válida.' });
