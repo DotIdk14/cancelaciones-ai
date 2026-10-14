@@ -3,7 +3,7 @@ import { zodToJsonSchema } from 'zod-to-json-schema';
 export type ProviderSchemaProfile = 'gemini' | 'openai';
 
 const GEMINI_ALLOWED_KEYWORDS = new Set([
-  'type', 'properties', 'required', 'items', 'enum', 'anyOf', 'oneOf', 'additionalProperties',
+  'type', 'properties', 'required', 'items', 'minItems', 'enum', 'anyOf', 'oneOf', 'additionalProperties',
 ]);
 
 function inlineRootReference(schema: Record<string, unknown>): Record<string, unknown> {

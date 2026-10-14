@@ -81,10 +81,9 @@ const MissingEvidenceSchema = z.object({
   blocking: z.boolean(),
 }).strict();
 
-const ProcedureCheckSchema = z.object({
+const ProcedureCheckFieldsSchema = z.object({
   procedureSection: z.string().min(1),
   criterion: z.string().min(1),
-  status: z.enum(['ACREDITADO', 'NO_ACREDITADO', 'NO_DETERMINABLE']),
   reasoning: z.string().min(1),
   evidenceIds: z.array(z.string().min(1)),
   observedValues: z.array(z.object({
@@ -92,6 +91,20 @@ const ProcedureCheckSchema = z.object({
     value: z.string().min(1),
   }).strict()),
 }).strict();
+
+// Codifica las condiciones por estado en el JSON Schema que se envía al modelo.
+// El validador de negocio sigue siendo la autoridad local; esto reduce las
+// respuestas inválidas antes de que lleguen a esa capa.
+const EvidenceBackedProcedureCheckFieldsSchema = ProcedureCheckFieldsSchema.extend({
+  evidenceIds: z.array(z.string().min(1)).min(1),
+  observedValues: z.array(z.object({ label: z.string().min(1), value: z.string().min(1) }).strict()).min(1),
+});
+
+const ProcedureCheckSchema = z.discriminatedUnion('status', [
+  EvidenceBackedProcedureCheckFieldsSchema.extend({ status: z.enum(['ACREDITADO']) }),
+  EvidenceBackedProcedureCheckFieldsSchema.extend({ status: z.enum(['NO_ACREDITADO']) }),
+  ProcedureCheckFieldsSchema.extend({ status: z.enum(['NO_DETERMINABLE']) }),
+]);
 
 const ProvisionalResolutionSchema = z.object({
   result: z.enum(AUDIT_RESULTS).exclude(['EVIDENCIA_INSUFICIENTE', 'TICKET_RECHAZADO']),
@@ -434,11 +447,21 @@ function validateBusinessRules(assessment: ValidatedAssessment, context: Assessm
     throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.missingEvidence: no puede haber bloqueo cuando el resultado no admite evidencia faltante (solo EVIDENCIA_INSUFICIENTE o TICKET_RECHAZADO)');
   }
   assessment.audit.procedureChecks.forEach((check, index) => {
-    if (check.status === 'ACREDITADO' && (check.evidenceIds.length === 0 || check.observedValues.length === 0)) {
-      throw new ApiError(502, 'INVALID_AI_RESPONSE', `INVALID_AI_RESPONSE: audit.procedureChecks.${index}.status: ACREDITADO exige evidencia y valores observados`);
-    }
-    if (check.status === 'NO_ACREDITADO' && (check.evidenceIds.length === 0 || check.observedValues.length === 0)) {
-      throw new ApiError(502, 'INVALID_AI_RESPONSE', `INVALID_AI_RESPONSE: audit.procedureChecks.${index}.status: NO_ACREDITADO exige evidencia y valores observados que sustenten la ausencia`);
+    if (check.status === 'ACREDITADO' || check.status === 'NO_ACREDITADO') {
+      const missing = [
+        ...(check.evidenceIds.length === 0 ? ['evidenceIds está vacío'] : []),
+        ...(check.observedValues.length === 0 ? ['observedValues está vacío'] : []),
+      ];
+      if (missing.length > 0) {
+        const statusRequirement = check.status === 'ACREDITADO'
+          ? 'ACREDITADO exige evidencia que respalde el cumplimiento y valores observados'
+          : 'NO_ACREDITADO exige evidencia que respalde la ausencia o incumplimiento y valores observados';
+        throw new ApiError(
+          502,
+          'INVALID_AI_RESPONSE',
+          `INVALID_AI_RESPONSE: audit.procedureChecks.${index}.status: ${statusRequirement}; ${missing.join(' y ')}. Si no puedes completar ambos campos con datos del expediente, usa NO_DETERMINABLE.`,
+        );
+      }
     }
   });
   validateContactAttemptsMinimum(assessment);
