@@ -13,7 +13,7 @@ import type { AuthContext } from './auth.js';
 import { capabilitiesForRole } from './auth.js';
 import { ApiError, mapProviderError } from './http.js';
 import { computeEvidenceFingerprint } from './audit-fingerprint.js';
-import { getEnv } from './env.js';
+
 
 export interface CaseRow {
   id: string;
@@ -27,6 +27,7 @@ export interface CaseRow {
   external_source?: 'FLOKZU' | null;
   external_case_id?: string | null;
   flokzu_data?: unknown;
+  flokzu_audit_eligible?: boolean;
   created_at: string;
   updated_at: string;
   /** Proyección del origen del dictamen, usada también como validación de cierre. */
@@ -159,6 +160,7 @@ export interface EvidenceRow {
 export type AuditStatus = 'RUNNING' | 'COMPLETED' | 'ERROR';
 
 export interface AuditRow {
+  retired_at?: string | null;
   id: string;
   case_id: string;
   status: AuditStatus;
@@ -220,6 +222,8 @@ export async function setCaseTestFlag(client: InsForgeClient, caseId: string, is
 
 /** Borra un borrador solo cuando está realmente vacío y nunca fue auditado. */
 export async function deleteUnusedDraftCase(client: InsForgeClient, caseId: string): Promise<void> {
+  const existing = await getCaseOr404(client, caseId);
+  if (existing.external_source === 'FLOKZU') throw new ApiError(409, 'VALIDATION_ERROR', 'Los tickets de Flokzu se conservan; confirma el cierre administrativo.');
   const [
     { data: evidence, error: evidenceError },
     { data: audits, error: auditsError },
@@ -242,7 +246,7 @@ export async function deleteUnusedDraftCase(client: InsForgeClient, caseId: stri
 }
 
 /** Elimina un intento de auditoría sin revisión humana asociada. */
-export async function deleteUnreviewedAudit(client: InsForgeClient, caseId: string, auditId: string): Promise<void> {
+export async function deleteUnreviewedAudit(client: InsForgeClient, caseId: string, auditId: string, retiredBy?: string): Promise<void> {
   const [
     { data: audit, error: auditError },
     { data: review, error: reviewError },
@@ -259,29 +263,10 @@ export async function deleteUnreviewedAudit(client: InsForgeClient, caseId: stri
     throw new ApiError(409, 'VALIDATION_ERROR', 'No se puede borrar un dictamen con revisión o comparación humana');
   }
 
-  // La acción administrativa borra el dictamen y los archivos fuente del caso.
-  // El objeto se elimina antes de su fila para no perder la ruta si Storage falla.
-  const { data: evidenceRows, error: evidenceError } = await client.database
-    .from('evidence')
-    .select('id,storage_path')
-    .eq('case_id', caseId);
-  if (evidenceError) dbError(evidenceError);
-  const bucket = client.storage.from(getEnv().INSFORGE_STORAGE_BUCKET);
-  for (const evidence of (evidenceRows as Array<{ id: string; storage_path: string }> | null) ?? []) {
-    const removal = await bucket.remove(evidence.storage_path);
-    if (removal?.error) {
-      console.error('[audit-delete] no se pudo remover evidencia del almacenamiento', {
-        evidenceId: evidence.id,
-        category: 'STORAGE_ERROR',
-        message: 'Error de almacenamiento',
-      });
-      throw new ApiError(500, 'STORAGE_ERROR', 'No se pudieron eliminar todos los archivos; inténtalo de nuevo');
-    }
-    await deleteEvidenceRow(client, evidence.id);
-  }
-  const { error } = await client.database.from('audits').delete().eq('id', auditId).eq('case_id', caseId);
+  // Retiro administrativo: conserva originales, resultado y gastos históricos.
+  const { error } = await client.database.from('audits').update({ retired_at: new Date().toISOString(), ...(retiredBy ? { retired_by: retiredBy } : {}) }).eq('id', auditId).eq('case_id', caseId);
   if (error) dbError(error);
-  await updateCaseStatus(client, caseId, 'DRAFT');
+  await updateCaseStatus(client, caseId, 'READY');
 }
 
 async function enrichCaseSummaries(
@@ -310,7 +295,7 @@ async function enrichCaseSummaries(
       const { data: auditsData, error: auditsError } = await client.database
         .from('audits')
         .select('id,case_id,status,provider,model,result_json,error_category,latency_ms,evidence_fingerprint,created_at')
-        .eq('status', 'COMPLETED')
+        .eq('status', 'COMPLETED').is('retired_at', null)
         .lte('created_at', snapshot)
         .in('case_id', caseIds)
         .order('created_at', { ascending: false })
@@ -387,7 +372,7 @@ async function enrichCaseSummaries(
     const audit = auditMap.get(row.id) ?? null;
     const auditIsCurrent = audit === null
       ? null
-      : audit.evidence_fingerprint === computeEvidenceFingerprint(evidencesByCase.get(row.id) ?? [], row.cycle_start_date ?? null, areaContext.get(row.id) ?? []);
+      : audit.evidence_fingerprint === computeEvidenceFingerprint(evidencesByCase.get(row.id) ?? [], row.cycle_start_date ?? null, areaContext.get(row.id) ?? [], row.flokzu_data);
     return {
       ...row,
       assigned_name: row.assigned_to ? assignedNames.get(row.assigned_to) ?? null : null,
@@ -399,7 +384,9 @@ async function enrichCaseSummaries(
   });
 }
 
-/** Página acotada para la UI. `snapshot` fija el conjunto ante inserciones nuevas. */
+/** Página acotada para la UI. `snapshot` fija el conjunto ante inserciones nuevas.
+ * La elegibilidad de auditoría no restringe la lectura del expediente.
+ */
 export async function listCaseSummaryPage(
   client: InsForgeClient,
   auth: AuthContext,
@@ -516,7 +503,7 @@ export function assertCaseOwner(row: CaseRow, auth: AuthContext): void {
 
 /** El creador conserva atribución; en Flokzu la capacidad de trabajo pertenece a assigned_to. */
 export function caseOwnedBy(row: CaseRow, userId: string): boolean {
-  if (row.external_source === 'FLOKZU') return row.assigned_to === userId;
+  if (row.external_source === 'FLOKZU') return row.flokzu_audit_eligible !== false && row.assigned_to === userId;
   return row.created_by === userId || row.assigned_to === userId;
 }
 
@@ -691,7 +678,7 @@ export async function latestCompletedAudit(
     .from('audits')
     .select('*')
     .eq('case_id', caseId)
-    .eq('status', 'COMPLETED')
+    .eq('status', 'COMPLETED').is('retired_at', null)
     .order('created_at', { ascending: false })
     .limit(1);
   if (error) dbError(error);
@@ -740,7 +727,7 @@ export async function latestCompletedAuditByFingerprint(
     .from('audits')
     .select('*')
     .eq('case_id', caseId)
-    .eq('status', 'COMPLETED')
+    .eq('status', 'COMPLETED').is('retired_at', null)
     .eq('evidence_fingerprint', fingerprint)
     .order('created_at', { ascending: false })
     .limit(1);

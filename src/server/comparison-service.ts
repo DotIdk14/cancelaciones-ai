@@ -117,7 +117,7 @@ export async function submitCaseReview(
 
   const evidences = await listEvidenceRows(client, caseId);
   const areaComments = await listAreaComments(client, caseId);
-  if (audit.evidence_fingerprint !== computeEvidenceFingerprint(evidences, caseRow.cycle_start_date ?? null, areaComments)) {
+  if (audit.evidence_fingerprint !== computeEvidenceFingerprint(evidences, caseRow.cycle_start_date ?? null, areaComments, caseRow.flokzu_data)) {
     throw new ApiError(409, 'VALIDATION_ERROR', 'Las evidencias o el contexto cambiaron. Ejecuta una auditoría vigente antes de registrar la revisión.');
   }
 

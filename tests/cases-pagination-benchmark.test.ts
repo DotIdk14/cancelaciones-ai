@@ -15,7 +15,8 @@ function syntheticClient(rows: Row[]): InsForgeClient {
         let range: [number, number] = [0, 49];
         const query = {
           select() { return query; },
-          eq(column: string, value: unknown) { filters.push((row) => row[column] === value); return query; },
+          is() { return query; },
+          eq(column: string, value: unknown) { filters.push((row) => (column === 'flokzu_audit_eligible' ? row[column] ?? true : row[column]) === value); return query; },
           lte(column: string, value: unknown) { filters.push((row) => String(row[column] ?? '') <= String(value)); return query; },
           in(column: string, values: unknown[]) { filters.push((row) => values.includes(row[column])); return query; },
           or(expression: string) { const alternatives = expression.split(',').map((part) => { const [column, , value] = part.split('.'); return [column!, value] as const; }); filters.push((row) => alternatives.some(([column, value]) => row[column] === value)); return query; },

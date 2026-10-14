@@ -1,4 +1,7 @@
+import { createHash } from 'node:crypto';
+import { prepareFlokzuContext, normalizeAdministrativeText, usefulAdministrativeText, type FlokzuObservation } from '../lib/flokzu-administrative.js';
 import ExcelJS from 'exceljs';
+import { classifyFlokzu, type FlokzuClassification } from '../shared/flokzu-review.js';
 import { ApiError } from './errors.js';
 import { flokzuUrlsInText, literalFlokzuHyperlink, normalizeFlokzuUrl } from '../lib/flokzu-links.js';
 
@@ -45,6 +48,10 @@ export interface FlokzuCaseData {
     requesterReported: string | null;
     requesterArea: string | null;
   };
+  observations?: FlokzuObservation[];
+  administrativeComments?: Array<{ label: string; value: string }>;
+  comments?: string | null;
+  originalTicketId?: string | null;
   evidenceReferences: FlokzuEvidenceReference[];
 }
 
@@ -61,6 +68,9 @@ export interface ParsedFlokzuRow {
   studentName: string;
   flokzuData: Omit<FlokzuCaseData, 'externalCaseId' | 'studentIdentifier' | 'studentName'>;
   eligibleForAuditAssignment: boolean;
+  classification: FlokzuClassification;
+  classificationReason: string;
+  discrepancy: boolean;
 }
 
 export interface ParsedFlokzuWorkbook {
@@ -78,6 +88,12 @@ const REQUIRED_HEADERS = [
 ] as const;
 
 const OPTIONAL_HEADER_ALIASES = {
+  backOffice: ['comentario de backoffice (cave)'],
+  helpDesk: ['comentarios helpdesk (cave)'],
+  helpDeskComplement: ['complementario de helpdesk (cave)'],
+  studentMessage: ['mensaje al estudiante (cave)'],
+  comments: ['comentarios', 'comentarios (cave)'],
+  originalTicket: ['ticket original', 'ticket original (cave)'],
   campus: ['campus (cave)'],
   university: ['universidad. (cave)', 'universidad (cave)'],
   program: ['programa (cave)'],
@@ -366,9 +382,26 @@ export async function parseFlokzuWorkbook(buffer: Buffer): Promise<ParsedFlokzuW
           requesterReported: readText(row, 'requester'),
           requesterArea: readText(row, 'requesterArea'),
         },
+        observations: (['backOffice', 'helpDesk', 'helpDeskComplement', 'description', 'studentMessage'] as const).flatMap((field) => {
+          if (requiredIndex(field) < 0) return [];
+          const raw = row.getCell(requiredIndex(field) + 1).value;
+          const validated = readText(row, field);
+          const original = typeof raw === 'string' && validated ? raw : validated;
+          if (!original) return [];
+          const text = normalizeAdministrativeText(original);
+          if (!usefulAdministrativeText(text)) return [];
+          return [{ field, original, text, externalCaseId: `CaVe-${rawId.slice(rawId.indexOf('-') + 1)}`, area: field === 'backOffice' ? 'BACK_OFFICE' as const : field.startsWith('helpDesk') ? 'HELPDESK' as const : 'ADMINISTRATIVE' as const, exportedAt: cellText(metadataValues[4] ?? null), version: createHash('sha256').update(text).digest('hex') }];
+        }),
+        administrativeComments: headers.flatMap((header, index) => {
+          if (!/comentario|observacion/.test(normalizeFlokzuHeader(header))) return [];
+          const value = cellText(row.getCell(index + 1).value);
+          return value ? [{ label: header, value }] : [];
+        }),
+        comments: readText(row, 'comments'),
+        originalTicketId: readText(row, 'originalTicket'),
         evidenceReferences,
       };
-      const currentTask = normalizeFlokzuHeader(flokzuData.operations.currentTask ?? '');
+      const classification = classifyFlokzu(flokzuData);
       rows.push({
         rowNumber,
         externalCaseId,
@@ -376,7 +409,10 @@ export async function parseFlokzuWorkbook(buffer: Buffer): Promise<ParsedFlokzuW
         studentName,
         flokzuData,
         // Routing observed in the supplied export: only current CaVe back-office review enters the audit queue.
-        eligibleForAuditAssignment: currentTask === '[backoffice] [revision bo] [cv]',
+        eligibleForAuditAssignment: classification.classification === 'ACTIVE' && prepareFlokzuContext(flokzuData).automaticEligible,
+        classification: classification.classification,
+        classificationReason: classification.reason,
+        discrepancy: classification.discrepancy,
       });
     } catch (error) {
       issues.push({ rowNumber, externalCaseId, message: error instanceof Error ? error.message : 'La fila no tiene una estructura válida.' });

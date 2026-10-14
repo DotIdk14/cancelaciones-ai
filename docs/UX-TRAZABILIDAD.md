@@ -19,8 +19,13 @@ Archivos de implementación modificados en esta tarea:
 - `src/components/dashboard/OverviewPage.tsx`, `AiCostsPage.tsx`, `ActivityCharts.tsx`
 - `src/index.css`
 
-Pruebas nuevas: `activity-series.test.ts`, `dashboard-access.test.ts`, `HistoryComparisonDetails.test.tsx`; ampliaciones en `routes.test.ts`. Los dobles de PostgreSQL admiten las consultas de identidad que ya existían; las pruebas de consumo usan explícitamente el Gerente. La prueba de captura de inicio académico abre el panel donde reside el control.
+Pruebas nuevas: `activity-series.test.ts`, `dashboard-access.test.ts`, `HistoryComparisonDetails.test.tsx`; ampliaciones en `routes.test.ts`. Se conservaron los RPC y contratos actuales de main; los dobles de PostgreSQL admiten las consultas auxiliares; las pruebas de consumo usan explícitamente el Gerente. La prueba de captura de inicio académico abre el panel donde reside el control.
 
 No se aplicaron migraciones ni se desplegó. Las pruebas usan datos sintéticos y no llaman al proveedor de IA. La revisión visual local usa el preview identificado como ficticio; no equivale a una validación contra una sesión autenticada y datos remotos. Los expedientes históricos conservan sus resultados y ausencias originales.
 
 Validación: suite completa con 1161 pruebas aprobadas y 3 omitidas; lint (secretos, contraste, ESLint, TypeScript) y build aprobados. En navegador se verificó la igualdad de posición y ancho del visor antes y después de abrir contexto, el dock dentro del viewport móvil y la redirección de Asesor desde la ruta administrativa a expedientes. No hay validación manual del backend remoto ni ejecución real de una auditoría de producción.
+
+## Integración para producción · 14 de octubre de 2026
+
+Se integraron los commits vigentes de main y se conservaron su historial consultivo, conciliación administrativa y correcciones de ciclo de vida. La tabla de diferencias reutiliza las dos respuestas que el historial ya consulta; no agrega llamadas. Se retiró el archivo local de índice con versión 20261013100000, que colisionaba con la migración de métricas ya registrada. No se aplicaron cambios de esquema en esta publicación.
+

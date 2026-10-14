@@ -23,10 +23,10 @@ function Section({ title, children, initialOpen = false }: { title: string; chil
 }
 
 /** La selección histórica es solo contextual: nunca sustituye el estado vivo del expediente. */
-export function CaseContextMenu({ detail, open, tab, onTabChange, onClose, notesContent, reviewContent, preview = false }: {
+export function CaseContextMenu({ detail, open, tab, onTabChange, onClose, notesContent, reviewContent, preview = false, canReconcile = false }: {
   detail: CaseDetailResponse; open: boolean; tab: ContextTab; onTabChange: (tab: ContextTab) => void; onClose: () => void;
   notesContent?: ReactNode; reviewContent?: ReactNode;
-  preview?: boolean;
+  preview?: boolean; canReconcile?: boolean;
 }): ReactNode {
   const [mobile, setMobile] = useState(() => typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 760px)').matches);
   const [selection, setSelection] = useState<{ audit: AuditDetail; owner: CaseDetailResponse } | null>(null);
@@ -53,6 +53,7 @@ export function CaseContextMenu({ detail, open, tab, onTabChange, onClose, notes
     try {
       const owner = ticketCache.current.get(caseId) ?? await getCase(caseId);
       if (!mounted.current || token !== generation.current) return;
+      if (owner.case.id !== caseId) throw new Error('Identidad incompatible');
       ticketCache.current.set(caseId, owner);
       await selectAudit(owner, auditId);
     } catch { if (mounted.current && token === generation.current) { setError('No se pudo consultar ese ticket. Vuelve al historial para reintentar.'); setPending(false); } }
@@ -72,9 +73,9 @@ export function CaseContextMenu({ detail, open, tab, onTabChange, onClose, notes
     finally { if (mounted.current && token === generation.current) setPending(false); }
   }
 
-  const source = selection?.owner ?? detail;
+  const source = selection && selection.owner.case.id !== detail.case.id ? selection.owner : detail;
   const audit = selection?.audit ?? detail.audit;
-  const assessment = audit?.status === 'COMPLETED' && (selection !== null || detail.auditIsCurrent !== false) ? audit.resultJson?.audit : null;
+  const assessment = audit?.status === 'COMPLETED' ? audit.resultJson?.audit : null;
   const matchedReview = audit && source.review?.auditId === audit.id ? source.review : null;
   const historical = selection !== null || detail.auditIsCurrent === false;
   const data = detail.case.flokzuData ?? EMPTY_FLOKZU;
@@ -121,9 +122,9 @@ export function CaseContextMenu({ detail, open, tab, onTabChange, onClose, notes
         <div hidden={pending || error !== null}>
           <p className="case-context-audit-source">{source.case.externalCaseId ? `Ticket ${source.case.externalCaseId}` : `Expediente ${source.case.id.slice(0, 8)}`}{audit && ` · ${formatDateTime(audit.createdAt)}`}</p>
           {historical && <p className="case-context-warning">Consulta histórica de solo lectura. El expediente abierto permanece sin cambios.</p>}
-          {assessment ? <><h3 className="case-context-heading">Resolución propuesta por IA</h3><Badge tone={RESULT_TONE[assessment.result]}>{RESULT_LABELS[assessment.result]}</Badge><dl><Property label="Lineamiento" value={assessment.rule} /><Property label="Sección" value={assessment.procedureSection} /><Property label="Confianza declarada" value={formatPercent(assessment.confidence)} /></dl><h3 className="case-context-heading">Justificación</h3><p className="case-context-reasoning">{assessment.reasoning}</p>
-            <Section title={`Errores y discrepancias (${audit?.resultJson?.conflicts.length ?? 0})`}>{audit?.resultJson?.conflicts.length ? audit.resultJson.conflicts.map((conflict, index) => <p key={index} className="case-context-reasoning">{conflict.description}</p>) : <p className="case-context-note">Sin discrepancias registradas.</p>}{assessment.procedureChecks.filter((check) => check.status === 'NO_ACREDITADO').map((check, index) => <p key={index} className="case-context-reasoning">{check.procedureSection} · {check.reasoning}</p>)}</Section>
-            <Section title={`Evidencias faltantes (${assessment.missingEvidence?.length ?? 0})`}>{assessment.missingEvidence?.length ? assessment.missingEvidence.map((item, index) => <div key={index} className="case-context-missing"><strong>{item.title}</strong><p>{item.reason}</p><small>{item.acceptedEvidence.join(' · ')}</small></div>) : <p className="case-context-note">Sin faltantes registrados.</p>}</Section>
+          {assessment ? <><h3 className="case-context-heading">Resolución propuesta por IA</h3><Badge tone={RESULT_TONE[assessment.result]}>{RESULT_LABELS[assessment.result]}</Badge><dl><Property label="Lineamiento" value={assessment.rule} /><Property label="Sección" value={assessment.procedureSection} /><Property label="Confianza declarada" value={typeof assessment.confidence === 'number' ? formatPercent(assessment.confidence) : null} /></dl><h3 className="case-context-heading">Justificación</h3><p className="case-context-reasoning">{assessment.reasoning}</p>
+            <Section title={`Errores y discrepancias (${audit?.resultJson?.conflicts?.length ?? 0})`}>{audit?.resultJson?.conflicts?.length ? audit.resultJson.conflicts.map((conflict, index) => <p key={index} className="case-context-reasoning">{conflict.description}</p>) : <p className="case-context-note">Sin discrepancias registradas.</p>}{(assessment.procedureChecks ?? []).filter((check) => check.status === 'NO_ACREDITADO').map((check, index) => <p key={index} className="case-context-reasoning">{check.procedureSection} · {check.reasoning}</p>)}</Section>
+            <Section title={`Evidencias faltantes (${(assessment.missingEvidence ?? []).length})`}>{(assessment.missingEvidence ?? []).length ? (assessment.missingEvidence ?? []).map((item, index) => <div key={index} className="case-context-missing"><strong>{item.title}</strong><p>{item.reason}</p><small>{item.acceptedEvidence.join(' · ')}</small></div>) : <p className="case-context-note">Sin faltantes registrados.</p>}</Section>
           </> : <p className="case-context-note">{audit?.status === 'RUNNING' ? 'Auditoría en curso. El resultado aparecerá al terminar.' : audit?.status === 'ERROR' ? `Auditoría con error: ${audit.errorCategory ?? 'sin categoría'}.` : 'Sin dictamen completado.'}</p>}
           <h3 className="case-context-heading">Resolución humana vinculada</h3>
           {matchedReview ? <dl><Property label="Asesor" value={resolutionLabel(matchedReview.result)} /><Property label="Revisado" value={formatDateTime(matchedReview.createdAt)} />{matchedReview.coordinatorDecision && <Property label="Coordinador" value={resolutionLabel(matchedReview.coordinatorDecision === 'CHANGE' ? matchedReview.coordinatorResolution ?? matchedReview.result : matchedReview.result)} />}</dl> : <p className="case-context-note">Esta auditoría no tiene una revisión humana vinculada.</p>}
@@ -137,7 +138,7 @@ export function CaseContextMenu({ detail, open, tab, onTabChange, onClose, notes
         {error && <p role="alert" className="case-context-error">{error}</p>}
         {!row.studentIdentifier && <p className="case-context-note">Sin matrícula para buscar tickets relacionados.</p>}
         {preview && <p className="case-context-note">La vista de muestra no consulta tickets reales.</p>}
-        {!preview && historyVisited && row.studentIdentifier && <StudentHistory caseId={row.id} embedded onSelectAudit={(ownerId, auditId) => void selectRelated(ownerId, auditId)} />}
+        {!preview && historyVisited && row.studentIdentifier && <StudentHistory caseId={row.id} studentIdentifier={row.studentIdentifier} canReconcile={canReconcile} embedded onSelectAudit={(ownerId, auditId) => void selectRelated(ownerId, auditId)} />}
 
       </section>
     </div>

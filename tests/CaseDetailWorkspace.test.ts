@@ -405,7 +405,12 @@ it('la pestaña Dictamen no presenta una evaluación obsoleta como vigente', asy
   await openTab(/Dictamen/);
   expect(screen.getByText('No hay un dictamen vigente')).toBeTruthy();
   expect(screen.queryByText('Dictamen original de IA')).toBeTruthy();
-  expect(screen.queryByText('La alumna pidió cancelar dentro del primer mes.')).toBeNull();
+  const historicalReasoning = screen.getAllByText('La alumna pidió cancelar dentro del primer mes.').find(element => element.closest('[hidden]'));
+  expect(historicalReasoning).toBeTruthy();
+  expect(historicalReasoning!.closest('[hidden]')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Consultar dictamen histórico' }));
+  expect(screen.getByText(/Consulta histórica de solo lectura/)).toBeTruthy();
+  expect(screen.getByText('Consultar dictamen histórico')).toBeTruthy();
 });
 
 

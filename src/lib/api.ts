@@ -1,3 +1,5 @@
+import type { StudentHistory } from './student-history';
+import type { AuditLifecycle } from './audit-lifecycle';
 // =============================================================================
 // Cliente HTTP de la SPA. Sin URLs absolutas y sin estado: solo fetch.
 // El cliente solo llama a la API propia; InsForge permanece server-side.
@@ -52,6 +54,7 @@ export interface CaseSummary {
   effectiveResolution?: EffectiveResolution | null;
   /** `false` indica dictamen de IA histórico y desactualizado. */
   auditIsCurrent?: boolean | null;
+  auditLifecycle?: AuditLifecycle;
   /**
    * Clasificación del caso: `true` = prueba, `false` = real.
    *
@@ -111,6 +114,8 @@ export interface CaseDetail {
 }
 
 export interface FlokzuCaseData {
+  observations?: import('./flokzu-administrative.js').FlokzuObservation[];
+  administrativeComments?: Array<{ label: string; value: string }>;
   academic: { campus: string | null; university: string | null; countryReported: string | null; program: string | null; level: string | null; block: string | null; programKey: string | null; entryDate: string | null };
   procedure: { policyReported: string | null; motive: string | null; description: string | null; requestDate: string | null; administrativeStartDate: string | null };
   operations: { currentTask: string | null; statusReported: string | null; finalizedReported: string | null; reviewerReported: string | null; supervisorReported: string | null; requesterReported: string | null; requesterArea: string | null };
@@ -127,9 +132,11 @@ export interface FlokzuImportPreview {
   unchangedRows: number;
   errorRows: number;
   unassignedRows: number;
+  activeRows: number;
+  administrativeRows: number;
   issues: Array<{ rowNumber: number; externalCaseId: string | null; message: string }>;
   assignments: Array<{ userId: string; name: string | null; count: number }>;
-  rows: Array<{ rowNumber: number; externalCaseId: string; studentIdentifier: string; studentName: string; action: 'NEW' | 'UPDATE' | 'UNCHANGED'; assignmentUserId: string | null; assignmentName: string | null; canAutoAssign: boolean }>;
+  rows: Array<{ rowNumber: number; externalCaseId: string; studentIdentifier: string; studentName: string; action: 'NEW' | 'UPDATE' | 'UNCHANGED'; assignmentUserId: string | null; assignmentName: string | null; canAutoAssign: boolean; classification: import('../shared/flokzu-review').FlokzuClassification; reason: string; previousStatus: string | null; nextStatus: string | null; previousTask: string | null; nextTask: string | null; previousFinalized: string | null; nextFinalized: string | null }>;
 }
 
 export interface FlokzuImportHistoryItem {
@@ -382,6 +389,7 @@ export interface CaseDetailResponse {
   effectiveResolution: EffectiveResolution | null;
   /** Si el último dictamen completado usa evidencias y datos actuales. */
   auditIsCurrent?: boolean | null;
+  auditLifecycle?: AuditLifecycle;
   /** Estado derivado del flujo humano; opcional por compatibilidad. */
   workflowState?: WorkflowState;
 }
@@ -697,6 +705,7 @@ export async function getCase(caseId: string): Promise<CaseDetailResponse> {
     comparison: data.comparison ?? null,
     effectiveResolution: data.effectiveResolution ?? null,
     auditIsCurrent: data.auditIsCurrent ?? null,
+    auditLifecycle: data.auditLifecycle,
     workflowState: data.workflowState,
   };
 }
@@ -1100,4 +1109,31 @@ export async function refreshSession(): Promise<SessionSnapshot | null> {
   } catch {
     return { role: null, capabilities: { canReadAllCases: false, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false, canManageCases: false, canImportCases: false } };
   }
+}
+
+export interface FlokzuReviewPageData {
+  tickets: import('../shared/flokzu-review').FlokzuTicket[]; nextOffset: number | null;
+  counts: { pending: number; rejected: number; finalized: number; otherStage: number; discrepancies: number };
+}
+export interface FlokzuTicketDetail {
+  ticket: import('../shared/flokzu-review').FlokzuTicket; data: FlokzuCaseData;
+  history: import('../shared/flokzu-review').FlokzuEvent[]; historyNextOffset: number | null;
+}
+export function getFlokzuReview(filters: Record<string,string>): Promise<FlokzuReviewPageData> {
+  const params = new URLSearchParams({ view: 'flokzu-review' });
+  for (const [key,value] of Object.entries(filters)) if (value) params.set(key,value);
+  return request('/api/cases?'+params.toString(), {}, [200]);
+}
+export function getFlokzuTicket(caseId: string, historyOffset = 0): Promise<FlokzuTicketDetail> {
+  return request('/api/cases?'+new URLSearchParams({view:'flokzu-review',caseId,historyOffset:String(historyOffset)}).toString(), {}, [200]);
+}
+export function decideFlokzuTicket(decision: import('../shared/flokzu-review').FlokzuDecision): Promise<unknown> {
+  return request('/api/cases?view=flokzu-review', {method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify(decision)}, [200]);
+}
+
+export async function getStudentHistory(caseId: string, offset = 0): Promise<StudentHistory> {
+  return (await request<{ history: StudentHistory }>('/api/cases?historyForCase=' + encodeURIComponent(caseId) + '&offset=' + offset, {}, [200])).history;
+}
+export async function reconcileCaseRequests(caseId: string, relation: { otherId: string; primaryId: string | null; sameRequest: boolean; note: string }): Promise<void> {
+  await request(casePath(caseId), { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ relation }) }, [200]);
 }

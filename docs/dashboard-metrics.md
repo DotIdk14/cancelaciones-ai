@@ -69,10 +69,6 @@ Los KPI y el detalle principal proceden del mismo array filtrado en SQL. Los
 filtros de dimensión y evaluación se aplican también al histórico, cuya unidad
 es versión y cuya tabla se identifica explícitamente como histórica. La tabla
 pagina en pantalla sin recortar el universo agregado.
-País y canal se leen del origen del dictamen cuando está presente, incluso si
-la proyección del caso falló. Un origen explícitamente nulo permanece desconocido.
-Para filas históricas sin bloque de origen se conserva el filtro por la proyección
-del caso, sin inferir nuevos valores.
 Los responsables asignados conservan su ID para filtrar y se presentan con el
 nombre del perfil cuando está disponible. Campus y lineamiento pueden provenir
 de metadatos explícitos de Flokzu; ese metadato no crea política ni auditorías.

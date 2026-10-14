@@ -115,6 +115,7 @@ export interface AuditProviderMetadata {
   openrouterAttempts?: AuditAttemptDiagnosticView[];
   /** Tokens y coste reportados por el proveedor (nunca inventados: sin dato, `null`). */
   usage?: ModelUsage;
+  preparationMetrics?: Record<string, number>;
   /** `true` si la auditoría se marcó ERROR por abandono (stale), no por el modelo. */
   stale?: boolean;
   /** Instante del deadline que venció en un audit RUNNING abandonado. */
@@ -277,6 +278,14 @@ export function sanitizeProviderMetadata(value: unknown): AuditProviderMetadata 
   if (isPlainObject(value.usage)) {
     const usage = sanitizeUsage(value.usage);
     if (usage) out.usage = usage;
+  }
+  if (isPlainObject(value.preparationMetrics)) {
+    const metrics: Record<string, number> = {};
+    for (const key of ['evidenceTextChars', 'administrativeTextChars', 'visualFiles', 'usefulFlokzuObservations']) {
+      const count = value.preparationMetrics[key];
+      if (typeof count === 'number' && Number.isSafeInteger(count) && count >= 0) metrics[key] = count;
+    }
+    if (Object.keys(metrics).length) out.preparationMetrics = metrics;
   }
   if (typeof value.stale === 'boolean') out.stale = value.stale;
   const deadlineAt = oneLineText(value.deadlineAt, MAX_ISO_DATE_CHARS);

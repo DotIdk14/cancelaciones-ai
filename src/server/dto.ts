@@ -1,3 +1,4 @@
+import { auditLifecycle } from '../lib/audit-lifecycle.js';
 ﻿// =============================================================================
 // DTOs — forma exacta que consume la UI (contrato de API).
 // =============================================================================
@@ -23,6 +24,7 @@ export interface CaseSummaryDto {
   effectiveResolution: EffectiveResolution | null;
   /** `false` identifica un dictamen histórico que no corresponde a los datos actuales. */
   auditIsCurrent: boolean | null;
+  auditLifecycle: ReturnType<typeof auditLifecycle>;
   /**
    * Clasificación explícita del caso: `true` = prueba, `false` = real. La UI la
    * usa para etiquetar; el backend la usa para excluir las pruebas de las
@@ -232,6 +234,7 @@ export function caseToSummary(row: CaseSummaryRow, canManageCases = false): Case
     // default de la columna es `false` (real).
     isTest: row.is_test ?? false,
     canManageCases,
+    auditLifecycle: auditLifecycle(row.status, row.audit ?? null, row.auditIsCurrent ?? null, row.audit),
     auditId: row.audit?.id ?? null,
     auditHasHumanReview: row.audit !== undefined && row.audit !== null && row.review?.audit_id === row.audit.id,
     creatorRole: row.creator_role ?? null,

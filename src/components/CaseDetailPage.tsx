@@ -1,4 +1,3 @@
-import { StudentHistory } from './StudentHistory';
 import { CaseContextMenu, type ContextTab } from './CaseContextMenu';
 import { EvidenceReferences } from './EvidenceReferences';
 import { OperationProgressDialog } from './OperationProgressDialog';
@@ -13,7 +12,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { BookOpenCheck, Clock3, FileCheck2, FileText, Paperclip, Search } from 'lucide-react';
 import { deleteEvidence, getAreaComments, getCase, toErrorState, workflowStateOf } from '../lib/api';
 import type { AppRole, AreaComment, CaseDetailResponse, ErrorState, Evidence, SessionSnapshot } from '../lib/api';
-import { formatDateTime, formatDuration, formatPercent, formatFactValue, textOrDash } from '../lib/format';
+import { formatDateTime, formatLatency, formatPercent, formatFactValue, textOrDash } from '../lib/format';
 import {
   RESULT_LABELS,
   EVIDENCE_STATUS_LABELS,
@@ -108,7 +107,7 @@ function AuditFailureDetail({ attempts }: { attempts: FailureAttemptDetail[] }):
         {failed.map((attempt, index) => (
           <li key={`${attempt.failureCategory}-${index}`}>
             <p className="text-xs text-ink/70">
-              Intento {index + 1} · {formatDuration(attempt.latencyMs)} · {errorCategoryLabel(attempt.failureCategory)}
+              Intento {index + 1} · {formatLatency(attempt.latencyMs)} · {errorCategoryLabel(attempt.failureCategory)}
             </p>
             <dl className="mt-1 grid grid-cols-[auto,1fr] gap-x-3 gap-y-1">
               <dt className="font-mono text-xs text-danger/80">Categoría</dt>
@@ -550,7 +549,6 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
       </header>
       <div className="case-workspace-audit-actions">{auditControls}</div>
 
-      {detail.case.studentIdentifier && <StudentHistory key={caseId} caseId={caseId} />}
 
       {(auditBusy || auditError) && <Button variant="secondary" onClick={() => setProgressOpen(true)}>Ver progreso de auditoría</Button>}
       {progressOpen && !reportOpen && <OperationProgressDialog title="Progreso de auditoría" stages={[
@@ -566,7 +564,7 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
 
       <div className={`case-workspace${contextOpen ? ' case-workspace-context-open' : ''}`}>
         <div id="case-context-slot" className="case-context-slot">
-          <CaseContextMenu key={caseId} detail={detail} open={contextOpen} tab={contextTab} onTabChange={setContextTab} onClose={() => setContextOpen(false)} notesContent={notesContent} reviewContent={reviewContent} />
+          <CaseContextMenu key={caseId} detail={detail} open={contextOpen} tab={contextTab} onTabChange={setContextTab} onClose={() => setContextOpen(false)} notesContent={notesContent} reviewContent={reviewContent} canReconcile={capabilities.canFinalizeAnyCase} />
         </div>
       <div className="case-detail-layout case-detail-workspace">
         <aside className="case-detail-evidence">
@@ -742,7 +740,7 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
             )}
 
             {activeTab === 'verdict' && (
-              audit?.status === 'COMPLETED' && detail.auditIsCurrent !== false ? <section className="case-detail-full-verdict"><h2>Dictamen original de IA</h2><AuditResultPanel audit={audit} canEditComments={detail.case.canWrite} /></section> : <Panel title="Dictamen original de IA"><div className="case-workspace-empty"><FileText size={22} /><strong>No hay un dictamen vigente</strong><p>La evidencia cambió o aún no se ha evaluado. Consulta el historial para ver resultados anteriores y vuelve a auditar para obtener el vigente.</p></div></Panel>
+              audit?.status === 'COMPLETED' && detail.auditIsCurrent !== false ? <section className="case-detail-full-verdict"><h2>Dictamen original de IA</h2><AuditResultPanel audit={audit} canEditComments={detail.case.canWrite} /></section> : <Panel title="Dictamen original de IA"><div className="case-workspace-empty"><FileText size={22} /><strong>No hay un dictamen vigente</strong><p>La evidencia cambió o aún no se ha evaluado. Consulta el historial para ver resultados anteriores y vuelve a auditar para obtener el vigente.</p><Button variant="secondary" onClick={() => { setContextOpen(true); setContextTab('verdict'); }}>Consultar dictamen histórico</Button></div></Panel>
             )}
 
             {activeTab === 'evidence' && (
@@ -783,3 +781,4 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
     </div>
   );
 }
+

@@ -696,3 +696,6 @@ pre, code, .font-mono { font-family: var(--font-mono); }
 .app-dock { position: fixed; left: 50%; bottom: max(14px, env(safe-area-inset-bottom)); transform: translateX(-50%); width: max-content; margin: 0; }
 .app-content { padding-bottom: 112px; }
 @media(max-width:760px) { .app-dock-items { flex-wrap: wrap; justify-content: center; } .app-dock-link { min-width: 48px; } .app-content { padding-bottom: 180px; } }
+
+.student-history-panel { width: min(960px, 100vw); }
+

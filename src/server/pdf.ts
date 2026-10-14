@@ -9,6 +9,10 @@
 
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { WorkerMessageHandler } from 'pdfjs-dist/legacy/build/pdf.worker.mjs';
+import { createRequire } from 'node:module';
+import { dirname, sep } from 'node:path';
+
+const standardFontDataUrl = dirname(createRequire(import.meta.url).resolve('pdfjs-dist/standard_fonts/FoxitSerif.pfb')) + sep;
 
 const pdfjsGlobal = globalThis as typeof globalThis & {
   pdfjsWorker?: { WorkerMessageHandler: object };
@@ -26,6 +30,7 @@ export async function extractPdfText(buffer: Buffer): Promise<string> {
     useWorkerFetch: false,
     isEvalSupported: false,
     disableFontFace: true,
+    standardFontDataUrl,
   }).promise;
 
   try {

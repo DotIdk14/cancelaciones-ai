@@ -181,6 +181,7 @@ export interface AuditSkillInput {
    * "no se usó" es un dato auditable.
    */
   areaComments?: AreaCommentContext[];
+  administrativeContext?: string;
   /**
    * Fecha de inicio de ciclo APORTADA POR EL EQUIPO (`cases.cycle_start_date`).
    *

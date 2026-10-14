@@ -1,3 +1,4 @@
+vi.mock('../src/server/student-history', () => ({ assertNoRedundantAudit: vi.fn(async () => undefined) }));
 // =============================================================================
 // REGRESIONES OBLIGATORIAS de la frontera de COSTO.
 //

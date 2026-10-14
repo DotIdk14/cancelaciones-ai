@@ -14,13 +14,25 @@ const audit: AuditDetail = { id: 'latest', caseId: 'case-1', status: 'COMPLETED'
 function detail(): CaseDetailResponse {
   return { case: { id: 'case-1', studentIdentifier: 'MAT-DEMO', studentName: 'Alumno de prueba', status: 'COMPLETED', createdAt: audit.createdAt, updatedAt: audit.createdAt, externalCaseId: 'CaVe-1' }, evidences: [], audit, audits: [audit, { ...audit, id: 'old', createdAt: '2026-10-12T10:00:00Z' }].map(item => ({ ...item, result: 'CANCELACION_VENTA', confidence: .9 })), review: { id: 'review', caseId: 'case-1', auditId: 'latest', result: 'CANCELACION_VENTA', reviewerName: 'Asesor', comment: '', createdAt: audit.createdAt }, comparison: null, effectiveResolution: { result: 'CANCELACION_VENTA', source: 'HUMAN' } };
 }
-function Harness({ initialOpen = true }: { initialOpen?: boolean }) {
+function Harness({ initialOpen = true, record = detail() }: { initialOpen?: boolean; record?: CaseDetailResponse }) {
   const [open, setOpen] = useState(initialOpen);
   const [tab, setTab] = useState<ContextTab>('data');
-  return <><button onClick={() => setOpen(true)}>Abrir contexto</button><div data-testid="visor">Evidencia seleccionada</div><CaseContextMenu detail={detail()} open={open} tab={tab} onTabChange={setTab} onClose={() => setOpen(false)} notesContent={<input aria-label="Borrador de notas" defaultValue="" />} reviewContent={<input aria-label="Borrador de revisión" defaultValue="" />} /></>;
+  return <><button onClick={() => setOpen(true)}>Abrir contexto</button><div data-testid="visor">Evidencia seleccionada</div><CaseContextMenu detail={record} open={open} tab={tab} onTabChange={setTab} onClose={() => setOpen(false)} notesContent={<input aria-label="Borrador de notas" defaultValue="" />} reviewContent={<input aria-label="Borrador de revisión" defaultValue="" />} /></>;
 }
 beforeEach(() => { vi.mocked(getHistoricalAudit).mockReset(); vi.mocked(getCase).mockReset(); });
 afterEach(cleanup);
+
+it('conserva el scroll trabajado al cerrar el menú no modal y devuelve el foco', () => {
+  const { container } = render(<Harness initialOpen={false} />);
+  const trigger = screen.getByText('Abrir contexto');
+  container.scrollTop = 120; trigger.focus();
+  fireEvent.click(trigger);
+  container.scrollTop = 240;
+  fireEvent.click(screen.getByRole('button', { name: 'Cerrar contexto del expediente' }));
+  expect(container.scrollTop).toBe(240);
+  expect(document.activeElement).toBe(trigger);
+  expect(screen.queryByRole('dialog')).toBeNull();
+});
 
 it('cerrado no consulta la API y conserva notas y visor al abrir, cambiar pestañas y cerrar', () => {
   render(<Harness initialOpen={false} />);
@@ -86,4 +98,17 @@ it('distingue un ticket relacionado y consulta su propio dictamen', async () => 
   expect(screen.getByText(/Ticket CaVe-2/)).toBeTruthy();
   expect(screen.getByText(/Ticket CaVe-1/)).toBeTruthy();
   expect(getCase).toHaveBeenCalledWith('other-case');
+});
+
+it('refresca la revisión humana del ticket actual sin perder la selección histórica', async () => {
+  vi.mocked(getHistoricalAudit).mockResolvedValue({ ...audit, id: 'old' });
+  const { rerender } = render(<Harness />);
+  fireEvent.click(screen.getByRole('tab', { name: 'Auditorías' }));
+  fireEvent.click(screen.getByRole('button', { name: `Consultar auditoría del ${formatDateTime('2026-10-12T10:00:00Z')}` }));
+  expect(await screen.findByText('Esta auditoría no tiene una revisión humana vinculada.')).toBeTruthy();
+  const updated = detail(); updated.review = { ...updated.review!, auditId: 'old', result: 'BAJA' };
+  rerender(<Harness record={updated} />);
+  expect(screen.getByText('Baja')).toBeTruthy();
+  expect(screen.queryByText('Esta auditoría no tiene una revisión humana vinculada.')).toBeNull();
+  expect(getHistoricalAudit).toHaveBeenCalledTimes(1);
 });

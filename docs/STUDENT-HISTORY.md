@@ -4,4 +4,4 @@ Consulta de solo lectura en el expediente y desde Calidad. GET /api/cases/:id?vi
 
 La comparación de dos solicitudes muestra datos guardados, sin inferir errores de criterio ni usar IA. La política solicitada en Flokzu se distingue del fundamento del último dictamen IA; la resolución humana se muestra solo tras finalizar. Las versiones se consultan dentro del expediente de origen.
 
-El importador existente identifica tickets por external_source + external_case_id y conserva su índice UNIQUE; student_identifier nunca es una clave de unicidad. No cambia asignaciones previas. El índice no único 20261013100000_student-history-index.sql queda pendiente de aplicación por el runner oficial, tras seguir MIGRATION-RECONCILIATION.md. No requiere tablas nuevas.
+El importador existente identifica tickets por external_source + external_case_id y conserva su índice UNIQUE; student_identifier nunca es una clave de unicidad. No cambia asignaciones previas. El índice no único 20261013110000_student-history-index.sql queda pendiente de aplicación por el runner oficial, tras seguir MIGRATION-RECONCILIATION.md. No requiere tablas nuevas.

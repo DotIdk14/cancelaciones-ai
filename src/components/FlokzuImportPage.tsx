@@ -9,6 +9,7 @@ import {
   type FlokzuImportPreview,
   type FlokzuImportedCase,
 } from '../lib/api';
+import { FLOKZU_CLASSIFICATION_LABELS } from '../shared/flokzu-review';
 import { formatDateTime } from '../lib/format';
 
 const XLSX_LIMIT = 4 * 1024 * 1024;
@@ -158,7 +159,7 @@ export function FlokzuImportPage({ previewOnly = false }: { previewOnly?: boolea
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-5">
       <header>
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-brand">Coordinación · Flokzu</p>
+        <a className="text-sm text-brand underline underline-offset-4" href="#/revision-flokzu">Abrir Revisión Flokzu</a>
         <h1 className="mt-1 text-2xl font-semibold text-ink">Importación de tickets</h1>
         <p className="mt-2 max-w-3xl text-sm text-muted">Sube la exportación diaria para detectar altas, cambios y tickets ya sincronizados. El Excel no inicia auditorías ni genera costos de IA.</p>
       </header>
@@ -194,8 +195,8 @@ export function FlokzuImportPage({ previewOnly = false }: { previewOnly?: boolea
 
       {preview && <Panel title="Vista previa de importación" description={`Exportación ${preview.exportedAt ?? 'sin fecha de exportación'} · ${preview.totalRows} filas detectadas · ${preview.validRows} válidas`} actions={<Badge tone="brand">CaVe como clave · Flokzu</Badge>}>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          <Metric label="Tickets detectados" value={preview.totalRows} />
-          <Metric label="Nuevos" value={preview.newRows} tone="brand" />
+          <Metric label="Expedientes activos" value={preview.activeRows} />
+          <Metric label="Revisión administrativa" value={preview.administrativeRows} tone="brand" />
           <Metric label="Requieren actualización" value={preview.changedRows} tone="warning" />
           <Metric label="Sin cambios" value={preview.unchangedRows} />
           <Metric label="Con errores" value={preview.errorRows} tone={preview.errorRows ? 'danger' : 'neutral'} />
@@ -205,13 +206,13 @@ export function FlokzuImportPage({ previewOnly = false }: { previewOnly?: boolea
             <h3 id="fl-preview-assignments" className="text-sm font-semibold text-ink">Distribución automática prevista</h3>
             {preview.assignments.length ? <ul className="mt-2 divide-y divide-line rounded-xl border border-line">{preview.assignments.map((assignment) => <li key={assignment.userId} className="flex justify-between gap-3 px-3 py-2 text-sm"><span>{assignment.name ?? 'Asesor sin nombre de perfil'}</span><strong>{assignment.count}</strong></li>)}</ul> : <p className="mt-2 text-sm text-muted">No hay nuevos tickets en la etapa de revisión BO o no hay Asesores elegibles.</p>}
             {preview.unassignedRows > 0 && <p className="mt-2 text-sm text-warning">{preview.unassignedRows} tickets de revisión BO quedarán pendientes de asignación.</p>}
-            <p className="mt-2 text-xs text-muted">Solo se asignan tickets cuya Tarea Actual sea revisión BO de CaVe. HelpDesk, SER y otras etapas quedan sin reparto automático.</p>
+            <p className="mt-2 text-xs text-muted">Se evalúan Estado, Tarea actual, Finalizado y contexto administrativo. Las decisiones manuales vigentes se conservan.</p>
           </section>
           <section aria-labelledby="fl-preview-rows">
             <h3 id="fl-preview-rows" className="text-sm font-semibold text-ink">Filas válidas</h3>
             <div className="mt-2 max-h-64 overflow-auto rounded-xl border border-line">
-              <table className="w-full text-left text-xs"><thead className="sticky top-0 bg-surface-2 text-muted"><tr><th className="px-3 py-2">CaVe</th><th className="px-3 py-2">Estudiante</th><th className="px-3 py-2">Acción</th><th className="px-3 py-2">Responsable</th></tr></thead>
-                <tbody>{preview.rows.slice(0, 100).map((row) => <tr className="border-t border-line" key={`${row.rowNumber}-${row.externalCaseId}`}><td className="whitespace-nowrap px-3 py-2 font-mono">{row.externalCaseId}</td><td className="max-w-48 truncate px-3 py-2">{row.studentName}<span className="block text-muted">{row.studentIdentifier}</span></td><td className="px-3 py-2"><Badge tone={actionTone(row.action)}>{actionLabel(row.action)}</Badge></td><td className="px-3 py-2">{row.assignmentName ?? (row.canAutoAssign && row.action === 'NEW' ? 'Pendiente' : '—')}</td></tr>)}</tbody>
+              <table className="w-full text-left text-xs"><thead className="sticky top-0 bg-surface-2 text-muted"><tr><th className="px-3 py-2">CaVe</th><th className="px-3 py-2">Estudiante</th><th className="px-3 py-2">Acción</th><th className="px-3 py-2">Destino / cambios</th><th className="px-3 py-2">Responsable</th></tr></thead>
+                <tbody>{preview.rows.slice(0, 100).map((row) => <tr className="border-t border-line" key={`${row.rowNumber}-${row.externalCaseId}`}><td className="whitespace-nowrap px-3 py-2 font-mono">{row.externalCaseId}</td><td className="max-w-48 truncate px-3 py-2">{row.studentName}<span className="block text-muted">{row.studentIdentifier}</span></td><td className="px-3 py-2"><Badge tone={actionTone(row.action)}>{actionLabel(row.action)}</Badge></td><td className="px-3 py-2"><span>{FLOKZU_CLASSIFICATION_LABELS[row.classification]}</span><span className="block text-muted">{row.reason}</span>{row.action === 'UPDATE' && <span className="mt-1 block text-warning">Estado: {row.previousStatus ?? '—'} → {row.nextStatus ?? '—'}<br />Tarea: {row.previousTask ?? '—'} → {row.nextTask ?? '—'}<br />Finalizado: {row.previousFinalized ?? '—'} → {row.nextFinalized ?? '—'}</span>}</td><td className="px-3 py-2">{row.assignmentName ?? (row.canAutoAssign && row.action === 'NEW' ? 'Pendiente' : '—')}</td></tr>)}</tbody>
               </table>
             </div>
             {preview.rows.length > 100 && <p className="mt-1 text-xs text-muted">Se muestran las primeras 100 de {preview.rows.length} filas válidas.</p>}
@@ -222,7 +223,7 @@ export function FlokzuImportPage({ previewOnly = false }: { previewOnly?: boolea
           <Button onClick={() => { void handleConfirm(); }} disabled={preview.validRows === 0 || confirming || uploading}>
             {confirming ? <><Spinner label="Importando expedientes" /> Importando…</> : 'Confirmar importación'}
           </Button>
-          <p className="max-w-2xl text-xs text-muted">Confirmar crea los casos como borradores listos para recibir evidencias. Repetir un CaVe existente sincroniza solo los campos de Flokzu y conserva su responsable y actividad.</p>
+          <p className="max-w-2xl text-xs text-muted">Los tickets fuera de auditoría pasan a Revisión Flokzu. Un CaVe existente se sincroniza sin duplicarlo; se conservan evidencias, dictámenes y decisiones manuales.</p>
         </div>
       </Panel>}
 

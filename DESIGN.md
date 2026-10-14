@@ -146,7 +146,7 @@ Grafito verdoso como base, texto marfil frío y un acento menta-petróleo de alt
 
 ## Layout
 
-El shell ocupa el viewport y separa cabecera, área de trabajo desplazable y dock como franja inferior propia; el dock no se superpone al contenido. La cabecera y el contenido se centran hasta un máximo de `1680px`. En escritorio, expedientes usa tabla y panel de vista previa; el detalle distribuye evidencias, visor y dictamen/revisión en columnas. Entre `761px` y `1100px`, el resumen coloca el total auditado en una fila y las métricas de atención en tres columnas. A `760px` o menos, el detalle y el resumen se apilan, el dock se reparte en el ancho disponible y las tablas conservan una región desplazable horizontal.
+El shell ocupa el viewport y separa cabecera, área de trabajo desplazable y dock como franja inferior propia; el dock no se superpone al contenido. La cabecera y el contenido se centran hasta un máximo de `1680px`. En escritorio, expedientes usa tabla y panel de vista previa. El detalle prioriza la lista de archivos y el visor, con un menú contextual izquierdo cerrado al entrar. Al abrirlo, reserva 360px (320px en anchuras intermedias), conserva scroll interno y deja las evidencias utilizables; la revisión humana se consulta en Dictamen dentro del mismo menú. En móvil, el menú existente ocupa la pantalla completa. Entre `761px` y `1100px`, el resumen coloca el total auditado en una fila y las métricas de atención en tres columnas. A `760px` o menos, el detalle y el resumen se apilan, el dock se reparte en el ancho disponible y las tablas conservan una región desplazable horizontal.
 
 El ritmo observado usa pasos frecuentes de `4`, `8`, `12` y `16px`, con separaciones mayores de `20–24px` entre grupos. La cabecera mide `60px`; el contenido usa padding horizontal de `16px`, que se reduce a `14px` en móvil. El dock deja margen inferior con `safe-area-inset-bottom`.
 
@@ -195,6 +195,9 @@ Los controles emplean radio de `8px`; paneles y superficies usan `12px`; el elem
 - **Style:** el dock centrado presenta icono Lucide, etiqueta visible y nombre accesible. Enlaces dependen de capacidades de sesión; la ruta activa conserva un punto de acento.
 - **Hover / Focus:** ampliación moderada con movimiento breve entre el icono activo y sus vecinos; tooltip en puntero o foco; foco de teclado visible.
 - **Mobile:** distribución horizontal compacta con etiquetas, sin ampliación dependiente de hover.
+
+### Contexto del expediente
+El menú reutiliza la superficie flotante de Flokzu y reúne Datos, Dictamen y Auditorías. Datos agrupa la identidad, la academia, el contexto reportado y las notas mediante secciones plegables. Los dictámenes históricos identifican ticket y fecha; una revisión humana se atribuye solo a su auditoría. En escritorio el menú no bloquea el foco del área de evidencias. El contenido y los borradores permanecen montados al cerrar o cambiar de pestaña.
 
 ### Tables and evidence
 Las tablas usan encabezados pequeños, cifras tabulares y divisores tenues; cada contenedor es una región accesible que permite desplazamiento horizontal con teclado. La evidencia seleccionada se marca con borde y superficie de acento. El detalle conserva el vínculo visual entre evidencia y dictamen mientras el contenido se desplaza.

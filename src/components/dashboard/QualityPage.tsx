@@ -1,3 +1,4 @@
+import { HistoryForCase } from '../StudentHistory';
 import type { ReactNode } from 'react';
 import { useState } from 'react';
 import type { DashboardFilters as Filters } from '../../lib/dashboard';
@@ -24,10 +25,12 @@ const dateFormat = new Intl.DateTimeFormat('es-MX', { dateStyle: 'short', timeSt
 
 function CasesTable({ rows }: { rows: QualityCase[] }): ReactNode {
   const [page, setPage] = useState(0);
+  const [historyCase, setHistoryCase] = useState<string | null>(null);
   const totalPages = Math.max(1, Math.ceil(rows.length / 25));
   const current = Math.min(page, totalPages - 1);
   const visible = rows.slice(current * 25, (current + 1) * 25);
   return <>
+    {historyCase && <Panel title="Historial de matrícula"><Button variant="ghost" onClick={()=>setHistoryCase(null)}>Cerrar</Button><HistoryForCase caseId={historyCase} /></Panel>}
     <div role="region" aria-label="Expedientes del indicador de calidad" tabIndex={0} className="overflow-x-auto">
       <table className="w-full text-left text-sm tabular-nums">
         <thead><tr className="border-b border-line text-muted">{['CaVe / caso', 'Responsable', 'Auditoría · UTC', 'Resolución IA', 'Confianza original', 'Propuesta Asesor', 'Final Coordinador', 'Comparación', 'Confianza comparación', 'Evaluación', 'Expediente'].map(label => <th key={label} scope="col" className="whitespace-nowrap px-3 py-3 font-medium">{label}</th>)}</tr></thead>
@@ -40,7 +43,7 @@ function CasesTable({ rows }: { rows: QualityCase[] }): ReactNode {
           <td className="px-3 py-3">{row.finalResolution ? resolutionLabel(row.finalResolution) : DASH}</td>
           <td className="px-3 py-3">{row.substantiveAgreement === null ? DASH : row.substantiveAgreement ? 'Acuerdo' : 'Discrepancia'}</td>
           <td className="px-3 py-3">{percent(row.comparisonConfidence)}</td><td className="px-3 py-3">{states[row.state]}{row.aiResolution && row.latestExecutionStatus && row.latestExecutionStatus !== 'COMPLETED' && <p className="mt-1 text-xs text-muted">Última ejecución: {row.latestExecutionStatus === 'ERROR' ? 'error técnico' : 'en curso'}</p>}</td>
-          <td className="px-3 py-3"><a className="text-brand underline underline-offset-4" href={`#/casos/${row.caseId}`} aria-label={`Abrir expediente ${row.identifier}`}>Abrir</a> <a className="ml-3 text-brand underline underline-offset-4" href={`#/casos/${row.caseId}?historial=1`}>Historial de matrícula</a></td>
+          <td className="px-3 py-3"><a className="text-brand underline underline-offset-4" href={`#/casos/${row.caseId}`} aria-label={`Abrir expediente ${row.identifier}`}>Abrir</a><Button variant="ghost" onClick={()=>setHistoryCase(row.caseId)}>Ver historial</Button></td>
         </tr>)}</tbody>
       </table>
       {!rows.length && <p className="py-6 text-sm text-muted">No hay expedientes en el universo seleccionado.</p>}
