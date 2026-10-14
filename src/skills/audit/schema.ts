@@ -81,10 +81,9 @@ const MissingEvidenceSchema = z.object({
   blocking: z.boolean(),
 }).strict();
 
-const ProcedureCheckSchema = z.object({
+const ProcedureCheckFieldsSchema = z.object({
   procedureSection: z.string().min(1),
   criterion: z.string().min(1),
-  status: z.enum(['ACREDITADO', 'NO_ACREDITADO', 'NO_DETERMINABLE']),
   reasoning: z.string().min(1),
   evidenceIds: z.array(z.string().min(1)),
   observedValues: z.array(z.object({
@@ -92,6 +91,20 @@ const ProcedureCheckSchema = z.object({
     value: z.string().min(1),
   }).strict()),
 }).strict();
+
+// Codifica las condiciones por estado en el JSON Schema que se envía al modelo.
+// El validador de negocio sigue siendo la autoridad local; esto reduce las
+// respuestas inválidas antes de que lleguen a esa capa.
+const EvidenceBackedProcedureCheckFieldsSchema = ProcedureCheckFieldsSchema.extend({
+  evidenceIds: z.array(z.string().min(1)).min(1),
+  observedValues: z.array(z.object({ label: z.string().min(1), value: z.string().min(1) }).strict()).min(1),
+});
+
+const ProcedureCheckSchema = z.discriminatedUnion('status', [
+  EvidenceBackedProcedureCheckFieldsSchema.extend({ status: z.enum(['ACREDITADO']) }),
+  EvidenceBackedProcedureCheckFieldsSchema.extend({ status: z.enum(['NO_ACREDITADO']) }),
+  ProcedureCheckFieldsSchema.extend({ status: z.enum(['NO_DETERMINABLE']) }),
+]);
 
 const ProvisionalResolutionSchema = z.object({
   result: z.enum(AUDIT_RESULTS).exclude(['EVIDENCIA_INSUFICIENTE', 'TICKET_RECHAZADO']),
