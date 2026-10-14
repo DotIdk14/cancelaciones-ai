@@ -7,6 +7,8 @@ export interface ActivityMetrics {
   failed: number;
   running: number;
   uniqueCases: number;
+  uniqueStudents?: number;
+  uniqueCaveTickets?: number;
   reaudits: number;
   retried: number;
   fallback: number;

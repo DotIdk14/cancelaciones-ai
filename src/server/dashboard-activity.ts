@@ -15,6 +15,8 @@ export function aggregateActivity(rows: DashboardMetricRow[]): ActivityMetrics {
     failed: rows.filter(row => row.audit_status === 'ERROR').length,
     running: rows.filter(row => row.audit_status === 'RUNNING').length,
     uniqueCases: cases.size,
+    uniqueStudents: new Set(rows.map(row => row.student_identifier).filter(Boolean)).size,
+    uniqueCaveTickets: new Set(rows.map(row => row.external_case_id).filter(Boolean)).size,
     reaudits: rows.filter(row => row.is_reaudit === true).length,
     retried: rows.filter(row => row.attempts_count > 1 || (row.attempt_number ?? 1) > 1).length,
     fallback: rows.filter(row => (row.provider_models?.length ?? 0) > 1).length,

@@ -8,7 +8,7 @@ const count = (value: number | undefined): string => value === undefined ? DASH 
 const metrics: Array<{ label: string; key: keyof ActivityMetrics; currency?: boolean }> = [
   { label: 'Ejecuciones', key: 'executions' }, { label: 'Completadas', key: 'completed' },
   { label: 'Fallidas', key: 'failed' }, { label: 'En curso', key: 'running' },
-  { label: 'Expedientes únicos', key: 'uniqueCases' }, { label: 'Reauditorías', key: 'reaudits' },
+  { label: 'Matrículas únicas', key: 'uniqueStudents' }, { label: 'Tickets CaVe únicos', key: 'uniqueCaveTickets' }, { label: 'Expedientes únicos', key: 'uniqueCases' }, { label: 'Reauditorías', key: 'reaudits' },
   { label: 'Ejecuciones con reintento', key: 'retried' }, { label: 'Ejecuciones con fallback', key: 'fallback' },
   { label: 'Llamadas OpenRouter registradas', key: 'providerCalls' },
   { label: 'Ejecuciones sin trazabilidad de llamadas', key: 'executionsWithoutCallTrace' },

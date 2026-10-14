@@ -120,6 +120,7 @@ export interface AuditHistoryItemDto {
   evidenceFingerprint: string | null;
   attemptNumber: number | null;
   createdAt: string;
+  procedureSection: string | null;
 }
 
 /**
@@ -337,6 +338,7 @@ export function auditHistoryItemToDto(row: AuditRow): AuditHistoryItemDto {
     evidenceFingerprint: row.evidence_fingerprint,
     attemptNumber: row.attempt_number,
     createdAt: row.created_at,
+    procedureSection: typeof assessment?.procedureSection === 'string' ? assessment.procedureSection : null,
   };
 }
 
