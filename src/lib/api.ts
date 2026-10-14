@@ -1,3 +1,4 @@
+import type { ManualCaseMatch, ImportLinkResolution } from '../shared/case-links';
 import type { StudentHistory } from './student-history';
 import type { AuditLifecycle } from './audit-lifecycle';
 // =============================================================================
@@ -102,6 +103,7 @@ export interface CaseDetail {
   /** Clasificación del caso: `true` = prueba, `false` = real. */
   isTest?: boolean;
   /** Capacidad efectiva para mutar este expediente, resuelta por el servidor. */
+  mergedIntoCaseId?: string | null;
   canWrite?: boolean;
   canManageCases?: boolean;
   country?: string | null;
@@ -136,7 +138,7 @@ export interface FlokzuImportPreview {
   administrativeRows: number;
   issues: Array<{ rowNumber: number; externalCaseId: string | null; message: string }>;
   assignments: Array<{ userId: string; name: string | null; count: number }>;
-  rows: Array<{ rowNumber: number; externalCaseId: string; studentIdentifier: string; studentName: string; action: 'NEW' | 'UPDATE' | 'UNCHANGED'; assignmentUserId: string | null; assignmentName: string | null; canAutoAssign: boolean; classification: import('../shared/flokzu-review').FlokzuClassification; reason: string; previousStatus: string | null; nextStatus: string | null; previousTask: string | null; nextTask: string | null; previousFinalized: string | null; nextFinalized: string | null }>;
+  rows: Array<{ manualMatch?: ManualCaseMatch; rowNumber: number; externalCaseId: string; studentIdentifier: string; studentName: string; action: 'NEW' | 'UPDATE' | 'UNCHANGED'; assignmentUserId: string | null; assignmentName: string | null; canAutoAssign: boolean; classification: import('../shared/flokzu-review').FlokzuClassification; reason: string; previousStatus: string | null; nextStatus: string | null; previousTask: string | null; nextTask: string | null; previousFinalized: string | null; nextFinalized: string | null }>;
 }
 
 export interface FlokzuImportHistoryItem {
@@ -149,7 +151,7 @@ export interface FlokzuImportHistoryItem {
   unchangedRows: number;
   errorRows: number;
   issues: FlokzuImportPreview['issues'];
-  result: { created?: number; updated?: number; unchanged?: number; errors?: number; unassigned?: number } | null;
+  result: { linked?: number; created?: number; updated?: number; unchanged?: number; errors?: number; unassigned?: number } | null;
   createdAt: string;
   completedAt: string | null;
 }
@@ -624,7 +626,7 @@ export async function listCasePage(options: {
   return request<CaseSummaryPage>(`/api/cases?${params.toString()}`, {}, [200]);
 }
 
-export async function createCase(studentIdentifier?: string, studentName?: string, requestId?: string): Promise<CaseSummary> {
+export async function createCase(studentIdentifier?: string, studentName?: string, requestId?: string, options: { externalCaseId?: string; assignedTo?: string; separateRequest?: boolean } = {}): Promise<CaseSummary> {
   const data = await request<{ case: CaseSummary }>(
     '/api/cases',
     {
@@ -633,6 +635,7 @@ export async function createCase(studentIdentifier?: string, studentName?: strin
       body: JSON.stringify({
         ...(studentIdentifier ? { studentIdentifier } : {}),
         ...(studentName ? { studentName } : {}),
+        ...options,
       }),
     },
     [200, 201],
@@ -648,11 +651,11 @@ export async function previewFlokzuImport(file: File): Promise<FlokzuImportPrevi
   return (await responseJson<{ preview: FlokzuImportPreview }>(response)).preview;
 }
 
-export async function confirmFlokzuImport(batchId: string): Promise<NonNullable<FlokzuImportHistoryItem['result']>> {
+export async function confirmFlokzuImport(batchId: string, resolutions: ImportLinkResolution[] = []): Promise<NonNullable<FlokzuImportHistoryItem['result']>> {
   const data = await request<{ result: NonNullable<FlokzuImportHistoryItem['result']> }>('/api/cases', {
     method: 'PATCH',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ batchId }),
+    body: JSON.stringify({ batchId, resolutions }),
     timeoutMs: 60_000,
   }, [200]);
   return data.result;
@@ -1136,4 +1139,12 @@ export async function getStudentHistory(caseId: string, offset = 0): Promise<Stu
 }
 export async function reconcileCaseRequests(caseId: string, relation: { otherId: string; primaryId: string | null; sameRequest: boolean; note: string }): Promise<void> {
   await request(casePath(caseId), { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ relation }) }, [200]);
+}
+
+export async function getCaseAssignmentOptions(): Promise<Array<{ userId: string; name: string | null }>> {
+  return (await request<{ assignmentOptions: Array<{ userId: string; name: string | null }> }>('/api/cases?view=assignment-options', {}, [200])).assignmentOptions;
+}
+
+export async function getExistingStudentCases(studentIdentifier: string): Promise<Array<{ id: string; external_case_id: string | null; student_name: string | null; created_at: string }>> {
+  return (await request<{ cases: Array<{ id: string; external_case_id: string | null; student_name: string | null; created_at: string }> }>('/api/cases?' + new URLSearchParams({ view: 'student-options', studentIdentifier }), {}, [200])).cases;
 }

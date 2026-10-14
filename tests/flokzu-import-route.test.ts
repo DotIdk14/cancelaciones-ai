@@ -34,6 +34,16 @@ describe('endpoint de importación Flokzu', () => {
     createServerClient.mockReset();
   });
 
+  it('la búsqueda por matrícula falla cerrada ante un rol desconocido', async () => {
+    const req = request('GET', 'user');
+    req.query = { view: 'student-options', studentIdentifier: 'SINTETICA-1' };
+    req.auth = { ...fakeAuthContext('user'), role: 'desconocido' as never };
+    const res = response();
+    await casesHandler(req, res);
+    expect(res.statusCode).toBe(403);
+    expect(createServerClient).not.toHaveBeenCalled();
+  });
+
   it.each(['user', 'manager'] as const)('%s recibe 403 al consultar historial directamente', async (role) => {
     const res = response();
     await casesHandler(request('GET', role), res);

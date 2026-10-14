@@ -1,3 +1,5 @@
+import { getCaseAssignmentOptions, getExistingStudentCases } from '../lib/api';
+import { capabilitiesForRole } from '../server/capabilities';
 // =============================================================================
 // Panel de alta de caso. Solo UI: la creación real vive en el backend.
 //
@@ -70,7 +72,7 @@ export function NewCasePanel({ role = null, canWrite = false }: { role?: AppRole
   if (!canWrite && !isLocalDashboardPreview()) return <NewCaseReadOnly />;
   if (!canWrite && role === 'manager') return <NewCaseReadOnly />;
   if (isLocalDashboardPreview()) return <NewCasePreview />;
-  return <NewCaseForm />;
+  return <NewCaseForm canAssign={capabilitiesForRole(role).canImportCases} />;
 }
 
 /** Estado del alta cuando el rol no puede crear casos (Gerente). */
@@ -143,7 +145,17 @@ function summarizeUploads(fresh: number, failed: number): string {
   return parts.length > 0 ? `${parts.join(' · ')}.` : '';
 }
 
-function NewCaseForm(): ReactNode {
+function NewCaseForm({ canAssign }: { canAssign: boolean }): ReactNode {
+  const [separateRequest, setSeparateRequest] = useState(false);
+  const [existingCases, setExistingCases] = useState<Awaited<ReturnType<typeof getExistingStudentCases>>>([]);
+  const lookupSequence = useRef(0);
+  const [externalCaseId, setExternalCaseId] = useState('');
+  const [assignedTo, setAssignedTo] = useState('');
+  const [assignees, setAssignees] = useState<Array<{ userId: string; name: string | null }>>([]);
+  const [assignmentError, setAssignmentError] = useState<string | null>(null);
+  useEffect(() => {
+    if (canAssign) void getCaseAssignmentOptions().then(setAssignees).catch(() => setAssignmentError('No se pudieron cargar los Asesores. Puedes usar la asignación automática.'));
+  }, [canAssign]);
   const requestId = useRef<string | null>(null);
   const locked = useRef(false);
   const [progressOpen, setProgressOpen] = useState(false);
@@ -308,6 +320,7 @@ function NewCaseForm(): ReactNode {
         studentIdentifier.trim() === '' ? undefined : studentIdentifier.trim(),
         studentName.trim() === '' ? undefined : studentName.trim(),
         requestId.current ?? undefined,
+        { ...(externalCaseId.trim() ? { externalCaseId: externalCaseId.trim() } : {}), ...(canAssign && assignedTo ? { assignedTo } : {}), ...(separateRequest ? { separateRequest: true } : {}) },
       );
       setCaseId(created.id);
       return created.id;
@@ -448,7 +461,11 @@ function NewCaseForm(): ReactNode {
                   disabled={busy || caseId !== null}
                   type="text"
                   value={studentIdentifier}
-                  onChange={(event) => setStudentIdentifier(event.target.value)}
+                  onChange={(event) => { lookupSequence.current++; setStudentIdentifier(event.target.value); setExistingCases([]); setSeparateRequest(false); }}
+                  onBlur={() => {
+                    const value = studentIdentifier.trim(); const sequence = ++lookupSequence.current;
+                    if (value) void getExistingStudentCases(value).then(cases => { if (sequence === lookupSequence.current) setExistingCases(cases); }).catch(() => { if (sequence === lookupSequence.current) setCreateError('No se pudieron verificar los expedientes existentes. El servidor volverá a comprobarlo al guardar.'); });
+                  }}
                   placeholder="Ej. 202312345"
                   aria-describedby={`${formId}-hint`}
                   className="w-full rounded-lg border border-line bg-surface-2 px-3 py-2.5 text-sm text-ink placeholder:text-muted"
@@ -457,6 +474,12 @@ function NewCaseForm(): ReactNode {
                   La matrícula puede añadirse después si aún no la tienes.
                 </p>
               </div>
+
+              {existingCases.length > 0 && <div className="rounded-lg border border-line bg-surface-2 p-3 text-sm">
+                <p className="font-medium text-ink">Ya hay expedientes para esta matrícula</p>
+                <ul className="mt-2 space-y-1">{existingCases.map(item => <li key={item.id}><a className="text-brand underline" href={'#/casos/' + item.id}>{item.external_case_id ?? 'Expediente sin CaVe'} · {item.student_name ?? 'Sin nombre'}</a></li>)}</ul>
+              </div>}
+              <label className="flex items-start gap-2 text-sm text-muted"><input type="checkbox" checked={separateRequest} onChange={event => setSeparateRequest(event.target.checked)} disabled={busy || caseId !== null} />Confirmo que estoy creando otra solicitud para esta matrícula, distinta de los expedientes existentes.</label>
 
               <div>
                 <label htmlFor={`${formId}-student-name`} className="mb-1.5 block text-sm font-medium text-ink">
@@ -475,6 +498,19 @@ function NewCaseForm(): ReactNode {
                 />
               </div>
 
+              <div>
+                <label htmlFor={formId + '-cave'} className="mb-1.5 block text-sm font-medium text-ink">Número de CaVe (opcional)</label>
+                <input id={formId + '-cave'} value={externalCaseId} onChange={event => setExternalCaseId(event.target.value)} disabled={busy || caseId !== null} placeholder="CaVe-12345" maxLength={21} className="w-full rounded-lg border border-line bg-surface-2 px-3 py-2.5 text-sm text-ink" />
+                <p className="mt-1.5 text-xs text-muted">Si aún no lo tienes, la importación diaria podrá vincularlo a este expediente.</p>
+              </div>
+              {canAssign ? <div>
+                <label htmlFor={formId + '-assignee'} className="mb-1.5 block text-sm font-medium text-ink">Asesor responsable</label>
+                <select id={formId + '-assignee'} value={assignedTo} onChange={event => setAssignedTo(event.target.value)} disabled={busy || caseId !== null} className="w-full rounded-lg border border-line bg-surface-2 px-3 py-2.5 text-sm text-ink">
+                  <option value="">Asignación automática por carga pendiente</option>
+                  {assignees.map(a => <option key={a.userId} value={a.userId}>{a.name ?? 'Asesor sin nombre'}</option>)}
+                </select>
+                {assignmentError && <p role="status" className="mt-1.5 text-xs text-muted">{assignmentError}</p>}
+              </div> : <p className="text-sm text-muted">Este expediente quedará asignado a ti automáticamente.</p>}
               {createError !== null && !progressOpen && <ErrorCard message={createError} />}
 
               <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">

@@ -1,3 +1,4 @@
+import { listAssignmentOptions } from '../../src/server/case-assignment.js';
 import { getStudentHistory } from '../../src/server/student-history.js';
 import { z } from 'zod';
 import {
@@ -30,13 +31,11 @@ export const config = { api: { bodyParser: false } };
 // El alcance de la lectura lo aplica `listCaseSummaries` desde las capacidades
 // del rol (los tres roles autenticados pueden consultar todos los casos).
 //
-// El cuerpo es ESTRICTO: rechaza cualquier campo que no sea `studentIdentifier` o
-// `studentName`, de modo que un `created_by`, `role`, `actor` o `isTest` del cliente
+// El cuerpo es ESTRICTO: admite identificación, CaVe, elección de responsable y
+// confirmación de solicitud distinta. Un `created_by`, `role`, `actor` o `isTest`
 // no puede falsificar la propiedad ni el rol. El autor SIEMPRE es `req.auth`.
 //
-// `isTest` es un booleano de verdad: `z.boolean()` NO coacciona, así que `"true"`,
-// `1` o `"1"` se rechazan con 400 en vez de convertirse en un caso de prueba por
-// accidente. Omitirlo significa `false` (caso real), el default de la columna.
+// Los booleanos no se coaccionan y la marca de prueba se administra aparte.
 const CreateCaseBodySchema = z
   .object({
     // `unknown()` a propósito: el identificador conserva el comportamiento
@@ -44,6 +43,9 @@ const CreateCaseBodySchema = z
     // la clave sigue estando permitida para que `.strict()` no la rechace.
     studentIdentifier: z.unknown().optional(),
     studentName: z.unknown().optional(),
+    externalCaseId: z.string().trim().regex(/^CaVe-\d{1,16}$/i).transform(value => 'CaVe-' + value.slice(5)).optional(),
+    assignedTo: z.string().uuid().optional(),
+    separateRequest: z.boolean().optional(),
   })
   .strict();
 
@@ -76,6 +78,21 @@ export default handleRoute(async (req, res) => {
     return;
   }
   if (req.method === 'GET') {
+    if (req.query.view === 'student-options') {
+      if (!capabilitiesForRole(req.auth!.role).canReadAllCases) throw new ApiError(403, 'AUTH_ERROR', 'No tienes permiso para consultar expedientes.');
+      const parsed = z.string().trim().min(1).max(200).safeParse(req.query.studentIdentifier);
+      if (!parsed.success) throw new ApiError(400, 'VALIDATION_ERROR', 'Matrícula inválida.');
+      const { data, error } = await createServerClient().database.from('cases')
+        .select('id,student_name,external_case_id,created_at').eq('student_identifier', parsed.data)
+        .is('merged_into_case_id', null).eq('is_test', false).order('created_at', { ascending: false }).limit(20);
+      if (error) throw new ApiError(503, 'DATABASE_ERROR', 'No se pudieron consultar los expedientes existentes.');
+      ok(res, { cases: data });
+      return;
+    }
+    if (req.query.view === 'assignment-options') {
+      ok(res, { assignmentOptions: await listAssignmentOptions(createServerClient(), req.auth!) });
+      return;
+    }
     if (req.query.view === 'flokzu-review') {
       assertFlokzuCoordinator(req.auth!);
       const { view: _view, caseId, historyOffset, ...filters } = req.query;
@@ -262,9 +279,11 @@ export default handleRoute(async (req, res) => {
 
     const client = createServerClient();
     const requestId = idempotencyKey(req);
-    const row = requestId
-      ? await createCase(client, studentIdentifier, studentName, req.auth!.sub, requestId)
-      : await createCase(client, studentIdentifier, studentName, req.auth!.sub);
+    if (parsed.data.assignedTo && !capabilitiesForRole(req.auth!.role).canImportCases) {
+      throw new ApiError(403, 'AUTH_ERROR', 'Solo el Coordinador elige otro responsable.');
+    }
+    const row = await createCase(client, studentIdentifier, studentName, req.auth!.sub, requestId,
+      { externalCaseId: parsed.data.externalCaseId, assignedTo: parsed.data.assignedTo, separateRequest: parsed.data.separateRequest });
     created(res, { case: caseToSummary({ ...row, evidence: [] }, capabilitiesForRole(req.auth!.role).canManageCases) });
     return;
   }
@@ -280,9 +299,9 @@ export default handleRoute(async (req, res) => {
     if (!capabilitiesForRole(req.auth!.role).canImportCases) {
       throw new ApiError(403, 'AUTH_ERROR', 'Solo un Coordinador puede confirmar importaciones de Flokzu.');
     }
-    const parsed = zod.object({ batchId: zod.string().uuid() }).strict().safeParse(await readJsonBody(req));
+    const parsed = zod.object({ batchId: zod.string().uuid(), resolutions: zod.array(zod.object({ externalCaseId: zod.string().regex(/^CaVe-\d{1,16}$/), caseId: zod.string().uuid().nullable() }).strict()).max(10000).optional() }).strict().safeParse(await readJsonBody(req));
     if (!parsed.success) throw new ApiError(400, 'VALIDATION_ERROR', 'La vista previa indicada no es válida.');
-    const result = await confirmFlokzuImport(createServerClient(), req.auth!, parsed.data.batchId);
+    const result = await confirmFlokzuImport(createServerClient(), req.auth!, parsed.data.batchId, parsed.data.resolutions);
     ok(res, { result });
     return;
   }

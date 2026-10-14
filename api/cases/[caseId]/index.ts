@@ -1,3 +1,4 @@
+import { assignManualCase } from '../../../src/server/case-assignment.js';
 import { auditLifecycle } from '../../../src/lib/audit-lifecycle.js';
 import { reconcileCases } from '../../../src/server/student-history.js';
 import { healStaleAudit } from '../../../src/server/audit-service.js';
@@ -72,10 +73,10 @@ export default handleRoute(async (req, res) => {
       if (!capabilitiesForRole(req.auth!.role).canImportCases) {
         throw new ApiError(403, 'AUTH_ERROR', 'No tienes permiso para reasignar expedientes importados.');
       }
-      if (caseRow.external_source !== 'FLOKZU') throw new ApiError(404, 'NOT_FOUND', 'Caso no encontrado');
       const parsed = z.object({ assignedTo: z.string().uuid().nullable() }).strict().safeParse(body);
       if (!parsed.success) throw new ApiError(400, 'VALIDATION_ERROR', 'El responsable indicado no es válido.');
-      await assignImportedCase(client, caseId, parsed.data.assignedTo, req.auth!);
+      if (caseRow.external_source === 'FLOKZU') await assignImportedCase(client, caseId, parsed.data.assignedTo, req.auth!);
+      else await assignManualCase(client, caseId, parsed.data.assignedTo, req.auth!);
       ok(res, { ok: true });
       return;
     }

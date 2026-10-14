@@ -246,7 +246,7 @@ export function StudentHistory({
                             </td>
                             <td>
                               <a href={"#/casos/" + item.id}>
-                                {item.externalCaseId ?? "Expediente manual"}
+                                {item.mergedIntoCaseId ? 'Ficha consolidada' : item.externalCaseId ?? "Expediente manual"}
                               </a>
                               <p>{formatDateTime(item.createdAt)}</p>
                               <p>

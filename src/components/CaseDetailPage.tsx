@@ -1,3 +1,4 @@
+import { CaseAssignment } from './CaseAssignment';
 import { CaseContextMenu, type ContextTab } from './CaseContextMenu';
 import { EvidenceReferences } from './EvidenceReferences';
 import { OperationProgressDialog } from './OperationProgressDialog';
@@ -562,6 +563,8 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
       )}
       {actionError !== null && <ErrorCard message={actionError.message} category={actionError.category} />}
 
+      {detail.case.mergedIntoCaseId && <Panel title="Expediente consolidado"><p className="text-sm text-muted">Este registro conserva el historial de una ficha duplicada. Continúa en el <a className="text-brand underline" href={'#/casos/' + detail.case.mergedIntoCaseId}>expediente principal</a>.</p></Panel>}
+      {capabilities.canImportCases && !detail.case.mergedIntoCaseId && <CaseAssignment key={caseId + ':' + detail.case.assignedTo} caseId={caseId} assignedTo={detail.case.assignedTo ?? null} finalized={workflowStateOf(detail.review) === 'FINALIZED'} onSaved={load} />}
       <div className={`case-workspace${contextOpen ? ' case-workspace-context-open' : ''}`}>
         <div className="case-context-slot">
           <CaseContextMenu key={caseId} detail={detail} open={contextOpen} tab={contextTab} onTabChange={setContextTab} onClose={() => setContextOpen(false)} notesContent={notesContent} reviewContent={reviewContent} canReconcile={capabilities.canFinalizeAnyCase} />
