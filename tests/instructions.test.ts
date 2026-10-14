@@ -17,7 +17,8 @@ describe('Instrucciones del Skill (anti prompt-injection)', () => {
     expect(system).not.toContain('No la repitas en ningún otro bloque');
     expect(system).toContain(ASSESSMENT_VALIDATION_CHECKLIST);
     expect(system).toContain(`key "${CYCLE_START_FACT_KEY}" y value igual a temporalAnalysis.cycleStartDate`);
-    expect(system).toContain('Si solo falta información para comprobarlo, usa NO_DETERMINABLE');
+    expect(system).toContain('Si cualquiera de esos dos campos quedaría vacío o no puedes respaldarlo con el expediente, usa NO_DETERMINABLE');
+    expect(system).toContain('nunca inventes registros, IDs ni conteos para rellenar el contrato');
   });
   it('el prompt de sistema incluye el bloque anti-inyección', () => {
     const system = buildSystemPrompt();
