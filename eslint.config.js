@@ -5,7 +5,7 @@ import tseslint from 'typescript-eslint';
 
 export default [
   {
-    ignores: ['dist/**', 'node_modules/**', 'coverage/**', 'src/skills/audit/policy-v5.generated.ts'],
+    ignores: ['dist/**', 'node_modules/**', 'coverage/**', '.worktrees/**', 'src/skills/audit/policy-v5.generated.ts'],
   },
   {
     ...js.configs.recommended,

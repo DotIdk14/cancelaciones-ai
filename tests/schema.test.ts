@@ -608,7 +608,8 @@ describe('AuditResultSchema (serialización)', () => {
     if (reparsed.success) {
       expect(reparsed.data.audit.result).toBe('CANCELACION_VENTA');
     }
-    expect(JSON.stringify(reparsed.success ? reparsed.data : null)).toBe(serialized);
+    // JSONB no garantiza el orden de las claves; el contrato conserva su contenido.
+    expect(reparsed.success ? reparsed.data : null).toEqual(deserialized);
   });
 });
 

@@ -580,10 +580,11 @@ describe('callOpenRouterAudit', () => {
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(result.attempts[0]?.path).toBe('audit.procedureChecks.0.status');
+    // El esquema discrimina por estado y rechaza primero la evidencia vacía.
+    expect(result.attempts[0]?.path).toBe('audit.procedureChecks.0.evidenceIds');
     const turns = bodies[1]?.messages as Array<{ content: Array<{ text: string }> }>;
     const feedback = turns.at(-1)?.content[0]?.text ?? '';
-    expect(feedback).toContain('NO_ACREDITADO exige evidencia');
+    expect(feedback).toContain('audit.procedureChecks.0.evidenceIds');
     expect(feedback).toContain(ASSESSMENT_VALIDATION_CHECKLIST);
     expect(feedback).toContain('cycle_start_date');
     expect(feedback).toContain('NO_DETERMINABLE');
