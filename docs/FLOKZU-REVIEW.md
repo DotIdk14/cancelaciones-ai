@@ -10,7 +10,7 @@ El endpoint existente `/api/cases?view=flokzu-review` sirve lista y detalle medi
 
 ## Migración y despliegue
 
-La migración `20261013100000_flokzu-administrative-review.sql` requiere `20261012100000_flokzu-case-import.sql`. No aplicar automáticamente a producción. Seguir `docs/MIGRATION-RECONCILIATION.md`, comprobar el ledger y esquema reales y ensayar el archivo exacto con el runner oficial en un backend aislado. Desplegar backend y frontend conjuntamente después de la migración: las nuevas consultas requieren las columnas administrativas.
+La migración `20261013103000_flokzu-administrative-review.sql` requiere `20261012100000_flokzu-case-import.sql`. No aplicar automáticamente a producción. Seguir `docs/MIGRATION-RECONCILIATION.md`, comprobar el ledger y esquema reales y ensayar el archivo exacto con el runner oficial en un backend aislado. Desplegar backend y frontend conjuntamente después de la migración: las nuevas consultas requieren las columnas administrativas.
 
 El backfill registra un evento BASELINE por ticket previamente importado y lo marca para conciliación, preservando ID, responsable, autor y relaciones. Una nueva exportación válida o una reactivación manual restablece la elegibilidad cuando corresponde. Los casos nativos conservan `flokzu_audit_eligible=true`. Revisar el volumen de tickets afectados antes del cambio y comunicar que pasarán temporalmente a la bandeja administrativa.
 

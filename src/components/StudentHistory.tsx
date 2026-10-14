@@ -3,7 +3,7 @@ import { AuditResultPanel } from "./AuditResultPanel";
 import { isLocalDashboardPreview } from "../lib/local-dashboard-preview";
 import { previewStudentHistory } from "../lib/local-student-history-preview";
 import { WORKFLOW_STATE_LABELS } from "../lib/labels";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ComponentProps } from "react";
 import {
   getStudentHistory,
   getCase,
@@ -37,15 +37,19 @@ export function StudentHistory({
   studentIdentifier,
   canReconcile,
   previewHistory,
+  embedded = false,
+  onSelectAudit,
 }: {
   caseId: string;
   studentIdentifier: string | null;
   canReconcile: boolean;
   previewHistory?: History;
+  embedded?: boolean;
+  onSelectAudit?: (caseId: string, auditId: string) => void;
 }) {
   const activeCase = useRef(caseId);
   activeCase.current = caseId;
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(embedded);
   const [history, setHistory] = useState<History | null>(
     previewHistory ?? null,
   );
@@ -61,7 +65,7 @@ export function StudentHistory({
   const [saved, setSaved] = useState(false);
   useEffect(() => {
     let active = true;
-    setOpen(false); setBusy(false); setNote(""); setError(""); setOffset(0);
+    setOpen(embedded); setBusy(false); setNote(""); setError(""); setOffset(0);
     setHistory(null);
     setHistoricalAudit(null);
     setSelected([]);
@@ -80,7 +84,7 @@ export function StudentHistory({
     return () => {
       active = false;
     };
-  }, [caseId, studentIdentifier, previewHistory]);
+  }, [caseId, studentIdentifier, previewHistory, embedded]);
   async function load(offset = 0) {
     setOffset(offset);
     if (previewHistory) {
@@ -114,9 +118,10 @@ export function StudentHistory({
       const data = await Promise.all(selected.map((item) => getCase(item.id)));
       if(activeCase.current===caseId) setDetails(data);
     } catch {
+      if (activeCase.current !== caseId) return;
       setError("No se pudieron consultar los expedientes seleccionados.");
     } finally {
-      setBusy(false);
+      if (activeCase.current === caseId) setBusy(false);
     }
   }
   async function reconcile(sameRequest: boolean, primaryId: string | null) {
@@ -132,6 +137,7 @@ export function StudentHistory({
       });
       if(activeCase.current===caseId) { setSaved(true); await load(); }
     } catch {
+      if (activeCase.current !== caseId) return;
       setError(
         "No se guardó la conciliación. Revisa las decisiones previas y que no haya una auditoría en curso.",
       );
@@ -142,7 +148,7 @@ export function StudentHistory({
   if (!studentIdentifier) return null;
   return (
     <section aria-label="Historial de matrícula">
-      <div className="flex flex-wrap items-center gap-2 text-sm text-muted">
+      {!embedded && <div className="flex flex-wrap items-center gap-2 text-sm text-muted">
         <span>
           {history && history.totalCases > 1
             ? "Esta matrícula tiene " +
@@ -162,9 +168,10 @@ export function StudentHistory({
         >
           Ver historial
         </Button>
-      </div>
-      {open && (
-        <ModalShell
+      </div>}
+      {(open || embedded) && (
+        <HistoryPanel
+          embedded={embedded}
           variant="drawer"
           drawerClassName="student-history-panel"
           title={"Historial de matrícula · " + studentIdentifier}
@@ -295,15 +302,21 @@ export function StudentHistory({
                                           variant="ghost"
                                           disabled={busy}
                                           onClick={() => {
+                                            if (onSelectAudit) { onSelectAudit(item.id, v.id); return; }
                                             setBusy(true);
                                             getAuditVersion(item.id, v.id)
-                                              .then(audit=>{if(activeCase.current===caseId) setHistoricalAudit(audit);})
-                                              .catch(() =>
+                                              .then(audit => {
+                                                if (activeCase.current !== caseId) return;
+                                                if (audit.caseId !== item.id || audit.id !== v.id) throw new Error("Identidad incompatible");
+                                                setHistoricalAudit(audit);
+                                              })
+                                              .catch(() => {
+                                                if (activeCase.current !== caseId) return;
                                                 setError(
                                                   "No se pudo consultar esta versión.",
-                                                ),
-                                              )
-                                              .finally(() => setBusy(false));
+                                                );
+                                              })
+                                              .finally(() => { if (activeCase.current === caseId) setBusy(false); });
                                           }}
                                         >
                                           Consultar versión
@@ -508,7 +521,7 @@ export function StudentHistory({
               </>
             )}
           </div>
-        </ModalShell>
+        </HistoryPanel>
       )}
     </section>
   );
@@ -550,4 +563,8 @@ export function HistoryForCase({ caseId }: { caseId: string }) {
   ) : (
     <p role="status">Consultando matrícula…</p>
   );
+}
+
+function HistoryPanel({ embedded, children, ...props }: ComponentProps<typeof ModalShell> & { embedded: boolean }) {
+  return embedded ? <div>{children}</div> : <ModalShell {...props}>{children}</ModalShell>;
 }

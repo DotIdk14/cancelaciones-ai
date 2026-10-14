@@ -1,15 +1,19 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { it, expect, vi } from 'vitest';
+import { cleanup, render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { afterEach, it, expect, vi } from 'vitest';
 import { StudentHistory } from '../src/components/StudentHistory';
-vi.mock('../src/lib/student-history', () => ({ readStudentHistory: vi.fn(async () => ({ studentIdentifier: '00123', studentName: 'Estudiante sintético', summary: { cases: 2, audits: 3, evidences: 4, previousCases: 1, lastRequestAt: '2026-10-13' }, cases: ['CaVe-1','CaVe-2'].map((id, index) => ({ id, externalCaseId: id, createdAt: '2026-10-12', status: 'DRAFT', policy: index ? 'Política B' : 'Política A', evidenceCount: index + 1, auditCount: 1, latestAudit: null, workflowState: 'PENDING_ADVISOR', finalResolution: null })), nextOffset: null })) }));
-it('abre historial y compara tickets distintos sin IA', async () => {
- render(<StudentHistory caseId="CaVe-2" />);
- await waitFor(() => expect(screen.getByText(/Esta matrícula tiene 1/)).toBeTruthy());
- fireEvent.click(screen.getByText(/Ver historial/));
- expect(screen.getByText(/2 expedientes · 3 ejecuciones/)).toBeTruthy();
- for(const checkbox of screen.getAllByRole('checkbox')) fireEvent.click(checkbox);
- expect(screen.getByRole('table')).toBeTruthy();
- expect(screen.getByRole('heading', { name: 'Comparación de solicitudes' })).toBeTruthy();
- expect(screen.getAllByText('Política A').length).toBe(2);
+import { previewStudentHistory } from '../src/lib/local-student-history-preview';
+import { getStudentHistory, getAuditVersion } from '../src/lib/api';
+vi.mock('../src/lib/api', () => ({ getStudentHistory: vi.fn(), getAuditVersion: vi.fn(), getCase: vi.fn(), reconcileCaseRequests: vi.fn() }));
+afterEach(cleanup);
+it('consulta versiones en el menú sin abrir otro diálogo ni cambiar el expediente', async () => {
+ const history = { ...previewStudentHistory, studentIdentifier: '00123', items: previewStudentHistory.items.map(item => ({ ...item, versions: [{ id: 'historical', status: 'COMPLETED', createdAt: '2026-10-12T10:00:00Z', result: 'BAJA', retired: false }] })) };
+ vi.mocked(getStudentHistory).mockResolvedValue(history);
+ const select = vi.fn();
+ render(<StudentHistory caseId="demo-1" studentIdentifier="00123" canReconcile={false} embedded onSelectAudit={select} />);
+ await waitFor(() => expect(screen.getAllByRole('button', { name: 'Consultar versión' })).toHaveLength(2));
+ fireEvent.click(screen.getAllByRole('button', { name: 'Consultar versión' })[0]!);
+ expect(select).toHaveBeenCalledWith(history.items[0]!.id, 'historical');
+ expect(screen.queryByRole('dialog')).toBeNull();
+ expect(getAuditVersion).not.toHaveBeenCalled();
 });

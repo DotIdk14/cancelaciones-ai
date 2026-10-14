@@ -75,7 +75,7 @@ export default handleRoute(async (req, res) => {
       if (caseRow.external_source !== 'FLOKZU') throw new ApiError(404, 'NOT_FOUND', 'Caso no encontrado');
       const parsed = z.object({ assignedTo: z.string().uuid().nullable() }).strict().safeParse(body);
       if (!parsed.success) throw new ApiError(400, 'VALIDATION_ERROR', 'El responsable indicado no es válido.');
-      await assignImportedCase(client, caseId, parsed.data.assignedTo);
+      await assignImportedCase(client, caseId, parsed.data.assignedTo, req.auth!);
       ok(res, { ok: true });
       return;
     }
