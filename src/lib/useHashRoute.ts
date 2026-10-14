@@ -33,7 +33,7 @@ function decodeSegment(segment: string): string {
 }
 
 export function parseHash(hash: string): AppRoute {
-  const path = hash.replace(/^#/, '').replace(/^\/+/, '').replace(/\/+$/, '');
+  const path = hash.split('?')[0]!.replace(/^#/, '').replace(/^\/+/, '').replace(/\/+$/, '');
   if (path === '') return { name: 'dashboard' };
 
   const segments = path.split('/').filter(Boolean).map(decodeSegment);

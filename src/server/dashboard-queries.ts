@@ -187,8 +187,16 @@ export async function getDashboardSummary(
 
   query = query.order('created_at', { ascending: false }).order('id', { ascending: false });
   const rows = await readAllPages<DashboardMetricRow>(query as never);
-  const comparisons = await getComparisonActivity(client, filters, auth);
-  return { ...aggregateSummary(rows, filters, rows.length), activity: aggregateMonthlyActivity(rows, comparisons) };
+  const canReadConsumption = capabilitiesForRole(auth?.role).canManageCases;
+  const comparisons = canReadConsumption ? await getComparisonActivity(client, filters, auth) : [];
+  const ids = canReadConsumption ? [...new Set(rows.map(row => row.case_id))] : [];
+  for (let start = 0; start < ids.length; start += 100) {
+    const { data, error } = await client.database.from('cases').select('id,student_identifier,external_case_id').in('id', ids.slice(start, start + 100)).limit(100);
+    if (error) throw mapProviderError(error);
+    const identities = new Map(((data ?? []) as Array<{ id: string; student_identifier: string | null; external_case_id: string | null }>).map(item => [item.id, item]));
+    for (const row of rows) { const identity = identities.get(row.case_id); if (identity) { row.student_identifier = identity.student_identifier; row.external_case_id = identity.external_case_id; } }
+  }
+  return { ...aggregateSummary(rows, filters, rows.length), ...(canReadConsumption ? { activity: aggregateMonthlyActivity(rows, comparisons) } : {}) };
 }
 
 
@@ -224,7 +232,7 @@ export async function getAiCosts(
   const rows = await readAllPages<DashboardMetricRow>(query as never);
   const comparisons = await getComparisonActivity(client, { ...filters, result: null }, auth);
   const all = [...rows, ...comparisons];
-  return { ...aggregateAiCosts(all, filters, granularity, all.length), activity: aggregateMonthlyActivity(rows, comparisons) };
+  return { ...aggregateAiCosts(all, filters, granularity, all.length), activity: aggregateMonthlyActivity(rows, comparisons, granularity) };
 }
 
 

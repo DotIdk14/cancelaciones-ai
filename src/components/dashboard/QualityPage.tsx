@@ -40,7 +40,7 @@ function CasesTable({ rows }: { rows: QualityCase[] }): ReactNode {
           <td className="px-3 py-3">{row.finalResolution ? resolutionLabel(row.finalResolution) : DASH}</td>
           <td className="px-3 py-3">{row.substantiveAgreement === null ? DASH : row.substantiveAgreement ? 'Acuerdo' : 'Discrepancia'}</td>
           <td className="px-3 py-3">{percent(row.comparisonConfidence)}</td><td className="px-3 py-3">{states[row.state]}{row.aiResolution && row.latestExecutionStatus && row.latestExecutionStatus !== 'COMPLETED' && <p className="mt-1 text-xs text-muted">Última ejecución: {row.latestExecutionStatus === 'ERROR' ? 'error técnico' : 'en curso'}</p>}</td>
-          <td className="px-3 py-3"><a className="text-brand underline underline-offset-4" href={`#/casos/${row.caseId}`} aria-label={`Abrir expediente ${row.identifier}`}>Abrir</a></td>
+          <td className="px-3 py-3"><a className="text-brand underline underline-offset-4" href={`#/casos/${row.caseId}`} aria-label={`Abrir expediente ${row.identifier}`}>Abrir</a> <a className="ml-3 text-brand underline underline-offset-4" href={`#/casos/${row.caseId}?historial=1`}>Historial de matrícula</a></td>
         </tr>)}</tbody>
       </table>
       {!rows.length && <p className="py-6 text-sm text-muted">No hay expedientes en el universo seleccionado.</p>}

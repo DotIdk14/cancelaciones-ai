@@ -40,6 +40,10 @@ export function postgresDashboardClient(db: PGlite): InsForgeClient {
     const chain = {
       select(value: string) { columns = value === '*' ? '*' : value.split(',').map(column => identifier(column.trim())).join(','); return chain; },
       eq(column: string, value: unknown) { return condition(column, '=', value); },
+      in(column: string, values: unknown[]) {
+        const slots = values.map(value => { params.push(value); return `$${params.length}`; });
+        where.push(slots.length ? `${identifier(column)} IN (${slots.join(',')})` : 'FALSE'); return chain;
+      },
       gte(column: string, value: unknown) { return condition(column, '>=', value); },
       lte(column: string, value: unknown) { return condition(column, '<=', value); },
       order(column: string, options: { ascending?: boolean }) { orders.push(`${identifier(column)} ${options.ascending ? 'ASC' : 'DESC'}`); return chain; },
@@ -47,6 +51,7 @@ export function postgresDashboardClient(db: PGlite): InsForgeClient {
         const result = await db.query(`SELECT ${columns} FROM ${identifier(table)} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ${orders.length ? `ORDER BY ${orders.join(',')}` : ''} LIMIT ${to - from + 1} OFFSET ${from}`, params);
         return { data: result.rows, error: null };
       },
+      async limit(count: number) { return chain.range(0, count - 1); },
     };
     return chain;
   } } } as unknown as InsForgeClient;

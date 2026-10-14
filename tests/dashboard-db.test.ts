@@ -170,7 +170,9 @@ describe('capa de datos del dashboard — consulta construida', () => {
     await getAiCosts(b.client, BASE, 'day');
     await getAiQuality(c.client, BASE);
 
-    for (const queries of [a.queries, b.queries]) {
+    expect(a.queries).toHaveLength(1);
+    expect(a.queries[0].table).toBe('audit_activity_metrics');
+    for (const queries of [b.queries]) {
       expect(queries).toHaveLength(2);
       expect(queries[0].table).toBe('audit_activity_metrics');
       expect(queries[1].table).toBe('comparison_activity_metrics');

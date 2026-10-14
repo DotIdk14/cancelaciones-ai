@@ -7,6 +7,8 @@ export interface ActivityMetrics {
   failed: number;
   running: number;
   uniqueCases: number;
+  uniqueStudents?: number;
+  uniqueCaveTickets?: number;
   reaudits: number;
   retried: number;
   fallback: number;
@@ -21,6 +23,7 @@ export interface ActivityMetrics {
 }
 
 export interface MonthlyActivity {
+  series?: Array<{ bucket: string; audits: number; completed: number; comparisons: number; tokens: number | null; knownCostUsd: number | null; unknownCostExecutions: number; avgCostPerAuditUsd: number | null }>;
   timezone: 'UTC';
   audits: ActivityMetrics;
   comparisons: ActivityMetrics;

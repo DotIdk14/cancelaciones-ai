@@ -23,6 +23,7 @@ export interface DashboardMetricRow {
   case_id: string;
   case_status: CaseStatus;
   student_identifier: string | null;
+  external_case_id?: string | null;
   audit_status: AuditStatus;
   model: string;
   provider: string;

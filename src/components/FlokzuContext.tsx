@@ -35,9 +35,10 @@ export function FlokzuEvidenceLinks({ references }: { references: FlokzuCaseData
   return <section className="flokzu-section"><h3>Documentos enlazados desde Flokzu</h3><p className="flokzu-section-note">Referencias externas. Los archivos deben adjuntarse por separado; no son pruebas verificadas.</p><ul className="flokzu-evidence-links">{links.map(({ label, url }) => <li key={url}><a href={url} target="_blank" rel="noopener noreferrer"><span>{label}</span><ArrowUpRight size={15} aria-hidden="true" /><span className="sr-only"> (abre en otra pestaña)</span></a></li>)}</ul></section>;
 }
 
-export function FlokzuContextPanel({ externalCaseId, assignedTo, assignedName, data, onClose }: ContextProps & { onClose: () => void }): ReactNode {
+export function FlokzuContextPanel({ externalCaseId, assignedTo, assignedName, data, onClose, children, open, nonModal, panelTitle, className }: ContextProps & { onClose: () => void; children?: ReactNode; open?: boolean; nonModal?: boolean; panelTitle?: string; className?: string }): ReactNode {
   const [expanded, setExpanded] = useState(false);
-  return <ModalShell title="Contexto de Flokzu" variant="drawer" onClose={onClose} subtitle={<p className="flokzu-panel-subtitle">{externalCaseId ?? 'Flokzu'} · Información administrativa importada</p>}>
+  return <ModalShell title={panelTitle ?? 'Contexto de Flokzu'} variant="drawer" onClose={onClose} open={open} nonModal={nonModal} className={className} closeLabel={panelTitle ? 'Cerrar contexto del expediente' : undefined} subtitle={panelTitle ? undefined : <p className="flokzu-panel-subtitle">{externalCaseId ?? 'Flokzu'} · Información administrativa importada</p>}>
+    {children ?? <>
     <div className="flokzu-panel-scroll">
       <p className="flokzu-disclaimer">Datos reportados por el sistema de origen. No constituyen evidencia verificada ni determinan el dictamen de IA.</p>
       <section className="flokzu-section"><h3>Estado y procedimiento</h3><dl>
@@ -69,6 +70,7 @@ export function FlokzuContextPanel({ externalCaseId, assignedTo, assignedName, d
         <FlokzuPropertyRow label="Fecha Inicio administrativa · Flokzu" value={data.procedure.administrativeStartDate} />
       </dl><p className="flokzu-section-note">La fecha administrativa no acredita el inicio académico confirmado, que se registra por separado en el expediente.</p></details>
     </div>
+    </>}
   </ModalShell>;
 }
 

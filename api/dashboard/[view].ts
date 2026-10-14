@@ -172,7 +172,11 @@ export default handleRoute(async (req, res) => {
 
   const filters = parseDashboardFilters(req.query);
   if (view === 'summary') {
-    ok(res, { summary: await getDashboardSummary(client, filters, req.auth) });
+    const summary = await getDashboardSummary(client, filters, req.auth);
+    if (!capabilitiesForRole(req.auth!.role).canManageCases) {
+      const { activity: _activity, cost: _cost, ...operationalSummary } = summary;
+      ok(res, { summary: operationalSummary });
+    } else ok(res, { summary });
     return;
   }
   if (view === 'quality') {

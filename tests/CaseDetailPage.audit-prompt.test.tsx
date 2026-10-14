@@ -176,14 +176,15 @@ describe('CaseDetailPage · confirmación antes de auditar', () => {
     expect(screen.queryByText(/No hay notas de Back Office ni HelpDesk/i)).toBeNull();
   });
 
-  it('AreaQuickComments queda fuera del <details> colapsado de evidencias', async () => {
+  it('las notas se consultan en Datos y permanecen separadas de la carga de evidencias', async () => {
     stubFetch(buildCase(), []);
     render(<CaseDetailPage caseId="case-1" />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Ver datos y dictamen' }));
 
     const heading = await screen.findByRole('heading', {
       name: /Notas para la auditoría \(Back Office y HelpDesk\)/i,
     });
-    expect(heading.closest('details')).toBeNull();
+    expect(heading.closest('details')?.open).toBe(true);
 
     const detailsToggle = screen.getByText(/Adjuntar evidencias/i).closest('details');
     expect(detailsToggle).toBeTruthy();

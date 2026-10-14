@@ -1,3 +1,4 @@
+import { fakeAuthContext } from './helpers/auth';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PGlite } from '@electric-sql/pglite';
 import type { InsForgeClient } from '../src/server/insforge';
@@ -34,7 +35,7 @@ beforeEach(async () => { await db.exec('TRUNCATE comparison_execution_history,ca
 describe('métricas reales sobre PostgreSQL sintético', () => {
   it('tres auditorías son tres ejecuciones y una versión vigente en Calidad', async () => {
     await caseRow(); await audit(); await audit(12, 1, 'COMPLETED', '2026-10-12T12:00:00Z', 0.8); await audit(13, 1, 'COMPLETED', '2026-10-13T12:00:00Z', 0.7);
-    const summary = await getDashboardSummary(client, filters); const quality = await getAiQuality(client, filters);
+    const summary = await getDashboardSummary(client, filters, fakeAuthContext('manager')); const quality = await getAiQuality(client, filters);
     expect(summary.activity?.audits).toMatchObject({ executions: 3, uniqueCases: 1, reaudits: 2 });
     expect(quality.evaluation).toMatchObject({ issued: 1, historicalVersions: 3 });
     expect(quality.confidence.avgConfidence).toBe(0.7);
@@ -42,13 +43,13 @@ describe('métricas reales sobre PostgreSQL sintético', () => {
   });
   it('un fallo conserva su gasto conocido y no entra en concordancia', async () => {
     await caseRow(); await audit(11, 1, 'ERROR', undefined, null, 0.13);
-    const summary = await getDashboardSummary(client, filters); const quality = await getAiQuality(client, filters);
+    const summary = await getDashboardSummary(client, filters, fakeAuthContext('manager')); const quality = await getAiQuality(client, filters);
     expect(summary.activity?.audits).toMatchObject({ failed: 1, knownCostUsd: 0.13 });
     expect(quality.evaluation).toMatchObject({ issued: 0, validComparisons: 0, technicalErrors: 1, agreementRate: null });
   });
   it('auditoría y comparación suman consumos propios una sola vez', async () => {
     await caseRow(); await audit(); await review(); await comparison();
-    const summary = await getDashboardSummary(client, filters); const costs = await getAiCosts(client, filters, 'day');
+    const summary = await getDashboardSummary(client, filters, fakeAuthContext('manager')); const costs = await getAiCosts(client, filters, 'day');
     expect(summary.activity?.audits.knownCostUsd).toBe(0.1); expect(summary.activity?.comparisons.knownCostUsd).toBe(0.02);
     expect(summary.activity?.knownTotalCostUsd).toBeCloseTo(0.12); expect(costs.kpi.totalCostUsd).toBeCloseTo(0.12);
   });
@@ -79,7 +80,7 @@ describe('métricas reales sobre PostgreSQL sintético', () => {
   it('la fecha posterior de la comparación no cambia la cohorte de dictámenes', async () => {
     await caseRow(); await audit(); await review(); await comparison('COMPLETED', true, '2026-11-01T12:00:00Z');
     expect((await getAiQuality(client, filters)).evaluation?.agreements).toBe(1);
-    expect((await getDashboardSummary(client, filters)).activity?.comparisons.executions).toBe(0);
+    expect((await getDashboardSummary(client, filters, fakeAuthContext('manager'))).activity?.comparisons.executions).toBe(0);
   });
   it('los filtros de fecha, responsable, campus y lineamiento se aplican en SQL al mismo universo', async () => {
     await caseRow(); await audit(); await review(); await comparison();
@@ -90,7 +91,7 @@ describe('métricas reales sobre PostgreSQL sintético', () => {
     expect(result.evaluation?.issued).toBe(result.evaluation?.rows.filter(row => row.aiResolution !== null).length);
     for (const field of ['responsible','campus','guideline'] as const) {
       expect((await getAiQuality(client, { ...parsed, [field]: 'No existe' })).evaluation?.issued).toBe(0);
-      expect((await getDashboardSummary(client, { ...parsed, [field]: 'No existe' })).activity?.audits.executions).toBe(0);
+      expect((await getDashboardSummary(client, { ...parsed, [field]: 'No existe' }, fakeAuthContext('manager'))).activity?.audits.executions).toBe(0);
     }
   });
   it('filtro de indicador en backend y listado representan los mismos registros', async () => {
@@ -113,41 +114,41 @@ describe('métricas reales sobre PostgreSQL sintético', () => {
   });
   it('null es costo desconocido y cero explícito es conocido', async () => {
     await caseRow(); await audit(11,1,'COMPLETED',undefined,0.9,null);
-    expect((await getDashboardSummary(client,filters)).activity?.audits).toMatchObject({ executionsWithUnknownCost: 1, avgKnownCostPerExecutionUsd: null });
+    expect((await getDashboardSummary(client,filters,fakeAuthContext('manager'))).activity?.audits).toMatchObject({ executionsWithUnknownCost: 1, avgKnownCostPerExecutionUsd: null });
     await db.query('UPDATE audits SET provider_metadata=$1',[metadata(0)]);
-    expect((await getDashboardSummary(client,filters)).activity?.audits).toMatchObject({ executionsWithUnknownCost: 0, avgKnownCostPerExecutionUsd: 0 });
+    expect((await getDashboardSummary(client,filters,fakeAuthContext('manager'))).activity?.audits).toMatchObject({ executionsWithUnknownCost: 0, avgKnownCostPerExecutionUsd: 0 });
   });
   it('suma intentos pagados sin duplicar usage ni diagnósticos de capacidades', async () => {
     await caseRow(); await audit();
     await db.query('UPDATE audits SET provider_metadata=$1', [{ usage: { estimatedCostUSD: 0.1, totalTokens: 100 }, openrouterAttempts: [
       { model:'m1',format:'capability',cost:null }, { model:'m1',format:'json_schema',cost:0.03,totalTokens:40,failureCategory:'INVALID_JSON' },
       { model:'m2',format:'json_schema',cost:0.1,totalTokens:100,failureCategory:null }] }]);
-    expect((await getDashboardSummary(client,filters)).activity?.audits).toMatchObject({ providerCalls: 2, retried: 1, fallback: 1, tokens: 140, knownCostUsd: 0.13 });
+    expect((await getDashboardSummary(client,filters,fakeAuthContext('manager'))).activity?.audits).toMatchObject({ providerCalls: 2, retried: 1, fallback: 1, tokens: 140, knownCostUsd: 0.13 });
   });
   it('usage explícitamente agregado no vuelve a sumar los intentos', async () => {
     await caseRow(); await audit();
     await db.query('UPDATE audits SET provider_metadata=$1', [{ usageScope:'aggregate',usage:{ estimatedCostUSD:0.13,totalTokens:140 },openrouterAttempts:[
       {model:'m1',format:'json_schema',cost:0.03,totalTokens:40,failureCategory:'INVALID_JSON'},
       {model:'m2',format:'json_schema',cost:0.13,totalTokens:140,failureCategory:null}] }]);
-    expect((await getDashboardSummary(client,filters)).activity?.knownTotalCostUsd).toBe(0.13);
+    expect((await getDashboardSummary(client,filters,fakeAuthContext('manager'))).activity?.knownTotalCostUsd).toBe(0.13);
   });
   it('archivo transaccional preserva resultado, confianza y gasto antes de rearmar', async () => {
     await caseRow(); await audit(); await review(); await comparison();
     await db.query("UPDATE case_comparisons SET attempt_count=2,status='RUNNING',created_at=$1,result_json=NULL,provider_metadata=NULL", ['2026-11-02T00:00:00Z']);
     const history = await db.query<{snapshot: {result_json: {confidence:number}}}>('SELECT snapshot FROM comparison_execution_history');
     expect(history.rows[0]?.snapshot.result_json.confidence).toBe(0.8);
-    expect((await getDashboardSummary(client,filters)).activity?.comparisons).toMatchObject({ executions:1,completed:1,knownCostUsd:0.02 });
-    expect((await getDashboardSummary(client,{...filters,to:'2026-11-30'})).activity?.comparisons.executions).toBe(2);
+    expect((await getDashboardSummary(client,filters,fakeAuthContext('manager'))).activity?.comparisons).toMatchObject({ executions:1,completed:1,knownCostUsd:0.02 });
+    expect((await getDashboardSummary(client,{...filters,to:'2026-11-30'},fakeAuthContext('manager'))).activity?.comparisons.executions).toBe(2);
   });
   it('casos de prueba quedan excluidos en todas las fuentes', async () => {
     await caseRow(1,true); await audit(); await review(); await comparison();
-    expect((await getDashboardSummary(client,filters)).activity?.knownTotalCostUsd).toBe(0);
+    expect((await getDashboardSummary(client,filters,fakeAuthContext('manager'))).activity?.knownTotalCostUsd).toBe(0);
     expect((await getAiQuality(client,filters)).evaluation?.rows).toEqual([]);
   });
   it('sincronizar metadatos Flokzu no crea ejecuciones', async () => {
     await caseRow(); await db.query('UPDATE cases SET flokzu_data=$1', [{academic:{campus:'Campus dos'}}]);
-    expect((await getDashboardSummary(client,filters)).activity?.audits.executions).toBe(0);
-    expect((await getDashboardSummary(client,filters)).activity?.comparisons.executions).toBe(0);
+    expect((await getDashboardSummary(client,filters,fakeAuthContext('manager'))).activity?.audits.executions).toBe(0);
+    expect((await getDashboardSummary(client,filters,fakeAuthContext('manager'))).activity?.comparisons.executions).toBe(0);
   });
   it('calibración utiliza la misma muestra y no cambia confianza original', async () => {
     await caseRow(); await audit(); await review(); await comparison('COMPLETED',false);
@@ -182,3 +183,6 @@ describe('métricas reales sobre PostgreSQL sintético', () => {
   });
 
 });
+
+
+

@@ -8,7 +8,6 @@
 
 import type { ReactNode } from 'react';
 import { useCallback, useState } from 'react';
-import { ActivityOverview } from './ActivityOverview';
 import type { DashboardFilters as DashboardFiltersValue } from '../../lib/dashboard';
 import { defaultDateRange } from '../../lib/dashboard';
 import { useDashboard } from '../../lib/useDashboard';
@@ -58,7 +57,7 @@ export function OverviewPage(): ReactNode {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-ink">Resumen de auditorías</h1>
           <p className="mt-1 text-sm text-muted">
-            Ejecuciones, consumo registrado y expedientes del mes calendario · UTC · Producción.
+            Auditorías y expedientes del periodo · UTC · Producción.
           </p>
         </div>
       </header>
@@ -76,7 +75,6 @@ export function OverviewPage(): ReactNode {
         />
       )}
 
-      <ActivityOverview activity={data?.activity} loading={isLoading && !data} />
 
       {/* Fila 2: evolución + distribución */}
       <div className="grid gap-6 lg:grid-cols-2">
