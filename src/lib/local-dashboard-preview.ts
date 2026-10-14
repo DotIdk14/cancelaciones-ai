@@ -1,3 +1,4 @@
+import type { QualityCase, QualityEvaluation, ActivityMetrics } from './dashboard-metrics-contracts';
 import type {
   AiCostsReport,
   DashboardFilterOptions,
@@ -14,8 +15,59 @@ export function isLocalDashboardPreview(
   return development && new URLSearchParams(search).get('preview') === 'dashboard';
 }
 
+function previewActivity(): import('./dashboard-metrics-contracts').MonthlyActivity {
+  const audits: ActivityMetrics = { executions: 31, completed: 25, failed: 3, running: 3, uniqueCases: 27, reaudits: 4,
+    retried: 5, fallback: 2, providerCalls: 34, executionsWithoutCallTrace: 2, tokens: 182400,
+    executionsWithoutTokenTrace: 2, knownCostUsd: 0.82, executionsWithUnknownCost: 3,
+    avgKnownCostPerExecutionUsd: null, avgKnownCostPerCaseUsd: null };
+  const comparisons: ActivityMetrics = { executions: 8, completed: 5, failed: 2, running: 1, uniqueCases: 6, reaudits: 0,
+    retried: 2, fallback: 1, providerCalls: 10, executionsWithoutCallTrace: 0, tokens: 21400,
+    executionsWithoutTokenTrace: 1, knownCostUsd: 0.14, executionsWithUnknownCost: 1,
+    avgKnownCostPerExecutionUsd: null, avgKnownCostPerCaseUsd: null };
+  return { timezone: 'UTC', audits, comparisons, knownTotalCostUsd: 0.96, unknownCostExecutions: 4, estimatedCostUsd: null };
+}
+
+function previewEvaluation(filters: DashboardFilters): QualityEvaluation {
+  const rows: QualityCase[] = ['AGREEMENT', 'DISAGREEMENT', 'PENDING_ADVISOR', 'PENDING_COORDINATOR', 'PENDING_COMPARISON', 'COMPARISON_RUNNING', 'COMPARISON_ERROR', 'AUDIT_ERROR', 'AUDIT_RUNNING'].map((state, index) => {
+    const issued = index < 7;
+    const final = [0, 1, 4, 5, 6].includes(index);
+    return { caseId: `demo-case-${index + 1}`, auditId: `demo-audit-${index + 1}`, identifier: `CaVe-${101 + index}`,
+      responsible: index % 2 ? 'Asesor de demostración B' : 'Asesor de demostración A', auditedAt: `${filters.from}T12:00:00.000Z`,
+      aiResolution: issued ? 'CANCELACION_VENTA' : null, originalConfidence: issued && index !== 2 ? [0.94, 0.96, 0, 0.72, 0.81, 0.88, 0.65][index]! : null,
+      advisorResolution: issued && index !== 2 ? 'CANCELACION_VENTA' : null,
+      finalResolution: final ? index === 1 ? 'BAJA' : 'CANCELACION_VENTA' : null,
+      comparisonId: [0, 1, 5, 6].includes(index) ? `demo-comparison-${index}` : null,
+      comparisonConfidence: index < 2 ? 0.85 : null, substantiveAgreement: index === 0 ? true : index === 1 ? false : null,
+      exactAgreement: final ? index !== 1 : null, state: state as QualityCase['state'], country: 'MX', campus: 'Campus de demostración', guideline: 'V5' };
+  }).filter(row => ['country','campus','responsible','guideline'].every(key => !filters[key as keyof DashboardFilters] || filters[key as keyof DashboardFilters] === row[key as 'country' | 'campus' | 'responsible' | 'guideline'])).filter(row => !filters.result || row.aiResolution === filters.result).filter(row => !filters.evaluation || filters.evaluation === row.state ||
+    (filters.evaluation === 'WITHOUT_CONFIDENCE' && row.aiResolution !== null && row.originalConfidence === null) ||
+    (filters.evaluation === 'PENDING_EVALUATION' && row.aiResolution !== null && row.finalResolution === null) || (filters.evaluation === 'ISSUED' && row.aiResolution !== null) || (filters.evaluation === 'FINALIZED' && row.finalResolution !== null));
+  const issued = rows.filter(row => row.aiResolution !== null);
+  const final = rows.filter(row => row.finalResolution !== null);
+  const evaluated = rows.filter(row => row.substantiveAgreement !== null);
+  const agreements = evaluated.filter(row => row.substantiveAgreement).length;
+  return { issued: issued.length, finalized: final.length, validComparisons: evaluated.length, agreements,
+    disagreements: evaluated.length - agreements, pendingEvaluation: issued.length - final.length,
+    failedComparisons: rows.filter(row => row.state === 'COMPARISON_ERROR').length,
+    technicalErrors: rows.filter(row => row.state === 'AUDIT_ERROR').length, runningAudits: rows.filter(row => row.state === 'AUDIT_RUNNING').length,
+    withoutConfidence: issued.filter(row => row.originalConfidence === null).length,
+    agreementRate: evaluated.length ? agreements / evaluated.length : null, coverageRate: issued.length ? evaluated.length / issued.length : null,
+    exactAgreements: final.filter(row => row.exactAgreement).length, exactComparisons: final.length,
+    rows, historicalVersions: rows.length, historicalRows: rows,
+    calibration: [{band:'0–49 %',min:0,max:0.5},{band:'50–69 %',min:0.5,max:0.7},{band:'70–89 %',min:0.7,max:0.9},{band:'90–100 %',min:0.9,max:1.01}].map(band => {
+      const cases = issued.filter(row => row.originalConfidence !== null && row.originalConfidence >= band.min && row.originalConfidence < band.max);
+      const sample = cases.filter(row => row.substantiveAgreement !== null);
+      const agreed = sample.filter(row => row.substantiveAgreement).length;
+      const declaredConfidence = sample.length ? sample.reduce((sum,row) => sum + row.originalConfidence!,0) / sample.length : null;
+      const observedAgreement = sample.length ? agreed / sample.length : null;
+      return {band:band.band,cases:cases.length,evaluated:sample.length,agreements:agreed,disagreements:sample.length-agreed,
+        declaredConfidence,observedAgreement,gap:declaredConfidence === null || observedAgreement === null ? null : declaredConfidence-observedAgreement};
+    }) };
+}
+
 export function getLocalDashboardPreviewSummary(filters: DashboardFilters): DashboardSummary {
   return {
+    activity: previewActivity(),
     generatedAt: new Date().toISOString(),
     truncated: false,
     filters,
@@ -208,22 +260,30 @@ export function getLocalDashboardPreviewCosts(
 }
 
 export function getLocalDashboardPreviewQuality(filters: DashboardFilters): QualityReport {
+  const evaluation = previewEvaluation(filters);
+  const withConfidence = evaluation.rows.filter(row => row.originalConfidence !== null);
+  const bands = [{band:'ALTA' as const,label:'Alta',min:0.85,max:1.01},{band:'MEDIA' as const,label:'Media',min:0.6,max:0.85},{band:'BAJA' as const,label:'Baja',min:0,max:0.6}].map(band => {
+    const count = withConfidence.filter(row => row.originalConfidence! >= band.min && row.originalConfidence! < band.max).length;
+    return {band:band.band,label:band.label,count,pct:withConfidence.length ? 100 * count / withConfidence.length : 0};
+  });
+
   return {
+    evaluation,
     generatedAt: new Date().toISOString(),
     truncated: false,
     filters,
     humanReview: {
       available: true,
       message: 'Esta vista previa usa datos ficticios; no se consultaron revisiones reales.',
-      reviewedCases: 5,
-      comparableReviews: 5,
-      completedComparisons: 5,
+      reviewedCases: evaluation.finalized,
+      comparableReviews: evaluation.validComparisons,
+      completedComparisons: evaluation.validComparisons,
       pendingComparisons: 0,
       failedComparisons: 0,
-      agreements: 3,
-      disagreements: 2,
-      agreementRate: 0.6,
-      avgComparisonConfidence: 0.78,
+      agreements: evaluation.agreements,
+      disagreements: evaluation.disagreements,
+      agreementRate: evaluation.agreementRate,
+      avgComparisonConfidence: evaluation.validComparisons ? 0.85 : null,
       discrepancies: [
         { caseId: 'demo-case-005', aiResolution: 'CANCELACION_VENTA', humanResolution: 'BAJA', createdAt: '2026-09-20T12:00:00.000Z' },
         { caseId: 'demo-case-007', aiResolution: 'EVIDENCIA_INSUFICIENTE', humanResolution: 'CANCELACION_VENTA_PETICION_CLIENTE', createdAt: '2026-09-18T12:00:00.000Z' },
@@ -231,22 +291,13 @@ export function getLocalDashboardPreviewQuality(filters: DashboardFilters): Qual
       discrepanciesTruncated: false,
     },
     confidence: {
-      auditedCases: 25,
-      avgConfidence: 0.81,
-      bands: [
-        { band: 'ALTA', label: 'Alta', count: 12, pct: 0.48 },
-        { band: 'MEDIA', label: 'Media', count: 9, pct: 0.36 },
-        { band: 'BAJA', label: 'Baja', count: 4, pct: 0.16 },
-      ],
-      confidenceByMissingEvidence: [
-        { bucket: '0', label: 'Sin evidencia faltante', count: 17, avgConfidence: 0.87 },
-        { bucket: '1', label: '1 evidencia faltante', count: 5, avgConfidence: 0.68 },
-        { bucket: '2+', label: '2 o más evidencias faltantes', count: 3, avgConfidence: 0.53 },
-      ],
+      auditedCases: withConfidence.length,
+      avgConfidence: withConfidence.length ? withConfidence.reduce((sum,row) => sum + row.originalConfidence!,0) / withConfidence.length : null,
+      bands, confidenceByMissingEvidence: [],
     },
   };
 }
 
 export function getLocalDashboardPreviewFilterOptions(): DashboardFilterOptions {
-  return EMPTY_DASHBOARD_FILTER_OPTIONS;
+  return {...EMPTY_DASHBOARD_FILTER_OPTIONS, country:['MX'],campus:['Campus de demostración'],guideline:['V5'],responsible:['Asesor de demostración A','Asesor de demostración B']};
 }

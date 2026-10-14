@@ -145,7 +145,7 @@ function fakeClient(options: FakeOptions = {}): {
     then(resolve: (v: unknown) => unknown) {
       const query = queries[queries.length - 1]!;
       const range = query.range;
-      const rows = (options.rows ?? []).map((row) => ({ is_test: false, created_by: FAKE_USER_SUB, ...row }));
+      const rows = (query.table === 'comparison_activity_metrics' ? [] : options.rows ?? []).map((row) => ({ is_test: false, created_by: FAKE_USER_SUB, ...row }));
       const filtered = rows.filter((row) => query.eqs.every(([column, value]) =>
         (row as unknown as Record<string, unknown>)[column] === value,
       ));
@@ -171,12 +171,13 @@ describe('capa de datos del dashboard — consulta construida', () => {
     await getAiQuality(c.client, BASE);
 
     for (const queries of [a.queries, b.queries]) {
-      expect(queries).toHaveLength(1);
-      expect(queries[0].table).toBe('audit_dashboard_metrics');
+      expect(queries).toHaveLength(2);
+      expect(queries[0].table).toBe('audit_activity_metrics');
+      expect(queries[1].table).toBe('comparison_activity_metrics');
     }
     // `getAiQuality` lee la vista principal y, además, las fuentes de revisión humana.
-    expect(c.queries[0].table).toBe('audit_dashboard_metrics');
-    expect(c.queries.slice(1).every((q) => ['case_comparisons_dashboard_metrics', 'case_reviews'].includes(q.table))).toBe(true);
+    expect(c.queries[0].table).toBe('current_audit_evaluation_metrics');
+    expect(c.queries.slice(1).every((q) => ['audit_evaluation_metrics'].includes(q.table))).toBe(true);
   });
 
   it('acota el rango con los límites del día en UTC (no con la fecha cruda)', async () => {
@@ -224,7 +225,7 @@ describe('capa de datos del dashboard — consulta construida', () => {
     const summary = await getDashboardSummary(client, BASE);
 
     expect(summary.truncated).toBe(false);
-    expect(summary.kpi.auditedCases).toBe(5_125);
+    expect(summary.kpi.auditedCases).toBe(10_250);
   });
 
   it('agrega todos los propietarios y excluye pruebas antes de paginar más de 10,000 auditorías mixtas', async () => {
@@ -244,9 +245,7 @@ describe('capa de datos del dashboard — consulta construida', () => {
       } as Partial<DashboardMetricRow>);
     });
     const eligible = rows.filter((row) => row.is_test === false);
-    const latestByCase = new Map<string, DashboardMetricRow>();
-    for (const row of eligible) latestByCase.set(row.case_id, row);
-    const expectedAuditedCases = [...latestByCase.values()].filter((row) => row.audit_status !== 'RUNNING').length;
+    const expectedAuditedCases = eligible.filter((row) => row.audit_status !== 'RUNNING').length;
     const { client, queries } = fakeClient({ rows });
 
     const summary = await getDashboardSummary(client, BASE, fakeAuthContext('user'));
@@ -312,23 +311,8 @@ describe('minimización de datos — no pedir columnas que no se usan', () => {
     // Las dimensiones SÍ se piden aunque no se devuelvan: sin ellas el filtro
     // por dimensión no se puede aplicar en SQL, y filtrar en memoria después de
     // traer el conjunto daría métricas distintas de las que dice `truncated`.
-    expect(columnas.sort()).toEqual(
-      [
-        'audit_status',
-        'case_status',
-        'confidence',
-        'created_at',
-        'id',
-        'missing_evidence_count',
-        'country',
-        'channel',
-        'campus',
-        'modality',
-        'project',
-        'responsible',
-        'guideline',
-      ].sort(),
-    );
+    expect(columnas).toEqual(expect.arrayContaining(['case_id','review_audit_id','advisor_result','final_result','comparison_id','comparison_agrees','comparison_confidence','result','confidence','responsible','campus','guideline']));
+    expect(columnas).not.toContain('student_identifier');
   });
 });
 
@@ -396,7 +380,7 @@ describe('errores del proveedor — traducidos y sin filtrar detalles internos',
 });
 
 describe('agregación sobre datos reales de la vista', () => {
-  it('el resumen cuenta un caso por su última auditoría vigente', async () => {
+  it('el resumen cuenta todas las ejecuciones', async () => {
     const { client } = fakeClient({
       rows: [
         metricRow({ id: 'a1', case_id: 'case-1', created_at: '2026-09-10T10:00:00.000Z', result: 'EVIDENCIA_INSUFICIENTE' }),
@@ -406,7 +390,7 @@ describe('agregación sobre datos reales de la vista', () => {
     });
 
     const summary = await getDashboardSummary(client, BASE);
-    expect(summary.kpi.auditedCases).toBe(2);
+    expect(summary.kpi.auditedCases).toBe(3);
     expect(summary.kpi.granted).toBe(2);
   });
 

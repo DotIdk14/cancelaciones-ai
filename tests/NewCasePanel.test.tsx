@@ -776,7 +776,7 @@ describe('NewCasePanel · accesibilidad del formulario', () => {
 
     await selectEvidence('convocatoria.pdf');
     const submit = screen.getByRole('button', { name: /crear y abrir expediente/i });
-    expect((submit as HTMLButtonElement).disabled).toBe(false);
+    await waitFor(() => expect((submit as HTMLButtonElement).disabled).toBe(false));
     submit.focus();
     expect(document.activeElement).toBe(submit);
     await userEvent.keyboard('{Enter}');

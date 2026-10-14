@@ -128,7 +128,7 @@ function toUiError(error: unknown): { message: string; discardsPreviousData: boo
  * cambiara, y eso dispararía una petición de más sin que nadie la pidiera.
  */
 function filterKeyOf(filters: DashboardFilters): string {
-  const parts = [filters.from, filters.to, filters.result ?? '', filters.status ?? ''];
+  const parts = [filters.from, filters.to, filters.result ?? '', filters.status ?? '', filters.evaluation ?? ''];
   for (const dimension of DASHBOARD_DIMENSIONS) {
     parts.push(filters[dimension] ?? '');
   }

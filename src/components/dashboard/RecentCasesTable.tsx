@@ -5,11 +5,13 @@
 
 import type { ReactNode } from 'react';
 import type { RecentCaseRow } from '../../lib/dashboard';
-import { formatDateTime, formatPercent, textOrDash } from '../../lib/format';
+import { formatPercent, textOrDash } from '../../lib/format';
 import { originLabel, RESULT_LABELS, RESULT_TONE } from '../../lib/labels';
 import { goToCase } from '../../lib/useHashRoute';
 import { cx } from '../../lib/cx';
 import { Badge, Button, DataTable } from '../ui';
+
+const reportDate = new Intl.DateTimeFormat('es-MX', {dateStyle: 'short', timeStyle: 'short', timeZone: 'UTC'});
 
 const TH_CLASS =
   'border-b border-line px-3 py-2 text-left text-xs font-medium uppercase tracking-wide text-muted';
@@ -84,7 +86,7 @@ export function RecentCasesTable({ cases }: { cases: RecentCaseRow[] }): ReactNo
             </td>
             <td className={TD_CLASS}>{originLabel('country', row.country)}</td>
             <td className={TD_CLASS}>{originLabel('channel', row.channel)}</td>
-            <td className={TD_CLASS}>{formatDateTime(row.date)}</td>
+            <td className={TD_CLASS}>{reportDate.format(new Date(row.date))}</td>
             <td className={cx('text-right', TD_CLASS)}>
               <Button
                 variant="secondary"

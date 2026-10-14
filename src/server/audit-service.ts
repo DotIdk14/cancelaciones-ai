@@ -457,9 +457,11 @@ export async function runAudit(
     if (concurrent) return { phase: 'running', audit: auditToDto(concurrent) };
     throw error;
   }
+  let executionMetadata: Record<string, unknown> | null = null;
   try {
     await updateCaseStatus(client, caseId, 'AUDITING');
     const execution = await auditSkill.executeWithMetadata(inputs, { deadlineMs });
+    executionMetadata = { usage: execution.usage, usageScope: 'last_attempt', openrouterAttempts: execution.attempts };
     const result = execution.result;
     const latencyMs = Date.now() - startedAt;
 
@@ -470,7 +472,7 @@ export async function runAudit(
       latency_ms: latencyMs,
       model: execution.model,
       provider_metadata: {
-        usage: execution.usage, openrouterAttempts: execution.attempts,
+        ...executionMetadata,
         administrativeContext: inputs.administrativeContext ?? '',
         preparationMetrics: {
           evidenceTextChars: inputs.evidences.reduce((sum, item) => sum + (item.text?.length ?? item.transcript?.transcript.length ?? 0), 0),
@@ -541,7 +543,7 @@ export async function runAudit(
       result_json: null,
       error_category: category,
       latency_ms: latencyMs,
-      provider_metadata: { correlationId, ...(diagnostics ? { openrouterAttempts: diagnostics } : {}) },
+      provider_metadata: { correlationId, ...(executionMetadata ?? (diagnostics ? { openrouterAttempts: diagnostics } : {})) },
     }).catch(() => undefined);
     await updateCaseStatus(client, caseId, 'ERROR').catch(() => undefined);
     if (error instanceof ApiError) throw error;

@@ -380,7 +380,7 @@ export function AiCostsPage(): ReactNode {
     null as (typeof costSeries)[number] | null,
   );
   const chartAriaLabel =
-    `Costo de las auditorías de IA en el periodo del ${applied.from} al ${applied.to}, ` +
+    `Costo conocido de auditorías y comparaciones IA en el periodo del ${applied.from} al ${applied.to}, ` +
     `agrupado por ${BUCKET_FORMAT[granularity]}. Total: ${formatCost(costTotal)}` +
     (costPeak === null
       ? '.'
@@ -393,7 +393,7 @@ export function AiCostsPage(): ReactNode {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-ink">Analítica de costos de IA</h1>
           <p className="mt-1 text-sm text-muted">
-            Cuánto cuesta usar el modelo y con qué fiabilidad responde en el periodo seleccionado.
+            Consumo conocido de auditorías y comparaciones · UTC. La fiabilidad corresponde a auditorías.
           </p>
         </div>
       </header>
@@ -415,6 +415,8 @@ export function AiCostsPage(): ReactNode {
           retrying={isLoading}
         />
       )}
+
+      {data?.activity && <p className="text-sm text-muted">{data.activity.audits.executions} auditorías y {data.activity.comparisons.executions} comparaciones. {data.activity.unknownCostExecutions} ejecuciones con costo desconocido o parcial; la suma es el consumo conocido, sin estimaciones.</p>}
 
       {/* Fila 1: KPIs */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

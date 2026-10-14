@@ -121,6 +121,7 @@ export const DashboardFiltersQuerySchema = z
   .object({
     from: DaySchema,
     to: DaySchema,
+    evaluation: z.enum(['AGREEMENT', 'DISAGREEMENT', 'PENDING_ADVISOR', 'PENDING_COORDINATOR', 'PENDING_COMPARISON', 'COMPARISON_RUNNING', 'COMPARISON_ERROR', 'AUDIT_ERROR', 'AUDIT_RUNNING', 'INVALID_COMPARISON', 'WITHOUT_CONFIDENCE', 'PENDING_EVALUATION', 'ISSUED', 'FINALIZED']).optional(),
     result: ResultSchema.optional(),
     status: StatusSchema.optional(),
     country: DimensionSchema.optional(),
@@ -162,35 +163,6 @@ function readSingle(query: Record<string, QueryValue>, key: string): string | un
   return value;
 }
 
-/** Dimensiones que el cliente puede enviar (todas las del vocabulario compartido). */
-const ALL_DIMENSIONS: readonly DashboardDimension[] = DASHBOARD_DIMENSIONS;
-
-/**
- * Allowlist de dimensiones que SÍ se pueden aplicar en PostgREST.
- *
- * Una dimensión entra aquí solo si la vista `audit_dashboard_metrics` la proyecta Y
- * tiene escritor: hoy son `country` y `channel`, que el assessment de la auditoría
- * extrae de la evidencia y se proyectan en `cases`. Las otras cinco están en el
- * vocabulario porque existen como columnas, pero nada las escribe, así que filtrar
- * por ellas siempre devolvería cero: se rechazan ANTES de tocar la base.
- */
-const SUPPORTED_DIMENSIONS: readonly DashboardDimension[] = ['country', 'channel'];
-
-/** Rechaza filtros por dimensiones no disponibles con un 400 claro en español. */
-function rejectUnsupportedDimensions(query: Record<string, QueryValue>): void {
-  const unsupported = ALL_DIMENSIONS.filter(
-    (dim) => !SUPPORTED_DIMENSIONS.includes(dim) && query[dim] !== undefined,
-  );
-  if (unsupported.length === 0) return;
-  throw new ApiError(
-    400,
-    'VALIDATION_ERROR',
-    `Los filtros por dimensión (${unsupported.join(', ')}) no están disponibles. ` +
-      `Dimensiones soportadas: ${SUPPORTED_DIMENSIONS.join(', ')}. ` +
-      'Puedes filtrar por from, to, result, status, country y channel.',
-  );
-}
-
 /** Primer mensaje de validación (ya redactado en español en este archivo). */
 function firstIssueMessage(error: z.ZodError): string {
   const issue = error.issues[0];
@@ -209,12 +181,11 @@ function firstIssueMessage(error: z.ZodError): string {
  * - Lanza `ApiError(400, 'VALIDATION_ERROR', ...)` con mensaje en español.
  */
 export function parseDashboardFilters(query: Record<string, QueryValue>): DashboardFilters {
-  rejectUnsupportedDimensions(query);
-
   const defaults = defaultDateRange();
   const candidate = {
     from: readSingle(query, 'from') ?? defaults.from,
     to: readSingle(query, 'to') ?? defaults.to,
+    evaluation: readSingle(query, 'evaluation') ?? undefined,
     result: readSingle(query, 'result') ?? undefined,
     status: readSingle(query, 'status') ?? undefined,
     country: readSingle(query, 'country') ?? undefined,
@@ -248,6 +219,7 @@ export function parseDashboardFilters(query: Record<string, QueryValue>): Dashbo
   // cliente realmente envió. Esto evita que las pruebas (y consumidores) vean
   // claves con `null` cuando el usuario no solicitó el filtro.
   const out: Record<string, unknown> = { from, to, result, status };
+  if (parsed.data.evaluation !== undefined) out.evaluation = parsed.data.evaluation;
   if (parsed.data.country !== undefined) out.country = parsed.data.country ?? null;
   if (parsed.data.channel !== undefined) out.channel = parsed.data.channel ?? null;
   if (parsed.data.campus !== undefined) out.campus = parsed.data.campus ?? null;

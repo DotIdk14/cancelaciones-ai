@@ -409,7 +409,7 @@ export function aggregateHumanReview(input: HumanReviewInput): HumanReviewReport
   const available = input.reviewedCases > 0 || input.comparisons.length > 0;
 
   const agreementRate =
-    counts.completed === 0 ? null : round3(counts.agreements / counts.completed);
+    counts.agreements + counts.disagreements === 0 ? null : round3(counts.agreements / (counts.agreements + counts.disagreements));
   const avgComparisonConfidence =
     counts.confidenceReported === 0 ? null : round3(counts.confidenceSum / counts.confidenceReported);
   const discrepancyRows = input.comparisons.filter((row) => row.status === 'COMPLETED' && row.agrees === false
@@ -419,7 +419,7 @@ export function aggregateHumanReview(input: HumanReviewInput): HumanReviewReport
     available,
     message: humanReviewMessage(input, counts, available),
     reviewedCases: input.reviewedCases,
-    comparableReviews: counts.completed,
+    comparableReviews: counts.agreements + counts.disagreements,
     completedComparisons: counts.completed,
     pendingComparisons: counts.pending,
     failedComparisons: counts.failed,
@@ -505,6 +505,7 @@ export interface ConfidenceReport {
 
 /** Informe completo de `/api/dashboard/quality`. */
 export interface QualityReport {
+  evaluation?: import('../lib/dashboard-metrics-contracts.js').QualityEvaluation;
   generatedAt: string;
   truncated: boolean;
   filters: DashboardFilters;
@@ -547,7 +548,7 @@ export function aggregateQuality(
     const confidence = row.confidence;
     // Ausente o no finito: dato ausente. No se cuela en la media ni cuenta como
     // banda baja (la ausencia de confianza NO es baja confianza).
-    if (confidence === null || !Number.isFinite(confidence)) continue;
+    if (confidence === null || !Number.isFinite(confidence) || confidence < 0 || confidence > 1) continue;
 
     auditedCases += 1;
     confidenceSum += confidence;
@@ -558,6 +559,7 @@ export function aggregateQuality(
     // esa función cambiara.
     if (band !== null) bandCounts[band] += 1;
 
+    if (row.missing_evidence_count == null) continue;
     const bucket = missingEvidenceBucket(row.missing_evidence_count);
     const agg = byMissing.get(bucket);
     if (agg === undefined) byMissing.set(bucket, { count: 1, sum: confidence });

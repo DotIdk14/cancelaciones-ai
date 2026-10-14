@@ -1,3 +1,4 @@
+import { historyOffset, studentHistory, studentHistoryEntry } from '../../../src/server/student-history.js';
 import { healStaleAudit } from '../../../src/server/audit-service.js';
 import { listAreaComments } from '../../../src/server/area-comments.js';
 import { z } from 'zod';
@@ -10,6 +11,7 @@ import {
   assertCaseNotFinalized,
   getCaseOr404,
   getScopedCaseOr404,
+  getAuditById,
   latestAudit,
   latestCompletedAudit,
   listAuditsByCase,
@@ -129,6 +131,21 @@ export default handleRoute(async (req, res) => {
   const client = createServerClient();
 
   const caseRow = await getScopedCaseOr404(client, caseId, req.auth!);
+  if (req.query.view === 'student-history') {
+    ok(res, await studentHistory(client, caseRow, req.auth!, historyOffset(req.query.offset)));
+    return;
+  }
+  if (req.query.view === 'student-history-entry') {
+    ok(res, await studentHistoryEntry(client, caseRow, req.auth!, requiredUuid(req.query, 'relatedCaseId'), historyOffset(req.query.offset)));
+    return;
+  }
+  if (req.query.auditId !== undefined) {
+    const auditId = requiredUuid(req.query, 'auditId');
+    const selected = await getAuditById(client, auditId);
+    if (!selected || selected.case_id !== caseId) throw new ApiError(404, 'NOT_FOUND', 'Auditoría no disponible.');
+    ok(res, { audit: auditToDto(selected) });
+    return;
+  }
   // Refresco acotado de transcripciones para que la UI vea TRANSCRIBING → READY.
   await refreshTranscriptions(client, caseId, 6_000);
   await healStaleAudit(client, caseId);

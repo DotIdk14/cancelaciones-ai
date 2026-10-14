@@ -99,11 +99,10 @@ export interface RearmComparisonInput {
   attemptCount: number;
   expectedAttemptCount?: number;
   model?: string;
-  /** Marca el inicio del análisis sobre la resolución final del Coordinador. */
-  resetCreatedAt?: string;
 }
 
 export interface UpdateComparisonResultInput {
+  providerMetadata?: unknown;
   resultJson: unknown;
   provider: string;
   model: string;
@@ -113,6 +112,7 @@ export interface UpdateComparisonResultInput {
 }
 
 export interface UpdateComparisonErrorInput {
+  providerMetadata?: unknown;
   errorCategory: ErrorCategory;
   latencyMs: number;
   expectedAttemptCount?: number;
@@ -334,12 +334,13 @@ export async function rearmComparison(
     .from('case_comparisons')
     .update({
       status: 'RUNNING',
+      provider_metadata: null,
+      created_at: new Date().toISOString(),
       result_json: null,
       error_category: null,
       latency_ms: null,
       attempt_count: input.attemptCount,
       deadline_at: input.deadlineAt,
-      ...(input.resetCreatedAt ? { created_at: input.resetCreatedAt } : {}),
       ...(input.model ? { model: input.model } : {}),
     })
     .eq('id', comparisonId);
@@ -360,6 +361,7 @@ export async function updateComparisonResult(
     .update({
       status: 'COMPLETED',
       result_json: input.resultJson,
+      ...(input.providerMetadata ? { provider_metadata: input.providerMetadata } : {}),
       error_category: null,
       latency_ms: input.latencyMs,
       provider: input.provider,
@@ -382,6 +384,7 @@ export async function updateComparisonError(
     .from('case_comparisons')
     .update({
       status: 'ERROR',
+      ...(input.providerMetadata ? { provider_metadata: input.providerMetadata } : {}),
       result_json: null,
       error_category: input.errorCategory,
       latency_ms: input.latencyMs,
