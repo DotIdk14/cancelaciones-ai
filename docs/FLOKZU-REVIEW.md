@@ -14,6 +14,11 @@ La migración `20261013103000_flokzu-administrative-review.sql` requiere `202610
 
 El backfill registra un evento BASELINE por ticket previamente importado y lo marca para conciliación, preservando ID, responsable, autor y relaciones. Una nueva exportación válida o una reactivación manual restablece la elegibilidad cuando corresponde. Los casos nativos conservan `flokzu_audit_eligible=true`. Revisar el volumen de tickets afectados antes del cambio y comunicar que pasarán temporalmente a la bandeja administrativa.
 
+La lista general de expedientes y sus contadores incluyen también los tickets
+pendientes de conciliación. `flokzu_audit_eligible` restringe el trabajo de
+auditoría, no la lectura: el Coordinador puede consultar los borradores mientras
+resuelve su revisión administrativa en la bandeja de Flokzu.
+
 Los previews creados antes de la migración deben volver a subirse: el commit rechaza staging sin clasificación. No editar las migraciones históricas ni el ledger de sistema. La retención del historial impide borrar tickets Flokzu; el cierre administrativo es la acción de conservación.
 
 ## Verificación local

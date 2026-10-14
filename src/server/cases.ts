@@ -384,7 +384,9 @@ async function enrichCaseSummaries(
   });
 }
 
-/** Página acotada para la UI. `snapshot` fija el conjunto ante inserciones nuevas. */
+/** Página acotada para la UI. `snapshot` fija el conjunto ante inserciones nuevas.
+ * La elegibilidad de auditoría no restringe la lectura del expediente.
+ */
 export async function listCaseSummaryPage(
   client: InsForgeClient,
   auth: AuthContext,
@@ -395,7 +397,6 @@ export async function listCaseSummaryPage(
   let query = client.database
     .from('cases')
     .select('*,evidence(count)')
-    .eq('flokzu_audit_eligible', true)
     .lte('created_at', options.snapshot)
     .order('created_at', { ascending: false })
     .order('id', { ascending: false });
@@ -422,7 +423,7 @@ export async function countCaseSummaryStatuses(
     return { ALL: 0, DRAFT: 0, READY: 0, AUDITING: 0, COMPLETED: 0, ERROR: 0 };
   }
   const count = async (status?: CaseStatus): Promise<number> => {
-    let query = client.database.from('cases').select('id', { count: 'exact', head: true }).eq('flokzu_audit_eligible', true);
+    let query = client.database.from('cases').select('id', { count: 'exact', head: true });
     if (!capabilitiesForRole(auth.role).canReadAllCases) query = query.or(`created_by.eq.${auth.sub},assigned_to.eq.${auth.sub}`);
     if (creatorId) query = query.eq('created_by', creatorId);
     if (assignedTo) query = assignedTo === 'UNASSIGNED' ? query.is('assigned_to', null) : query.eq('assigned_to', assignedTo);
@@ -445,7 +446,6 @@ export async function listCaseSummaries(client: InsForgeClient, auth: AuthContex
     let query = client.database
       .from('cases')
       .select('*,evidence(count)')
-      .eq('flokzu_audit_eligible', true)
       .lte('created_at', snapshot)
       .order('created_at', { ascending: false })
       .order('id', { ascending: false });
