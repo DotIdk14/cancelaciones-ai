@@ -27,6 +27,7 @@ export interface CaseRow {
   external_source?: 'FLOKZU' | null;
   external_case_id?: string | null;
   flokzu_data?: unknown;
+  flokzu_audit_eligible?: boolean;
   created_at: string;
   updated_at: string;
   /** Proyección del origen del dictamen, usada también como validación de cierre. */
@@ -220,6 +221,8 @@ export async function setCaseTestFlag(client: InsForgeClient, caseId: string, is
 
 /** Borra un borrador solo cuando está realmente vacío y nunca fue auditado. */
 export async function deleteUnusedDraftCase(client: InsForgeClient, caseId: string): Promise<void> {
+  const existing = await getCaseOr404(client, caseId);
+  if (existing.external_source === 'FLOKZU') throw new ApiError(409, 'VALIDATION_ERROR', 'Los tickets de Flokzu se conservan; confirma el cierre administrativo.');
   const [
     { data: evidence, error: evidenceError },
     { data: audits, error: auditsError },
@@ -410,6 +413,7 @@ export async function listCaseSummaryPage(
   let query = client.database
     .from('cases')
     .select('*,evidence(count)')
+    .eq('flokzu_audit_eligible', true)
     .lte('created_at', options.snapshot)
     .order('created_at', { ascending: false })
     .order('id', { ascending: false });
@@ -436,7 +440,7 @@ export async function countCaseSummaryStatuses(
     return { ALL: 0, DRAFT: 0, READY: 0, AUDITING: 0, COMPLETED: 0, ERROR: 0 };
   }
   const count = async (status?: CaseStatus): Promise<number> => {
-    let query = client.database.from('cases').select('id', { count: 'exact', head: true });
+    let query = client.database.from('cases').select('id', { count: 'exact', head: true }).eq('flokzu_audit_eligible', true);
     if (!capabilitiesForRole(auth.role).canReadAllCases) query = query.or(`created_by.eq.${auth.sub},assigned_to.eq.${auth.sub}`);
     if (creatorId) query = query.eq('created_by', creatorId);
     if (assignedTo) query = assignedTo === 'UNASSIGNED' ? query.is('assigned_to', null) : query.eq('assigned_to', assignedTo);
@@ -459,6 +463,7 @@ export async function listCaseSummaries(client: InsForgeClient, auth: AuthContex
     let query = client.database
       .from('cases')
       .select('*,evidence(count)')
+      .eq('flokzu_audit_eligible', true)
       .lte('created_at', snapshot)
       .order('created_at', { ascending: false })
       .order('id', { ascending: false });
@@ -516,7 +521,7 @@ export function assertCaseOwner(row: CaseRow, auth: AuthContext): void {
 
 /** El creador conserva atribución; en Flokzu la capacidad de trabajo pertenece a assigned_to. */
 export function caseOwnedBy(row: CaseRow, userId: string): boolean {
-  if (row.external_source === 'FLOKZU') return row.assigned_to === userId;
+  if (row.external_source === 'FLOKZU') return row.flokzu_audit_eligible !== false && row.assigned_to === userId;
   return row.created_by === userId || row.assigned_to === userId;
 }
 

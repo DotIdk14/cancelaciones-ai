@@ -16,6 +16,7 @@ import { assertCaseWriteCapability } from '../../src/server/auth.js';
 import { CASE_STATUSES } from '../../src/skills/audit/types.js';
 import { capabilitiesForRole } from '../../src/server/capabilities.js';
 import { createFlokzuPreview, confirmFlokzuImport, listFlokzuImportData } from '../../src/server/flokzu-import.js';
+import { assertFlokzuCoordinator, listFlokzuReview, getFlokzuTicket, decideFlokzuTicket, FlokzuDecisionSchema } from '../../src/server/flokzu-review.js';
 import { FLOKZU_MAX_FILE_BYTES } from '../../src/server/flokzu-parser.js';
 import { parseSingleXlsxMultipart } from '../../src/server/flokzu-multipart.js';
 import { z as zod } from 'zod';
@@ -68,6 +69,16 @@ function decodeCursor(value: string): z.infer<typeof CaseCursorSchema> {
 
 export default handleRoute(async (req, res) => {
   if (req.method === 'GET') {
+    if (req.query.view === 'flokzu-review') {
+      assertFlokzuCoordinator(req.auth!);
+      const { view: _view, caseId, historyOffset, ...filters } = req.query;
+      if (caseId !== undefined) {
+        const parsed = z.object({ caseId: z.string().uuid(), historyOffset: z.coerce.number().int().min(0).max(1000000).default(0) }).safeParse({ caseId, historyOffset });
+        if (!parsed.success) throw new ApiError(400, 'VALIDATION_ERROR', 'Ticket o página no válida.');
+        ok(res, await getFlokzuTicket(createServerClient(), req.auth!, parsed.data.caseId, parsed.data.historyOffset));
+      } else ok(res, await listFlokzuReview(createServerClient(), req.auth!, filters));
+      return;
+    }
     if (req.query.view === 'imports') {
       if (!capabilitiesForRole(req.auth!.role).canImportCases) {
         throw new ApiError(403, 'AUTH_ERROR', 'No tienes permiso para consultar importaciones de Flokzu.');
@@ -252,6 +263,13 @@ export default handleRoute(async (req, res) => {
   }
 
   if (req.method === 'PATCH') {
+    if (req.query.view === 'flokzu-review') {
+      assertFlokzuCoordinator(req.auth!);
+      const parsed = FlokzuDecisionSchema.safeParse(await readJsonBody(req));
+      if (!parsed.success) throw new ApiError(400, 'VALIDATION_ERROR', parsed.error.issues[0]?.message ?? 'Decisión inválida.');
+      ok(res, { result: await decideFlokzuTicket(createServerClient(), req.auth!, parsed.data) });
+      return;
+    }
     if (!capabilitiesForRole(req.auth!.role).canImportCases) {
       throw new ApiError(403, 'AUTH_ERROR', 'Solo un Coordinador puede confirmar importaciones de Flokzu.');
     }

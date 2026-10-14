@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Coins, FileSpreadsheet, FolderOpen, LayoutDashboard, LifeBuoy, Plus, ShieldCheck } from 'lucide-react';
+import { ClipboardCheck, Coins, FileSpreadsheet, FolderOpen, LayoutDashboard, LifeBuoy, Plus, ShieldCheck } from 'lucide-react';
 import type { SessionSnapshot } from '../lib/api';
 import { cx } from '../lib/cx';
 import { useHashRoute } from '../lib/useHashRoute';
@@ -23,6 +23,7 @@ const DOCK_ITEMS: readonly DockItem[] = [
   { name: 'cases', href: '#/casos', label: 'Expedientes', Icon: FolderOpen, allowed: (c) => c.canReadAllCases || c.canReviewOwnCases, previewAllowed: true },
   { name: 'new-case', href: '#/nuevo', label: 'Nueva auditoría', Icon: Plus, allowed: (c) => c.canWriteOwnedCases || c.canManageCases, previewAllowed: true },
   { name: 'incidents', href: '#/incidencias', label: 'Incidencias', Icon: LifeBuoy, allowed: (c) => c.canManageCases, previewAllowed: true },
+  { name: 'flokzu-review', href: '#/revision-flokzu', label: 'Revisión Flokzu', Icon: ClipboardCheck, allowed: (c) => c.canImportCases, previewAllowed: true },
   { name: 'flokzu-import', href: '#/importacion-tickets', label: 'Importar tickets', Icon: FileSpreadsheet, allowed: (c) => c.canImportCases },
 ];
 
