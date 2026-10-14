@@ -1137,7 +1137,3 @@ export async function getStudentHistory(caseId: string, offset = 0): Promise<Stu
 export async function reconcileCaseRequests(caseId: string, relation: { otherId: string; primaryId: string | null; sameRequest: boolean; note: string }): Promise<void> {
   await request(casePath(caseId), { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ relation }) }, [200]);
 }
-
-export async function getAuditVersion(caseId:string,auditId:string): Promise<AuditDetail> {
- return (await request<{audit:AuditDetail}>(casePath(caseId)+'?auditId='+encodeURIComponent(auditId),{},[200])).audit;
-}

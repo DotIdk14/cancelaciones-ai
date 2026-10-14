@@ -7,7 +7,7 @@ import { useEffect, useRef, useState, type ComponentProps } from "react";
 import {
   getStudentHistory,
   getCase,
-  getAuditVersion,
+  getHistoricalAudit,
   reconcileCaseRequests,
   type AuditDetail,
   type CaseDetailResponse,
@@ -304,7 +304,7 @@ export function StudentHistory({
                                           onClick={() => {
                                             if (onSelectAudit) { onSelectAudit(item.id, v.id); return; }
                                             setBusy(true);
-                                            getAuditVersion(item.id, v.id)
+                                            getHistoricalAudit(item.id, v.id)
                                               .then(audit => {
                                                 if (activeCase.current !== caseId) return;
                                                 if (audit.caseId !== item.id || audit.id !== v.id) throw new Error("Identidad incompatible");

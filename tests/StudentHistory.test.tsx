@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { StudentHistory } from '../src/components/StudentHistory';
 import { previewStudentHistory } from '../src/lib/local-student-history-preview';
 import { getStudentHistory, getCase, reconcileCaseRequests } from '../src/lib/api';
-vi.mock('../src/lib/api', () => ({ getStudentHistory: vi.fn(), getCase: vi.fn(), getAuditVersion: vi.fn(), reconcileCaseRequests: vi.fn() }));
+vi.mock('../src/lib/api', () => ({ getStudentHistory: vi.fn(), getCase: vi.fn(), getHistoricalAudit: vi.fn(), reconcileCaseRequests: vi.fn() }));
 vi.mock('../src/components/AuditResultPanel', () => ({ AuditResultPanel: () => <p>Versión original</p> }));
 const histories = { ...previewStudentHistory, studentIdentifier: '0000123', items: previewStudentHistory.items.map(i=>({...i,isTest:false})) };
 beforeEach(()=>{

@@ -19,9 +19,10 @@ export function ModalShell({ title, onClose, children, variant = 'modal', subtit
     else dialog?.setAttribute('open', '');
     if (variant === 'drawer') dialog?.querySelector<HTMLButtonElement>('button')?.focus();
     return () => {
-      dialog?.close?.();
+      if (dialog && typeof dialog.close === 'function') dialog.close();
+      else dialog?.removeAttribute('open');
       previous?.focus({ preventScroll: true });
-      for (const { element, top, left } of scrollPositions) { element.scrollTop = top; element.scrollLeft = left; }
+      if (!nonModal) for (const { element, top, left } of scrollPositions) { element.scrollTop = top; element.scrollLeft = left; }
     };
   }, [variant, open, nonModal]);
   return <dialog ref={ref} aria-labelledby={titleId} onKeyDown={(event) => {

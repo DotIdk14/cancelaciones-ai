@@ -1,4 +1,3 @@
-import { StudentHistory } from './StudentHistory';
 import { CaseContextMenu, type ContextTab } from './CaseContextMenu';
 import { EvidenceReferences } from './EvidenceReferences';
 import { OperationProgressDialog } from './OperationProgressDialog';
@@ -542,7 +541,6 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
       </header>
       <div className="case-workspace-audit-actions">{auditControls}</div>
 
-      {detail.case.studentIdentifier && <StudentHistory key={caseId} caseId={caseId} studentIdentifier={detail.case.studentIdentifier} canReconcile={capabilities.canFinalizeAnyCase} />}
 
       {(auditBusy || auditError) && <Button variant="secondary" onClick={() => setProgressOpen(true)}>Ver progreso de auditoría</Button>}
       {progressOpen && !reportOpen && <OperationProgressDialog title="Progreso de auditoría" stages={[
