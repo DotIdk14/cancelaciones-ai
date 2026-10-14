@@ -5,13 +5,13 @@ import { parseFlokzuWorkbook } from '../src/server/flokzu-parser.js';
 
 const headers = JSON.parse(readFileSync(new URL('./fixtures/flokzu-headers.json', import.meta.url), 'utf8')) as string[];
 
-async function sampleWorkbook(rows: Array<Record<string, string>> = []): Promise<Buffer> {
+async function sampleWorkbook(rows: Array<Record<string, ExcelJS.CellValue>> = []): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet('FLOKZU-CaVe-2026-10-12');
   sheet.addRow(['FLOKZU', null, null, '2026-10-12', 'fixture sintético', 'CaVe']);
   sheet.addRow(headers);
   for (const [index, values] of rows.entries()) {
-    const row = new Array<string | null>(headers.length).fill(null);
+    const row = new Array<ExcelJS.CellValue>(headers.length).fill(null);
     for (const [name, value] of Object.entries(values)) {
       const column = headers.indexOf(name);
       if (column >= 0) row[column] = value;
@@ -40,6 +40,53 @@ const row = (id: string, matrícula: string, task: string, date: string): Record
 });
 
 describe('parseFlokzuWorkbook', () => {
+  it.each([
+    { text: 'captura.png', hyperlink: 'https://EXAMPLE.org/prueba' },
+    'https://example.org/prueba',
+    { formula: 'HYPERLINK("https://example.org/prueba","captura.png")', result: 'captura.png' },
+    { richText: [{ text: 'Consultar ' }, { text: 'https://example.org/prueba' }] },
+    '<a href="https://example.org/prueba">captura</a>',
+  ] as ExcelJS.CellValue[])('extrae enlaces reales de distintos formatos sin ejecutar ni descargarlos: %j', async (value) => {
+    const parsed = await parseFlokzuWorkbook(await sampleWorkbook([{ ...row('CaVe-1', 'TEST-1', 'Revisión', '12/10/2026'), 'Evidencia acceso al Aula (CaVe)': value }]));
+    expect(parsed.issues).toEqual([]);
+    expect(parsed.rows[0]?.flokzuData.evidenceReferences[0]?.url).toBe('https://example.org/prueba');
+  });
+
+  it('conserva nombres y rechaza URLs peligrosas sin inventar enlaces', async () => {
+    for (const value of ['archivo.png', 'javascript:alert(1)', 'data:text/html,test', 'https://', 'https://user:password@example.org/']) {
+      const parsed = await parseFlokzuWorkbook(await sampleWorkbook([{ ...row('CaVe-1', 'TEST-1', 'Revisión', '12/10/2026'), 'Evidencia acceso al Aula (CaVe)': value }]));
+      expect(parsed.rows[0]?.flokzuData.evidenceReferences[0]).toEqual({ label: 'Evidencia de acceso al aula', value });
+    }
+  });
+
+  it('no ejecuta fórmulas con referencias, concatenaciones ni funciones arbitrarias', async () => {
+    for (const formula of ['HYPERLINK(A1,"archivo")', 'HYPERLINK("https://example.org/"&A1,"archivo")', 'WEBSERVICE("https://example.org")']) {
+      const parsed = await parseFlokzuWorkbook(await sampleWorkbook([{ ...row('CaVe-1', 'TEST-1', 'Revisión', '12/10/2026'), 'Evidencia acceso al Aula (CaVe)': { formula, result: 'archivo' } }]));
+      expect(parsed.rows).toEqual([]);
+      expect(parsed.issues).toHaveLength(1);
+    }
+  });
+
+  it('reimportar produce los mismos enlaces, sin duplicarlos ni alterar datos de auditoría', async () => {
+    const input = await sampleWorkbook([{ ...row('CaVe-1', 'TEST-1', 'Revisión', '12/10/2026'), 'Evidencia acceso al Aula (CaVe)': 'https://example.org/prueba https://example.org/prueba' }]);
+    const first = await parseFlokzuWorkbook(input);
+    const second = await parseFlokzuWorkbook(input);
+    expect(first.rows[0]?.flokzuData.evidenceReferences).toHaveLength(1);
+    expect(second.rows).toEqual(first.rows);
+    expect(first.rows[0]?.flokzuData).not.toHaveProperty('evidenceCount');
+  });
+  it('conserva asociaciones de tipos distintos con la misma URL al reimportar', async () => {
+    const input = await sampleWorkbook([{ ...row('CaVe-1', 'TEST-1', 'Revisión', '12/10/2026'),
+      'Evidencia acceso al Aula (CaVe)': { text: 'aula.png', hyperlink: 'https://example.org/prueba' },
+      'Registro de contacto (CaVe)': { text: 'contacto.png', hyperlink: 'https://example.org/prueba' },
+    }]);
+    const first = await parseFlokzuWorkbook(input);
+    expect(first.rows[0]?.flokzuData.evidenceReferences).toEqual([
+      { label: 'Evidencia de acceso al aula', value: 'aula.png', url: 'https://example.org/prueba' },
+      { label: 'Registro de contacto', value: 'contacto.png', url: 'https://example.org/prueba' },
+    ]);
+    expect((await parseFlokzuWorkbook(input)).rows).toEqual(first.rows);
+  });
   it('lee encabezados de la fila 2, conserva matrículas como texto y normaliza 99 y fechas', async () => {
     const parsed = await parseFlokzuWorkbook(await sampleWorkbook([
       row('CaVe-31024', '000123456', '[BACKOFFICE] [REVISION BO] [CV]', '12/10/2026'),

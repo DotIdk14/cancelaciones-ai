@@ -3,18 +3,34 @@ import { Check, Circle, LoaderCircle, X } from 'lucide-react';
 import type { ErrorState } from '../lib/api';
 import { Button, ErrorCard } from './ui';
 
-export function ModalShell({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }): ReactNode {
+export function ModalShell({ title, onClose, children, variant = 'modal', subtitle, closeLabel, drawerClassName = '' }: { title: string; onClose: () => void; children: ReactNode; variant?: 'modal' | 'drawer'; subtitle?: ReactNode; closeLabel?: string; drawerClassName?: string }): ReactNode {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   useEffect(() => {
     const dialog = ref.current;
     const previous = document.activeElement as HTMLElement | null;
+    const scrollPositions: Array<{ element: HTMLElement; top: number; left: number }> = [];
+    for (let element = previous?.parentElement; element; element = element.parentElement) {
+      scrollPositions.push({ element, top: element.scrollTop, left: element.scrollLeft });
+    }
     if (dialog && typeof dialog.showModal === 'function') dialog.showModal();
     else dialog?.setAttribute('open', '');
-    return () => { dialog?.close?.(); previous?.focus(); };
-  }, []);
-  return <dialog ref={ref} aria-labelledby={titleId} onCancel={(event) => { event.preventDefault(); onClose(); }} className="m-auto max-h-[85dvh] w-[calc(100%-2rem)] max-w-xl overflow-y-auto rounded-2xl border border-line bg-surface-1 p-5 text-ink shadow-xl backdrop:bg-black/70">
-    <header className="mb-5 flex items-center justify-between gap-4"><h2 id={titleId} className="text-lg font-semibold">{title}</h2><button type="button" aria-label="Cerrar ventana" onClick={onClose} className="rounded-lg p-2 text-muted hover:bg-surface-2"><X size={18} /></button></header>
+    if (variant === 'drawer') dialog?.querySelector<HTMLButtonElement>('button')?.focus();
+    return () => {
+      dialog?.close?.();
+      previous?.focus({ preventScroll: true });
+      for (const { element, top, left } of scrollPositions) { element.scrollTop = top; element.scrollLeft = left; }
+    };
+  }, [variant]);
+  return <dialog ref={ref} aria-labelledby={titleId} onKeyDown={(event) => {
+    if (event.key !== 'Tab') return;
+    const focusable = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary, [tabindex="0"]')).filter((element) => element.getClientRects().length > 0);
+    const first = focusable[0];
+    const last = focusable.at(-1);
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+  }} onCancel={(event) => { event.preventDefault(); onClose(); }} className={variant === 'drawer' ? 'flokzu-context-panel ' + drawerClassName : 'm-auto max-h-[85dvh] w-[calc(100%-2rem)] max-w-xl overflow-y-auto rounded-2xl border border-line bg-surface-1 p-5 text-ink shadow-xl backdrop:bg-black/70'}>
+    <header className={variant === 'drawer' ? 'flokzu-panel-header' : 'mb-5 flex items-center justify-between gap-4'}><div><h2 id={titleId} className="text-lg font-semibold">{title}</h2>{subtitle}</div><button type="button" aria-label={closeLabel ?? (variant === 'drawer' ? 'Cerrar contexto de Flokzu' : 'Cerrar ventana')} onClick={onClose} className="rounded-lg p-2 text-muted hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand"><X size={18} /></button></header>
     {children}
   </dialog>;
 }

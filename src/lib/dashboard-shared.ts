@@ -66,6 +66,7 @@ export type DashboardFilters = {
   to: string;
   result: string | null;
   status: string | null;
+  evaluation?: string | null;
 } & Partial<Record<DashboardDimension, string | null>>;
 
 /**
@@ -88,29 +89,14 @@ export const EXECUTION_OUTCOMES: readonly ExecutionOutcome[] = [
   'FAILED',
 ];
 
-/** Fecha local en `YYYY-MM-DD`, sin dependencias de Intl ni de zona horaria. */
-function toLocalIsoDate(date: Date): string {
-  const year = String(date.getFullYear());
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
+/** Zona de reporte compartida por consultas SQL, series y controles. */
+export const REPORT_TIMEZONE = 'UTC' as const;
 
-/** Últimos 30 días (hoy y hace 30 días), en hora local y sin dependencias. */
+/** Mes calendario actual en UTC. */
 export function defaultDateRange(): DashboardFilters {
   const today = new Date();
-  const from = new Date(today.getTime());
-  from.setDate(from.getDate() - 30);
-  return {
-    from: toLocalIsoDate(from),
-    to: toLocalIsoDate(today),
-    result: null,
-    status: null,
-    country: null,
-    campus: null,
-    modality: null,
-    project: null,
-    responsible: null,
-    guideline: null,
-  };
+  const month = today.toISOString().slice(0, 7);
+  const last = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 0)).toISOString().slice(0, 10);
+  return { from: `${month}-01`, to: last, result: null, status: null,
+    country: null, campus: null, modality: null, project: null, responsible: null, guideline: null };
 }

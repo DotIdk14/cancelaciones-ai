@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { InsForgeClient } from '../src/server/insforge';
-import { listCaseSummaries, listCaseSummaryPage } from '../src/server/cases';
+import { listCaseSummaries, listCaseSummaryPage, countCaseSummaryStatuses } from '../src/server/cases';
+import { caseToSummary } from '../src/server/dto';
 import { fakeAuthContext, FAKE_USER_SUB } from './helpers/auth';
 
 type Row = Record<string, unknown>;
@@ -9,6 +10,7 @@ function database(rows: Row[], related: Record<string, Row[]> = {}) {
   const ranges: Array<[string, number, number]> = [];
   const filters: Array<[string, string, unknown]> = [];
   const client = {
+    auth: { async getProfile(id: string) { return { data: { name: id === 'advisor-a' ? 'Ana Pérez' : id === 'advisor-b' ? 'Luis Gómez' : 'Coordinador importador' }, error: null }; } },
     database: {
       from(table: string) {
         let page: [number, number] = [0, 9999];
@@ -18,6 +20,7 @@ function database(rows: Row[], related: Record<string, Row[]> = {}) {
         const query = {
           select() { return query; },
           eq(column: string, value: unknown) { predicates.push([column, 'eq', value]); return query; },
+          is(column: string, value: unknown) { predicates.push([column, 'is', value]); return query; },
           lte(column: string, value: unknown) { predicates.push([column, 'lte', value]); return query; },
           in(column: string, value: unknown[]) { predicates.push([column, 'in', value]); return query; },
           or(expression: string) { filters.push(['created_by|assigned_to', 'or', expression]); disjunction = expression.split(',').map((part) => { const [column, , value] = part.split('.'); return [column!, value]; }); return query; },
@@ -27,6 +30,7 @@ function database(rows: Row[], related: Record<string, Row[]> = {}) {
             filters.push(...predicates);
             ranges.push([table, page[0], page[1]]);
             const matches = (rowsForTable: Row[]) => rowsForTable.filter((row) => predicates.every(([column, op, value]) => {
+              if (op === 'is') return (row[column] ?? null) === value;
               if (op === 'eq') return row[column] === value;
               if (op === 'in') return (value as unknown[]).includes(row[column]);
               return String(row[column] ?? '') <= String(value);
@@ -43,7 +47,7 @@ function database(rows: Row[], related: Record<string, Row[]> = {}) {
             const data = found.slice(page[0], page[1] + 1);
             predicates = [];
             disjunction = [];
-            return Promise.resolve({ data, error: null }).then(resolve);
+            return Promise.resolve({ data, error: null, count: found.length }).then(resolve);
           },
         };
         return query;
@@ -65,6 +69,28 @@ function caseRows(count: number): Row[] {
 }
 
 describe('listCaseSummaries — paginación segura y sin límite de 100', () => {
+  it('muestra al responsable persistido actual sin confundirlo con el importador y conserva auditoría y conteo', async () => {
+    const rows = [{ ...caseRows(1)[0], created_by: 'importer', assigned_to: 'advisor-a', external_source: 'FLOKZU', flokzu_data: { evidenceReferences: [{ label: 'Documento', value: 'archivo', url: 'https://example.org/prueba' }] } }];
+    const { client } = database(rows);
+    const first = (await listCaseSummaries(client, fakeAuthContext('coordinator')))[0]!;
+    expect(caseToSummary(first)).toMatchObject({ assignedTo: 'advisor-a', assignedName: 'Ana Pérez', creatorId: 'importer', evidenceCount: 0, effectiveResolution: null });
+    rows[0]!.assigned_to = 'advisor-b';
+    expect(caseToSummary((await listCaseSummaries(client, fakeAuthContext('coordinator')))[0]!)).toMatchObject({ assignedTo: 'advisor-b', assignedName: 'Luis Gómez', creatorId: 'importer', evidenceCount: 0 });
+  });
+
+  it.each(['advisor-a', 'UNASSIGNED'])('filtra por responsable antes de paginar y cuenta el mismo conjunto: %s', async (assignedTo) => {
+    const rows = [
+      { ...caseRows(1)[0], id: 'assigned', assigned_to: 'advisor-a' },
+      { ...caseRows(1)[0], id: 'other', assigned_to: 'advisor-b' },
+      { ...caseRows(1)[0], id: 'unassigned', assigned_to: null },
+    ];
+    const { client } = database(rows);
+    const page = await listCaseSummaryPage(client, fakeAuthContext('coordinator'), { offset: 0, limit: 1, snapshot: '2026-01-02T00:00:00.000Z', assignedTo });
+    expect(page.map(row => row.id)).toEqual([assignedTo === 'UNASSIGNED' ? 'unassigned' : 'assigned']);
+    const counts = await countCaseSummaryStatuses(client, fakeAuthContext('coordinator'), undefined, undefined, assignedTo);
+    expect(counts.ALL).toBe(1);
+    expect(counts.READY).toBe(1);
+  });
   it.each([0, 1, 100, 101, 2_050])('devuelve los %i casos accesibles', async (count) => {
     const { client, ranges } = database(caseRows(count));
     const cases = await listCaseSummaries(client, fakeAuthContext('user'));

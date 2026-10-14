@@ -210,7 +210,7 @@ export function DashboardFilters({
               >
                 <option value="">Todos</option>
                 {values.map((option) => (
-                  <option key={option} value={option}>{dimensionOptionLabel(dimension, option)}</option>
+                  <option key={option} value={option}>{dimension === 'responsible' ? options.responsibleLabels?.[option] ?? option : dimensionOptionLabel(dimension, option)}</option>
                 ))}
               </select>
             </div>

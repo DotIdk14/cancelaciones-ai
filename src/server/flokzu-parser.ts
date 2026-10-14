@@ -1,5 +1,6 @@
 import ExcelJS from 'exceljs';
 import { ApiError } from './errors.js';
+import { flokzuUrlsInText, literalFlokzuHyperlink, normalizeFlokzuUrl } from '../lib/flokzu-links.js';
 
 export const FLOKZU_MAX_FILE_BYTES = 4 * 1024 * 1024;
 export const FLOKZU_MAX_ROWS = 2_000;
@@ -11,6 +12,7 @@ const MAX_UNCOMPRESSED_BYTES = 32 * 1024 * 1024;
 export interface FlokzuEvidenceReference {
   label: string;
   value: string;
+  url?: string;
 }
 
 export interface FlokzuCaseData {
@@ -43,6 +45,8 @@ export interface FlokzuCaseData {
     requesterReported: string | null;
     requesterArea: string | null;
   };
+  comments?: string | null;
+  originalTicketId?: string | null;
   evidenceReferences: FlokzuEvidenceReference[];
 }
 
@@ -76,6 +80,8 @@ const REQUIRED_HEADERS = [
 ] as const;
 
 const OPTIONAL_HEADER_ALIASES = {
+  comments: ['comentarios', 'comentarios (cave)'],
+  originalTicket: ['ticket original', 'ticket original (cave)'],
   campus: ['campus (cave)'],
   university: ['universidad. (cave)', 'universidad (cave)'],
   program: ['programa (cave)'],
@@ -147,7 +153,7 @@ function cellText(value: ExcelJS.CellValue): string | null {
     return isMissing(text) ? null : text;
   }
   if (value !== null && typeof value === 'object' && 'formula' in value) throw new Error('No se permiten fórmulas en las columnas importadas.');
-  if (value !== null && typeof value === 'object' && 'text' in value && typeof value.text === 'string') return value.text.trim() || null;
+  if (value !== null && typeof value === 'object' && 'text' in value && typeof value.text === 'string') return cellText(value.text);
   throw new Error('El tipo de dato de una celda no es compatible.');
 }
 
@@ -311,8 +317,29 @@ export async function parseFlokzuWorkbook(buffer: Buffer): Promise<ParsedFlokzuW
       const studentName = readText(row, 'studentName');
       if (!studentName) throw new Error('Falta el nombre del estudiante.');
       if (studentIdentifier.length > 100 || studentName.length > 200) throw new Error('La matrícula o el nombre exceden el tamaño permitido.');
-      const evidenceReferences = EVIDENCE_HEADERS.flatMap(([label]) => {
-        const value = readText(row, `evidence:${label}`);
+      const evidenceReferences: FlokzuEvidenceReference[] = EVIDENCE_HEADERS.flatMap(([label]) => {
+        const index = requiredIndex(`evidence:${label}`);
+        if (index < 0) return [];
+        const raw = row.getCell(index + 1).value;
+        let value: string | null;
+        let urls: string[] = [];
+        if (raw && typeof raw === 'object' && 'formula' in raw) {
+          const literal = typeof raw.formula === 'string' ? literalFlokzuHyperlink(raw.formula) : null;
+          if (!literal) throw new Error('Solo se permiten fórmulas HYPERLINK con argumentos de texto literal en las referencias de evidencia.');
+          value = cellText(literal.text);
+          if (literal.url) urls = [literal.url];
+        } else {
+          value = cellText(raw);
+          if (raw && typeof raw === 'object' && 'hyperlink' in raw) {
+            const url = normalizeFlokzuUrl(raw.hyperlink);
+            if (url) urls.push(url);
+          }
+          if (value) urls.push(...flokzuUrlsInText(value));
+        }
+        // Una misma URL puede acreditar tipos distintos: conservar cada asociación.
+        const unique = [...new Set(urls)];
+        if (unique.length > 20) throw new Error('Una referencia contiene demasiados enlaces.');
+        if (unique.length) return unique.map((url) => ({ label, value: value ?? url, url }));
         return value ? [{ label, value }] : [];
       });
       const campus = readText(row, 'campus');
@@ -343,6 +370,8 @@ export async function parseFlokzuWorkbook(buffer: Buffer): Promise<ParsedFlokzuW
           requesterReported: readText(row, 'requester'),
           requesterArea: readText(row, 'requesterArea'),
         },
+        comments: readText(row, 'comments'),
+        originalTicketId: readText(row, 'originalTicket'),
         evidenceReferences,
       };
       const currentTask = normalizeFlokzuHeader(flokzuData.operations.currentTask ?? '');

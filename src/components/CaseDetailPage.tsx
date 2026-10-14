@@ -1,3 +1,6 @@
+import { StudentHistory } from './StudentHistory';
+import { AUDIT_LIFECYCLE_LABELS } from '../lib/audit-lifecycle';
+import { FlokzuContextBar } from './FlokzuContext';
 import { EvidenceReferences } from './EvidenceReferences';
 import { OperationProgressDialog } from './OperationProgressDialog';
 import { ReportProblemModal } from './ReportProblemModal';
@@ -10,7 +13,7 @@ import type { ReactNode } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BookOpenCheck, Clock3, FileCheck2, FileText, Paperclip, Search } from 'lucide-react';
 import { deleteEvidence, getAreaComments, getCase, toErrorState, workflowStateOf } from '../lib/api';
-import type { AppRole, AreaComment, CaseDetailResponse, ErrorState, Evidence, FlokzuCaseData, SessionSnapshot } from '../lib/api';
+import type { AppRole, AreaComment, CaseDetailResponse, ErrorState, Evidence, SessionSnapshot } from '../lib/api';
 import { formatDateTime, formatDuration, formatPercent, formatFactValue, textOrDash } from '../lib/format';
 import {
   CASE_STATUS_LABELS,
@@ -473,7 +476,9 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
         </Button>
       </div>
 
-      {detail.case.externalSource === 'FLOKZU' && detail.case.flokzuData && <FlokzuCaseInfo externalCaseId={detail.case.externalCaseId} assignedTo={detail.case.assignedTo} data={detail.case.flokzuData} />}
+      <StudentHistory caseId={caseId} studentIdentifier={detail.case.studentIdentifier} canReconcile={capabilities.canFinalizeAnyCase} />
+      {detail.auditLifecycle && <p className="text-sm text-muted">{AUDIT_LIFECYCLE_LABELS[detail.auditLifecycle]}</p>}
+      {detail.case.externalSource === 'FLOKZU' && detail.case.flokzuData && <FlokzuContextBar externalCaseId={detail.case.externalCaseId} assignedTo={detail.case.assignedTo} assignedName={detail.case.assignedName} data={detail.case.flokzuData} />}
 
       {(auditBusy || auditError) && <Button variant="secondary" onClick={() => setProgressOpen(true)}>Ver progreso de auditoría</Button>}
       {progressOpen && !reportOpen && <OperationProgressDialog title="Progreso de auditoría" stages={[
@@ -678,7 +683,7 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
             )}
 
             {activeTab === 'verdict' && (
-              audit?.status === 'COMPLETED' && detail.auditIsCurrent !== false ? <section className="case-detail-full-verdict"><h2>Dictamen original de IA</h2><AuditResultPanel audit={audit} canEditComments={detail.case.canWrite} /></section> : <Panel title="Dictamen original de IA"><div className="case-workspace-empty"><FileText size={22} /><strong>No hay un dictamen vigente</strong><p>La evidencia cambió o aún no se ha evaluado. Consulta el historial para ver resultados anteriores y vuelve a auditar para obtener el vigente.</p></div></Panel>
+              audit?.status === 'COMPLETED' && detail.auditIsCurrent !== false ? <section className="case-detail-full-verdict"><h2>Dictamen original de IA</h2><AuditResultPanel audit={audit} canEditComments={detail.case.canWrite} /></section> : <Panel title="Dictamen original de IA"><div className="case-workspace-empty"><FileText size={22} /><strong>No hay un dictamen vigente</strong><p>Consulta el historial de matrícula para revisar las versiones. Si cambió la evidencia, los datos o la preparación técnica, el dictamen anterior sigue siendo histórico. No se ejecutará otra auditoría automáticamente.</p>{audit?.status === 'COMPLETED' && audit.resultJson && <details><summary>Consultar dictamen histórico</summary><AuditResultPanel audit={audit} canEditComments={false} /></details>}</div></Panel>
             )}
 
             {activeTab === 'evidence' && (
@@ -801,34 +806,4 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
       </div>
     </div>
   );
-}
-
-function FlokzuCaseInfo({ externalCaseId, assignedTo, data }: { externalCaseId: string | null | undefined; assignedTo: string | null | undefined; data: FlokzuCaseData }): ReactNode {
-  const fields: Array<[string, string | null]> = [
-    ['Campus', data.academic.campus],
-    ['Universidad', data.academic.university],
-    ['País reportado', data.academic.countryReported],
-    ['Programa', data.academic.program],
-    ['Nivel', data.academic.level],
-    ['Bloque', data.academic.block],
-    ['Clave de programa', data.academic.programKey],
-    ['Fecha de ingreso (Flokzu)', data.academic.entryDate],
-    ['Política reportada', data.procedure.policyReported],
-    ['Motivo', data.procedure.motive],
-    ['Descripción', data.procedure.description],
-    ['Fecha de solicitud (Flokzu)', data.procedure.requestDate],
-    ['Fecha Inicio administrativa (Flokzu)', data.procedure.administrativeStartDate],
-    ['Tarea actual (Flokzu)', data.operations.currentTask],
-    ['Estado reportado por Flokzu', data.operations.statusReported],
-    ['Finalizado reportado por Flokzu', data.operations.finalizedReported],
-    ['Agente revisor reportado', data.operations.reviewerReported],
-    ['Supervisor reportado', data.operations.supervisorReported],
-    ['Solicitante', data.operations.requesterReported],
-    ['Área solicitante', data.operations.requesterArea],
-  ];
-  return <Panel title={`Información importada · ${externalCaseId ?? 'FLOKZU'}`} description="Datos administrativos reportados por Flokzu. No determinan el resultado de auditoría ni acreditan la fecha real de inicio académico.">
-    <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">{fields.filter(([, value]) => value).map(([label, value]) => <div key={label} className="min-w-0"><div className="text-xs font-medium text-muted">{label}</div><div className="mt-0.5 break-words text-sm text-ink">{value}</div></div>)}</div>
-    {data.evidenceReferences.length > 0 && <section className="mt-5 border-t border-line pt-4"><h3 className="text-sm font-semibold text-ink">Referencias de evidencia reportadas</h3><p className="mt-1 text-xs text-muted">Son nombres o descripciones del Excel. No son archivos cargados al expediente.</p><ul className="mt-3 grid gap-2 sm:grid-cols-2">{data.evidenceReferences.map((reference, index) => <li key={`${reference.label}-${index}`} className="rounded-lg border border-line bg-surface-2 px-3 py-2"><span className="block text-xs font-medium text-muted">{reference.label}</span><span className="mt-0.5 block break-all text-sm text-ink">{reference.value}</span></li>)}</ul></section>}
-    <p className="mt-4 border-t border-line pt-3 text-xs text-muted">Responsable: {assignedTo ? 'asignado' : 'pendiente de asignación'}. La fecha de inicio académica confirmada se registra por separado con evidencia o intervención humana.</p>
-  </Panel>;
 }

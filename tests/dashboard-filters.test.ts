@@ -144,12 +144,9 @@ describe('parseDashboardFilters (valores válidos)', () => {
     expect(filters.channel).toBe('WHATSAPP');
   });
 
-  it('sigue rechazando las dimensiones sin escritor, nombrando las soportadas', () => {
-    const error = failure({ from: '2026-09-01', to: '2026-09-29', campus: 'CDMX' });
-    expect(error.status).toBe(400);
-    expect(error.category).toBe('VALIDATION_ERROR');
-    expect(error.message).toContain('campus');
-    expect(error.message).toContain('country, channel');
+  it('acepta dimensiones realmente proyectadas por las vistas', () => {
+    const filters = parseDashboardFilters({ from: '2026-09-01', to: '2026-09-29', campus: 'CDMX', responsible: 'Asesor', guideline: 'V5' });
+    expect(filters).toMatchObject({campus: 'CDMX', responsible: 'Asesor', guideline: 'V5'});
   });
 
   it('un valor fuera del catálogo no es un 400: devuelve cero filas', () => {

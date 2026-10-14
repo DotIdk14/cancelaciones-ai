@@ -1,3 +1,4 @@
+import { assertNoRedundantAudit } from './student-history.js';
 // =============================================================================
 // Servicio de auditoría — orquesta el flujo durable (secciones 13 y 14).
 // =============================================================================
@@ -422,6 +423,7 @@ export async function runAudit(
 
   // Prepara y valida expediente antes de crear RUNNING: errores 413/validación
   // son accionables por el usuario y no deben dejar una auditoría técnica fallida.
+  await assertNoRedundantAudit(client, caseId);
   const inputs = await buildAuditInputs(client, caseRow, evidences, areaRows);
 
   // Cuota ANTES de la fila durable y ANTES del proveedor, y DESPUÉS de las
@@ -453,9 +455,13 @@ export async function runAudit(
     if (concurrent) return { phase: 'running', audit: auditToDto(concurrent) };
     throw error;
   }
+  let executionMetadata: Record<string, unknown> | null = null;
   try {
     await updateCaseStatus(client, caseId, 'AUDITING');
+    // Relee la conciliación después de adquirir la fila RUNNING.
+    await assertNoRedundantAudit(client, caseId);
     const execution = await auditSkill.executeWithMetadata(inputs, { deadlineMs });
+    executionMetadata = { usage: execution.usage, usageScope: 'last_attempt', openrouterAttempts: execution.attempts };
     const result = execution.result;
     const latencyMs = Date.now() - startedAt;
 
@@ -465,7 +471,7 @@ export async function runAudit(
       error_category: null,
       latency_ms: latencyMs,
       model: execution.model,
-      provider_metadata: { usage: execution.usage, openrouterAttempts: execution.attempts },
+      provider_metadata: executionMetadata,
     });
     try {
       await updateCaseStatus(client, caseId, 'COMPLETED');
@@ -528,7 +534,7 @@ export async function runAudit(
       result_json: null,
       error_category: category,
       latency_ms: latencyMs,
-      provider_metadata: { correlationId, ...(diagnostics ? { openrouterAttempts: diagnostics } : {}) },
+      provider_metadata: { correlationId, ...(executionMetadata ?? (diagnostics ? { openrouterAttempts: diagnostics } : {})) },
     }).catch(() => undefined);
     await updateCaseStatus(client, caseId, 'ERROR').catch(() => undefined);
     if (error instanceof ApiError) throw error;

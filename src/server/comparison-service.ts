@@ -46,6 +46,7 @@ import {
   type CaseReviewRow,
   type ComparisonRow,
 } from './reviews.js';
+import { OpenRouterAuditError } from './openrouter.js';
 import { comparisonSkill } from '../skills/review/execute.js';
 import { caseReviewToDto, comparisonToDto, deriveWorkflowState, type CaseReviewDto, type ComparisonDto } from './dto.js';
 import type { ErrorCategory } from '../skills/audit/types.js';
@@ -198,14 +199,12 @@ export async function startComparison(
   // Una comparación RUNNING caducada se RETOMA sobre su propia fila; si no había
   // ninguna, se abre una nueva. Nunca hay dos filas por revisión.
   if (existing && !needsFinalDecisionComparison) assertCanRearm(existing);
-  const finalizedAt = context.review.coordinator_created_at ?? new Date().toISOString();
   const row = existing
     ? await rearmComparison(client, existing.id, {
         deadlineAt,
         attemptCount: existing.attempt_count + 1,
         expectedAttemptCount: existing.attempt_count,
         model: getEnv().OPENROUTER_MODEL,
-        ...(needsFinalDecisionComparison ? { resetCreatedAt: finalizedAt } : {}),
       })
     : await insertComparison(client, {
         caseReviewId: context.review.id,
@@ -415,11 +414,14 @@ async function executeComparison(
 ): Promise<StartComparisonOutcome> {
   const startedAt = Date.now();
   const deadlineMs = row.deadline_at ? Date.parse(row.deadline_at) : undefined;
+  let providerMetadata: unknown;
 
   try {
     const execution = await comparisonSkill.executeWithMetadata(inputs, { deadlineMs });
+    providerMetadata = { usage: execution.usage, usageScope: 'last_attempt', openrouterAttempts: execution.attempts };
     const done = await updateComparisonResult(client, row.id, {
       resultJson: execution.result,
+      providerMetadata,
       provider: 'openrouter',
       model: execution.model,
       latencyMs: Date.now() - startedAt,
@@ -438,6 +440,7 @@ async function executeComparison(
     })).catch(() => undefined);
     await updateComparisonError(client, row.id, {
       errorCategory: category,
+      ...(providerMetadata ? { providerMetadata } : error instanceof OpenRouterAuditError ? { providerMetadata: { openrouterAttempts: error.diagnostics } } : {}),
       latencyMs: Date.now() - startedAt,
       expectedAttemptCount: row.attempt_count,
     }).catch(() => undefined);

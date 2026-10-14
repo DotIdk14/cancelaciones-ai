@@ -1,3 +1,5 @@
+import type { StudentHistory } from './student-history';
+import type { AuditLifecycle } from './audit-lifecycle';
 // =============================================================================
 // Cliente HTTP de la SPA. Sin URLs absolutas y sin estado: solo fetch.
 // El cliente solo llama a la API propia; InsForge permanece server-side.
@@ -52,6 +54,7 @@ export interface CaseSummary {
   effectiveResolution?: EffectiveResolution | null;
   /** `false` indica dictamen de IA histórico y desactualizado. */
   auditIsCurrent?: boolean | null;
+  auditLifecycle?: AuditLifecycle;
   /**
    * Clasificación del caso: `true` = prueba, `false` = real.
    *
@@ -67,6 +70,7 @@ export interface CaseSummary {
   /** UUID estable del usuario que creó el expediente; no hay nombre autoritativo disponible. */
   creatorId?: string | null;
   assignedTo?: string | null;
+  assignedName?: string | null;
 }
 
 export type CaseCreatorRole = 'user' | 'coordinator' | 'manager';
@@ -103,6 +107,7 @@ export interface CaseDetail {
   country?: string | null;
   channel?: string | null;
   assignedTo?: string | null;
+  assignedName?: string | null;
   externalSource?: 'FLOKZU' | null;
   externalCaseId?: string | null;
   flokzuData?: FlokzuCaseData | null;
@@ -112,7 +117,7 @@ export interface FlokzuCaseData {
   academic: { campus: string | null; university: string | null; countryReported: string | null; program: string | null; level: string | null; block: string | null; programKey: string | null; entryDate: string | null };
   procedure: { policyReported: string | null; motive: string | null; description: string | null; requestDate: string | null; administrativeStartDate: string | null };
   operations: { currentTask: string | null; statusReported: string | null; finalizedReported: string | null; reviewerReported: string | null; supervisorReported: string | null; requesterReported: string | null; requesterArea: string | null };
-  evidenceReferences: Array<{ label: string; value: string }>;
+  evidenceReferences: Array<{ label: string; value: string; url?: string }>;
 }
 
 export interface FlokzuImportPreview {
@@ -161,6 +166,7 @@ export interface CaseSummaryPage {
   nextCursor: string | null;
   statusCounts?: Record<CaseStatus | 'ALL', number>;
   creatorOptions?: CaseCreatorOption[];
+  responsibleOptions?: Array<{ userId: string; name: string | null }>;
 }
 
 export interface Evidence {
@@ -373,6 +379,7 @@ export interface CaseDetailResponse {
   effectiveResolution: EffectiveResolution | null;
   /** Si el último dictamen completado usa evidencias y datos actuales. */
   auditIsCurrent?: boolean | null;
+  auditLifecycle?: AuditLifecycle;
   /** Estado derivado del flujo humano; opcional por compatibilidad. */
   workflowState?: WorkflowState;
 }
@@ -594,6 +601,7 @@ export async function listCasePage(options: {
   workflowState?: Exclude<WorkflowState, 'FINALIZED'>;
   creatorRole?: CaseCreatorRole | 'ALL';
   creatorId?: string | 'ALL';
+  assignedTo?: string | 'ALL';
   limit?: number;
 } = {}): Promise<CaseSummaryPage> {
   const params = new URLSearchParams({ limit: String(options.limit ?? 50) });
@@ -602,6 +610,7 @@ export async function listCasePage(options: {
   if (options.workflowState) params.set('workflowState', options.workflowState);
   if (options.creatorRole && options.creatorRole !== 'ALL') params.set('creatorRole', options.creatorRole);
   if (options.creatorId && options.creatorId !== 'ALL') params.set('creatorId', options.creatorId);
+  if (options.assignedTo && options.assignedTo !== 'ALL') params.set('assignedTo', options.assignedTo);
   return request<CaseSummaryPage>(`/api/cases?${params.toString()}`, {}, [200]);
 }
 
@@ -686,6 +695,7 @@ export async function getCase(caseId: string): Promise<CaseDetailResponse> {
     comparison: data.comparison ?? null,
     effectiveResolution: data.effectiveResolution ?? null,
     auditIsCurrent: data.auditIsCurrent ?? null,
+    auditLifecycle: data.auditLifecycle,
     workflowState: data.workflowState,
   };
 }
@@ -1089,4 +1099,15 @@ export async function refreshSession(): Promise<SessionSnapshot | null> {
   } catch {
     return { role: null, capabilities: { canReadAllCases: false, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false, canManageCases: false, canImportCases: false } };
   }
+}
+
+export async function getStudentHistory(caseId: string, offset = 0): Promise<StudentHistory> {
+  return (await request<{ history: StudentHistory }>('/api/cases?historyForCase=' + encodeURIComponent(caseId) + '&offset=' + offset, {}, [200])).history;
+}
+export async function reconcileCaseRequests(caseId: string, relation: { otherId: string; primaryId: string | null; sameRequest: boolean; note: string }): Promise<void> {
+  await request(casePath(caseId), { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ relation }) }, [200]);
+}
+
+export async function getAuditVersion(caseId:string,auditId:string): Promise<AuditDetail> {
+ return (await request<{audit:AuditDetail}>(casePath(caseId)+'?auditId='+encodeURIComponent(auditId),{},[200])).audit;
 }

@@ -334,3 +334,17 @@ describe('ciclo durable de la comparación', () => {
     expect(await listComparisonsForCase(db.client, 'case-inexistente')).toEqual([]);
   });
 });
+
+describe('metadata real de comparaciones', () => {
+  it('persiste consumo y diagnósticos tanto en resultado como en fallo y limpia la ejecución nueva', async () => {
+    const review = await createCaseReview(db.client, INPUT);
+    const comparison = await insertComparison(db.client, {caseReviewId:review.id,auditId:review.audit_id,deadlineAt:'2026-10-13T23:00:00Z'});
+    const metadata = {usage:{estimatedCostUSD:0.02},openrouterAttempts:[{model:'test/model',cost:0.02}]};
+    await updateComparisonResult(db.client,comparison.id,{resultJson:{agrees:true,confidence:0.9},provider:'openrouter',model:'test/model',latencyMs:100,providerMetadata:metadata});
+    expect(db.rows('case_comparisons')[0]?.provider_metadata).toEqual(metadata);
+    await rearmComparison(db.client,comparison.id,{deadlineAt:'2026-10-14T23:00:00Z',attemptCount:2});
+    expect(db.rows('case_comparisons')[0]?.provider_metadata).toBeNull();
+    await updateComparisonError(db.client,comparison.id,{errorCategory:'AI_PROVIDER_ERROR',latencyMs:80,providerMetadata:metadata});
+    expect(db.rows('case_comparisons')[0]?.provider_metadata).toEqual(metadata);
+  });
+});

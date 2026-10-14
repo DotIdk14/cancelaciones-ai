@@ -1,3 +1,5 @@
+import { auditLifecycle } from '../../../src/lib/audit-lifecycle.js';
+import { reconcileCases } from '../../../src/server/student-history.js';
 import { healStaleAudit } from '../../../src/server/audit-service.js';
 import { listAreaComments } from '../../../src/server/area-comments.js';
 import { z } from 'zod';
@@ -9,6 +11,7 @@ import {
   caseOwnedBy,
   assertCaseNotFinalized,
   getCaseOr404,
+  getAuditById,
   getScopedCaseOr404,
   latestAudit,
   latestCompletedAudit,
@@ -58,6 +61,13 @@ export default handleRoute(async (req, res) => {
     // escritura no se resuelve solo al leer.
     const caseRow = await getScopedCaseOr404(client, caseId, req.auth!);
     const body = await readJsonBody(req);
+    if (body !== null && typeof body === 'object' && !Array.isArray(body) && 'relation' in body) {
+      const parsed = z.object({ relation: z.object({ otherId: z.string().uuid(), primaryId: z.string().uuid().nullable(), sameRequest: z.boolean(), note: z.string().trim().min(1).max(2000) }).strict() }).strict().safeParse(body);
+      if (!parsed.success) throw new ApiError(400, 'VALIDATION_ERROR', 'Conciliación inválida.');
+      const r = parsed.data.relation;
+      await reconcileCases(client, caseId, r.otherId, r.primaryId, r.sameRequest, r.note, req.auth!);
+      ok(res, { ok: true }); return;
+    }
     if (body !== null && typeof body === 'object' && !Array.isArray(body) && 'assignedTo' in body) {
       if (!capabilitiesForRole(req.auth!.role).canImportCases) {
         throw new ApiError(403, 'AUTH_ERROR', 'No tienes permiso para reasignar expedientes importados.');
@@ -115,7 +125,7 @@ export default handleRoute(async (req, res) => {
       await deleteUnusedDraftCase(client, caseId);
     } else {
       if (!parsed.data.auditId) throw new ApiError(400, 'VALIDATION_ERROR', 'Falta el identificador del dictamen');
-      await deleteUnreviewedAudit(client, caseId, parsed.data.auditId);
+      await deleteUnreviewedAudit(client, caseId, parsed.data.auditId, req.auth!.sub);
     }
     ok(res, { deleted: true });
     return;
@@ -129,6 +139,11 @@ export default handleRoute(async (req, res) => {
   const client = createServerClient();
 
   const caseRow = await getScopedCaseOr404(client, caseId, req.auth!);
+  if (req.query.auditId !== undefined) {
+    const version = await getAuditById(client, requiredUuid(req.query, 'auditId'));
+    if (!version || version.case_id !== caseId) throw new ApiError(404, 'NOT_FOUND', 'Versión no encontrada.');
+    ok(res, { audit: auditToDto(version) }); return;
+  }
   // Refresco acotado de transcripciones para que la UI vea TRANSCRIBING → READY.
   await refreshTranscriptions(client, caseId, 6_000);
   await healStaleAudit(client, caseId);
@@ -145,7 +160,7 @@ export default handleRoute(async (req, res) => {
   const completedAudit = await latestCompletedAudit(client, caseId);
   const areaRows = await listAreaComments(client, caseId).catch(() => null);
   const auditIsCurrent = completedAudit === null
-    ? null
+    ? (audit?.status === 'COMPLETED' ? false : null)
     : areaRows !== null && completedAudit.evidence_fingerprint === computeEvidenceFingerprint(evidences, caseRow.cycle_start_date ?? null, areaRows);
 
   ok(res, {
@@ -155,7 +170,7 @@ export default handleRoute(async (req, res) => {
       capabilitiesForRole(req.auth!.role).canManageCases,
     ),
     evidences: evidences.map(evidenceToDto),
-    audit: audit ? auditToDto(audit) : null,
+    audit: completedAudit && auditIsCurrent === true ? auditToDto(completedAudit) : audit ? auditToDto(audit) : null,
     audits: audits.map(auditHistoryItemToDto),
     review: review ? caseReviewToDto(review) : null,
     comparison: review?.coordinator_decision != null && review.coordinator_created_at && comparisons[0] &&
@@ -164,5 +179,6 @@ export default handleRoute(async (req, res) => {
       : null,
     effectiveResolution: deriveEffectiveResolution(review, auditIsCurrent === false ? null : completedAudit),
     auditIsCurrent,
+    auditLifecycle: auditLifecycle(caseRow.status, completedAudit, auditIsCurrent, audit),
   });
 });

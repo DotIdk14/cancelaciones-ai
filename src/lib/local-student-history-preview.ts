@@ -1,0 +1,45 @@
+export const previewStudentHistory: import("./student-history").StudentHistory =
+  {
+    studentIdentifier: "0000123",
+    totalCases: 2,
+    totalAudits: 3,
+    totalEvidence: 7,
+    uniqueTickets: 2,
+    uniqueRequests: 2,
+    lastRequest: "2026-10-12",
+    nextOffset: null,
+    items: [2, 1].map((i) => ({
+      id: "demo-" + i,
+      externalCaseId: "CaVe-DEMO-" + i,
+      createdAt: "2026-10-0" + i + "T10:00:00Z",
+      status: "COMPLETED",
+      studentName: "Estudiante de muestra",
+      assignedTo: null,
+      assignedName: "Responsable de muestra " + i,
+      creatorId: null,
+      creatorName: "Importador de muestra",
+      isTest: true,
+      flokzuData: {
+        procedure: {
+          policyReported: i === 1 ? "Cancelación" : "Baja",
+          requestDate: "2026-10-0" + i,
+        },
+        operations: { statusReported: "Finalizado" },
+      },
+      evidenceCount: i === 1 ? 5 : 2,
+      auditCount: i === 1 ? 2 : 1,
+      latestResult: "CANCELACION_VENTA",
+      finalResolution: null,
+      workflowState: "PENDING_ADVISOR",
+      normativeSection: "3, páginas 4-5",
+      versions: [
+        {
+          id: "demo-audit-" + i,
+          status: "COMPLETED",
+          createdAt: "2026-10-0" + i + "T11:00:00Z",
+          result: "CANCELACION_VENTA",
+          retired: false,
+        },
+      ],
+    })),
+  };

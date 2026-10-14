@@ -13,7 +13,7 @@ import type { AuthContext } from './auth.js';
 import { capabilitiesForRole } from './auth.js';
 import { ApiError, mapProviderError } from './http.js';
 import { computeEvidenceFingerprint } from './audit-fingerprint.js';
-import { getEnv } from './env.js';
+
 
 export interface CaseRow {
   id: string;
@@ -22,6 +22,8 @@ export interface CaseRow {
   student_name?: string | null;
   created_by: string | null;
   assigned_to?: string | null;
+  /** Nombre consultado en el perfil del responsable actual; nunca proviene del creador. */
+  assigned_name?: string | null;
   external_source?: 'FLOKZU' | null;
   external_case_id?: string | null;
   flokzu_data?: unknown;
@@ -125,6 +127,15 @@ export async function listCaseCreatorOptions(client: InsForgeClient): Promise<Ca
   }));
 }
 
+async function assignedProfileName(client: InsForgeClient, userId: string): Promise<string | null> {
+  try {
+    const { data } = await client.auth.getProfile(userId);
+    const profile = data as { name?: unknown; profile?: { name?: unknown } | null } | null;
+    const name = profile?.name ?? profile?.profile?.name;
+    return typeof name === 'string' && name.trim() ? name.trim().slice(0, 200) : null;
+  } catch { return null; }
+}
+
 export interface EvidenceRow {
   id: string;
   case_id: string;
@@ -148,6 +159,7 @@ export interface EvidenceRow {
 export type AuditStatus = 'RUNNING' | 'COMPLETED' | 'ERROR';
 
 export interface AuditRow {
+  retired_at?: string | null;
   id: string;
   case_id: string;
   status: AuditStatus;
@@ -231,7 +243,7 @@ export async function deleteUnusedDraftCase(client: InsForgeClient, caseId: stri
 }
 
 /** Elimina un intento de auditoría sin revisión humana asociada. */
-export async function deleteUnreviewedAudit(client: InsForgeClient, caseId: string, auditId: string): Promise<void> {
+export async function deleteUnreviewedAudit(client: InsForgeClient, caseId: string, auditId: string, retiredBy?: string): Promise<void> {
   const [
     { data: audit, error: auditError },
     { data: review, error: reviewError },
@@ -248,29 +260,10 @@ export async function deleteUnreviewedAudit(client: InsForgeClient, caseId: stri
     throw new ApiError(409, 'VALIDATION_ERROR', 'No se puede borrar un dictamen con revisión o comparación humana');
   }
 
-  // La acción administrativa borra el dictamen y los archivos fuente del caso.
-  // El objeto se elimina antes de su fila para no perder la ruta si Storage falla.
-  const { data: evidenceRows, error: evidenceError } = await client.database
-    .from('evidence')
-    .select('id,storage_path')
-    .eq('case_id', caseId);
-  if (evidenceError) dbError(evidenceError);
-  const bucket = client.storage.from(getEnv().INSFORGE_STORAGE_BUCKET);
-  for (const evidence of (evidenceRows as Array<{ id: string; storage_path: string }> | null) ?? []) {
-    const removal = await bucket.remove(evidence.storage_path);
-    if (removal?.error) {
-      console.error('[audit-delete] no se pudo remover evidencia del almacenamiento', {
-        evidenceId: evidence.id,
-        category: 'STORAGE_ERROR',
-        message: 'Error de almacenamiento',
-      });
-      throw new ApiError(500, 'STORAGE_ERROR', 'No se pudieron eliminar todos los archivos; inténtalo de nuevo');
-    }
-    await deleteEvidenceRow(client, evidence.id);
-  }
-  const { error } = await client.database.from('audits').delete().eq('id', auditId).eq('case_id', caseId);
+  // Retiro administrativo: conserva originales, resultado y gastos históricos.
+  const { error } = await client.database.from('audits').update({ retired_at: new Date().toISOString(), ...(retiredBy ? { retired_by: retiredBy } : {}) }).eq('id', auditId).eq('case_id', caseId);
   if (error) dbError(error);
-  await updateCaseStatus(client, caseId, 'DRAFT');
+  await updateCaseStatus(client, caseId, 'READY');
 }
 
 async function enrichCaseSummaries(
@@ -299,7 +292,7 @@ async function enrichCaseSummaries(
       const { data: auditsData, error: auditsError } = await client.database
         .from('audits')
         .select('id,case_id,status,provider,model,result_json,error_category,latency_ms,evidence_fingerprint,created_at')
-        .eq('status', 'COMPLETED')
+        .eq('status', 'COMPLETED').is('retired_at', null)
         .lte('created_at', snapshot)
         .in('case_id', caseIds)
         .order('created_at', { ascending: false })
@@ -364,6 +357,13 @@ async function enrichCaseSummaries(
     }
   }
 
+  const assignedNames = new Map<string, string | null>();
+  const assignedIds = [...new Set(rows.flatMap((row) => row.assigned_to ? [row.assigned_to] : []))];
+  for (let offset = 0; offset < assignedIds.length; offset += 10) {
+    await Promise.all(assignedIds.slice(offset, offset + 10).map(async (id) => {
+      assignedNames.set(id, await assignedProfileName(client, id));
+    }));
+  }
   return rows.map((row) => {
     const review = reviewMap.get(row.id) ?? null;
     const audit = auditMap.get(row.id) ?? null;
@@ -372,6 +372,7 @@ async function enrichCaseSummaries(
       : audit.evidence_fingerprint === computeEvidenceFingerprint(evidencesByCase.get(row.id) ?? [], row.cycle_start_date ?? null, areaContext.get(row.id) ?? []);
     return {
       ...row,
+      assigned_name: row.assigned_to ? assignedNames.get(row.assigned_to) ?? null : null,
       review,
       audit,
       auditIsCurrent,
@@ -384,7 +385,7 @@ async function enrichCaseSummaries(
 export async function listCaseSummaryPage(
   client: InsForgeClient,
   auth: AuthContext,
-  options: { offset: number; limit: number; snapshot: string; status?: CaseStatus; creatorRole?: CaseCreatorRole; creatorId?: string },
+  options: { offset: number; limit: number; snapshot: string; status?: CaseStatus; creatorRole?: CaseCreatorRole; creatorId?: string; assignedTo?: string },
 ): Promise<CaseSummaryRow[]> {
   const creatorIds = options.creatorRole ? await caseCreatorIdsForRole(client, options.creatorRole) : null;
   if (creatorIds?.length === 0) return [];
@@ -397,6 +398,7 @@ export async function listCaseSummaryPage(
   if (!capabilitiesForRole(auth.role).canReadAllCases) query = query.or(`created_by.eq.${auth.sub},assigned_to.eq.${auth.sub}`);
   if (options.status) query = query.eq('status', options.status);
   if (options.creatorId) query = query.eq('created_by', options.creatorId);
+  if (options.assignedTo) query = options.assignedTo === 'UNASSIGNED' ? query.is('assigned_to', null) : query.eq('assigned_to', options.assignedTo);
   if (creatorIds) query = query.in('created_by', creatorIds);
   const { data, error } = await query.range(options.offset, options.offset + options.limit - 1);
   if (error || !data) dbError(error);
@@ -408,6 +410,7 @@ export async function countCaseSummaryStatuses(
   auth: AuthContext,
   creatorRole?: CaseCreatorRole,
   creatorId?: string,
+  assignedTo?: string,
 ): Promise<Record<CaseStatus | 'ALL', number>> {
   const statuses: CaseStatus[] = ['DRAFT', 'READY', 'AUDITING', 'COMPLETED', 'ERROR'];
   const creatorIds = creatorRole ? await caseCreatorIdsForRole(client, creatorRole) : null;
@@ -418,6 +421,7 @@ export async function countCaseSummaryStatuses(
     let query = client.database.from('cases').select('id', { count: 'exact', head: true });
     if (!capabilitiesForRole(auth.role).canReadAllCases) query = query.or(`created_by.eq.${auth.sub},assigned_to.eq.${auth.sub}`);
     if (creatorId) query = query.eq('created_by', creatorId);
+    if (assignedTo) query = assignedTo === 'UNASSIGNED' ? query.is('assigned_to', null) : query.eq('assigned_to', assignedTo);
     if (creatorIds) query = query.in('created_by', creatorIds);
     if (status) query = query.eq('status', status);
     const result = await query;
@@ -482,7 +486,7 @@ export async function getScopedCaseOr404(
   if (!capabilitiesForRole(auth.role).canReadAllCases && !caseOwnedBy(row, auth.sub)) {
     throw new ApiError(404, 'NOT_FOUND', 'Caso no encontrado');
   }
-  return row;
+  return row.assigned_to ? { ...row, assigned_name: await assignedProfileName(client, row.assigned_to) } : row;
 }
 
 /** Garantiza que una mutación solo toca un caso propio. */
@@ -669,7 +673,7 @@ export async function latestCompletedAudit(
     .from('audits')
     .select('*')
     .eq('case_id', caseId)
-    .eq('status', 'COMPLETED')
+    .eq('status', 'COMPLETED').is('retired_at', null)
     .order('created_at', { ascending: false })
     .limit(1);
   if (error) dbError(error);
@@ -718,7 +722,7 @@ export async function latestCompletedAuditByFingerprint(
     .from('audits')
     .select('*')
     .eq('case_id', caseId)
-    .eq('status', 'COMPLETED')
+    .eq('status', 'COMPLETED').is('retired_at', null)
     .eq('evidence_fingerprint', fingerprint)
     .order('created_at', { ascending: false })
     .limit(1);

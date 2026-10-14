@@ -13,6 +13,12 @@ export type { DashboardFilters };
 
 /** Fila de `public.audit_dashboard_metrics`. Solo escalares: nada de jsonb crudo. */
 export interface DashboardMetricRow {
+  execution_kind?: 'AUDIT' | 'COMPARISON';
+  call_metrics?: Array<{model: string; cost: number | null}> | null;
+  usage_is_aggregate?: boolean;
+  is_reaudit?: boolean;
+  cost_incomplete?: boolean;
+  tokens_incomplete?: boolean;
   id: string;
   case_id: string;
   case_status: CaseStatus;
