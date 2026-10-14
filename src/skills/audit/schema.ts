@@ -434,11 +434,21 @@ function validateBusinessRules(assessment: ValidatedAssessment, context: Assessm
     throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.missingEvidence: no puede haber bloqueo cuando el resultado no admite evidencia faltante (solo EVIDENCIA_INSUFICIENTE o TICKET_RECHAZADO)');
   }
   assessment.audit.procedureChecks.forEach((check, index) => {
-    if (check.status === 'ACREDITADO' && (check.evidenceIds.length === 0 || check.observedValues.length === 0)) {
-      throw new ApiError(502, 'INVALID_AI_RESPONSE', `INVALID_AI_RESPONSE: audit.procedureChecks.${index}.status: ACREDITADO exige evidencia y valores observados`);
-    }
-    if (check.status === 'NO_ACREDITADO' && (check.evidenceIds.length === 0 || check.observedValues.length === 0)) {
-      throw new ApiError(502, 'INVALID_AI_RESPONSE', `INVALID_AI_RESPONSE: audit.procedureChecks.${index}.status: NO_ACREDITADO exige evidencia y valores observados que sustenten la ausencia`);
+    if (check.status === 'ACREDITADO' || check.status === 'NO_ACREDITADO') {
+      const missing = [
+        ...(check.evidenceIds.length === 0 ? ['evidenceIds está vacío'] : []),
+        ...(check.observedValues.length === 0 ? ['observedValues está vacío'] : []),
+      ];
+      if (missing.length > 0) {
+        const statusRequirement = check.status === 'ACREDITADO'
+          ? 'ACREDITADO exige evidencia que respalde el cumplimiento y valores observados'
+          : 'NO_ACREDITADO exige evidencia que respalde la ausencia o incumplimiento y valores observados';
+        throw new ApiError(
+          502,
+          'INVALID_AI_RESPONSE',
+          `INVALID_AI_RESPONSE: audit.procedureChecks.${index}.status: ${statusRequirement}; ${missing.join(' y ')}. Si no puedes completar ambos campos con datos del expediente, usa NO_DETERMINABLE.`,
+        );
+      }
     }
   });
   validateContactAttemptsMinimum(assessment);
