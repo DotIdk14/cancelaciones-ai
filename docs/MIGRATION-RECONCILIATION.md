@@ -1,5 +1,26 @@
 # Auditoría y conciliación de migraciones
 
+## Integración en producción · 13 de octubre de 2026
+
+La integración `6ed7b8f` incorpora `a1ec64d` y las correcciones del menú contextual,
+historial y referencias de evidencia. Se ensayaron y aplicaron mediante el runner
+oficial, en orden, las migraciones `20261013100000`, `20261013103000`,
+`20261013110000` y `20261013120000`. Ya no están pendientes en producción.
+
+El ensayo se hizo en la rama completa `cancelaciones-predeploy-20261009`.
+Los bloques de verificación de los cuatro archivos finalizaron correctamente en
+staging y producción. El ledger registra las cuatro versiones; las nuevas tablas
+tienen RLS y los RPC de historial y conciliación no conceden ejecución al navegador.
+Los conteos antes y después fueron: 13 casos, 4 auditorías, 26 evidencias,
+0 revisiones y 11 membresías. La conciliación inicial de Flokzu conserva las
+relaciones y exige verificar los tickets históricos antes del reparto automático.
+
+InsForge rechazó un respaldo manual nuevo por cuota `1/1` y una rama nueva por
+cuota `2/2`. Se conservó el respaldo completo existente del 9 de octubre y se
+guardó una exportación actual de esquema y datos fuera de Git. No se ensayó la
+restauración de estos respaldos; no deben describirse como recuperación probada.
+La sesión administrativa de la CLI se renovó con autorización del usuario.
+
 ## Cierre de Flokzu en producción · 12 de octubre de 2026
 
 Con autorización del propietario para integrar y publicar en `main`, se aplicó
