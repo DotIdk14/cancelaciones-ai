@@ -43,6 +43,7 @@ export function FlokzuContextPanel({ externalCaseId, assignedTo, assignedName, d
       <p className="flokzu-disclaimer">Datos reportados por el sistema de origen. No constituyen evidencia verificada ni determinan el dictamen de IA.</p>
       <section className="flokzu-section"><h3>Estado y procedimiento</h3><dl>
         <FlokzuPropertyRow label="Estado reportado" value={data.operations.statusReported} emphasis />
+        <FlokzuPropertyRow label="Canal de venta reportado · Flokzu" value={data.operations.salesChannelReported ?? 'No reportado'} />
         <FlokzuPropertyRow label="Política reportada" value={data.procedure.policyReported} emphasis />
         <FlokzuPropertyRow label="Tarea actual" value={data.operations.currentTask} />
         <FlokzuPropertyRow label="Motivo" value={data.procedure.motive} />

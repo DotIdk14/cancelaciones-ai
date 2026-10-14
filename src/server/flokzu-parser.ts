@@ -40,6 +40,7 @@ export interface FlokzuCaseData {
     administrativeStartDate: string | null;
   };
   operations: {
+    salesChannelReported?: string | null;
     currentTask: string | null;
     statusReported: string | null;
     finalizedReported: string | null;
@@ -88,6 +89,7 @@ const REQUIRED_HEADERS = [
 ] as const;
 
 const OPTIONAL_HEADER_ALIASES = {
+  salesChannel: ['canal de venta (cave)'],
   backOffice: ['comentario de backoffice (cave)'],
   helpDesk: ['comentarios helpdesk (cave)'],
   helpDeskComplement: ['complementario de helpdesk (cave)'],
@@ -374,6 +376,7 @@ export async function parseFlokzuWorkbook(buffer: Buffer): Promise<ParsedFlokzuW
           administrativeStartDate: readDate(row, 'administrativeStartDate', 'Fecha Inicio'),
         },
         operations: {
+          salesChannelReported: readText(row, 'salesChannel'),
           currentTask: readText(row, 'currentTask'),
           statusReported: readText(row, 'status'),
           finalizedReported: readText(row, 'finalized'),

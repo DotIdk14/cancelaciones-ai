@@ -3,7 +3,8 @@ import type { InsForgeClient } from './insforge.js';
 import type { AuthContext } from './auth.js';
 import { capabilitiesForRole } from './capabilities.js';
 import { ApiError, mapProviderError } from './errors.js';
-import { FLOKZU_CLASSIFICATIONS, type FlokzuTicket, type FlokzuEvent, type FlokzuDecision } from '../shared/flokzu-review.js';
+import { FLOKZU_CLASSIFICATIONS, classifyFlokzu, type FlokzuTicket, type FlokzuEvent, type FlokzuDecision } from '../shared/flokzu-review.js';
+import type { FlokzuCaseData } from './flokzu-parser.js';
 
 export function assertFlokzuCoordinator(actor: AuthContext): void {
   if (!capabilitiesForRole(actor.role).canImportCases) throw new ApiError(403, 'AUTH_ERROR', 'Solo un Coordinador puede administrar la revisión Flokzu.');
@@ -33,18 +34,19 @@ type TicketRow = {
   id: string; external_case_id: string; student_identifier: string | null; student_name: string | null;
   flokzu_classification: FlokzuTicket['classification']; flokzu_review_state: FlokzuTicket['reviewState'];
   flokzu_audit_eligible: boolean; flokzu_discrepancy: boolean; flokzu_reason: string; flokzu_revision: number;
-  assigned_to: string | null; updated_at: string; flokzu_data: {
-    academic?: { campus?: string }; procedure?: { policyReported?: string; requestDate?: string };
-  };
+  assigned_to: string | null; updated_at: string; flokzu_data: Omit<FlokzuCaseData, 'externalCaseId' | 'studentIdentifier' | 'studentName'>;
 };
 const columns = 'id,external_case_id,student_identifier,student_name,flokzu_classification,flokzu_review_state,flokzu_audit_eligible,flokzu_discrepancy,flokzu_reason,flokzu_revision,assigned_to,updated_at,flokzu_data';
 function ticketDto(row: TicketRow): FlokzuTicket {
+  const diagnosis = row.flokzu_data?.operations && row.flokzu_data?.procedure ? classifyFlokzu(row.flokzu_data) : null;
   return { id: row.id, externalCaseId: row.external_case_id, studentIdentifier: row.student_identifier,
     studentName: row.student_name, classification: row.flokzu_classification, reviewState: row.flokzu_review_state,
-    eligible: row.flokzu_audit_eligible, discrepancy: row.flokzu_discrepancy, reason: row.flokzu_reason,
+    eligible: row.flokzu_audit_eligible, discrepancy: row.flokzu_discrepancy, reason: diagnosis?.reason ?? row.flokzu_reason,
     revision: row.flokzu_revision, assignedTo: row.assigned_to, updatedAt: row.updated_at,
     campus: row.flokzu_data?.academic?.campus ?? null, policy: row.flokzu_data?.procedure?.policyReported ?? null,
-    requestDate: row.flokzu_data?.procedure?.requestDate ?? null };
+    requestDate: row.flokzu_data?.procedure?.requestDate ?? null,
+    currentTask: row.flokzu_data?.operations?.currentTask ?? null,
+    salesChannelReported: row.flokzu_data?.operations?.salesChannelReported ?? null };
 }
 export async function listFlokzuReview(client: InsForgeClient, actor: AuthContext, input: unknown): Promise<unknown> {
   assertFlokzuCoordinator(actor);

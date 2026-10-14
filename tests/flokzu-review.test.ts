@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { classifyFlokzu, resolveFlokzuEligibility, type AdministrativeData } from '../src/shared/flokzu-review';
-import { FlokzuDecisionSchema, decideFlokzuTicket, listFlokzuReview } from '../src/server/flokzu-review';
+import { FlokzuDecisionSchema, decideFlokzuTicket, listFlokzuReview, getFlokzuTicket } from '../src/server/flokzu-review';
 import { fakeAuthContext } from './helpers/auth';
 import type { InsForgeClient } from '../src/server/insforge';
 
@@ -21,6 +21,44 @@ describe('conciliación administrativa Flokzu', () => {
     const source = { ...data('REVISIÓN', 'No'), administrativeComments: [{ label: 'Observación', value: 'Solicitud rechazada por error administrativo' }] };
     expect(classifyFlokzu(source)).toMatchObject({ classification: 'VERIFY', discrepancy: true });
     expect(source.operations.statusReported).toBe('REVISIÓN');
+  });
+  it.each([
+    ['RECHAZADA', 'CANCELADO POR HELPDESK', 'CANCELADO POR HELPDESK', 'REJECTED'],
+    ['APLICA', null, '[SER] [APLICACION] [CV]', 'OTHER_STAGE'],
+    ['DICTAMINAR', null, '[DICTAMINADOR] [DICTAMINAR] [CV]', 'OTHER_STAGE'],
+    ['REVISIÓN', 'RETENCION POR AJUSTE', 'RETENCION POR AJUSTE', 'VERIFY'],
+    ['REVISIÓN', 'CANCELADO POR HELPDESK', 'CANCELADO POR HELPDESK', 'VERIFY'],
+    ['APLICA', null, '[BACKOFFICE] [REVISION BO] [CV]', 'VERIFY'],
+  ])('reconoce el estado %s en su etapa y conserva contradicciones', (status, final, task, expected) => {
+    const result = classifyFlokzu(data(status, final, task));
+    expect(result.classification).toBe(expected);
+    expect(result.reason).toContain(task);
+    expect(result.nextStep).toBeTruthy();
+  });
+  it('explica el campo y valor contradictorio y la acción para verificarlo', () => {
+    const result = classifyFlokzu(data('REVISIÓN', 'Sí'));
+    expect(result.reason).toContain('Estado = “REVISIÓN”');
+    expect(result.reason).toContain('Finalizado = “Sí”');
+    expect(result.nextStep).toContain('Flokzu');
+    const context = classifyFlokzu({ ...data('REVISIÓN', null), administrativeComments: [{ label: 'Comentarios HelpDesk', value: 'Ticket cerrado' }] });
+    expect(context.reason).toContain('Comentarios HelpDesk');
+    expect(classifyFlokzu(data('REVISIÓN', 'valor no reconocido')).reason).toContain('Finalizado = “valor no reconocido”');
+  });
+  it('muestra diagnósticos claros y canal reportado de tickets existentes sin escribir ni reclasificar su estado durable', async () => {
+    const row = { id, external_case_id: 'CaVe-123', student_identifier: 'TEST', student_name: 'Estudiante sintético',
+      flokzu_classification: 'VERIFY', flokzu_review_state: 'PENDING', flokzu_audit_eligible: false, flokzu_discrepancy: true,
+      flokzu_reason: 'Mensaje anterior ambiguo', flokzu_revision: 4, assigned_to: id, updated_at: '2026-10-14T12:00:00Z',
+      flokzu_data: { ...data('APLICA', null, '[SER] [APLICACION] [CV]'), academic: {}, operations: { ...data('APLICA', null, '[SER] [APLICACION] [CV]').operations, salesChannelReported: 'INC_INCONCERT' } } };
+    const client = { database: { from: vi.fn((table: string) => {
+      const q = { select: () => q, eq: () => q, order: () => q,
+        limit: async () => ({ data: [row], error: null }), range: async () => ({ data: [], error: null }) };
+      expect(['cases', 'flokzu_admin_events']).toContain(table);
+      return q;
+    }), rpc: vi.fn() } };
+    const result = await getFlokzuTicket(client as unknown as InsForgeClient, fakeAuthContext('coordinator'), id) as { ticket: Record<string, unknown> };
+    expect(result.ticket).toMatchObject({ classification: 'VERIFY', reviewState: 'PENDING', revision: 4, assignedTo: id, salesChannelReported: 'INC_INCONCERT', currentTask: '[SER] [APLICACION] [CV]' });
+    expect(result.ticket.reason).toContain('[SER] [APLICACION] [CV]');
+    expect(client.database.rpc).not.toHaveBeenCalled();
   });
   it('una nueva exportación no anula reactivaciones, cierres ni pendientes manuales', () => {
     expect(resolveFlokzuEligibility('REJECTED', 'REACTIVATED')).toBe(true);

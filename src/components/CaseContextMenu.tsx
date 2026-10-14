@@ -111,6 +111,7 @@ export function CaseContextMenu({ detail, open, tab, onTabChange, onClose, notes
         </dl></Section>
         {row.externalSource === 'FLOKZU' && <Section title="Contexto administrativo · Flokzu" initialOpen><p className="case-context-note">Información reportada; no acredita evidencia ni determina el dictamen.</p><dl>
           <Property label="Caso CaVe" value={row.externalCaseId} /><Property label="Estado del procedimiento" value={data.operations.statusReported} />
+          <Property label="Canal de venta reportado · Flokzu" value={data.operations.salesChannelReported ?? 'No reportado'} />
           <Property label="Política reportada" value={data.procedure.policyReported} /><Property label="Tarea actual" value={data.operations.currentTask} />
           <Property label="Motivo" value={data.procedure.motive} /><Property label="Responsable actual" value={row.assignedTo ? row.assignedName || 'Nombre no disponible' : 'Sin asignar'} />
           <Property label="Fecha de solicitud" value={data.procedure.requestDate} /><Property label="Inicio administrativo" value={data.procedure.administrativeStartDate} />

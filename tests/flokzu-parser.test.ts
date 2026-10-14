@@ -5,6 +5,17 @@ import { parseFlokzuWorkbook } from '../src/server/flokzu-parser.js';
 
 const headers = JSON.parse(readFileSync(new URL('./fixtures/flokzu-headers.json', import.meta.url), 'utf8')) as string[];
 
+it('conserva el canal de venta explícito como dato administrativo y no como origen del dictamen', async () => {
+  const source = row('CaVe-321', 'TEST-321', '[BACKOFFICE] [REVISION BO] [CV]', '12/10/2026');
+  source['Canal de venta (CaVe)'] = 'INC_INCONCERT';
+  const parsed = await parseFlokzuWorkbook(await sampleWorkbook([source]));
+  expect(parsed.issues).toEqual([]);
+  expect(parsed.rows[0]?.flokzuData.operations.salesChannelReported).toBe('INC_INCONCERT');
+  expect(parsed.rows[0]?.flokzuData).not.toHaveProperty('channel');
+  const missing = await parseFlokzuWorkbook(await sampleWorkbook([row('CaVe-322', 'TEST-322', '[HD] [REVISION REPLICA] [CV]', '12/10/2026')]));
+  expect(missing.rows[0]?.flokzuData.operations.salesChannelReported).toBeNull();
+});
+
 async function sampleWorkbook(rows: Array<Record<string, ExcelJS.CellValue>> = []): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet('FLOKZU-CaVe-2026-10-12');

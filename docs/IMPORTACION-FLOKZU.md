@@ -53,6 +53,16 @@ Los nombres incluidos en las columnas de evidencia son referencias reportadas, n
 
 ## Migración y verificaciones
 
+### Revisión Flokzu: motivo, etapa y canal de venta
+
+La fila completa del ticket abre el detalle administrativo con ratón, Enter o Espacio. El detalle explica qué campo impide el reparto y qué acción puede tomar el Coordinador. El rechazo reportado por Flokzu se distingue de la exclusión del reparto y del dictamen de IA.
+
+`CANCELADO POR HELPDESK` es un desenlace reconocido. `APLICA` en `[SER] [APLICACION] [CV]` y `DICTAMINAR` en `[DICTAMINADOR] [DICTAMINAR] [CV]` son otras etapas, sin reparto BO. Las contradicciones siguen requiriendo verificación: por ejemplo, Estado `REVISIÓN` con Finalizado `RETENCION POR AJUSTE`. Valores desconocidos indican el campo y valor exactos que hay que revisar.
+
+La columna `Canal de venta (CaVe)` se guarda literalmente en `flokzu_data.operations.salesChannelReported` y se muestra en la revisión y en el contexto del expediente. No modifica `cases.channel` ni `audits.result_json.origin`: es información administrativa reportada, no el origen confirmado por evidencia. Los expedientes anteriores sin ese campo muestran «No reportado»; una nueva importación lo incorpora.
+
+Las nuevas explicaciones se calculan en lectura para tickets existentes sin escribir ni alterar decisiones manuales. Si la clasificación guardada difiere de la lectura actual, el detalle indica ambas y solicita reimportar para sincronizarla. No se ejecutan auditorías ni se modifican dictámenes al abrir la fila. Este cambio no requiere migraciones ni endpoints nuevos.
+
 La migración incremental es `migrations/20261012100000_flokzu-case-import.sql`. Añade el identificador externo único, `assigned_to`, la proyección Flokzu, historial/staging aislado y RPCs disponibles solo para `project_admin`.
 
 La migración quedó aplicada en staging y producción por el runner oficial de InsForge. El cierre del 12 de octubre de 2026 se registra en `docs/MIGRATION-RECONCILIATION.md`. Para cambios posteriores, seguir ese procedimiento y comprobar el ledger antes de aplicar una migración. La implementación mantiene los 12 archivos de `api/`; reutiliza `api/cases/index.ts` y `api/cases/[caseId]/index.ts` para permanecer dentro del límite Hobby.
