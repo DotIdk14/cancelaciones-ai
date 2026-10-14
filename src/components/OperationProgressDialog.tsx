@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { Check, Circle, LoaderCircle, X } from 'lucide-react';
 import type { ErrorState } from '../lib/api';
 import { Button, ErrorCard } from './ui';
@@ -6,6 +7,7 @@ import { Button, ErrorCard } from './ui';
 export function ModalShell({ title, onClose, children, variant = 'modal', subtitle, open = true, nonModal = false, className = '', closeLabel, drawerClassName = '' }: { title: string; onClose: () => void; children: ReactNode; variant?: 'modal' | 'drawer'; subtitle?: ReactNode; open?: boolean; nonModal?: boolean; className?: string; closeLabel?: string; drawerClassName?: string }): ReactNode {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
+  const isContextOverlay = className.split(' ').includes('case-context-menu');
   useEffect(() => {
     if (!open || !nonModal) return;
     const outside = (event: PointerEvent): void => {
@@ -41,7 +43,7 @@ export function ModalShell({ title, onClose, children, variant = 'modal', subtit
       if (!nonModal) for (const { element, top, left } of scrollPositions) { element.scrollTop = top; element.scrollLeft = left; }
     };
   }, [variant, open, nonModal]);
-  return <dialog ref={ref} aria-labelledby={titleId} onKeyDown={(event) => {
+  const dialog = <dialog ref={ref} id={isContextOverlay ? 'case-context-slot' : undefined} aria-labelledby={titleId} onKeyDown={(event) => {
     if (nonModal && event.key === 'Escape') { event.preventDefault(); onClose(); return; }
     if (nonModal) return;
     if (event.key !== 'Tab') return;
@@ -54,6 +56,7 @@ export function ModalShell({ title, onClose, children, variant = 'modal', subtit
     <header className={variant === 'drawer' ? 'flokzu-panel-header' : 'mb-5 flex items-center justify-between gap-4'}><div><h2 id={titleId} className="text-lg font-semibold">{title}</h2>{subtitle}</div><button type="button" aria-label={closeLabel ?? (variant === 'drawer' ? 'Cerrar contexto de Flokzu' : 'Cerrar ventana')} onClick={onClose} className="rounded-lg p-2 text-muted hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand"><X size={18} /></button></header>
     {children}
   </dialog>;
+  return isContextOverlay ? createPortal(dialog, document.body) : dialog;
 }
 
 export interface ProgressStage { label: string; status: 'pending' | 'current' | 'done' | 'error'; detail?: string }

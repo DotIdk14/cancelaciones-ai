@@ -152,6 +152,9 @@ export function mapProviderError(
   }
 
   if (statusCode >= 500) {
+    if (typeof err?.message === 'string' && /<(?:!doctype|html|head|body)\b/i.test(err.message)) {
+      return new ApiError(503, fallbackCategory, 'No se pudo consultar el servicio de datos. Reintenta en unos momentos.');
+    }
     const safeMessage = err?.message ? sanitizeErrorMessage(err.message) : 'Error del proveedor';
     return new ApiError(statusCode, fallbackCategory, safeMessage);
   }

@@ -563,7 +563,7 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
       {actionError !== null && <ErrorCard message={actionError.message} category={actionError.category} />}
 
       <div className={`case-workspace${contextOpen ? ' case-workspace-context-open' : ''}`}>
-        <div id="case-context-slot" className="case-context-slot">
+        <div className="case-context-slot">
           <CaseContextMenu key={caseId} detail={detail} open={contextOpen} tab={contextTab} onTabChange={setContextTab} onClose={() => setContextOpen(false)} notesContent={notesContent} reviewContent={reviewContent} canReconcile={capabilities.canFinalizeAnyCase} />
         </div>
       <div className="case-detail-layout case-detail-workspace">
@@ -781,4 +781,5 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
     </div>
   );
 }
+
 

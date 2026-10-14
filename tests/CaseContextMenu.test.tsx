@@ -21,6 +21,12 @@ function Harness({ initialOpen = true, record = detail() }: { initialOpen?: bool
 }
 beforeEach(() => { vi.mocked(getHistoricalAudit).mockReset(); vi.mocked(getCase).mockReset(); });
 afterEach(cleanup);
+it('monta el menú fuera de la rejilla del expediente y no introduce una columna', () => {
+  render(<div data-testid="context-grid"><Harness initialOpen /></div>);
+  const dialog = screen.getByRole('dialog', { name: 'Contexto del expediente' });
+  expect(dialog.parentElement).toBe(document.body);
+  expect(screen.getByTestId('context-grid').contains(dialog)).toBe(false);
+});
 
 it('conserva el scroll trabajado al cerrar el menú no modal y devuelve el foco', () => {
   const { container } = render(<Harness initialOpen={false} />);

@@ -274,7 +274,9 @@ async function enrichCaseSummaries(
   rows: CaseSummaryRow[],
   snapshot: string,
 ): Promise<CaseSummaryRow[]> {
-  const pageSize = 100;
+  // 100 UUID generaban una URL de 3995 caracteres para case_reviews y el
+  // gateway devolvía 502. Se acotan las relaciones sin recortar la página.
+  const pageSize = 40;
   // Las relaciones se consultan por bloques acotados, evitando tanto N+1 como
   // URLs PostgREST con miles de UUID. `id DESC` resuelve empates de fecha.
   const reviewMap = new Map<string, CaseReviewRow>();
@@ -308,7 +310,7 @@ async function enrichCaseSummaries(
       }
       // Cada caso solo necesita su primera fila por el orden DESC. Si todos ya
       // tienen dictamen, las páginas más antiguas no pueden cambiar el resultado.
-      if (auditMap.size === caseIds.length || auditPage.length < 500) break;
+      if (caseIds.every(id => auditMap.has(id)) || auditPage.length < 500) break;
     }
 
     // Se requiere la evidencia íntegra para comparar la huella del dictamen.
@@ -332,8 +334,8 @@ async function enrichCaseSummaries(
   }
 
   const areaContext = new Map<string, Array<{ area: string; comment: string }>>();
-  for (let offset = 0; offset < rows.length; offset += 100) {
-    const ids = rows.slice(offset, offset + 100).map((row) => row.id);
+  for (let offset = 0; offset < rows.length; offset += pageSize) {
+    const ids = rows.slice(offset, offset + pageSize).map((row) => row.id);
     const { data, error } = await client.database.from('case_area_comments')
       .select('case_id,area,comment').in('case_id', ids).in('area', ['BACK_OFFICE', 'HELPDESK']);
     if (error) dbError(error);

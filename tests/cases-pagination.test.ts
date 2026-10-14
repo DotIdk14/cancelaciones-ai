@@ -69,6 +69,14 @@ function caseRows(count: number): Row[] {
 }
 
 describe('listCaseSummaries — paginación segura y sin límite de 100', () => {
+  it('conserva una página de 100 expedientes con filtros de relaciones de máximo 40 IDs', async () => {
+    const { client, filters } = database(caseRows(100));
+    const rows = await listCaseSummaryPage(client, fakeAuthContext('coordinator'), { offset: 0, limit: 100, snapshot: '2027-01-01T00:00:00Z' });
+    expect(rows).toHaveLength(100);
+    const batches = filters.filter(([column, operation]) => column === 'case_id' && operation === 'in');
+    expect(batches.length).toBeGreaterThan(1);
+    expect(batches.every(([, , ids]) => (ids as unknown[]).length <= 40)).toBe(true);
+  });
   it('muestra al responsable persistido actual sin confundirlo con el importador y conserva auditoría y conteo', async () => {
     const rows = [{ ...caseRows(1)[0], created_by: 'importer', assigned_to: 'advisor-a', external_source: 'FLOKZU', flokzu_data: { evidenceReferences: [{ label: 'Documento', value: 'archivo', url: 'https://example.org/prueba' }] } }];
     const { client } = database(rows);
