@@ -13,7 +13,8 @@ No se aplicó en producción. `backups create` respondió `Manual backup quota f
 no se restauró porque es anterior al estado actual. Como resguardo complementario
 se exportó el SQL actual de la base a
 `tmp/release-dashboard-cave/production-before.sql` (SHA-256
-`01D2B35E73BF2260656C2459F8FCB62ADD3BD19DC8959E64DDBC486CCAFC2F80`). Esa
+`68882062D8101A029845964A53C14B65E8D637D7A58940098539CD972FB147F8`). El
+exportador admite hasta 10,000 filas por tabla. Esa
 exportación solo cubre la base de datos: no incluye Storage ni se ha probado su
 restauración, por lo que no sustituye el respaldo requerido. La migración sigue
 pendiente en producción; tampoco se hizo push a `main` ni despliegue de Vercel.
