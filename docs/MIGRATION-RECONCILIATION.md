@@ -19,8 +19,10 @@ permisos esperados: `anon` y `authenticated` sin `SELECT`, `project_admin` con
 
 Antes de publicar, `npm run verify:release` terminó correctamente: lint,
 TypeScript, 105 pruebas de contrato, 1,257 pruebas de aplicación aprobadas y 3
-omitidas, además del build de Vite. El push a `main` y el despliegue automático
-de Vercel se registran cuando termine la publicación.
+omitidas, además del build de Vite. El commit `da967e7` se publicó en `main` y
+Vercel terminó el despliegue de producción `dpl_AjeM6jJqJkyMVztDx1TbQjbPCFJh`
+con estado `Ready`. La URL estable respondió HTTP 200:
+https://cancelaciones-ai.vercel.app.
 
 ## Asignación y vinculación · 14 de octubre de 2026
 
