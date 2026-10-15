@@ -8,16 +8,19 @@ historia ya incluía las migraciones hasta `20261014180300`. La aplicación
 terminó correctamente. Las cuatro vistas nuevas exponen `sales_channel` como
 texto; `anon` y `authenticated` no tienen `SELECT`, y `project_admin` sí.
 
-No se aplicó en producción. `backups create` respondió `Manual backup quota full
-(1/1)`. Se conservó el único backup nativo, `pre-deploy-current-schema-2026-10-09`;
-no se restauró porque es anterior al estado actual. Como resguardo complementario
-se exportó el SQL actual de la base a
-`tmp/release-dashboard-cave/production-before.sql` (SHA-256
-`68882062D8101A029845964A53C14B65E8D637D7A58940098539CD972FB147F8`). El
-exportador admite hasta 10,000 filas por tabla. Esa
-exportación solo cubre la base de datos: no incluye Storage ni se ha probado su
-restauración, por lo que no sustituye el respaldo requerido. La migración sigue
-pendiente en producción; tampoco se hizo push a `main` ni despliegue de Vercel.
+Con autorización expresa para sustituir el respaldo anterior y publicar, se
+eliminó `pre-deploy-current-schema-2026-10-09` y se creó el backup nativo
+`pre-deploy-dashboard-cave-2026-10-15` (`03bd71bc-3c59-41a5-a611-4f95143eaa09`),
+con estado `completed`. La migración se aplicó individualmente con el runner
+oficial en producción y quedó registrada como `20261015100000`. La lectura
+posterior confirmó `sales_channel` de tipo `text` en las cuatro vistas y los
+permisos esperados: `anon` y `authenticated` sin `SELECT`, `project_admin` con
+`SELECT`. El backup nativo no se restauró durante este cambio.
+
+Antes de publicar, `npm run verify:release` terminó correctamente: lint,
+TypeScript, 105 pruebas de contrato, 1,257 pruebas de aplicación aprobadas y 3
+omitidas, además del build de Vite. El push a `main` y el despliegue automático
+de Vercel se registran cuando termine la publicación.
 
 ## Asignación y vinculación · 14 de octubre de 2026
 
