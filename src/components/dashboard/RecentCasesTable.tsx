@@ -7,6 +7,7 @@ import type { ReactNode } from 'react';
 import type { RecentCaseRow } from '../../lib/dashboard';
 import { formatPercent, textOrDash } from '../../lib/format';
 import { originLabel, RESULT_LABELS, RESULT_TONE } from '../../lib/labels';
+import { salesChannelDisplay } from '../../lib/sales-channel-catalog';
 import { goToCase } from '../../lib/useHashRoute';
 import { cx } from '../../lib/cx';
 import { Badge, Button, DataTable } from '../ui';
@@ -31,7 +32,7 @@ export function RecentCasesTable({ cases }: { cases: RecentCaseRow[] }): ReactNo
   if (rows.length === 0) return null;
 
   return (
-    <DataTable caption="Casos recientes con su origen, resolución, confianza y evidencia pendiente">
+    <DataTable caption="Casos recientes con canal de venta reportado por Flokzu, resolución, confianza y evidencia pendiente">
       <thead>
         <tr>
           <th scope="col" className={TH_CLASS}>
@@ -53,7 +54,7 @@ export function RecentCasesTable({ cases }: { cases: RecentCaseRow[] }): ReactNo
             País
           </th>
           <th scope="col" className={TH_CLASS}>
-            Canal
+            Canal de venta · país asociado
           </th>
           <th scope="col" className={TH_CLASS}>
             Fecha
@@ -85,7 +86,7 @@ export function RecentCasesTable({ cases }: { cases: RecentCaseRow[] }): ReactNo
               <EvidenceBadge missing={row.missingEvidenceCount} />
             </td>
             <td className={TD_CLASS}>{originLabel('country', row.country)}</td>
-            <td className={TD_CLASS}>{originLabel('channel', row.channel)}</td>
+            <td className={TD_CLASS}>{salesChannelDisplay(row.salesChannel)}</td>
             <td className={TD_CLASS}>{reportDate.format(new Date(row.date))}</td>
             <td className={cx('text-right', TD_CLASS)}>
               <Button

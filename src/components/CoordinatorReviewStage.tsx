@@ -313,13 +313,14 @@ function CoordinatorFinalizeForm({
                   {EVIDENCE_COUNTRIES.map((value) => <option key={value} value={value}>{COUNTRY_LABELS[value]}</option>)}
                 </select>
               </label>
-              <label className="flex flex-col gap-1.5 text-sm font-medium text-ink">Canal
+              <label className="flex flex-col gap-1.5 text-sm font-medium text-ink">Canal de origen · evidencia
                 <select required value={channel} onChange={(event) => setChannel(event.target.value)} className="rounded-lg border border-line bg-surface-2 px-3 py-2 text-ink">
                   <option value="">Selecciona un canal</option>
                   {EVIDENCE_CHANNELS.map((value) => <option key={value} value={value}>{CHANNEL_LABELS[value]}</option>)}
                 </select>
               </label>
             </div>
+            <p className="mt-3 text-xs text-muted">Registra el canal que se acredita en la evidencia. El canal de venta reportado por Flokzu es un dato distinto.</p>
             <div className="mt-6 flex justify-end gap-2">
               <Button variant="secondary" onClick={() => setShowOriginModal(false)} disabled={sending}>Volver</Button>
               <Button variant="primary" onClick={() => void submitDecision()} disabled={!country || !channel || sending} loading={sending} loadingLabel="Finalizando">Guardar y finalizar</Button>

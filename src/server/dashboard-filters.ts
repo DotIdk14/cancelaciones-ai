@@ -93,8 +93,8 @@ const StatusSchema = z.enum(CASE_STATUSES, {
  * Son un conjunto ABIERTO y deliberadamente pequeño. No son un vocabulario
  * cerrado como `result`/`status` (que se validan contra `AUDIT_RESULTS` y
  * `CASE_STATUSES` porque son la taxonomía normativa del Skill): aquí los valores
- * son etiquetas de negocio que vendrán de un catálogo del CRM que todavía no
- * existe en esta base.
+ * se toman de las dimensiones disponibles en las vistas, incluido el canal de
+ * venta reportado en Flokzu.
  */
 // El vocabulario de dimensiones vive en `lib/dashboard-shared` (el servidor no
 // puede importar `lib/dashboard.ts`: arrastra el preview de navegador). Aquí solo
@@ -125,7 +125,7 @@ export const DashboardFiltersQuerySchema = z
     result: ResultSchema.optional(),
     status: StatusSchema.optional(),
     country: DimensionSchema.optional(),
-    channel: DimensionSchema.optional(),
+    salesChannel: DimensionSchema.optional(),
     campus: DimensionSchema.optional(),
     modality: DimensionSchema.optional(),
     project: DimensionSchema.optional(),
@@ -189,7 +189,7 @@ export function parseDashboardFilters(query: Record<string, QueryValue>): Dashbo
     result: readSingle(query, 'result') ?? undefined,
     status: readSingle(query, 'status') ?? undefined,
     country: readSingle(query, 'country') ?? undefined,
-    channel: readSingle(query, 'channel') ?? undefined,
+    salesChannel: readSingle(query, 'salesChannel') ?? undefined,
     campus: readSingle(query, 'campus') ?? undefined,
     modality: readSingle(query, 'modality') ?? undefined,
     project: readSingle(query, 'project') ?? undefined,
@@ -221,7 +221,7 @@ export function parseDashboardFilters(query: Record<string, QueryValue>): Dashbo
   const out: Record<string, unknown> = { from, to, result, status };
   if (parsed.data.evaluation !== undefined) out.evaluation = parsed.data.evaluation;
   if (parsed.data.country !== undefined) out.country = parsed.data.country ?? null;
-  if (parsed.data.channel !== undefined) out.channel = parsed.data.channel ?? null;
+  if (parsed.data.salesChannel !== undefined) out.salesChannel = parsed.data.salesChannel ?? null;
   if (parsed.data.campus !== undefined) out.campus = parsed.data.campus ?? null;
   if (parsed.data.modality !== undefined) out.modality = parsed.data.modality ?? null;
   if (parsed.data.project !== undefined) out.project = parsed.data.project ?? null;

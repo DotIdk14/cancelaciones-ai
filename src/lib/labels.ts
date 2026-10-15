@@ -82,10 +82,10 @@ export const RESOLUTION_GROUPS = [
 export type ResolutionGroup = (typeof RESOLUTION_GROUPS)[number];
 
 export const RESOLUTION_GROUP_LABELS: Record<ResolutionGroup, string> = {
-  CONCEDIDAS: 'Concedidas',
-  REQUIERE_DICTAMINACION: 'Requiere dictaminación',
-  RECHAZADOS: 'Rechazados',
-  EVIDENCIA_INSUFICIENTE: 'Evidencia insuficiente',
+  CONCEDIDAS: 'Solicitud aprobada',
+  REQUIERE_DICTAMINACION: 'Requiere revisión',
+  RECHAZADOS: 'Solicitud rechazada',
+  EVIDENCIA_INSUFICIENTE: 'Falta evidencia',
 };
 
 export const RESULT_TO_GROUP: Record<AuditResultType, ResolutionGroup> = {

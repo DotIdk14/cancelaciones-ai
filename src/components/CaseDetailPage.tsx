@@ -10,7 +10,7 @@ import { ReportProblemModal } from './ReportProblemModal';
 
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { BookOpenCheck, Clock3, FileCheck2, FileText, Paperclip, Search } from 'lucide-react';
+import { BookOpenCheck, ChevronDown, ChevronUp, Clock3, FileCheck2, FileText, Paperclip, Search } from 'lucide-react';
 import { deleteEvidence, getAreaComments, getCase, toErrorState, workflowStateOf } from '../lib/api';
 import type { AppRole, AreaComment, CaseDetailResponse, ErrorState, Evidence, SessionSnapshot } from '../lib/api';
 import { formatDateTime, formatLatency, formatPercent, formatFactValue, textOrDash } from '../lib/format';
@@ -165,6 +165,7 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
   const [actionError, setActionError] = useState<ErrorState | null>(null);
   const [activeTab, setActiveTab] = useState<CaseDetailTab>('evidence');
   const [search, setSearch] = useState('');
+  const [evidenceUploaderOpen, setEvidenceUploaderOpen] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
   const [contextTab, setContextTab] = useState<ContextTab>('data');
 
@@ -223,6 +224,7 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
     setConfirmId(null);
     setViewingEvidenceId(null);
     setActiveTab('evidence');
+    setEvidenceUploaderOpen(false);
     setContextOpen(false);
     setContextTab('data');
     setSearch('');
@@ -491,15 +493,15 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
             onSubmitted={() => void load()}
           />
   </>);
-  const auditControls = (<>
-            {!readOnly && (
-              <Button id={AUDIT_TRIGGER_ID} variant="primary" className="w-full" onClick={() => void maybeRunAudit()} disabled={!canAudit} loading={auditBusy} loadingLabel="Consultando auditoría">
+  const auditAction = !readOnly && (
+              <Button id={AUDIT_TRIGGER_ID} variant="primary" className="shrink-0" onClick={() => { setContextOpen(false); void maybeRunAudit(); }} disabled={!canAudit} loading={auditBusy} loadingLabel="Consultando auditoría">
                 {auditPhase === 'waiting' ? 'Esperando transcripción…' : auditPhase === 'running' || auditPhase === 'starting' ? 'Auditando con IA…' : caseIsError ? 'Reintentar auditoría' : shouldShowReauditLabel ? 'Volver a auditar' : 'Auditar con IA'}
               </Button>
-            )}
+            );
+  const auditControls = (<>
             {readOnly && (
               <p role="status" className="text-xs text-muted">
-                Solo lectura: tu rol no puede ejecutar ni modificar el caso.
+                Solo lectura: no tienes permiso para ejecutar ni modificar este expediente.
               </p>
             )}
 
@@ -546,7 +548,7 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
     <div className="case-detail-page flex flex-col gap-4">
       <header className="case-workspace-header">
         <div><button type="button" onClick={goToCases} className="case-workspace-back">← Volver a casos</button><h1>{detail.case.studentIdentifier || 'Sin matrícula'}<span>{detail.case.externalCaseId ? ` · ${detail.case.externalCaseId}` : ''}</span></h1></div>
-        <div className="case-workspace-actions"><Button aria-expanded={contextOpen} aria-controls="case-context-slot" onClick={() => setContextOpen(!contextOpen)}>{contextOpen ? 'Cerrar contexto' : 'Ver datos y dictamen'}</Button><Button onClick={() => void load()} loading={loading} loadingLabel="Actualizando">Actualizar</Button></div>
+        <div className="case-workspace-actions justify-end"><Button aria-expanded={contextOpen} aria-controls="case-context-slot" onClick={() => setContextOpen(!contextOpen)}>{contextOpen ? 'Cerrar contexto' : 'Ver datos y dictamen'}</Button><Button onClick={() => void load()} loading={loading} loadingLabel="Actualizando">Actualizar</Button>{auditAction}</div>
       </header>
       <div className="case-workspace-audit-actions">{auditControls}</div>
 
@@ -589,10 +591,21 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
             />
           </Panel>
           {!readOnly && (
-            <details className="case-detail-upload">
-              <summary><span aria-hidden="true">+</span> Adjuntar evidencias</summary>
-              <EvidenceUploader caseId={caseId} onUploaded={() => load()} />
-            </details>
+            <div className="case-detail-upload">
+              <button
+                type="button"
+                className="case-detail-upload-trigger"
+                aria-expanded={evidenceUploaderOpen}
+                aria-controls="evidence-uploader-panel"
+                onClick={() => setEvidenceUploaderOpen((open) => !open)}
+              >
+                Adjuntar evidencias
+                {evidenceUploaderOpen ? <ChevronUp size={16} aria-hidden="true" /> : <ChevronDown size={16} aria-hidden="true" />}
+              </button>
+              <div id="evidence-uploader-panel" className="case-detail-upload-panel" hidden={!evidenceUploaderOpen}>
+                <EvidenceUploader caseId={caseId} onUploaded={() => load()} />
+              </div>
+            </div>
           )}
         </aside>
 

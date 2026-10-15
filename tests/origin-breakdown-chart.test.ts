@@ -20,17 +20,17 @@ describe('OriginBreakdownChart', () => {
 
     // El `sr-only` es el requisito 1.1.1(A): el número del `LabelList` no está
     // emparejado con la etiqueta del eje para un lector de pantalla.
-    expect(screen.getByText(/Distribución de 4 caso\(s\) por país de origen/)).toBeTruthy();
+    expect(screen.getByText(/Distribución de 4 expediente\(s\).*por país de origen/)).toBeTruthy();
     expect(screen.getByText(/México: 4/)).toBeTruthy();
   });
 
-  it('nombra el canal cuando la dimensión es canal', () => {
-    const data = [point({ value: 'WHATSAPP', label: 'WhatsApp', count: 2 })];
+  it('nombra el canal de venta reportado por Flokzu', () => {
+    const data = [point({ value: 'INC_INCONCERT', label: 'INC_INCONCERT', count: 2 })];
 
-    render(createElement(OriginBreakdownChart, { data, dimension: 'channel' }));
+    render(createElement(OriginBreakdownChart, { data, dimension: 'salesChannel' }));
 
-    expect(screen.getByText(/por canal de origen/)).toBeTruthy();
-    expect(screen.getByText(/WhatsApp: 2/)).toBeTruthy();
+    expect(screen.getByText(/canal de venta reportado en Flokzu/)).toBeTruthy();
+    expect(screen.getByText(/INC_INCONCERT · México: 2/)).toBeTruthy();
   });
 
   it('muestra "Sin determinar" en vez de un gráfico vacío', () => {

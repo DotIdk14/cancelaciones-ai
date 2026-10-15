@@ -78,17 +78,15 @@ describe('aggregateSummary — distribución de origen', () => {
     expect(byCountry.totalWithOrigin).toBe(3);
   });
 
-  it('sin ningún valor determinado devuelve un único punto "Sin determinar", no una lista vacía', () => {
-    // Un `[]` haría que el gráfico se viera igual que "no hay datos", cuando en
-    // realidad sí hay: el resultado es que el origen no es determinable.
-    const rows = [caseRow(1, { channel: null }), caseRow(2, { channel: null })];
+  it('sin canal de venta reportado muestra "No reportado"', () => {
+    const rows = [caseRow(1, { sales_channel: null }), caseRow(2, { sales_channel: null })];
 
-    const { byChannel } = aggregateSummary(rows, BASE, rows.length);
+    const { bySalesChannel } = aggregateSummary(rows, BASE, rows.length);
 
-    expect(byChannel.points).toEqual([
-      { value: 'Sin determinar', label: 'Sin determinar', count: 2 },
+    expect(bySalesChannel.points).toEqual([
+      { value: 'No reportado', label: 'No reportado', count: 2 },
     ]);
-    expect(byChannel.totalWithOrigin).toBe(0);
+    expect(bySalesChannel.totalWithOrigin).toBe(0);
   });
 
   it('un caso en curso no cuenta en la distribución, pero sí aparece en recientes', () => {
@@ -103,23 +101,23 @@ describe('aggregateSummary — distribución de origen', () => {
     expect(summary.recentCases.map((row) => row.caseId).sort()).toEqual(['case-1', 'case-2']);
   });
 
-  it('recentCases propaga el país y el canal crudos, y su etiqueta resuelve el null', () => {
-    const rows = [caseRow(1, { country: 'MX', channel: 'WHATSAPP' }), caseRow(2, { country: null, channel: 'CRM' })];
+  it('recentCases propaga el país y el canal de venta de Flokzu', () => {
+    const rows = [caseRow(1, { country: 'MX', sales_channel: 'INC_INCONCERT' }), caseRow(2, { country: null, sales_channel: 'CALL CENTER - VIP' })];
 
     const summary = aggregateSummary(rows, BASE, rows.length);
     const byCase = new Map(summary.recentCases.map((row) => [row.caseId, row]));
 
     expect(byCase.get('case-1')?.country).toBe('MX');
-    expect(byCase.get('case-1')?.channel).toBe('WHATSAPP');
+    expect(byCase.get('case-1')?.salesChannel).toBe('INC_INCONCERT');
     expect(byCase.get('case-2')?.country).toBeNull();
-    expect(byCase.get('case-2')?.channel).toBe('CRM');
+    expect(byCase.get('case-2')?.salesChannel).toBe('CALL CENTER - VIP');
   });
 
-  it('un canal fuera del catálogo se muestra con su valor crudo', () => {
-    const rows = [caseRow(1, { channel: 'SMS' })];
+  it('conserva literalmente el canal de venta importado de Flokzu', () => {
+    const rows = [caseRow(1, { sales_channel: 'UTEL - EMPRESARIAL' })];
 
-    const { byChannel } = aggregateSummary(rows, BASE, rows.length);
+    const { bySalesChannel } = aggregateSummary(rows, BASE, rows.length);
 
-    expect(byChannel.points).toEqual([{ value: 'SMS', label: 'SMS', count: 1 }]);
+    expect(bySalesChannel.points).toEqual([{ value: 'UTEL - EMPRESARIAL', label: 'UTEL - EMPRESARIAL', count: 1 }]);
   });
 });

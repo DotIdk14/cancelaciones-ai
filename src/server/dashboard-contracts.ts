@@ -47,6 +47,7 @@ export interface DashboardMetricRow {
   attempts_count: number;
   country: string | null;
   channel: string | null;
+  sales_channel?: string | null;
   campus: string | null;
   modality: string | null;
   project: string | null;

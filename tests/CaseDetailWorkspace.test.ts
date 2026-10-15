@@ -383,12 +383,18 @@ describe('CaseDetailPage — gating por rol (solo presentación)', () => {
     // Sin guardar notas de área.
     expect(screen.queryByRole('button', { name: /guardar/i })).toBeNull();
     // El modo de solo lectura se declara en la revisión y en el dictamen.
-    expect(screen.getByText(/solo lectura: tu rol no puede ejecutar/i)).toBeTruthy();
+    expect(screen.getByText(/solo lectura:.*ejecutar/i)).toBeTruthy();
     expect(screen.getByText(/solo lectura: la revisión del asesor/i)).toBeTruthy();
   });
 
   it('un Asesor sí ve los controles de mutación del expediente', async () => {
     await renderDetailAs(makeDetailWithAudit(), 'user');
+    const auditButton = screen.getByRole('button', { name: /auditar con ia/i });
+    expect(auditButton.closest('.case-workspace-actions')).toBeTruthy();
+    expect(auditButton).toBe(auditButton.parentElement?.lastElementChild);
+    fireEvent.click(screen.getByRole('button', { name: 'Ver datos y dictamen' }));
+    expect(screen.getByRole('button', { name: /auditar con ia/i })).toBe(auditButton);
+    expect(screen.getByRole('dialog', { name: 'Contexto del expediente' }).contains(auditButton)).toBe(false);
 
     expect(screen.getByText(/adjuntar evidencias/i)).toBeTruthy();
     expect(await screen.findByRole('button', { name: 'Eliminar captura.png' })).toBeTruthy();

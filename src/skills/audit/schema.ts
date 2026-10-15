@@ -351,7 +351,11 @@ function validateContactAttemptsMinimum(assessment: ValidatedAssessment): void {
     || observedCalls === undefined
     || observedWritten === undefined
   ) {
-    throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.procedureChecks: 5.2 exige los conteos observados y los mínimos exactos de llamadas e interacciones escritas');
+    throw new ApiError(
+      502,
+      'INVALID_AI_RESPONSE',
+      `INVALID_AI_RESPONSE: audit.procedureChecks: 5.2 observedValues exactos: llamadas requeridas=${SECTION_5_2_MINIMUMS.calls}; llamadas acreditadas=<n|NO_DETERMINABLE>; interacciones escritas requeridas=${SECTION_5_2_MINIMUMS.writtenInteractions}; interacciones escritas acreditadas=<n|NO_DETERMINABLE>`,
+    );
   }
 
   const parseObservedCount = (value: string): number | null => {

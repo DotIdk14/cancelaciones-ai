@@ -2,14 +2,16 @@ import { responsibleNames } from './dashboard-responsibles.js';
 // Queries for dashboard views. Pure aggregation stays in dashboard.ts.
 import { aggregateMonthlyActivity } from './dashboard-activity.js';
 import { aggregateEvaluation, evaluationCase, type EvaluationMetricRow } from './dashboard-evaluation.js';
-import { DASHBOARD_DIMENSIONS } from '../lib/dashboard-shared.js';
+import { CASE_DIMENSION_COLUMN, DASHBOARD_DIMENSIONS } from '../lib/dashboard-shared.js';
 import type { DashboardDimension, DashboardFilters } from '../lib/dashboard-shared.js';
+import { salesChannelFilterValues } from '../lib/sales-channel-catalog.js';
 import type { DashboardFilterOptions, DashboardSummary } from '../lib/dashboard.js';
 import type { AuthContext } from './auth.js';
 import { capabilitiesForRole } from './capabilities.js';
 import { endOfDayUtc, startOfDayUtc } from './dashboard-filters.js';
 import { mapProviderError } from './http.js';
 import type { InsForgeClient } from './insforge.js';
+import { countCaseBuckets } from './cases.js';
 import { DASHBOARD_PAGE_SIZE } from './dashboard-contracts.js';
 import {
   aggregateAiCosts,
@@ -42,23 +44,29 @@ async function readAllPages<T>(query: {
   }
 }
 
-const ACTIVITY_COLUMNS = 'execution_kind,call_metrics,human_result,id,case_id,created_at,model,provider,audit_status,case_status,latency_ms,error_category,attempt_number,result,confidence,missing_evidence_count,provider_models,attempts_count,attempts_cost_usd,attempts_total_tokens,attempts_prompt_tokens,attempts_completion_tokens,usage_cost_usd,usage_total_tokens,usage_prompt_tokens,usage_completion_tokens,country,channel,campus,modality,project,responsible,guideline,is_reaudit,cost_incomplete,tokens_incomplete,usage_is_aggregate';
+const ACTIVITY_COLUMNS = 'execution_kind,call_metrics,human_result,id,case_id,created_at,model,provider,audit_status,case_status,latency_ms,error_category,attempt_number,result,confidence,missing_evidence_count,provider_models,attempts_count,attempts_cost_usd,attempts_total_tokens,attempts_prompt_tokens,attempts_completion_tokens,usage_cost_usd,usage_total_tokens,usage_prompt_tokens,usage_completion_tokens,country,channel,sales_channel,campus,modality,project,responsible,guideline,is_reaudit,cost_incomplete,tokens_incomplete,usage_is_aggregate';
 const COST_COLUMNS = ACTIVITY_COLUMNS.split(',').filter(column => !['result','confidence','missing_evidence_count'].includes(column)).join(',');
-const EVALUATION_COLUMNS = 'id,case_id,created_at,case_status,audit_status,result,confidence,missing_evidence_count,country,channel,campus,modality,project,responsible,guideline,external_case_id,case_review_id,review_audit_id,advisor_result,final_result,comparison_id,comparison_status,comparison_agrees,comparison_confidence,latest_execution_status';
+const EVALUATION_COLUMNS = 'id,case_id,created_at,case_status,audit_status,result,confidence,missing_evidence_count,country,channel,sales_channel,campus,modality,project,responsible,guideline,external_case_id,case_review_id,review_audit_id,advisor_result,final_result,comparison_id,comparison_status,comparison_agrees,comparison_confidence,latest_execution_status';
 
 /**
  * Aplica los filtros por dimensión. Solo se filtra por las dimensiones que la
  * vista actualmente proyecta; el tipo es mínimo (`eq`) porque este archivo no
  * necesita conocer toda la cadena de PostgREST.
  */
-export function applyDimensionFilters<T extends { eq(column: string, value: unknown): T }>(
+export function applyDimensionFilters<T extends { eq(column: string, value: unknown): T; in?(column: string, values: unknown[]): T }>(
   query: T,
   filters: DashboardFilters,
 ): T {
   let filtered = query;
   for (const dimension of DASHBOARD_DIMENSIONS) {
     const value = filters[dimension];
-    if (value !== null && value !== undefined) filtered = filtered.eq(dimension, value);
+    if (value !== null && value !== undefined) {
+      if (dimension === 'salesChannel' && filtered.in) {
+        filtered = filtered.in(dimension, salesChannelFilterValues(value));
+      } else {
+        filtered = filtered.eq(dimension, value);
+      }
+    }
   }
   return filtered;
 }
@@ -117,9 +125,11 @@ export async function getDashboardFilterOptions(
   client: InsForgeClient,
   auth?: AuthContext,
 ): Promise<DashboardFilterOptions> {
-  const columns = DASHBOARD_DIMENSIONS.join(',');
+  const columns = DASHBOARD_DIMENSIONS.map((dimension) =>
+    `${dimension}:${CASE_DIMENSION_COLUMN[dimension]}`,
+  ).join(',');
   let query = client.database
-    .from('audit_activity_metrics')
+    .from('audit_activity_metrics_with_sales_channel')
     .select(columns);
   query = applyOwnerScope(query, auth);
   query = applyTestScope(query);
@@ -128,7 +138,7 @@ export async function getDashboardFilterOptions(
 
   const options: DashboardFilterOptions = {
     country: [],
-    channel: [],
+    salesChannel: [],
     campus: [],
     modality: [],
     project: [],
@@ -174,7 +184,7 @@ export async function getDashboardSummary(
   const toIso = endOfDayUtc(filters.to);
 
   let query = client.database
-    .from('audit_activity_metrics')
+    .from('audit_activity_metrics_with_sales_channel')
     .select(ACTIVITY_COLUMNS, { count: 'exact' })
     .gte('created_at', fromIso)
     .lte('created_at', toIso);
@@ -188,12 +198,24 @@ export async function getDashboardSummary(
   query = query.order('created_at', { ascending: false }).order('id', { ascending: false });
   const rows = await readAllPages<DashboardMetricRow>(query as never);
   const canReadConsumption = capabilitiesForRole(auth?.role).canManageCases;
-  const comparisons = canReadConsumption ? await getComparisonActivity(client, filters, auth) : [];
+  const [caseBuckets, comparisons] = await Promise.all([
+    auth ? countCaseBuckets(client, auth, { createdFrom: fromIso, createdTo: toIso, excludeTests: true, scopeToActor: false }) : Promise.resolve(null),
+    canReadConsumption ? getComparisonActivity(client, filters, auth) : Promise.resolve([]),
+  ]);
+  const caseProgress = caseBuckets ? {
+    total: caseBuckets.ALL,
+    drafts: caseBuckets.DRAFTS,
+    pendingAudit: caseBuckets.PENDING_AUDIT,
+    pendingAdvisor: caseBuckets.PENDING_ADVISOR,
+    pendingCoordinator: caseBuckets.PENDING_COORDINATOR,
+    finalized: caseBuckets.COMPLETED,
+    errors: caseBuckets.ERRORS,
+  } : null;
   let identities = null;
   try { const result = await client.database.rpc('dashboard_request_identities', { p_case_ids: [...new Set(rows.map(row=>row.case_id))] });
     if (!result.error && result.data) identities = { ...(result.data as {students:number;tickets:number;caseFiles:number;requests:number}),auditExecutions:rows.length };
   } catch { /* Contadores no disponibles hasta validar la migración; no inventar ceros. */ }
-  return { ...aggregateSummary(rows, filters, rows.length), ...(canReadConsumption ? { activity: aggregateMonthlyActivity(rows, comparisons) } : {}), identities };
+  return { ...aggregateSummary(rows, filters, rows.length), caseProgress, ...(canReadConsumption ? { activity: aggregateMonthlyActivity(rows, comparisons) } : {}), identities };
 }
 
 
@@ -208,7 +230,7 @@ export async function getAiCosts(
   const toIso = endOfDayUtc(filters.to);
 
   let query = client.database
-    .from('audit_activity_metrics')
+    .from('audit_activity_metrics_with_sales_channel')
     // Columnas EXPLICITAS, no `*`. Esta ruta nunca devuelve datos personales, así
     // que pedir `student_identifier` (y las otras 20 columnas) sería hacer
     // viajar PII por la red —hasta 5000 filas por petición— para descartarla
@@ -237,7 +259,7 @@ export async function getAiCosts(
 
 /** Consumo por ejecución de comparación, incluidas las versiones archivadas. */
 async function getComparisonActivity(client: InsForgeClient, filters: DashboardFilters, auth?: AuthContext): Promise<DashboardMetricRow[]> {
-  let query = client.database.from('comparison_activity_metrics').select(ACTIVITY_COLUMNS)
+  let query = client.database.from('comparison_activity_metrics_with_sales_channel').select(ACTIVITY_COLUMNS)
     .gte('created_at', startOfDayUtc(filters.from)).lte('created_at', endOfDayUtc(filters.to));
   if (filters.result !== null) query = query.eq('result', filters.result);
   if (filters.status !== null) query = query.eq('case_status', filters.status);
@@ -246,7 +268,7 @@ async function getComparisonActivity(client: InsForgeClient, filters: DashboardF
 }
 
 async function getEvaluationRows(client: InsForgeClient, filters: DashboardFilters, auth?: AuthContext, historical = false): Promise<EvaluationMetricRow[]> {
-  let query = client.database.from(historical ? 'audit_evaluation_metrics' : 'current_audit_evaluation_metrics').select(EVALUATION_COLUMNS)
+  let query = client.database.from(historical ? 'audit_evaluation_metrics_with_sales_channel' : 'current_audit_evaluation_metrics_with_sales_channel').select(EVALUATION_COLUMNS)
     .gte('created_at', startOfDayUtc(filters.from)).lte('created_at', endOfDayUtc(filters.to));
   if (filters.result !== null) query = query.eq('result', filters.result);
   if (filters.status !== null) query = query.eq('case_status', filters.status);

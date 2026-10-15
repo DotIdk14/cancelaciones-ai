@@ -19,7 +19,7 @@ export function ResolutionDonut({ data }: { data: ResolutionSplitPoint[] }): Rea
       <div className="min-h-0 flex-1">
         <ResponsiveContainer width="100%" height="100%">
           <PieChart
-            title="Distribución de resoluciones"
+            title="Resultados de auditoría"
             desc={resolutionSummary(data, total)}
           >
             <Tooltip contentStyle={TOOLTIP_STYLE} />
@@ -80,5 +80,5 @@ function resolutionSummary(data: ResolutionSplitPoint[], total: number): string 
         `${RESOLUTION_GROUP_LABELS[point.group]}: ${point.count} (${formatPercent(point.count / total)})`,
     )
     .join('; ');
-  return `Distribución de ${total} caso(s) por resolución. ${details}.`;
+  return `Resultados de ${total} auditorías: ${details}.`;
 }

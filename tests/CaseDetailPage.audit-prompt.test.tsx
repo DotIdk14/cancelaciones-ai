@@ -186,8 +186,6 @@ describe('CaseDetailPage · confirmación antes de auditar', () => {
     });
     expect(heading.closest('details')?.open).toBe(true);
 
-    const detailsToggle = screen.getByText(/Adjuntar evidencias/i).closest('details');
-    expect(detailsToggle).toBeTruthy();
-    expect(detailsToggle?.contains(heading)).toBe(false);
+    expect(heading.closest('.case-detail-upload')).toBeNull();
   });
 });

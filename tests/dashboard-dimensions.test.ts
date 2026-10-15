@@ -6,10 +6,10 @@ import {
 } from '../src/lib/dashboard-shared';
 
 describe('dimensiones del dashboard', () => {
-  it('la lista de dimensiones incluye channel exactamente una vez', () => {
+  it('la lista de dimensiones incluye salesChannel exactamente una vez', () => {
     expect([...DASHBOARD_DIMENSIONS]).toEqual([
       'country',
-      'channel',
+      'salesChannel',
       'campus',
       'modality',
       'project',
@@ -21,7 +21,7 @@ describe('dimensiones del dashboard', () => {
   it('toda dimensión tiene etiqueta y columna', () => {
     for (const dimension of DASHBOARD_DIMENSIONS) {
       expect(DIMENSION_LABELS[dimension]).toBeTruthy();
-      expect(CASE_DIMENSION_COLUMN[dimension]).toBe(dimension);
+      expect(CASE_DIMENSION_COLUMN[dimension]).toBe(dimension === 'salesChannel' ? 'sales_channel' : dimension);
     }
   });
 });

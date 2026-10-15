@@ -1,14 +1,14 @@
 // =============================================================================
-// Distribución de origen: una fila por país o por canal, con el total al final
+// Distribución de país de origen o canal de venta de Flokzu, con el total al final
 // de la barra.
 //
-// Un solo componente sirve a las dos dimensiones: país y canal tienen idéntica
+// Un solo componente sirve a las dos dimensiones: país y canal de venta tienen idéntica
 // forma (valor, etiqueta, conteo) y separarlos duplicaría el `sr-only`, el `Cell`
 // y el `maxBarSize` sin ganar nada. La dimensión solo cambia el color y los
 // textos accesibles.
 //
 // A diferencia de `ResultsBreakdownChart`, aquí NO se muestran las categorías en
-// cero: el catálogo de países y canales es grande y la mayoría no aparece nunca,
+// cero: el catálogo de países y canales de venta es grande y la mayoría no aparece nunca,
 // así que una lista con 11 países vacíos taparía el dato real.
 // =============================================================================
 
@@ -26,16 +26,17 @@ import {
 } from 'recharts';
 import type { OriginBreakdownPoint } from '../../../lib/dashboard';
 import { ORIGIN_CHART_COLOR } from '../../../lib/labels';
+import { salesChannelDisplay } from '../../../lib/sales-channel-catalog';
 import { AXIS_TICK_STYLE, GRID_STROKE, TOOLTIP_STYLE } from './chartTheme';
 
-const DIMENSION_TITLE: Record<'country' | 'channel', string> = {
-  country: 'Distribución de casos por país de origen',
-  channel: 'Distribución de casos por canal de origen',
+const DIMENSION_TITLE: Record<'country' | 'salesChannel', string> = {
+  country: 'Expedientes por país de origen',
+  salesChannel: 'Expedientes por canal de venta reportado en Flokzu',
 };
 
-const DIMENSION_NOUN: Record<'country' | 'channel', string> = {
+const DIMENSION_NOUN: Record<'country' | 'salesChannel', string> = {
   country: 'país',
-  channel: 'canal',
+  salesChannel: 'canal de venta',
 };
 
 export function OriginBreakdownChart({
@@ -43,9 +44,13 @@ export function OriginBreakdownChart({
   dimension,
 }: {
   data: OriginBreakdownPoint[];
-  dimension: 'country' | 'channel';
+  dimension: 'country' | 'salesChannel';
 }): ReactNode {
-  const rows = data.filter((point) => point.count > 0);
+  const rows = data
+    .filter((point) => point.count > 0)
+    .map((point) => dimension === 'salesChannel'
+      ? { ...point, label: salesChannelDisplay(point.value) }
+      : point);
   if (rows.length === 0) return null;
 
   const summary = originSummary(rows, dimension);
@@ -82,9 +87,9 @@ export function OriginBreakdownChart({
             axisLine={{ stroke: GRID_STROKE }}
           />
           <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: 'rgba(255, 255, 255, 0.04)' }} />
-          <Bar dataKey="count" name="Casos" maxBarSize={28} isAnimationActive={false}>
+          <Bar dataKey="count" name="Expedientes" maxBarSize={28} isAnimationActive={false}>
             {rows.map((row) => (
-              <Cell key={row.value} fill={ORIGIN_CHART_COLOR[dimension]} />
+              <Cell key={row.value} fill={ORIGIN_CHART_COLOR[dimension === 'country' ? 'country' : 'channel']} />
             ))}
             <LabelList
               dataKey="count"
@@ -103,9 +108,12 @@ export function OriginBreakdownChart({
   );
 }
 
-/** Reparto por país o canal leído como frase. */
-function originSummary(rows: OriginBreakdownPoint[], dimension: 'country' | 'channel'): string {
+/** Reparto por país o canal de venta leído como frase. */
+function originSummary(rows: OriginBreakdownPoint[], dimension: 'country' | 'salesChannel'): string {
   const total = rows.reduce((sum, row) => sum + row.count, 0);
   const detalle = rows.map((row) => `${row.label}: ${row.count}`).join('; ');
-  return `Distribución de ${total} caso(s) por ${DIMENSION_NOUN[dimension]} de origen. ${detalle}.`;
+  const source = dimension === 'country'
+    ? 'de origen'
+    : 'reportado en Flokzu, con país asociado del catálogo CaVe';
+  return `Distribución de ${total} expediente(s) con dictamen de IA por ${DIMENSION_NOUN[dimension]} ${source}. ${detalle}.`;
 }

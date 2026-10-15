@@ -214,6 +214,8 @@ function sanitizeValidationDetail(message: string): string {
  */
 function buildCorrectiveFeedback(category: AttemptFailureCategory, validation: { detail: string; path: string }, checklist?: string): string {
   const detail = sanitizeValidationDetail(validation.detail);
+  const isSection52Failure = /5\.2|intentos mínimos de contacto|llamadas acreditadas|interacciones escritas acreditadas/i
+    .test(`${validation.path} ${validation.detail}`);
   return [
     '## Corrección requerida: tu respuesta anterior fue rechazada',
     '',
@@ -223,7 +225,12 @@ function buildCorrectiveFeedback(category: AttemptFailureCategory, validation: {
     ...(detail ? [`- Detalle del validador: ${detail}`] : []),
     '',
     'Reemite el objeto JSON COMPLETO con la misma estructura, corrigiendo exactamente ese punto.',
+    'No cambies solo el campo señalado: revisa la coherencia entre procedureChecks, audit.result, rejectionReason, provisionalResolution y missingEvidence.',
     'Algunas reglas del contrato son invariantes ENTRE campos y ningún formato de salida puede garantizarlas: revísalas tú mismo antes de responder.',
+    ...(isSection52Failure ? [
+      '',
+      'Corrección prioritaria de la sección 5.2: el check de intentos mínimos debe incluir los cuatro observedValues con las etiquetas exactas y los mínimos exactos indicados abajo. Si cualquiera de los dos conteos observados es menor al mínimo, es NO_DETERMINABLE, o el check 5.2 no queda ACREDITADO por distribución/horarios/separación aplicables, el resultado completo debe ser TICKET_RECHAZADO, rejectionReason debe explicar el incumplimiento, provisionalResolution debe ser null y missingEvidence debe incluir un bloqueo de intentos mínimos relacionado con 5.2. Si todos los requisitos aplicables sí se acreditan, no uses TICKET_RECHAZADO.',
+    ] : []),
     'No inventes datos ni cites evidencia que no aparezca en el expediente.',
     ...(checklist ? ['', checklist] : []),
   ].join('\n');
@@ -433,7 +440,7 @@ async function singleAttempt(
           : null;
       const marker = `INVALID_AI_RESPONSE: ${schemaPath}: `;
       const detail =
-        attested === null ? null : (attested.startsWith(marker) ? attested.slice(marker.length) : attested).slice(0, 160);
+        attested === null ? null : (attested.startsWith(marker) ? attested.slice(marker.length) : attested).slice(0, 200);
       const failureReason =
         category === 'INVALID_EVIDENCE_REFERENCE'
           ? `unknown evidence reference at ${schemaPath}${detail ? `: ${detail}` : ''}`

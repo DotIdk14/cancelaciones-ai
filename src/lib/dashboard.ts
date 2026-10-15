@@ -55,7 +55,7 @@ export type DashboardFilterOptions = Record<DashboardDimension, string[]> & { re
 
 export const EMPTY_DASHBOARD_FILTER_OPTIONS: DashboardFilterOptions = {
   country: [],
-  channel: [],
+  salesChannel: [],
   campus: [],
   modality: [],
   project: [],
@@ -143,9 +143,9 @@ export interface ResultBreakdownPoint {
 /**
  * Un punto de la distribución de origen.
  *
- * `value` es el código CRUDO que viaja en la respuesta y con el que se filtra
- * ('MX', 'WHATSAPP'), o `UNDETERMINED_LABEL` cuando el modelo no pudo
- * determinarlo. `label` es lo que se muestra en pantalla.
+ * `value` es el dato crudo que viaja en la respuesta y con el que se filtra.
+ * Para país puede ser un código (`MX`); para canal de venta conserva el valor
+ * reportado por Flokzu. `label` es lo que se muestra en pantalla.
  */
 export interface OriginBreakdownPoint {
   value: string;
@@ -154,12 +154,11 @@ export interface OriginBreakdownPoint {
 }
 
 /**
- * Distribución de una dimensión de origen (país o canal).
+ * Distribución de país de origen o canal de venta reportado.
  *
  * `points` nunca es `[]` cuando hay auditorías terminales: si ninguna tiene valor
- * determinado, trae un único punto "Sin determinar". Un array vacío haría que el
- * gráfico se viera igual que "no hay datos" cuando el dato real es que el origen
- * no es determinable.
+ * para la dimensión, trae un punto que identifica la ausencia de dato. Un array
+ * vacío haría que el gráfico pareciera no tener casos auditados.
  */
 export interface OriginDistribution {
   points: OriginBreakdownPoint[];
@@ -184,8 +183,8 @@ export interface RecentCaseRow {
   date: string;
   /** País de operación, crudo (`'MX'`) o `null` si no es determinable. */
   country: string | null;
-  /** Canal de origen, crudo (`'WHATSAPP'`) o `null` si no es determinable. */
-  channel: string | null;
+  /** Canal de venta reportado en el ticket de Flokzu. */
+  salesChannel: string | null;
 }
 
 // -----------------------------------------------------------------------------
@@ -288,6 +287,8 @@ export interface HumanMismatchRow {
 }
 
 export interface DashboardSummary {
+  /** Conteo de expedientes reales por su etapa actual en el periodo. */
+  caseProgress?: CaseProgressSummary | null;
   identities?: {students:number;tickets:number;caseFiles:number;requests:number;auditExecutions:number} | null;
   activity?: import('./dashboard-metrics-contracts').MonthlyActivity;
   generatedAt: string;
@@ -300,8 +301,8 @@ export interface DashboardSummary {
   byResult: ResultBreakdownPoint[];
   /** Distribución por país de operación. */
   byCountry: OriginDistribution;
-  /** Distribución por canal de origen. */
-  byChannel: OriginDistribution;
+  /** Distribución por canal de venta reportado en los tickets CaVe de Flokzu. */
+  bySalesChannel: OriginDistribution;
   recentCases: RecentCaseRow[];
   /** Bloque "Rendimiento de IA". */
   execution: ExecutionReport;
@@ -309,6 +310,16 @@ export interface DashboardSummary {
   agreement: HumanAgreementReport;
   /** Coste del periodo, para la primera zona sin obligar a ir a IA & Costos. */
   cost: SummaryCostKpi;
+}
+
+export interface CaseProgressSummary {
+  total: number;
+  drafts: number;
+  pendingAudit: number;
+  pendingAdvisor: number;
+  pendingCoordinator: number;
+  finalized: number;
+  errors: number;
 }
 
 /**
@@ -590,7 +601,7 @@ function buildFiltersParams(filters: DashboardFilters): URLSearchParams {
   if (filters.result !== null) params.set('result', filters.result);
   if (filters.status !== null) params.set('status', filters.status);
   if (filters.evaluation) params.set('evaluation', filters.evaluation);
-  for (const dimension of ['channel', 'country', 'campus', 'modality', 'project', 'responsible', 'guideline'] as const) {
+  for (const dimension of ['country', 'salesChannel', 'campus', 'modality', 'project', 'responsible', 'guideline'] as const) {
     const value = filters[dimension];
     if (value != null) params.set(dimension, value);
   }

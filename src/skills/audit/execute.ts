@@ -12,7 +12,7 @@
 import { callOpenRouterAudit, type OpenRouterAttemptDiagnostic, type OpenRouterContentPart } from '../../server/openrouter.js';
 import { ApiError } from '../../server/http.js';
 import { deriveCaseCycleStartDate, isIsoDateValue, parseAiAuditAssessment, type AuditResult } from './schema.js';
-import { ASSESSMENT_VALIDATION_CHECKLIST, buildDossierHeader, buildSystemPrompt } from './instructions.js';
+import { ASSESSMENT_VALIDATION_CHECKLIST, CONTACT_ATTEMPTS_RULES, buildDossierHeader, buildSystemPrompt } from './instructions.js';
 import { sanitizeFenceDelimiters, sanitizeTagDelimiters, wrapUntrusted } from '../sanitize.js';
 import { PROCEDURE_TEXT } from './procedure-v5.js';
 import type { AuditSkillInput } from './types.js';
@@ -37,7 +37,12 @@ export const auditSkill: AuditSkill = {
       parts,
       evidenceIds,
       deadlineMs: options?.deadlineMs,
-      validationChecklist: [ASSESSMENT_VALIDATION_CHECKLIST, 'IDs de evidencia permitidos (copia literal; no reconstruyas UUIDs):', JSON.stringify(evidenceIds)].join('\n'),
+      validationChecklist: [
+        ASSESSMENT_VALIDATION_CHECKLIST,
+        CONTACT_ATTEMPTS_RULES,
+        'IDs de evidencia permitidos (copia literal; no reconstruyas UUIDs):',
+        JSON.stringify(evidenceIds),
+      ].join('\n'),
       // `validateAssessmentReferences` va AQUÍ, dentro del validador que el
       // transporte envuelve, y no suelto después: fuera de él, su error carecía
       // de `sanitizedDetail` y el diagnóstico acababa en

@@ -172,11 +172,10 @@ input, select, textarea, button { font: inherit; }
 .case-detail-layout { display: grid; grid-template-columns: minmax(245px, .78fr) minmax(440px, 1.5fr) minmax(310px, .94fr); align-items: start; gap: 12px; }
 .case-detail-evidence, .case-detail-assessment, .case-detail-review { display: flex; min-width: 0; flex-direction: column; gap: 12px; }
 .case-detail-evidence, .case-detail-review { position: sticky; top: 78px; max-height: calc(100vh - 94px); overflow-y: auto; scrollbar-gutter: stable; }
-.case-detail-upload summary { display: flex; min-height: 42px; cursor: pointer; align-items: center; gap: 9px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-1); padding: 0 14px; color: var(--accent); font-size: 13px; font-weight: 650; list-style: none; }
-.case-detail-upload summary::-webkit-details-marker { display: none; }
-.case-detail-upload summary span { font-size: 18px; line-height: 1; }
-.case-detail-upload[open] summary { margin-bottom: 10px; }
-.case-detail-upload > section { margin: 0; }
+.case-detail-upload-trigger { display: flex; width: 100%; min-height: 42px; cursor: pointer; align-items: center; justify-content: space-between; gap: 9px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-1); padding: 0 14px; color: var(--accent); font-size: 13px; font-weight: 650; text-align: left; }
+.case-detail-upload-trigger:hover { border-color: color-mix(in srgb, var(--accent) 48%, var(--border)); background: var(--surface-2); }
+.case-detail-upload-trigger:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.case-detail-upload-panel { margin-top: 10px; }
 .case-detail-tabs { display: flex; min-height: 44px; align-items: stretch; gap: 3px; overflow-x: auto; border-bottom: 1px solid var(--border); }
 .case-detail-tabs button { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 7px; border-bottom: 2px solid transparent; padding: 0 12px; color: var(--text-secondary); font-size: 12px; white-space: nowrap; }
 .case-detail-tabs button:hover { color: var(--text-primary); }
@@ -393,6 +392,26 @@ button.quality-count-bar:hover { background: var(--surface-2); }
 .dashboard-page-heading { display: flex; align-items: end; justify-content: space-between; gap: 16px; padding: 5px 1px 1px; }
 .dashboard-page-heading h1 { font-size: 23px; letter-spacing: -.035em; }
 .dashboard-toolbar { border-radius: var(--radius-surface); }
+
+/* Resumen mantiene las gráficas al frente y deja los filtros accesibles
+   sin ocupar espacio hasta que se necesiten. */
+.overview-disclosure { color: var(--text-secondary); }
+.overview-disclosure > summary { width: fit-content; cursor: pointer; font-weight: 600; }
+.overview-disclosure > summary:hover { color: var(--text-primary); }
+.overview-disclosure > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: var(--radius-control); }
+.overview-filters { align-self: center; }
+.overview-progress-total { display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--border); padding: 2px 0 14px; color: var(--text-primary); font-weight: 650; }
+.overview-progress-total strong { font-variant-numeric: tabular-nums; }
+.overview-progress-list { display: flex; flex-direction: column; }
+.overview-progress-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--border); padding: 12px 0; }
+.overview-progress-row:last-child { border-bottom: 0; }
+.overview-progress-row dt { color: var(--text-primary); }
+.overview-progress-row dd { flex: 0 0 auto; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+@media (max-width: 700px) {
+  .overview-page .dashboard-page-heading { align-items: flex-start; flex-direction: column; }
+  .overview-filters { align-self: flex-start; }
+  .overview-filters .dashboard-toolbar { width: calc(100vw - 2rem); }
+}
 
 /* Case management overview and detail preview. */
 .case-overview-strip { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }

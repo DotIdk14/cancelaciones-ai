@@ -68,6 +68,15 @@ function previewEvaluation(filters: DashboardFilters): QualityEvaluation {
 export function getLocalDashboardPreviewSummary(filters: DashboardFilters): DashboardSummary {
   return {
     activity: previewActivity(),
+    caseProgress: {
+      total: 10,
+      drafts: 2,
+      pendingAudit: 2,
+      pendingAdvisor: 3,
+      pendingCoordinator: 1,
+      finalized: 1,
+      errors: 1,
+    },
     generatedAt: new Date().toISOString(),
     truncated: false,
     filters,
@@ -87,10 +96,10 @@ export function getLocalDashboardPreviewSummary(filters: DashboardFilters): Dash
       errorsPct: 10.7,
     },
     timeline: [
-      { bucket: '2026-09-07', granted: 2, needsRuling: 1, rejected: 0, insufficient: 1 },
-      { bucket: '2026-09-14', granted: 3, needsRuling: 2, rejected: 1, insufficient: 0 },
-      { bucket: '2026-09-21', granted: 2, needsRuling: 1, rejected: 1, insufficient: 1 },
-      { bucket: '2026-09-28', granted: 5, needsRuling: 3, rejected: 1, insufficient: 1 },
+      { bucket: '2026-10-02', granted: 2, needsRuling: 1, rejected: 0, insufficient: 1 },
+      { bucket: '2026-10-10', granted: 3, needsRuling: 2, rejected: 1, insufficient: 0 },
+      { bucket: '2026-10-20', granted: 2, needsRuling: 1, rejected: 1, insufficient: 1 },
+      { bucket: '2026-10-28', granted: 5, needsRuling: 3, rejected: 1, insufficient: 1 },
     ],
     split: [
       { group: 'CONCEDIDAS', count: 12 },
@@ -116,12 +125,12 @@ export function getLocalDashboardPreviewSummary(filters: DashboardFilters): Dash
       ],
       totalWithOrigin: 20,
     },
-    byChannel: {
+    bySalesChannel: {
       points: [
-        { value: 'WHATSAPP', label: 'WhatsApp', count: 11 },
-        { value: 'CRM', label: 'CRM', count: 6 },
-        { value: 'EMAIL', label: 'Correo electrónico', count: 3 },
-        { value: 'Sin determinar', label: 'Sin determinar', count: 5 },
+        { value: 'INC_INCONCERT', label: 'INC_INCONCERT', count: 11 },
+        { value: 'CALL_CENTER_VIP', label: 'CALL_CENTER_VIP', count: 6 },
+        { value: 'UTEL_-_EMPRESARIAL', label: 'UTEL_-_EMPRESARIAL', count: 3 },
+        { value: 'No reportado', label: 'No reportado', count: 5 },
       ],
       totalWithOrigin: 20,
     },
@@ -135,7 +144,7 @@ export function getLocalDashboardPreviewSummary(filters: DashboardFilters): Dash
         caseStatus: 'COMPLETED',
         date: '2026-10-02T14:20:00.000Z',
         country: 'MX',
-        channel: 'WHATSAPP',
+        salesChannel: 'INC_INCONCERT',
       },
       {
         caseId: 'demo-case-002',
@@ -146,7 +155,7 @@ export function getLocalDashboardPreviewSummary(filters: DashboardFilters): Dash
         caseStatus: 'COMPLETED',
         date: '2026-10-01T17:10:00.000Z',
         country: 'CO',
-        channel: 'CRM',
+        salesChannel: 'CALL_CENTER_VIP',
       },
       {
         caseId: 'demo-case-003',
@@ -157,7 +166,7 @@ export function getLocalDashboardPreviewSummary(filters: DashboardFilters): Dash
         caseStatus: 'COMPLETED',
         date: '2026-09-30T15:45:00.000Z',
         country: null,
-        channel: null,
+        salesChannel: 'UTEL_-_EMPRESARIAL',
       },
     ],
     execution: {
@@ -333,5 +342,5 @@ export function getLocalDashboardPreviewQuality(filters: DashboardFilters): Qual
 }
 
 export function getLocalDashboardPreviewFilterOptions(): DashboardFilterOptions {
-  return {...EMPTY_DASHBOARD_FILTER_OPTIONS, country:['MX'],campus:['Campus de demostración'],guideline:['V5'],responsible:['Asesor de demostración A','Asesor de demostración B']};
+  return {...EMPTY_DASHBOARD_FILTER_OPTIONS, country:['MX'],salesChannel:['INC_INCONCERT','CALL_CENTER_VIP','UTEL_-_EMPRESARIAL'],campus:['Campus de demostración'],guideline:['V5'],responsible:['Asesor de demostración A','Asesor de demostración B']};
 }

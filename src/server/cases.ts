@@ -379,7 +379,7 @@ async function enrichCaseSummaries(
 export async function listCaseSummaryPage(
   client: InsForgeClient,
   auth: AuthContext,
-  options: { offset: number; limit: number; snapshot: string; status?: CaseStatus; creatorRole?: CaseCreatorRole; creatorId?: string; assignedTo?: string; country?: string; channel?: string; createdFrom?: string; createdTo?: string; includeProfiles?: boolean },
+  options: { offset: number; limit: number; snapshot: string; status?: CaseStatus; creatorRole?: CaseCreatorRole; creatorId?: string; assignedTo?: string; country?: string; channel?: string; createdFrom?: string; createdTo?: string; excludeTests?: boolean; includeProfiles?: boolean },
 ): Promise<CaseSummaryRow[]> {
   const creatorIds = options.creatorRole ? await caseCreatorIdsForRole(client, options.creatorRole) : null;
   if (creatorIds?.length === 0) return [];
@@ -395,6 +395,7 @@ export async function listCaseSummaryPage(
   if (options.channel) query = query.eq('channel', options.channel);
   if (options.createdFrom) query = query.gte('created_at', options.createdFrom);
   if (options.createdTo) query = query.lte('created_at', options.createdTo);
+  if (options.excludeTests) query = query.eq('is_test', false);
   if (options.creatorId) query = query.eq('created_by', options.creatorId);
   if (options.assignedTo) query = options.assignedTo === 'UNASSIGNED' ? query.is('assigned_to', null) : query.eq('assigned_to', options.assignedTo);
   if (creatorIds) query = query.in('created_by', creatorIds);
@@ -436,7 +437,7 @@ export type { CaseBucketCounts } from '../lib/case-workflow.js';
 export async function countCaseBuckets(
   client: InsForgeClient,
   auth: AuthContext,
-  options: { snapshot?: string; status?: CaseStatus; creatorRole?: CaseCreatorRole; creatorId?: string; assignedTo?: string; country?: string; channel?: string; createdFrom?: string; createdTo?: string; search?: string },
+  options: { snapshot?: string; status?: CaseStatus; creatorRole?: CaseCreatorRole; creatorId?: string; assignedTo?: string; country?: string; channel?: string; createdFrom?: string; createdTo?: string; search?: string; excludeTests?: boolean; scopeToActor?: boolean },
 ): Promise<CaseBucketCounts> {
   const counts = Object.fromEntries([...CASE_BUCKETS, ...CASE_STAGES].map(item => [item.value, 0])) as CaseBucketCounts;
   const capabilities = capabilitiesForRole(auth.role);
@@ -448,10 +449,11 @@ export async function countCaseBuckets(
       if (needle && ![row.id, row.external_case_id ?? '', row.student_identifier ?? '', row.student_name ?? ''].some(value => value.toLocaleLowerCase('es').includes(needle))) continue;
       const summary = caseToSummary(row);
       const scope = { canReviewOwnCases: capabilities.canReviewOwnCases, ownsCase: caseOwnedBy(row, auth.sub), reviewedCase: row.review?.created_by === auth.sub };
+      const canCountAllStages = options.scopeToActor === false || capabilities.canFinalizeAnyCase;
       for (const bucket of CASE_BUCKETS) {
-        if (matchesCaseBucket(summary, bucket.value, capabilities.canFinalizeAnyCase) && matchesCaseActorScope(bucket.value, scope)) counts[bucket.value] += 1;
+        if (matchesCaseBucket(summary, bucket.value, canCountAllStages) && (options.scopeToActor === false || matchesCaseActorScope(bucket.value, scope))) counts[bucket.value] += 1;
       }
-      if (matchesCaseBucket(summary, 'IN_PROGRESS', capabilities.canFinalizeAnyCase) && matchesCaseActorScope('IN_PROGRESS', scope)) {
+      if (matchesCaseBucket(summary, 'IN_PROGRESS', canCountAllStages) && (options.scopeToActor === false || matchesCaseActorScope('IN_PROGRESS', scope))) {
         counts[caseStageOf(summary) as (typeof CASE_STAGES)[number]['value']] += 1;
       }
     }

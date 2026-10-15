@@ -132,16 +132,16 @@ describe('parseDashboardFilters (valores válidos)', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it('acepta filtros por país y por canal', () => {
+  it('acepta filtros por país y canal de venta de Flokzu', () => {
     const filters = parseDashboardFilters({
       from: '2026-09-01',
       to: '2026-09-29',
       country: 'MX',
-      channel: 'WHATSAPP',
+      salesChannel: 'INC_INCONCERT',
     });
 
     expect(filters.country).toBe('MX');
-    expect(filters.channel).toBe('WHATSAPP');
+    expect(filters.salesChannel).toBe('INC_INCONCERT');
   });
 
   it('acepta dimensiones realmente proyectadas por las vistas', () => {

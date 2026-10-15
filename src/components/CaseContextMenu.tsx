@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ChevronDown, FileText, History, UserRound } from 'lucide-react';
 import { getCase, getHistoricalAudit, type AuditDetail, type CaseDetailResponse, type FlokzuCaseData } from '../lib/api';
 import { formatDateTime, formatPercent } from '../lib/format';
+import { salesChannelCountry, salesChannelLabel } from '../lib/sales-channel-catalog';
 import { CASE_STATUS_LABELS, CASE_STATUS_TONE, RESULT_LABELS, RESULT_TONE, caseKindLabel, caseKindTone, resolutionLabel } from '../lib/labels';
 import { FlokzuContextPanel, FlokzuEvidenceLinks } from './FlokzuContext';
 import { Badge } from './ui';
@@ -111,7 +112,8 @@ export function CaseContextMenu({ detail, open, tab, onTabChange, onClose, notes
         </dl></Section>
         {row.externalSource === 'FLOKZU' && <Section title="Contexto administrativo · Flokzu" initialOpen><p className="case-context-note">Información reportada; no acredita evidencia ni determina el dictamen.</p><dl>
           <Property label="Caso CaVe" value={row.externalCaseId} /><Property label="Estado del procedimiento" value={data.operations.statusReported} />
-          <Property label="Canal de venta reportado · Flokzu" value={data.operations.salesChannelReported ?? 'No reportado'} />
+          <Property label="Canal de venta reportado · Flokzu" value={salesChannelLabel(data.operations.salesChannelReported)} />
+          <Property label="País asociado al canal · catálogo CaVe" value={salesChannelCountry(data.operations.salesChannelReported)} />
           <Property label="Política reportada" value={data.procedure.policyReported} /><Property label="Tarea actual" value={data.operations.currentTask} />
           <Property label="Motivo" value={data.procedure.motive} /><Property label="Responsable actual" value={row.assignedTo ? row.assignedName || 'Nombre no disponible' : 'Sin asignar'} />
           <Property label="Fecha de solicitud" value={data.procedure.requestDate} /><Property label="Inicio administrativo" value={data.procedure.administrativeStartDate} />

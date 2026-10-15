@@ -72,14 +72,28 @@ pagina en pantalla sin recortar el universo agregado.
 Los responsables asignados conservan su ID para filtrar y se presentan con el
 nombre del perfil cuando está disponible. Campus y lineamiento pueden provenir
 de metadatos explícitos de Flokzu; ese metadato no crea política ni auditorías.
+La dimensión **Canal de venta · Flokzu** proviene de
+`flokzu_data.operations.salesChannelReported` (columna `Canal de venta (CaVe)`)
+y conserva literalmente sus valores. No usa `cases.channel`, que sigue siendo
+el canal de origen confirmado por el dictamen a partir de evidencia.
+
+## Resumen de expedientes
+
+La pantalla Resumen cuenta expedientes por `cases.created_at` dentro del periodo
+elegido. Excluye pruebas (`is_test = false`) y expedientes consolidados. Cada
+expediente se cuenta una vez en su etapa actual: borrador, pendiente de auditoría
+de IA, pendiente de revisión del Asesor, pendiente de cierre del Coordinador,
+finalizado por el Coordinador o con error de auditoría. El total corresponde a
+la suma de esas etapas; no es un conteo de ejecuciones ni de reauditorías.
 
 ## Activación y verificación
 
-La app requiere `20261013100000_dashboard-execution-evaluation-metrics.sql`.
-**No fue aplicada a producción.** Antes de desplegar, seguir
-`MIGRATION-RECONCILIATION.md`, validar en el backend aislado y aplicar el archivo
-con el runner oficial. Es aditiva: una columna de metadata, un archivo durable,
-un trigger y vistas nuevas con acceso reservado a `project_admin`. No modifica
+La app requiere `20261013100000_dashboard-execution-evaluation-metrics.sql` y
+`20261015100000_dashboard-sales-channel-flokzu.sql`.
+**No fueron aplicadas a producción.** Antes de desplegar, seguir
+`MIGRATION-RECONCILIATION.md`, validar en el backend aislado y aplicar los
+archivos con el runner oficial. La segunda migración añade vistas de lectura
+con el canal de venta de Flokzu y permisos solo para `project_admin`; no modifica
 filas de casos, auditorías ni decisiones humanas existentes.
 
 Las pruebas de `dashboard-human-review-query.test.ts` ejecutan las vistas y los

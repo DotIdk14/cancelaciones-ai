@@ -324,6 +324,26 @@ export function aggregateOrigin(
   return { points, totalWithOrigin };
 }
 
+/** Distribución del valor literal `Canal de venta (CaVe)` importado de Flokzu. */
+export function aggregateSalesChannel(rows: DashboardMetricRow[]): OriginDistribution {
+  const counts = new Map<string, number>();
+  let totalWithOrigin = 0;
+
+  for (const row of rows.filter(isTerminalAudit)) {
+    const raw = row.sales_channel?.trim() ?? '';
+    const value = raw === '' ? 'No reportado' : raw;
+    if (value !== 'No reportado') totalWithOrigin += 1;
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+
+  const points: OriginBreakdownPoint[] = [...counts.entries()]
+    .map(([value, count]) => ({ value, label: value, count }))
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, 'es'))
+    .sort((a, b) => Number(a.value === 'No reportado') - Number(b.value === 'No reportado'));
+
+  return { points, totalWithOrigin };
+}
+
 export function aggregateSummary(
   rows: DashboardMetricRow[],
   filters: DashboardFilters,
@@ -399,7 +419,7 @@ export function aggregateSummary(
       caseStatus: row.case_status,
       date: row.created_at,
       country: row.country,
-      channel: row.channel,
+      salesChannel: row.sales_channel ?? null,
     }));
 
   // Los KPI siempre llevan los campos del contrato, aunque valgan 0. El 0 en
@@ -430,7 +450,7 @@ export function aggregateSummary(
     split,
     byResult,
     byCountry: aggregateOrigin(rows, 'country'),
-    byChannel: aggregateOrigin(rows, 'channel'),
+    bySalesChannel: aggregateSalesChannel(rows),
     recentCases,
     execution: aggregateExecution(terminal),
     agreement: aggregateHumanAgreement(current),

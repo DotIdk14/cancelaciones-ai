@@ -19,8 +19,8 @@
  * sitios (`lib/dashboard.ts`, `server/dashboard-filters.ts`, `server/dashboard.ts` y
  * `DashboardFilters.tsx`), y agregar una dimensión obligaba a tocarlos todos con el
  * riesgo de que uno se quedara atrás. Aquí viven el vocabulario, su etiqueta en
- * pantalla y el nombre de la columna equivalente en `cases`; los demás módulos
- * importan o reexportan.
+ * pantalla y el nombre de la columna equivalente en las vistas de métricas; los
+ * demás módulos importan o reexportan.
  *
  * No toda dimensión de esta lista está soportada por el filtro: ver
  * `SUPPORTED_DIMENSIONS` en `src/server/dashboard-filters.ts`, que es una lista
@@ -28,7 +28,7 @@
  */
 export const DASHBOARD_DIMENSIONS = [
   'country',
-  'channel',
+  'salesChannel',
   'campus',
   'modality',
   'project',
@@ -41,7 +41,7 @@ export type DashboardDimension = (typeof DASHBOARD_DIMENSIONS)[number];
 /** Etiqueta en pantalla de cada dimensión. */
 export const DIMENSION_LABELS: Record<DashboardDimension, string> = {
   country: 'País',
-  channel: 'Canal',
+  salesChannel: 'Canal de venta · Flokzu',
   campus: 'Campus',
   modality: 'Modalidad',
   project: 'Proyecto',
@@ -49,10 +49,10 @@ export const DIMENSION_LABELS: Record<DashboardDimension, string> = {
   guideline: 'Lineamiento',
 };
 
-/** Columna de `cases` que corresponde a cada dimensión. */
+/** Columna proyectada por las vistas de métricas para cada dimensión. */
 export const CASE_DIMENSION_COLUMN: Record<DashboardDimension, string> = {
   country: 'country',
-  channel: 'channel',
+  salesChannel: 'sales_channel',
   campus: 'campus',
   modality: 'modality',
   project: 'project',

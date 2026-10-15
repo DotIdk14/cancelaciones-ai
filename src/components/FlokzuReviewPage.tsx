@@ -4,6 +4,7 @@ import { Badge, Button, Panel, Spinner } from './ui';
 import { getFlokzuReview, getFlokzuTicket, decideFlokzuTicket, getFlokzuImportHistory, type FlokzuTicketDetail, type FlokzuReviewPageData } from '../lib/api';
 import { FLOKZU_CLASSIFICATIONS, FLOKZU_CLASSIFICATION_LABELS, FLOKZU_REVIEW_LABELS, classifyFlokzu, type FlokzuTicket, type FlokzuDecision } from '../shared/flokzu-review';
 import { formatDateTime } from '../lib/format';
+import { salesChannelCountry, salesChannelDisplay, salesChannelLabel } from '../lib/sales-channel-catalog';
 
 const control = 'min-h-10 w-full rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm text-ink';
 const actions: Array<[FlokzuDecision['action'], string]> = [['CLOSE', 'Confirmar cierre'], ['REACTIVATE', 'Reactivar para auditoría'], ['REASSIGN', 'Reasignar responsable'], ['PENDING', 'Mantener pendiente'], ['DISCREPANCY', 'Marcar discrepancia con Flokzu']];
@@ -121,7 +122,7 @@ export function FlokzuReviewPage({ previewOnly = false }: { previewOnly?: boolea
                 className={`cursor-pointer border-t border-line focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand ${selected?.id === t.id ? 'bg-brand/10' : 'hover:bg-surface-2'}`}>
                 <td className="min-w-44 px-3 py-3"><button type="button" tabIndex={-1} aria-pressed={selected?.id === t.id} className="min-h-10 text-left text-brand underline-offset-4 hover:underline" disabled={saving} onClick={event => { event.stopPropagation(); void open(t); }}>{t.externalCaseId}</button><span className="block">{t.studentName ?? 'Estudiante sin nombre'}</span><span className="text-xs text-muted">{t.studentIdentifier ?? 'Sin matrícula'}</span></td>
                 <td className="min-w-56 px-3 py-3"><Badge tone={t.discrepancy ? 'warning' : 'neutral'}>{FLOKZU_CLASSIFICATION_LABELS[t.classification]}</Badge><p className="mt-2 text-xs text-muted">{t.reason}</p></td>
-                <td className="min-w-44 px-3 py-3 text-xs"><span className="block">{t.currentTask ?? 'Etapa no reportada'}</span><span className="mt-2 block text-muted">Canal de venta: {t.salesChannelReported ?? 'No reportado'}</span></td>
+                <td className="min-w-44 px-3 py-3 text-xs"><span className="block">{t.currentTask ?? 'Etapa no reportada'}</span><span className="mt-2 block text-muted">Canal de venta: {salesChannelDisplay(t.salesChannelReported)}</span></td>
                 <td className="px-3 py-3 text-xs text-muted">{assignees.find(a => a.userId === t.assignedTo)?.name ?? t.assignedTo ?? 'Sin asignación'}</td>
                 <td className="whitespace-nowrap px-3 py-3 text-xs text-muted">{t.requestDate ?? 'Sin fecha'}</td><td className="px-3 py-3 text-xs">{FLOKZU_REVIEW_LABELS[t.reviewState]}</td>
               </tr>)}</tbody>
@@ -146,7 +147,8 @@ export function FlokzuReviewPage({ previewOnly = false }: { previewOnly?: boolea
               {ticket.discrepancy && <p className="mt-2 text-xs text-warning">La discrepancia sigue registrada hasta que el Coordinador revise los datos y decida cómo continuar.</p>}
               <dl className="mt-4 space-y-3 text-sm">{[
                 ['Estado original', detail.data.operations.statusReported], ['Tarea actual', detail.data.operations.currentTask], ['Finalizado', detail.data.operations.finalizedReported],
-                ['Canal de venta reportado · Flokzu', detail.data.operations.salesChannelReported ?? 'No reportado en la última importación'],
+                ['Canal de venta reportado · Flokzu', salesChannelLabel(detail.data.operations.salesChannelReported) ?? 'No reportado en la última importación'],
+                ['País asociado al canal · catálogo CaVe', salesChannelCountry(detail.data.operations.salesChannelReported)],
                 ['Responsable asignado', assignees.find(a => a.userId === ticket.assignedTo)?.name ?? ticket.assignedTo],
                 ...Object.entries(detail.data.academic).map(([k,v]) => [academicLabels[k] ?? k, v]),
                 ...Object.entries(detail.data.procedure).map(([k,v]) => [procedureLabels[k] ?? k, v]),
@@ -184,7 +186,7 @@ const eventLabels: Record<string,string> = { BASELINE:'Conciliación inicial', I
 
 function previewPage(filters: { scope: string; classification: string; search: string }): FlokzuReviewPageData {
   const tickets: FlokzuTicket[] = ['REJECTED', 'FINALIZED', 'OTHER_STAGE', 'VERIFY'].map((classification,i) => ({ id:`demo-flokzu-${i}`, externalCaseId:`CaVe-${90001+i}`, studentIdentifier:`MAT-DEMO-${i+1}`, studentName:`Estudiante de demostración ${i+1}`,
-    classification:classification as FlokzuTicket['classification'], reviewState:'OPEN', eligible:false, discrepancy:i===3, reason:i===0 ? 'Excluido de auditoría activa porque Flokzu reporta la solicitud como RECHAZADA.' : i===3 ? 'Estado REVISIÓN y Finalizado Sí: requiere verificar la contradicción.' : 'La solicitud está cerrada o todavía corresponde a otra etapa.', revision:1,assignedTo:null,updatedAt:'2026-10-13T12:00:00Z',campus:'UTEL',policy:'Política reportada de demostración',requestDate:'2026-10-12', currentTask:classification==='OTHER_STAGE' ? '[HD] [REVISION REPLICA] [CV]' : '[BACKOFFICE] [REVISION BO] [CV]', salesChannelReported:'CALL CENTER DIRECTAS' }));
+    classification:classification as FlokzuTicket['classification'], reviewState:'OPEN', eligible:false, discrepancy:i===3, reason:i===0 ? 'Excluido de auditoría activa porque Flokzu reporta la solicitud como RECHAZADA.' : i===3 ? 'Estado REVISIÓN y Finalizado Sí: requiere verificar la contradicción.' : 'La solicitud está cerrada o todavía corresponde a otra etapa.', revision:1,assignedTo:null,updatedAt:'2026-10-13T12:00:00Z',campus:'UTEL',policy:'Política reportada de demostración',requestDate:'2026-10-12', currentTask:classification==='OTHER_STAGE' ? '[HD] [REVISION REPLICA] [CV]' : '[BACKOFFICE] [REVISION BO] [CV]', salesChannelReported:'CALL_CENTER_DIRECTAS' }));
   return { tickets:tickets.map(t => ({ ...t, reason: classifyFlokzu(previewDetail(t).data).reason })).filter(t => (filters.scope !== 'history') && (filters.scope !== 'discrepancies' || t.discrepancy) && (!filters.classification || t.classification===filters.classification) && `${t.externalCaseId} ${t.studentIdentifier} ${t.studentName}`.toLowerCase().includes(filters.search.toLowerCase())),nextOffset:null,counts:{pending:4,rejected:1,finalized:1,otherStage:1,discrepancies:1} };
 }
 function previewDetail(ticket: FlokzuTicket): FlokzuTicketDetail {

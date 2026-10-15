@@ -5,7 +5,7 @@
 // =============================================================================
 
 import type { ReactNode } from 'react';
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import type { TimelinePoint } from '../../../lib/dashboard';
 import { AXIS_TICK_STYLE, CHART_COLORS, GRID_STROKE, TOOLTIP_STYLE } from './chartTheme';
 
@@ -18,7 +18,7 @@ export function EvolutionChart({ data }: { data: TimelinePoint[] }): ReactNode {
         <BarChart
           data={data}
           margin={{ top: 8, right: 8, bottom: 0, left: -18 }}
-          title="Evolución de casos por grupo de resolución"
+          title="Auditorías por día y resultado"
           desc={timelineSummary(data)}
         >
         <CartesianGrid stroke={GRID_STROKE} strokeDasharray="3 3" vertical={true} horizontal={false} />
@@ -40,9 +40,10 @@ export function EvolutionChart({ data }: { data: TimelinePoint[] }): ReactNode {
           contentStyle={TOOLTIP_STYLE}
           cursor={{ fill: 'rgba(255, 255, 255, 0.04)' }}
         />
+        <Legend wrapperStyle={{ color: 'var(--text-secondary)', fontSize: 12 }} />
         <Bar
           dataKey="granted"
-          name="Concedidas"
+          name="Solicitud aprobada"
           stackId="a"
           fill={CHART_COLORS.CONCEDIDAS}
           radius={[0, 0, 0, 0]}
@@ -50,21 +51,21 @@ export function EvolutionChart({ data }: { data: TimelinePoint[] }): ReactNode {
         />
         <Bar
           dataKey="needsRuling"
-          name="Requiere dictaminación"
+          name="Requiere revisión"
           stackId="a"
           fill={CHART_COLORS.REQUIERE_DICTAMINACION}
           isAnimationActive={false}
         />
         <Bar
           dataKey="rejected"
-          name="Rechazados"
+          name="Solicitud rechazada"
           stackId="a"
           fill={CHART_COLORS.RECHAZADOS}
           isAnimationActive={false}
         />
         <Bar
           dataKey="insufficient"
-          name="Evidencia insuficiente"
+          name="Falta evidencia"
           stackId="a"
           fill={CHART_COLORS.EVIDENCIA_INSUFICIENTE}
           radius={[4, 4, 0, 0]}
@@ -87,19 +88,19 @@ function timelineSummary(data: TimelinePoint[]): string {
     (sum, point) => sum + point.granted + point.needsRuling + point.rejected + point.insufficient,
     0,
   );
-  const conceded = data.reduce((sum, point) => sum + point.granted, 0);
-  const ruling = data.reduce((sum, point) => sum + point.needsRuling, 0);
-  const rejected = data.reduce((sum, point) => sum + point.rejected, 0);
-  const insufficient = data.reduce((sum, point) => sum + point.insufficient, 0);
+  const approved = data.reduce((sum, point) => sum + point.granted, 0);
+  const needsReview = data.reduce((sum, point) => sum + point.needsRuling, 0);
+  const declined = data.reduce((sum, point) => sum + point.rejected, 0);
+  const missingEvidence = data.reduce((sum, point) => sum + point.insufficient, 0);
   const detalle = data
     .map(
       (point) =>
-        `${point.bucket}: ${point.granted} concedidas, ${point.needsRuling} por dictaminar, ${point.rejected} rechazados, ${point.insufficient} con evidencia insuficiente`,
+        `${point.bucket}: ${point.granted} aprobadas, ${point.needsRuling} requieren revisión, ${point.rejected} rechazadas, ${point.insufficient} con evidencia faltante`,
     )
     .join('; ');
   return (
-    `Evolución de ${total} caso(s) en ${data.length} periodo(s): ` +
-    `${conceded} concedidas, ${ruling} por dictaminar, ${rejected} rechazados, ${insufficient} con evidencia insuficiente. ` +
+    `Evolución de ${total} auditorías en ${data.length} fechas: ` +
+    `${approved} solicitudes aprobadas, ${needsReview} requieren revisión, ${declined} rechazadas, ${missingEvidence} con evidencia faltante. ` +
     `Detalle — ${detalle}.`
   );
 }

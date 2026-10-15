@@ -31,26 +31,27 @@ function caseRow(overrides: Partial<RecentCaseRow> = {}): RecentCaseRow {
     caseStatus: 'COMPLETED',
     date: '2026-10-01T10:00:00.000Z',
     country: null,
-    channel: null,
+    salesChannel: null,
     ...overrides,
   };
 }
 
-describe('RecentCasesTable — origen', () => {
-  it('muestra el país y el canal en español', () => {
-    render(createElement(RecentCasesTable, { cases: [caseRow({ country: 'MX', channel: 'WHATSAPP' })] }));
+describe('RecentCasesTable — origen y canal de venta', () => {
+  it('muestra el país y el canal de venta reportado por Flokzu', () => {
+    render(createElement(RecentCasesTable, { cases: [caseRow({ country: 'MX', salesChannel: 'INC_INCONCERT' })] }));
 
     expect(screen.getByText('México')).toBeTruthy();
-    expect(screen.getByText('WhatsApp')).toBeTruthy();
+    expect(screen.getByText('INC_INCONCERT · México')).toBeTruthy();
   });
 
   it('un origen no determinable se lee "Sin determinar", nunca como celda vacía', () => {
     const { container } = render(
-      createElement(RecentCasesTable, { cases: [caseRow({ country: null, channel: null })] }),
+      createElement(RecentCasesTable, { cases: [caseRow({ country: null, salesChannel: null })] }),
     );
 
-    expect(screen.getAllByText('Sin determinar')).toHaveLength(2);
-    // Ninguna celda de la fila quedó vacía por el origen.
+    expect(screen.getByText('Sin determinar')).toBeTruthy();
+    expect(screen.getByText('No reportado')).toBeTruthy();
+    // Ninguna celda de la fila quedó vacía por los datos de origen.
     expect(container.querySelectorAll('td:empty')).toHaveLength(0);
   });
 
@@ -59,13 +60,13 @@ describe('RecentCasesTable — origen', () => {
 
     const headers = screen.getAllByRole('columnheader').map((cell) => cell.textContent);
     expect(headers).toContain('País');
-    expect(headers).toContain('Canal');
+    expect(headers).toContain('Canal de venta · país asociado');
   });
 });
 
 describe('DashboardFilters — etiqueta de dimensión', () => {
-  it('el option del canal muestra WhatsApp con el código crudo como valor', async () => {
-    fetchOptions.mockResolvedValue({ ...EMPTY_DASHBOARD_FILTER_OPTIONS, channel: ['WHATSAPP'] });
+  it('el option del canal de venta muestra el valor reportado por Flokzu', async () => {
+    fetchOptions.mockResolvedValue({ ...EMPTY_DASHBOARD_FILTER_OPTIONS, salesChannel: ['INC_INCONCERT'] });
 
     render(
       createElement(DashboardFilters, {
@@ -74,11 +75,11 @@ describe('DashboardFilters — etiqueta de dimensión', () => {
       }),
     );
 
-    await waitFor(() => expect(screen.getByLabelText('Canal')).toBeTruthy());
-    const select = screen.getByLabelText('Canal');
-    const option = within(select).getByRole('option', { name: 'WhatsApp' });
+    await waitFor(() => expect(screen.getByLabelText('Canal de venta · Flokzu')).toBeTruthy());
+    const select = screen.getByLabelText('Canal de venta · Flokzu');
+    const option = within(select).getByRole('option', { name: 'INC_INCONCERT · México' });
 
-    expect((option as HTMLOptionElement).value).toBe('WHATSAPP');
+    expect((option as HTMLOptionElement).value).toBe('INC_INCONCERT');
   });
 
   it('el option del país muestra México con el código crudo como valor', async () => {

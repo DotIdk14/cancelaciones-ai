@@ -16,18 +16,19 @@ import {
   fetchDashboardFilterOptions,
 } from '../../lib/dashboard';
 import { CASE_STATUS_LABELS, originLabel, RESULT_LABELS } from '../../lib/labels';
+import { salesChannelDisplay, salesChannelOptions } from '../../lib/sales-channel-catalog';
 import { Button } from '../ui';
 
 /**
  * Texto de una opción de dimensión.
  *
- * `country` y `channel` viajan como códigos ('MX', 'WHATSAPP') y el operador debe
- * leer "México" y "WhatsApp"; el `value` sigue siendo el código crudo, que es lo
- * que el servidor espera. Las otras cinco no tienen catálogo con etiqueta, así que
- * se muestran tal cual.
+ * `country` viaja como código ('MX') y el operador debe leer "México"; el `value`
+ * sigue siendo el código crudo que espera el servidor. El canal de venta usa
+ * el catálogo CaVe y muestra el país asociado a cada opción.
  */
 function dimensionOptionLabel(dimension: DashboardDimension, option: string): string {
-  if (dimension === 'country' || dimension === 'channel') return originLabel(dimension, option);
+  if (dimension === 'country') return originLabel(dimension, option);
+  if (dimension === 'salesChannel') return salesChannelDisplay(option);
   return option;
 }
 
@@ -41,17 +42,20 @@ export interface DashboardFiltersBarProps {
   value: DashboardFilters;
   onChange: (next: DashboardFilters) => void;
   allowResultFilter?: boolean;
+  periodOnly?: boolean;
 }
 
 export function DashboardFilters({
   value,
   onChange,
   allowResultFilter = true,
+  periodOnly = false,
 }: DashboardFiltersBarProps): ReactNode {
   const baseId = useId();
   const [options, setOptions] = useState<DashboardFilterOptions>(EMPTY_DASHBOARD_FILTER_OPTIONS);
   const [optionsError, setOptionsError] = useState(false);
   useEffect(() => {
+    if (periodOnly) return;
     const controller = new AbortController();
     void fetchDashboardFilterOptions(controller.signal).then(
       setOptions,
@@ -60,7 +64,7 @@ export function DashboardFilters({
       },
     );
     return () => controller.abort();
-  }, []);
+  }, [periodOnly]);
   const fromId = `${baseId}-from`;
   const toId = `${baseId}-to`;
   const monthId = `${baseId}-month`;
@@ -86,7 +90,7 @@ export function DashboardFilters({
   return (
     <div className="dashboard-filterbar">
       <div className="dashboard-filter-primary grid gap-2 lg:grid-cols-12">
-        <fieldset className="lg:col-span-5">
+        <fieldset className={periodOnly ? 'lg:col-span-7' : 'lg:col-span-5'}>
           <legend className={LABEL_CLASS}>Rango de fechas</legend>
           <div className="grid gap-2 sm:grid-cols-2">
             <div>
@@ -128,7 +132,7 @@ export function DashboardFilters({
           </div>
         </fieldset>
 
-        <div className="lg:col-span-2">
+        <div className={periodOnly ? 'lg:col-span-3' : 'lg:col-span-2'}>
           <label htmlFor={monthId} className={LABEL_CLASS}>Mes</label>
           <input
             id={monthId}
@@ -167,7 +171,7 @@ export function DashboardFilters({
           </div>
         )}
 
-        <div className="lg:col-span-2">
+        {!periodOnly && <div className="lg:col-span-2">
           <label htmlFor={statusId} className={LABEL_CLASS}>
             Estado del caso
           </label>
@@ -189,13 +193,15 @@ export function DashboardFilters({
           <p id={statusHintId} className={HINT_CLASS}>
             Filtra por el estado del caso. Sin selección se muestran todos.
           </p>
-        </div>
+        </div>}
 
       </div>
 
-      <div className="dashboard-filter-dimensions grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+      {!periodOnly && <div className="dashboard-filter-dimensions grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
         {(Object.keys(DIMENSION_LABELS) as DashboardDimension[]).map((dimension) => {
-          const values = options[dimension];
+          const values = dimension === 'salesChannel'
+            ? salesChannelOptions(options.salesChannel)
+            : options[dimension];
           if (values.length === 0) return null;
           const id = `${baseId}-${dimension}`;
           return (
@@ -216,7 +222,7 @@ export function DashboardFilters({
             </div>
           );
         })}
-      </div>
+      </div>}
 
       <div className="dashboard-filter-actions flex flex-wrap items-center justify-between gap-2">
         {optionsError ? (

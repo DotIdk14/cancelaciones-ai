@@ -126,6 +126,9 @@ function fakeClient(options: FakeOptions = {}): {
       queries[queries.length - 1].eqs.push([column, value]);
       return chain;
     },
+    is() {
+      return chain;
+    },
     in(column: string, values: unknown[]) {
       queries[queries.length - 1].ins.push([column, values]);
       return chain;
@@ -145,7 +148,7 @@ function fakeClient(options: FakeOptions = {}): {
     then(resolve: (v: unknown) => unknown) {
       const query = queries[queries.length - 1]!;
       const range = query.range;
-      const rows = (query.table === 'comparison_activity_metrics' ? [] : options.rows ?? []).map((row) => ({ is_test: false, created_by: FAKE_USER_SUB, ...row }));
+      const rows = (query.table === 'comparison_activity_metrics_with_sales_channel' || query.table === 'cases' ? [] : options.rows ?? []).map((row) => ({ is_test: false, created_by: FAKE_USER_SUB, ...row }));
       const filtered = rows.filter((row) => query.eqs.every(([column, value]) =>
         (row as unknown as Record<string, unknown>)[column] === value,
       ));
@@ -171,15 +174,15 @@ describe('capa de datos del dashboard — consulta construida', () => {
     await getAiQuality(c.client, BASE);
 
     expect(a.queries).toHaveLength(1);
-    expect(a.queries[0].table).toBe('audit_activity_metrics');
+    expect(a.queries[0].table).toBe('audit_activity_metrics_with_sales_channel');
     for (const queries of [b.queries]) {
       expect(queries).toHaveLength(2);
-      expect(queries[0].table).toBe('audit_activity_metrics');
-      expect(queries[1].table).toBe('comparison_activity_metrics');
+      expect(queries[0].table).toBe('audit_activity_metrics_with_sales_channel');
+      expect(queries[1].table).toBe('comparison_activity_metrics_with_sales_channel');
     }
     // `getAiQuality` lee la vista principal y, además, las fuentes de revisión humana.
-    expect(c.queries[0].table).toBe('current_audit_evaluation_metrics');
-    expect(c.queries.slice(1).every((q) => ['audit_evaluation_metrics'].includes(q.table))).toBe(true);
+    expect(c.queries[0].table).toBe('current_audit_evaluation_metrics_with_sales_channel');
+    expect(c.queries.slice(1).every((q) => ['audit_evaluation_metrics_with_sales_channel'].includes(q.table))).toBe(true);
   });
 
   it('acota el rango con los límites del día en UTC (no con la fecha cruda)', async () => {
@@ -511,6 +514,13 @@ function scopedClient(rows: Array<Record<string, unknown>>): SdkClient {
         predicates.push([column, 'eq', value]);
         return query;
       },
+      is(): typeof query {
+        return query;
+      },
+      in(column: string, values: unknown[]): typeof query {
+        predicates.push([column, 'in', values]);
+        return query;
+      },
       order(): typeof query {
         return query;
       },
@@ -527,6 +537,7 @@ function scopedClient(rows: Array<Record<string, unknown>>): SdkClient {
           predicates.every(([column, op, value]) => {
             const left = row[column];
             if (op === 'eq') return left === value;
+            if (op === 'in') return (value as unknown[]).includes(left);
             if (op === 'gte') return String(left) >= String(value);
             return String(left) <= String(value);
           }),
