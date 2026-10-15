@@ -1,3 +1,4 @@
+import { caseStageOf, matchesCaseBucket, matchesCaseActorScope } from '../../src/lib/case-workflow.js';
 import { listAssignmentOptions } from '../../src/server/case-assignment.js';
 import { getStudentHistory } from '../../src/server/student-history.js';
 import { z } from 'zod';
@@ -12,7 +13,7 @@ import {
   idempotencyKey,
 } from '../../src/server/http.js';
 import { createServerClient } from '../../src/server/insforge.js';
-import { countCaseBuckets, countCaseSummaryStatuses, createCase, listCaseCreatorOptions, listCaseSummaries, listCaseSummaryPage, type CaseCreatorRole } from '../../src/server/cases.js';
+import { caseOwnedBy, countCaseBuckets, countCaseSummaryStatuses, createCase, listCaseCreatorOptions, listCaseSummaries, listCaseSummaryPage, type CaseCreatorRole } from '../../src/server/cases.js';
 import { caseToSummary, deriveWorkflowState } from '../../src/server/dto.js';
 import { assertCaseWriteCapability } from '../../src/server/auth.js';
 import { CASE_STATUSES } from '../../src/skills/audit/types.js';
@@ -58,7 +59,8 @@ const CaseCursorSchema = z.object({
   creatorId: z.string().uuid().optional(),
   assignedTo: z.union([z.string().uuid(), z.literal('UNASSIGNED')]).optional(),
   workflowState: z.enum(['PENDING_ADVISOR', 'PENDING_COORDINATOR']).optional(),
-  bucket: z.enum(['ALL', 'IN_PROGRESS', 'COMPLETED', 'ERRORS']).optional(),
+  bucket: z.enum(['ALL', 'DRAFTS', 'IN_PROGRESS', 'COMPLETED', 'ERRORS']).optional(),
+  stage: z.enum(['PENDING_AUDIT', 'PENDING_ADVISOR', 'PENDING_COORDINATOR']).optional(),
   search: z.string().max(200).optional(),
   country: z.string().max(80).optional(),
   channel: z.string().max(80).optional(),
@@ -67,7 +69,7 @@ const CaseCursorSchema = z.object({
 }).strict();
 
 const WorkflowFilterSchema = z.enum(['PENDING_ADVISOR', 'PENDING_COORDINATOR']);
-const CaseBucketSchema = z.enum(['ALL', 'IN_PROGRESS', 'COMPLETED', 'ERRORS']);
+const CaseBucketSchema = z.enum(['ALL', 'DRAFTS', 'IN_PROGRESS', 'COMPLETED', 'ERRORS']);
 
 function decodeCursor(value: string): z.infer<typeof CaseCursorSchema> {
   try {
@@ -144,7 +146,7 @@ export default handleRoute(async (req, res) => {
       if (req.query.workflowState !== undefined && typeof req.query.workflowState !== 'string') {
         throw new ApiError(400, 'VALIDATION_ERROR', 'workflowState debe ser una cadena');
       }
-      for (const key of ['bucket', 'search', 'country', 'channel', 'createdFrom', 'createdTo'] as const) {
+      for (const key of ['bucket', 'stage', 'search', 'country', 'channel', 'createdFrom', 'createdTo'] as const) {
         if (req.query[key] !== undefined && typeof req.query[key] !== 'string') throw new ApiError(400, 'VALIDATION_ERROR', `${key} debe ser una cadena`);
       }
       const cursor = typeof req.query.cursor === 'string' ? decodeCursor(req.query.cursor) : null;
@@ -166,6 +168,13 @@ export default handleRoute(async (req, res) => {
       const rawBucket = typeof req.query.bucket === 'string' ? req.query.bucket : undefined;
       const bucketParsed = rawBucket === undefined ? undefined : CaseBucketSchema.safeParse(rawBucket);
       if (bucketParsed && !bucketParsed.success) throw new ApiError(400, 'VALIDATION_ERROR', 'bucket no es válido');
+      const stageParsed = z.enum(['PENDING_AUDIT', 'PENDING_ADVISOR', 'PENDING_COORDINATOR']).optional().safeParse(req.query.stage);
+      if (!stageParsed.success) throw new ApiError(400, 'VALIDATION_ERROR', 'stage no es válido');
+      const stage = stageParsed.data;
+      if (stage && bucketParsed?.data !== 'IN_PROGRESS') throw new ApiError(400, 'VALIDATION_ERROR', 'La lista de etapa requiere la pestaña En curso');
+      if (stage === 'PENDING_COORDINATOR' && !capabilitiesForRole(req.auth!.role).canFinalizeAnyCase) {
+        throw new ApiError(403, 'AUTH_ERROR', 'La lista de cierre está disponible solo para Coordinador');
+      }
       const search = typeof req.query.search === 'string' ? req.query.search.trim().slice(0, 200) : undefined;
       const country = typeof req.query.country === 'string' ? req.query.country.trim() : undefined;
       const channel = typeof req.query.channel === 'string' ? req.query.channel.trim() : undefined;
@@ -178,7 +187,7 @@ export default handleRoute(async (req, res) => {
       if (workflowStateParsed?.success && !capabilities.canFinalizeAnyCase) {
         throw new ApiError(403, 'AUTH_ERROR', 'No tienes permiso para consultar las bandejas de coordinación');
       }
-      if (cursor && (cursor.limit !== parsedLimit.data || cursor.status !== statusParsed?.data || cursor.creatorRole !== creatorRoleParsed?.data || cursor.creatorId !== creatorIdParsed?.data || cursor.assignedTo !== assignedTo || cursor.workflowState !== workflowStateParsed?.data || cursor.bucket !== bucketParsed?.data || cursor.search !== search || cursor.country !== country || cursor.channel !== channel || cursor.createdFrom !== fromParsed?.data || cursor.createdTo !== toParsed?.data)) {
+      if (cursor && (cursor.limit !== parsedLimit.data || cursor.status !== statusParsed?.data || cursor.creatorRole !== creatorRoleParsed?.data || cursor.creatorId !== creatorIdParsed?.data || cursor.assignedTo !== assignedTo || cursor.workflowState !== workflowStateParsed?.data || cursor.bucket !== bucketParsed?.data || cursor.stage !== stage || cursor.search !== search || cursor.country !== country || cursor.channel !== channel || cursor.createdFrom !== fromParsed?.data || cursor.createdTo !== toParsed?.data)) {
         throw new ApiError(400, 'VALIDATION_ERROR', 'El cursor no corresponde a los filtros solicitados');
       }
       const limit = cursor?.limit ?? parsedLimit.data;
@@ -227,13 +236,9 @@ export default handleRoute(async (req, res) => {
             const hasCurrentAiResolution = caseToSummary(row).effectiveResolution?.source === 'AI';
             if (!matchesWorkflow || (workflowState === 'PENDING_ADVISOR' && !hasCurrentAiResolution)) continue;
             const summary = caseToSummary(row);
-            const isOwnerReviewer = row.review?.created_by === req.auth!.sub;
-            if (bucket === 'IN_PROGRESS' && (row.status !== 'DRAFT' || !row.assigned_to || (capabilities.canReviewOwnCases && row.assigned_to !== req.auth!.sub))) continue;
-            if (bucket === 'COMPLETED' && (summary.workflowState !== 'FINALIZED' || row.status === 'ERROR' || (capabilities.canReviewOwnCases && !isOwnerReviewer))) continue;
-            // ERROR conserva su significado técnico actual (cases.status). Para
-            // Asesor se limita a un expediente propio, con revisión propia ya
-            // finalizada; los roles de supervisión ven el conjunto global.
-            if (bucket === 'ERRORS' && (row.status !== 'ERROR' || (capabilities.canReviewOwnCases && (summary.workflowState !== 'FINALIZED' || !isOwnerReviewer)))) continue;
+            if (!matchesCaseBucket(summary, bucket, capabilities.canFinalizeAnyCase)) continue;
+            if (!matchesCaseActorScope(bucket, { canReviewOwnCases: capabilities.canReviewOwnCases, ownsCase: caseOwnedBy(row, req.auth!.sub), reviewedCase: row.review?.created_by === req.auth!.sub })) continue;
+            if (stage && caseStageOf(summary) !== stage) continue;
             if (effectiveSearch) {
               const needle = effectiveSearch.toLocaleLowerCase('es');
               const searchable = [row.id, row.external_case_id ?? '', row.student_identifier ?? '', row.student_name ?? ''];
@@ -258,7 +263,7 @@ export default handleRoute(async (req, res) => {
         nextOffset = offset + limit;
       }
       const nextCursor = hasMore
-        ? Buffer.from(JSON.stringify({ offset: workflowState || bucket !== 'ALL' || effectiveSearch ? nextOffset : offset + limit, snapshot, limit, ...(status ? { status } : {}), ...(creatorRole ? { creatorRole } : {}), ...(creatorId ? { creatorId } : {}), ...(assignedTo ? { assignedTo } : {}), ...(workflowState ? { workflowState } : {}), ...(bucket !== 'ALL' ? { bucket } : {}), ...(effectiveSearch ? { search: effectiveSearch } : {}), ...(effectiveCountry ? { country: effectiveCountry } : {}), ...(effectiveChannel ? { channel: effectiveChannel } : {}), ...(createdFrom ? { createdFrom } : {}), ...(createdTo ? { createdTo } : {}) })).toString('base64url')
+        ? Buffer.from(JSON.stringify({ offset: workflowState || bucket !== 'ALL' || effectiveSearch ? nextOffset : offset + limit, snapshot, limit, ...(status ? { status } : {}), ...(creatorRole ? { creatorRole } : {}), ...(creatorId ? { creatorId } : {}), ...(assignedTo ? { assignedTo } : {}), ...(workflowState ? { workflowState } : {}), ...(bucket !== 'ALL' ? { bucket } : {}), ...(stage ? { stage } : {}), ...(effectiveSearch ? { search: effectiveSearch } : {}), ...(effectiveCountry ? { country: effectiveCountry } : {}), ...(effectiveChannel ? { channel: effectiveChannel } : {}), ...(createdFrom ? { createdFrom } : {}), ...(createdTo ? { createdTo } : {}) })).toString('base64url')
         : null;
       const statusCounts = cursor ? undefined : await countCaseSummaryStatuses(
         client,
@@ -268,6 +273,7 @@ export default handleRoute(async (req, res) => {
         assignedTo,
       );
       const bucketCounts = cursor ? undefined : await countCaseBuckets(client, req.auth!, {
+        snapshot,
         ...(status ? { status } : {}),
         ...(creatorRole ? { creatorRole: creatorRole as CaseCreatorRole } : {}),
         ...(creatorId ? { creatorId } : {}),

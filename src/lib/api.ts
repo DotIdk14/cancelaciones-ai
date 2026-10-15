@@ -1,3 +1,4 @@
+import type { CaseBucket, CaseStage, CaseBucketCounts } from './case-workflow';
 import type { ManualCaseMatch, ImportLinkResolution } from '../shared/case-links';
 import type { StudentHistory } from './student-history';
 import type { AuditLifecycle } from './audit-lifecycle';
@@ -173,7 +174,7 @@ export interface CaseSummaryPage {
   cases: CaseSummary[];
   nextCursor: string | null;
   statusCounts?: Record<CaseStatus | 'ALL', number>;
-  bucketCounts?: { ALL: number; IN_PROGRESS: number; COMPLETED: number; ERRORS: number };
+  bucketCounts?: CaseBucketCounts;
   creatorOptions?: CaseCreatorOption[];
   responsibleOptions?: Array<{ userId: string; name: string | null }>;
 }
@@ -622,7 +623,8 @@ export async function listCasePage(options: {
   createdFrom?: string;
   createdTo?: string;
   search?: string;
-  bucket?: 'ALL' | 'IN_PROGRESS' | 'COMPLETED' | 'ERRORS';
+  bucket?: CaseBucket;
+  stage?: CaseStage;
   limit?: number;
 } = {}): Promise<CaseSummaryPage> {
   const params = new URLSearchParams({ limit: String(options.limit ?? 50) });
@@ -638,6 +640,7 @@ export async function listCasePage(options: {
   if (options.createdTo) params.set('createdTo', options.createdTo);
   if (options.search?.trim()) params.set('search', options.search.trim());
   if (options.bucket && options.bucket !== 'ALL') params.set('bucket', options.bucket);
+  if (options.bucket === 'IN_PROGRESS' && options.stage) params.set('stage', options.stage);
   return request<CaseSummaryPage>(`/api/cases?${params.toString()}`, {}, [200]);
 }
 

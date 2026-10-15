@@ -15,6 +15,7 @@ import { createElement } from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CaseSummary } from '../src/lib/api';
+import { caseStageOf, matchesCaseBucket, type CaseBucket } from '../src/lib/case-workflow';
 import { CasesPanel } from '../src/components/CasesPanel';
 
 function fakeResponse(status: number, body: unknown): Response {
@@ -44,17 +45,16 @@ async function renderList(cases: CaseSummary[], canReadAllCases = false, canFina
     const creatorId = url.searchParams.get('creatorId');
     const assignedTo = url.searchParams.get('assignedTo');
     const workflowState = url.searchParams.get('workflowState');
-    const bucket = url.searchParams.get('bucket');
+    const bucket = url.searchParams.get('bucket') as CaseBucket | null;
+    const stage = url.searchParams.get('stage');
     const filtered = cases.filter((item) => (!status || item.status === status)
       && (!creatorRole || item.creatorRole === creatorRole)
       && (!creatorId || item.creatorId === creatorId)
       && (!assignedTo || (assignedTo === 'UNASSIGNED' ? !item.assignedTo : item.assignedTo === assignedTo))
       && (!workflowState || (item.workflowState === workflowState
         && (workflowState !== 'PENDING_ADVISOR' || item.effectiveResolution?.source === 'AI')))
-      && (!bucket || bucket === 'ALL'
-        || (bucket === 'IN_PROGRESS' && item.status === 'DRAFT' && Boolean(item.assignedTo))
-        || (bucket === 'COMPLETED' && item.workflowState === 'FINALIZED')
-        || (bucket === 'ERRORS' && item.status === 'ERROR' && (canReadAllCases || item.workflowState === 'FINALIZED'))));
+      && (!bucket || matchesCaseBucket(item, bucket, canFinalizeAnyCase))
+      && (!stage || caseStageOf(item) === stage));
     const scoped = creatorRole || creatorId || assignedTo ? filtered : cases;
     const statusCounts = {
       ALL: scoped.length,
@@ -104,26 +104,36 @@ describe('CasesPanel — resolución efectiva', () => {
     await vi.waitFor(() => expect(screen.getByRole('row', { name: /SIN-RESPONSABLE/ })).toBeTruthy());
     expect(screen.queryByRole('row', { name: /ASIGNADO/ })).toBeNull();
   });
-  it('muestra exactamente las cuatro pestañas y clasifica por estado persistido', async () => {
+  it('separa borradores y las tres listas de trabajo sin confundir auditoría con cierre', async () => {
     await renderList([
       makeCase({ id: 'case-ai', studentIdentifier: 'IA-PENDIENTE', workflowState: 'PENDING_ADVISOR', effectiveResolution: { result: 'BAJA', source: 'AI' } }),
       makeCase({ id: 'case-unresolved', studentIdentifier: 'SIN-DICTAMEN', workflowState: 'PENDING_ADVISOR', effectiveResolution: null }),
       makeCase({ id: 'case-reviewed', studentIdentifier: 'REVISADO', workflowState: 'PENDING_COORDINATOR', effectiveResolution: { result: 'BAJA', source: 'HUMAN' } }),
       makeCase({ id: 'case-finalized', studentIdentifier: 'FINALIZADO', workflowState: 'FINALIZED', effectiveResolution: { result: 'BAJA', source: 'HUMAN' } }),
-      makeCase({ id: 'case-progress', studentIdentifier: 'EN-CURSO', status: 'DRAFT', assignedTo: 'advisor-1' }),
+      makeCase({ id: 'case-progress', studentIdentifier: 'EN-CURSO', status: 'READY', assignedTo: 'advisor-1' }),
+      makeCase({ id: 'draft-with-ready-status', studentIdentifier: 'SIN-EVIDENCIAS', status: 'READY', evidenceCount: 0 }),
       makeCase({ id: 'case-error', studentIdentifier: 'CON-ERROR', status: 'ERROR' }),
     ], true, true);
 
-    expect(screen.getAllByRole('tab')).toHaveLength(4);
+    expect(screen.getAllByRole('tab')).toHaveLength(5);
     expect(screen.getByRole('tab', { name: /^Todo/ })).toBeTruthy();
-    expect(screen.getByRole('tab', { name: /^En Curso/ })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: /^En curso/ })).toBeTruthy();
     expect(screen.getByRole('tab', { name: /^Completados/ })).toBeTruthy();
     expect(screen.getByRole('tab', { name: /^Errores/ })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /Listos para|Borradores|Pendientes de/ })).toBeNull();
+    expect(screen.getByRole('tab', { name: /^Borradores/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole('tab', { name: /^Borradores/ }));
+    await vi.waitFor(() => expect(screen.getByRole('row', { name: /SIN-EVIDENCIAS/ })).toBeTruthy());
+    expect(screen.queryByRole('row', { name: /EN-CURSO/ })).toBeNull();
 
-    fireEvent.click(screen.getByRole('tab', { name: /^En Curso/ }));
+    fireEvent.click(screen.getByRole('tab', { name: /^En curso/ }));
     await vi.waitFor(() => expect(screen.getByRole('row', { name: /EN-CURSO/ })).toBeTruthy());
-    expect(screen.queryByRole('row', { name: /IA-PENDIENTE|SIN-DICTAMEN|REVISADO|FINALIZADO/ })).toBeNull();
+    expect(screen.queryByRole('row', { name: /IA-PENDIENTE|REVISADO|FINALIZADO|SIN-EVIDENCIAS/ })).toBeNull();
+    expect(screen.getByRole('row', { name: /SIN-DICTAMEN/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /^Dictamen del Asesor/ }));
+    await vi.waitFor(() => expect(screen.getByRole('row', { name: /IA-PENDIENTE/ })).toBeTruthy());
+    expect(screen.queryByRole('row', { name: /EN-CURSO/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /^Cierre del Coordinador/ }));
+    await vi.waitFor(() => expect(screen.getByRole('row', { name: /REVISADO/ })).toBeTruthy());
     expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).includes('bucket=IN_PROGRESS'))).toBe(true);
 
     fireEvent.click(screen.getByRole('tab', { name: /^Completados/ }));
@@ -138,7 +148,9 @@ describe('CasesPanel — resolución efectiva', () => {
 
   it('no cambia el número ni el nombre de pestañas por el rol', async () => {
     await renderList([makeCase()], true, false);
-    expect(screen.getAllByRole('tab')).toHaveLength(4);
+    expect(screen.getAllByRole('tab')).toHaveLength(5);
+    fireEvent.click(screen.getByRole('tab', { name: /^En curso/ }));
+    expect(screen.queryByRole('button', { name: /^Cierre del Coordinador/ })).toBeNull();
   });
 
   it('muestra Humano para el caso revisado y IA para el que sólo tiene dictamen', async () => {

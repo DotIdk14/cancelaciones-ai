@@ -1,3 +1,5 @@
+import { caseToSummary } from './dto.js';
+import { CASE_BUCKETS, CASE_STAGES, caseStageOf, matchesCaseBucket, matchesCaseActorScope, type CaseBucketCounts } from '../lib/case-workflow.js';
 import { assignmentError } from './case-assignment.js';
 // =============================================================================
 // Capa de datos — casos, evidencias y auditorías (solo persistencia).
@@ -257,6 +259,7 @@ async function enrichCaseSummaries(
   client: InsForgeClient,
   rows: CaseSummaryRow[],
   snapshot: string,
+  includeProfiles = true,
 ): Promise<CaseSummaryRow[]> {
   // 100 UUID generaban una URL de 3995 caracteres para case_reviews y el
   // gateway devolvía 502. Se acotan las relaciones sin recortar la página.
@@ -330,7 +333,7 @@ async function enrichCaseSummaries(
     }
   }
 
-  const creatorIds = [...new Set(rows.map((row) => row.created_by).filter((id): id is string => Boolean(id)))];
+  const creatorIds = includeProfiles ? [...new Set(rows.map((row) => row.created_by).filter((id): id is string => Boolean(id)))] : [];
   const creatorRoleById = new Map<string, CaseCreatorRole>();
   for (let offset = 0; offset < creatorIds.length; offset += pageSize) {
     const ids = creatorIds.slice(offset, offset + pageSize);
@@ -347,7 +350,7 @@ async function enrichCaseSummaries(
   }
 
   const assignedNames = new Map<string, string | null>();
-  const assignedIds = [...new Set(rows.flatMap((row) => row.assigned_to ? [row.assigned_to] : []))];
+  const assignedIds = includeProfiles ? [...new Set(rows.flatMap((row) => row.assigned_to ? [row.assigned_to] : []))] : [];
   for (let offset = 0; offset < assignedIds.length; offset += 10) {
     await Promise.all(assignedIds.slice(offset, offset + 10).map(async (id) => {
       assignedNames.set(id, await assignedProfileName(client, id));
@@ -376,7 +379,7 @@ async function enrichCaseSummaries(
 export async function listCaseSummaryPage(
   client: InsForgeClient,
   auth: AuthContext,
-  options: { offset: number; limit: number; snapshot: string; status?: CaseStatus; creatorRole?: CaseCreatorRole; creatorId?: string; assignedTo?: string; country?: string; channel?: string; createdFrom?: string; createdTo?: string },
+  options: { offset: number; limit: number; snapshot: string; status?: CaseStatus; creatorRole?: CaseCreatorRole; creatorId?: string; assignedTo?: string; country?: string; channel?: string; createdFrom?: string; createdTo?: string; includeProfiles?: boolean },
 ): Promise<CaseSummaryRow[]> {
   const creatorIds = options.creatorRole ? await caseCreatorIdsForRole(client, options.creatorRole) : null;
   if (creatorIds?.length === 0) return [];
@@ -397,7 +400,7 @@ export async function listCaseSummaryPage(
   if (creatorIds) query = query.in('created_by', creatorIds);
   const { data, error } = await query.range(options.offset, options.offset + options.limit - 1);
   if (error || !data) dbError(error);
-  return enrichCaseSummaries(client, data as CaseSummaryRow[], options.snapshot);
+  return enrichCaseSummaries(client, data as CaseSummaryRow[], options.snapshot, options.includeProfiles);
 }
 
 export async function countCaseSummaryStatuses(
@@ -427,61 +430,32 @@ export async function countCaseSummaryStatuses(
   return { ALL: all, ...Object.fromEntries(statuses.map((status, index) => [status, values[index] ?? 0])) } as Record<CaseStatus | 'ALL', number>;
 }
 
-export interface CaseBucketCounts {
-  ALL: number;
-  IN_PROGRESS: number;
-  COMPLETED: number;
-  ERRORS: number;
-}
+export type { CaseBucketCounts } from '../lib/case-workflow.js';
 
-/** Cuenta las mismas cohortes persistidas que usa la bandeja, bajo sus filtros. */
+/** Recorre páginas acotadas; los conteos usan la misma proyección y alcance que las listas. */
 export async function countCaseBuckets(
   client: InsForgeClient,
   auth: AuthContext,
-  options: { status?: CaseStatus; creatorRole?: CaseCreatorRole; creatorId?: string; assignedTo?: string; country?: string; channel?: string; createdFrom?: string; createdTo?: string; search?: string },
+  options: { snapshot?: string; status?: CaseStatus; creatorRole?: CaseCreatorRole; creatorId?: string; assignedTo?: string; country?: string; channel?: string; createdFrom?: string; createdTo?: string; search?: string },
 ): Promise<CaseBucketCounts> {
-  const creatorIds = options.creatorRole ? await caseCreatorIdsForRole(client, options.creatorRole) : null;
-  if (creatorIds?.length === 0) return { ALL: 0, IN_PROGRESS: 0, COMPLETED: 0, ERRORS: 0 };
-  const rows: Array<{ id: string; status: CaseStatus; assigned_to: string | null; student_identifier: string | null; student_name?: string | null; external_case_id?: string | null }> = [];
-  for (let offset = 0; ; offset += 500) {
-    let query = client.database.from('cases')
-      .select('id,status,assigned_to,student_identifier,student_name,external_case_id')
-      .is('merged_into_case_id', null);
-    if (!capabilitiesForRole(auth.role).canReadAllCases) query = query.or(`created_by.eq.${auth.sub},assigned_to.eq.${auth.sub}`);
-    if (options.status) query = query.eq('status', options.status);
-    if (options.country) query = query.eq('country', options.country);
-    if (options.channel) query = query.eq('channel', options.channel);
-    if (options.createdFrom) query = query.gte('created_at', options.createdFrom);
-    if (options.createdTo) query = query.lte('created_at', options.createdTo);
-    if (options.creatorId) query = query.eq('created_by', options.creatorId);
-    if (options.assignedTo) query = options.assignedTo === 'UNASSIGNED' ? query.is('assigned_to', null) : query.eq('assigned_to', options.assignedTo);
-    if (creatorIds) query = query.in('created_by', creatorIds);
-    const { data, error } = await query.order('created_at', { ascending: false }).range(offset, offset + 499);
-    if (error || !data) dbError(error);
-    const page = data as typeof rows;
-    rows.push(...page);
-    if (page.length < 500) break;
-  }
-
-  const needle = options.search?.trim().toLocaleLowerCase('es');
-  const filtered = needle
-    ? rows.filter(row => [row.id, row.student_identifier ?? '', row.student_name ?? '', row.external_case_id ?? ''].some(value => value.toLocaleLowerCase('es').includes(needle)))
-    : rows;
-  const reviews = new Map<string, { created_by: string | null; coordinator_decision: string | null }>();
-  for (let offset = 0; offset < filtered.length; offset += 40) {
-    const ids = filtered.slice(offset, offset + 40).map(row => row.id);
-    const { data, error } = await client.database.from('case_reviews')
-      .select('case_id,created_by,coordinator_decision').in('case_id', ids);
-    if (error || !data) dbError(error);
-    for (const row of data as Array<{ case_id: string; created_by: string | null; coordinator_decision: string | null }>) reviews.set(row.case_id, row);
-  }
+  const counts = Object.fromEntries([...CASE_BUCKETS, ...CASE_STAGES].map(item => [item.value, 0])) as CaseBucketCounts;
   const capabilities = capabilitiesForRole(auth.role);
-  const counts: CaseBucketCounts = { ALL: filtered.length, IN_PROGRESS: 0, COMPLETED: 0, ERRORS: 0 };
-  for (const row of filtered) {
-    const review = reviews.get(row.id);
-    if (row.status === 'DRAFT' && row.assigned_to && (!capabilities.canReviewOwnCases || row.assigned_to === auth.sub)) counts.IN_PROGRESS += 1;
-    if (review?.coordinator_decision != null && row.status !== 'ERROR' && (!capabilities.canReviewOwnCases || review.created_by === auth.sub)) counts.COMPLETED += 1;
-    if (row.status === 'ERROR' && (!capabilities.canReviewOwnCases || (review?.coordinator_decision != null && review.created_by === auth.sub))) counts.ERRORS += 1;
+  const snapshot = options.snapshot ?? new Date().toISOString();
+  const needle = options.search?.trim().toLocaleLowerCase('es');
+  for (let offset = 0; ; offset += 100) {
+    const rows = await listCaseSummaryPage(client, auth, { ...options, snapshot, offset, limit: 100, includeProfiles: false });
+    for (const row of rows) {
+      if (needle && ![row.id, row.external_case_id ?? '', row.student_identifier ?? '', row.student_name ?? ''].some(value => value.toLocaleLowerCase('es').includes(needle))) continue;
+      const summary = caseToSummary(row);
+      const scope = { canReviewOwnCases: capabilities.canReviewOwnCases, ownsCase: caseOwnedBy(row, auth.sub), reviewedCase: row.review?.created_by === auth.sub };
+      for (const bucket of CASE_BUCKETS) {
+        if (matchesCaseBucket(summary, bucket.value, capabilities.canFinalizeAnyCase) && matchesCaseActorScope(bucket.value, scope)) counts[bucket.value] += 1;
+      }
+      if (matchesCaseBucket(summary, 'IN_PROGRESS', capabilities.canFinalizeAnyCase) && matchesCaseActorScope('IN_PROGRESS', scope)) {
+        counts[caseStageOf(summary) as (typeof CASE_STAGES)[number]['value']] += 1;
+      }
+    }
+    if (rows.length < 100) break;
   }
   return counts;
 }

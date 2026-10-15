@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { InsForgeClient } from '../src/server/insforge';
-import { listCaseSummaries, listCaseSummaryPage, countCaseSummaryStatuses } from '../src/server/cases';
+import { listCaseSummaries, listCaseSummaryPage, countCaseSummaryStatuses, countCaseBuckets } from '../src/server/cases';
+import { computeEvidenceFingerprint } from '../src/server/audit-fingerprint';
+import { validAuditResult } from './fixtures/audit-result';
 import { caseToSummary } from '../src/server/dto';
 import { fakeAuthContext, FAKE_USER_SUB } from './helpers/auth';
 
@@ -36,7 +38,7 @@ function database(rows: Row[], related: Record<string, Row[]> = {}) {
               return String(row[column] ?? '') <= String(value);
             }));
             let found = matches(table === 'cases' ? rows : related[table] ?? []).filter((row) => disjunction.length === 0 || disjunction.some(([column, value]) => row[column] === value));
-            if (table === 'cases') found = found.map((row) => ({ ...row, evidence: [] }));
+            if (table === 'cases') found = found.map((row) => ({ ...row, evidence: [{ count: (related.evidence ?? []).filter(item => item.case_id === row.id).length }] }));
             for (const [column, ascending] of [...orders].reverse()) {
               found = [...found].sort((a, b) => {
                 const left = String(a[column] ?? '');
@@ -69,6 +71,26 @@ function caseRows(count: number): Row[] {
 }
 
 describe('listCaseSummaries — paginación segura y sin límite de 100', () => {
+  it('cuenta listas con evidencia y auditorías vigentes; oculta la cola del Coordinador a los demás roles', async () => {
+    const ids = ['draft', 'audit', 'advisor', 'coordinator', 'closed', 'error', 'stale'];
+    const rows = ids.map(id => ({ ...caseRows(1)[0], id, status: id === 'error' ? 'ERROR' : 'COMPLETED' }));
+    const evidence = ids.filter(id => id !== 'draft').map(id => ({ id: `e-${id}`, case_id: id, hash: 'a'.repeat(64), transcript_json: null }));
+    const audits = ['advisor', 'coordinator', 'closed', 'stale'].map(id => ({
+      id: `a-${id}`, case_id: id, status: 'COMPLETED', result_json: validAuditResult,
+      created_at: '2026-01-01T01:00:00Z', retired_at: null,
+      evidence_fingerprint: id === 'stale' ? 'old' : computeEvidenceFingerprint(evidence.filter(item => item.case_id === id)),
+    }));
+    const reviews = ['coordinator', 'closed'].map(id => ({ case_id: id, audit_id: `a-${id}`, result: 'BAJA', created_by: FAKE_USER_SUB, coordinator_decision: id === 'closed' ? 'APPROVE' : null }));
+    const { client } = database(rows, { evidence, audits, case_reviews: reviews });
+    const options = { snapshot: '2026-12-31T23:59:59Z' };
+    expect(await countCaseBuckets(client, fakeAuthContext('coordinator'), options)).toEqual({
+      ALL: 7, DRAFTS: 1, IN_PROGRESS: 4, COMPLETED: 1, ERRORS: 1,
+      PENDING_AUDIT: 2, PENDING_ADVISOR: 1, PENDING_COORDINATOR: 1,
+    });
+    for (const role of ['user', 'manager'] as const) {
+      expect(await countCaseBuckets(client, fakeAuthContext(role), options)).toMatchObject({ IN_PROGRESS: 3, PENDING_COORDINATOR: 0 });
+    }
+  });
   it('conserva una página de 100 expedientes con filtros de relaciones de máximo 40 IDs', async () => {
     const { client, filters } = database(caseRows(100));
     const rows = await listCaseSummaryPage(client, fakeAuthContext('coordinator'), { offset: 0, limit: 100, snapshot: '2027-01-01T00:00:00Z' });

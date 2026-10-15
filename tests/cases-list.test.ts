@@ -26,6 +26,7 @@ vi.mock('../src/server/cases', async () => {
   const store = await import('./helpers/fake-store');
   return {
     getCaseOr404: store.getCaseOr404,
+    caseOwnedBy: store.caseOwnedBy,
     getScopedCaseOr404: store.getScopedCaseOr404,
     derivedExtractionOf: store.derivedExtractionOf,
     persistDerivedExtraction: store.persistDerivedExtraction,
@@ -282,7 +283,10 @@ describe('GET /api/cases — bandejas derivadas del flujo humano', () => {
   it('aplica el alcance de Asesor en En Curso, Completados y Errores con datos persistidos', async () => {
     const otherAdvisor = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
     seedCase({ id: 'assigned-to-me', status: 'DRAFT', assigned_to: FAKE_USER_SUB });
-    seedCase({ id: 'assigned-to-other', status: 'DRAFT', assigned_to: otherAdvisor });
+    seedCase({ id: 'assigned-to-other', status: 'DRAFT', created_by: otherAdvisor, assigned_to: otherAdvisor });
+    seedEvidence({ case_id: 'assigned-to-me' });
+    seedEvidence({ case_id: 'assigned-to-other' });
+    seedCase({ id: 'empty-with-ready-status', status: 'READY' });
     seedCase({ id: 'my-final-review', status: 'COMPLETED' });
     seedAudit({ id: 'audit-my-final', case_id: 'my-final-review', resultJson: validAuditResult });
     seedReview({ case_id: 'my-final-review', audit_id: 'audit-my-final', created_by: FAKE_USER_SUB, coordinator_decision: 'APPROVE' });
@@ -293,18 +297,48 @@ describe('GET /api/cases — bandejas derivadas del flujo humano', () => {
     seedReview({ case_id: 'my-final-error', created_by: FAKE_USER_SUB, coordinator_decision: 'APPROVE' });
     seedCase({ id: 'other-final-error', status: 'ERROR' });
     seedReview({ case_id: 'other-final-error', created_by: otherAdvisor, coordinator_decision: 'APPROVE' });
+    seedCase({ id: 'my-open-error', status: 'ERROR', created_by: FAKE_USER_SUB });
+    seedEvidence({ case_id: 'my-open-error' });
 
     for (const [bucket, expected] of [
       ['IN_PROGRESS', ['assigned-to-me']],
-      ['COMPLETED', ['my-final-review']],
-      ['ERRORS', ['my-final-error']],
+      ['DRAFTS', ['empty-with-ready-status']],
+      ['COMPLETED', ['my-final-review', 'my-final-error']],
+      ['ERRORS', ['my-open-error']],
     ] as const) {
       const res = makeApiResponse();
       await casesHandler(makeApiRequest('GET', { limit: '20', bucket }, undefined, fakeAuthContext('user')), res);
       expect(res.statusCode).toBe(200);
       const ids = (JSON.parse(res.body) as { cases: Array<{ id: string }> }).cases.map((row) => row.id);
-      expect(ids).toEqual(expected);
+      expect(ids.sort()).toEqual([...expected].sort());
     }
+  });
+
+  it('solo Coordinador accede a la lista de cierre y su cursor no se puede usar para otra etapa', async () => {
+    for (const id of ['coord-1', 'coord-2']) {
+      seedCase({ id, status: 'COMPLETED' });
+      seedEvidence({ case_id: id });
+      seedAudit({ id: `ai-${id}`, case_id: id, resultJson: validAuditResult });
+      seedReview({ case_id: id, audit_id: `ai-${id}` });
+    }
+    const query = { limit: '1', bucket: 'IN_PROGRESS', stage: 'PENDING_COORDINATOR' };
+    for (const role of ['user', 'manager'] as const) {
+      const denied = makeApiResponse();
+      await casesHandler(makeApiRequest('GET', query, undefined, fakeAuthContext(role)), denied);
+      expect(denied.statusCode).toBe(403);
+    }
+    const first = makeApiResponse();
+    await casesHandler(makeApiRequest('GET', query, undefined, fakeAuthContext('coordinator')), first);
+    const page = JSON.parse(first.body) as { cases: Array<{ id: string }>; nextCursor: string };
+    expect(first.statusCode).toBe(200);
+    expect(page.cases).toHaveLength(1);
+    expect(page.nextCursor).toBeTruthy();
+    const second = makeApiResponse();
+    await casesHandler(makeApiRequest('GET', { ...query, cursor: page.nextCursor }, undefined, fakeAuthContext('coordinator')), second);
+    expect((JSON.parse(second.body) as typeof page).cases[0]?.id).not.toBe(page.cases[0]?.id);
+    const mismatch = makeApiResponse();
+    await casesHandler(makeApiRequest('GET', { ...query, stage: 'PENDING_ADVISOR', cursor: page.nextCursor }, undefined, fakeAuthContext('coordinator')), mismatch);
+    expect(mismatch.statusCode).toBe(400);
   });
 
   it('solo incluye dictámenes IA vigentes en Pendientes de Asesor y pagina el siguiente resultado', async () => {

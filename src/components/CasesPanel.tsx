@@ -1,3 +1,4 @@
+import { CASE_BUCKETS, CASE_STAGES, caseStageOf, caseProgressLabel, matchesCaseBucket, type CaseStage, type CaseBucketCounts } from '../lib/case-workflow';
 // =============================================================================
 // Listado de casos. Los filtros se aplican a datos que ya entrega la API; la
 // página no inventa categorías de auditoría ni altera las resoluciones.
@@ -26,12 +27,10 @@ import { Badge, Button, EmptyState, ErrorCard, Spinner } from './ui';
 
 const AUTH_ERROR_MESSAGE = 'El servidor requiere autenticación. La interfaz está en modo demo: los datos no se cargarán hasta que configure una sesión válida.';
 
-const CASE_BUCKETS = [
-  { value: 'ALL', label: 'Todo' },
-  { value: 'IN_PROGRESS', label: 'En Curso' },
-  { value: 'COMPLETED', label: 'Completados' },
-  { value: 'ERRORS', label: 'Errores' },
-] as const;
+function progressTone(item: CaseSummary): (typeof CASE_STATUS_TONE)[CaseStatus] {
+  const stage = caseStageOf(item);
+  return CASE_STATUS_TONE[stage === 'FINALIZED' ? 'COMPLETED' : stage === 'ERROR' ? 'ERROR' : stage === 'DRAFT' ? 'DRAFT' : item.status === 'AUDITING' ? 'AUDITING' : 'READY'];
+}
 
 function selectOnKeyboard(event: KeyboardEvent<HTMLTableRowElement>, select: () => void): void {
   if (event.key === 'Enter' || event.key === ' ') {
@@ -39,17 +38,18 @@ function selectOnKeyboard(event: KeyboardEvent<HTMLTableRowElement>, select: () 
     select();
   }
 }
-export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: boolean; canFinalizeAnyCase?: boolean }): ReactNode {
+export function CasesPanel({ canReadAllCases = false, canFinalizeAnyCase = false }: { canReadAllCases?: boolean; canFinalizeAnyCase?: boolean }): ReactNode {
   const preview = isLocalDashboardPreview();
   const [cases, setCases] = useState<CaseSummary[] | null>(() => preview ? getLocalPreviewCases() : null);
   const [loading, setLoading] = useState(!preview);
   const [listError, setListError] = useState<string | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [serverBucketCounts, setServerBucketCounts] = useState<{ ALL: number; IN_PROGRESS: number; COMPLETED: number; ERRORS: number } | null>(null);
+  const [serverBucketCounts, setServerBucketCounts] = useState<CaseBucketCounts | null>(null);
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<CaseStatus | 'ALL'>('ALL');
   const [bucketFilter, setBucketFilter] = useState<(typeof CASE_BUCKETS)[number]['value']>('ALL');
+  const [stage, setStage] = useState<CaseStage>('PENDING_AUDIT');
   const [country, setCountry] = useState('');
   const [channel, setChannel] = useState('');
   const [createdFrom, setCreatedFrom] = useState('');
@@ -92,7 +92,7 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
     const currentRequest = ++requestId.current;
     setLoading(true);
     try {
-      const page = await listCasePage({ status: statusFilter, creatorRole, creatorId, assignedTo, bucket: bucketFilter, search: debouncedQuery, country, channel, ...(createdFrom ? { createdFrom: new Date(`${createdFrom}T00:00:00`).toISOString() } : {}), ...(createdTo ? { createdTo: new Date(`${createdTo}T23:59:59.999`).toISOString() } : {}), limit: 50 });
+      const page = await listCasePage({ status: statusFilter, creatorRole, creatorId, assignedTo, bucket: bucketFilter, stage: bucketFilter === 'IN_PROGRESS' ? stage : undefined, search: debouncedQuery, country, channel, ...(createdFrom ? { createdFrom: new Date(`${createdFrom}T00:00:00`).toISOString() } : {}), ...(createdTo ? { createdTo: new Date(`${createdTo}T23:59:59.999`).toISOString() } : {}), limit: 50 });
       if (currentRequest !== requestId.current) return;
       setCases(page.cases);
       if (page.creatorOptions) setCreatorOptions(page.creatorOptions);
@@ -107,14 +107,14 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
     } finally {
       if (currentRequest === requestId.current) setLoading(false);
     }
-  }, [assignedTo, bucketFilter, channel, country, createdFrom, createdTo, creatorId, creatorRole, debouncedQuery, preview, statusFilter]);
+  }, [assignedTo, bucketFilter, channel, country, createdFrom, createdTo, creatorId, creatorRole, debouncedQuery, preview, stage, statusFilter]);
 
   const loadMore = useCallback(async (): Promise<void> => {
     if (!nextCursor || preview) return;
     const currentRequest = ++requestId.current;
     setLoading(true);
     try {
-      const page = await listCasePage({ status: statusFilter, creatorRole, creatorId, assignedTo, bucket: bucketFilter, search: debouncedQuery, country, channel, ...(createdFrom ? { createdFrom: new Date(`${createdFrom}T00:00:00`).toISOString() } : {}), ...(createdTo ? { createdTo: new Date(`${createdTo}T23:59:59.999`).toISOString() } : {}), cursor: nextCursor, limit: 50 });
+      const page = await listCasePage({ status: statusFilter, creatorRole, creatorId, assignedTo, bucket: bucketFilter, stage: bucketFilter === 'IN_PROGRESS' ? stage : undefined, search: debouncedQuery, country, channel, ...(createdFrom ? { createdFrom: new Date(`${createdFrom}T00:00:00`).toISOString() } : {}), ...(createdTo ? { createdTo: new Date(`${createdTo}T23:59:59.999`).toISOString() } : {}), cursor: nextCursor, limit: 50 });
       if (currentRequest !== requestId.current) return;
       setCases((current) => [...(current ?? []), ...page.cases]);
       setNextCursor(page.nextCursor);
@@ -126,7 +126,7 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
     } finally {
       if (currentRequest === requestId.current) setLoading(false);
     }
-  }, [assignedTo, bucketFilter, channel, country, createdFrom, createdTo, creatorId, creatorRole, debouncedQuery, nextCursor, preview, statusFilter]);
+  }, [assignedTo, bucketFilter, channel, country, createdFrom, createdTo, creatorId, creatorRole, debouncedQuery, nextCursor, preview, stage, statusFilter]);
 
   const loadAll = useCallback(async (): Promise<void> => {
     if (preview || !nextCursor) return;
@@ -136,7 +136,7 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
       const all = [...(cases ?? [])];
       let cursor: string | null = nextCursor;
       while (cursor) {
-        const page = await listCasePage({ status: statusFilter, creatorRole, creatorId, assignedTo, bucket: bucketFilter, search: debouncedQuery, country, channel, ...(createdFrom ? { createdFrom: new Date(`${createdFrom}T00:00:00`).toISOString() } : {}), ...(createdTo ? { createdTo: new Date(`${createdTo}T23:59:59.999`).toISOString() } : {}), cursor, limit: 50 });
+        const page = await listCasePage({ status: statusFilter, creatorRole, creatorId, assignedTo, bucket: bucketFilter, stage: bucketFilter === 'IN_PROGRESS' ? stage : undefined, search: debouncedQuery, country, channel, ...(createdFrom ? { createdFrom: new Date(`${createdFrom}T00:00:00`).toISOString() } : {}), ...(createdTo ? { createdTo: new Date(`${createdTo}T23:59:59.999`).toISOString() } : {}), cursor, limit: 50 });
         all.push(...page.cases);
         cursor = page.nextCursor;
       }
@@ -151,7 +151,7 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
     } finally {
       if (currentRequest === requestId.current) setLoading(false);
     }
-  }, [assignedTo, bucketFilter, cases, channel, country, createdFrom, createdTo, creatorId, creatorRole, debouncedQuery, nextCursor, preview, statusFilter]);
+  }, [assignedTo, bucketFilter, cases, channel, country, createdFrom, createdTo, creatorId, creatorRole, debouncedQuery, nextCursor, preview, stage, statusFilter]);
 
   useEffect(() => { if (!preview) void load(); }, [load, preview]);
 
@@ -163,9 +163,8 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
   const filteredCases = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase('es');
     return (cases ?? []).filter((item) => {
-      if (preview && bucketFilter === 'IN_PROGRESS' && (item.status !== 'DRAFT' || !item.assignedTo)) return false;
-      if (preview && bucketFilter === 'COMPLETED' && item.workflowState !== 'FINALIZED') return false;
-      if (preview && bucketFilter === 'ERRORS' && item.status !== 'ERROR') return false;
+      if (preview && !matchesCaseBucket(item, bucketFilter, canFinalizeAnyCase)) return false;
+      if (preview && bucketFilter === 'IN_PROGRESS' && caseStageOf(item) !== stage) return false;
       if (preview && country && item.country !== country) return false;
       if (preview && channel && item.channel !== channel) return false;
       if (preview && createdFrom && item.createdAt < new Date(`${createdFrom}T00:00:00`).toISOString()) return false;
@@ -182,7 +181,7 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
       return [item.id, shortId(item.id), item.studentIdentifier ?? '', item.studentName ?? '', result]
         .some((value) => value.toLocaleLowerCase('es').includes(normalized));
     });
-  }, [assignedTo, bucketFilter, cases, channel, country, createdFrom, createdTo, creatorId, creatorRole, preview, query, statusFilter]);
+  }, [assignedTo, bucketFilter, canFinalizeAnyCase, cases, channel, country, createdFrom, createdTo, creatorId, creatorRole, preview, query, stage, statusFilter]);
 
   const previewBucketCounts = useMemo(() => {
     if (!preview) return null;
@@ -198,13 +197,15 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
       && (!createdTo || item.createdAt <= new Date(`${createdTo}T23:59:59.999`).toISOString())
       && (!normalized || [item.id, item.studentIdentifier ?? '', item.studentName ?? ''].some(value => value.toLocaleLowerCase('es').includes(normalized))),
     );
-    return {
-      ALL: rows.length,
-      IN_PROGRESS: rows.filter(item => item.status === 'DRAFT' && Boolean(item.assignedTo)).length,
-      COMPLETED: rows.filter(item => item.workflowState === 'FINALIZED' && item.status !== 'ERROR').length,
-      ERRORS: rows.filter(item => item.status === 'ERROR').length,
-    };
-  }, [assignedTo, cases, channel, country, createdFrom, createdTo, creatorId, creatorRole, preview, query, statusFilter]);
+    const counts = Object.fromEntries([...CASE_BUCKETS, ...CASE_STAGES].map(item => [item.value, 0])) as CaseBucketCounts;
+    for (const row of rows) {
+      for (const bucket of CASE_BUCKETS) {
+        if (matchesCaseBucket(row, bucket.value, canFinalizeAnyCase)) counts[bucket.value] += 1;
+      }
+      if (matchesCaseBucket(row, 'IN_PROGRESS', canFinalizeAnyCase)) counts[caseStageOf(row) as CaseStage] += 1;
+    }
+    return counts;
+  }, [assignedTo, canFinalizeAnyCase, cases, channel, country, createdFrom, createdTo, creatorId, creatorRole, preview, query, statusFilter]);
 
   const visibleCreatorOptions = creatorOptions
     .filter((item) => creatorRole === 'ALL' || item.role === creatorRole)
@@ -297,11 +298,24 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
       {listError !== null && <ErrorCard message={listError} onRetry={() => void load()} />}
 
       <div className="case-toolbar rounded-xl border border-line bg-surface-1 p-3">
-        <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Pestañas de expedientes">
-          {CASE_BUCKETS.map((item) => <button key={item.value} type="button" role="tab" aria-selected={bucketFilter === item.value} aria-pressed={bucketFilter === item.value} className={`case-status-tab ${bucketFilter === item.value ? 'case-status-tab-active' : ''}`} onClick={() => { setSelectedCaseIds(new Set()); setSelectedId(null); setCases(preview ? getLocalPreviewCases() : null); setNextCursor(null); setBucketFilter(item.value); setStatusFilter('ALL'); }}>{item.label}<span className="case-status-count">{previewBucketCounts?.[item.value] ?? serverBucketCounts?.[item.value] ?? '—'}</span></button>)}
+        <div className="flex w-full flex-wrap gap-1.5" role="tablist" aria-label="Pestañas de expedientes">
+          {CASE_BUCKETS.map((item) => <button key={item.value} type="button" role="tab" aria-selected={bucketFilter === item.value} aria-pressed={bucketFilter === item.value} className={`case-status-tab ${bucketFilter === item.value ? 'case-status-tab-active' : ''}`} onClick={() => { setSelectedCaseIds(new Set()); setSelectedId(null); setCases(preview ? getLocalPreviewCases() : null); setNextCursor(null); setBucketFilter(item.value); setStage('PENDING_AUDIT'); setStatusFilter('ALL'); }}>{item.label}<span className="case-status-count">{previewBucketCounts?.[item.value] ?? serverBucketCounts?.[item.value] ?? '—'}</span></button>)}
         </div>
+        {bucketFilter === 'IN_PROGRESS' && (
+          <section className="w-full border-t border-line pt-3" aria-label="Listas de En curso">
+            <h2 className="mb-2 text-sm font-medium">Listas de En curso</h2>
+            <div className="flex flex-wrap gap-2" role="group" aria-label="Etapas pendientes">
+              {CASE_STAGES.filter(item => item.value !== 'PENDING_COORDINATOR' || canFinalizeAnyCase).map(item => (
+                <button key={item.value} type="button" aria-pressed={stage === item.value} className={`case-status-tab ${stage === item.value ? 'case-status-tab-active' : ''}`} onClick={() => { setSelectedCaseIds(new Set()); setSelectedId(null); setNextCursor(null); setCases(preview ? getLocalPreviewCases() : null); setStage(item.value); setStatusFilter('ALL'); }}>
+                  {item.label}<span className="case-status-count">{previewBucketCounts?.[item.value] ?? serverBucketCounts?.[item.value] ?? '—'}</span>
+                </button>
+              ))}
+            </div>
+            <p className="mt-2 text-sm text-muted">{CASE_STAGES.find(item => item.value === stage)?.description}</p>
+          </section>
+        )}
         <div className="flex flex-wrap items-end gap-3 pt-3">
-          <label className="case-creator-filter"><span>Estado técnico</span><select aria-label="Filtrar por estado técnico" value={statusFilter} onChange={event => { setCases(preview ? getLocalPreviewCases() : null); setNextCursor(null); setStatusFilter(event.target.value as CaseStatus | 'ALL'); }}><option value="ALL">Todos</option>{(bucketFilter === 'ERRORS' ? ['ERROR'] : bucketFilter === 'IN_PROGRESS' ? ['DRAFT', 'READY', 'AUDITING'] : ['DRAFT', 'READY', 'AUDITING', 'COMPLETED', 'ERROR']).map(status => <option key={status} value={status}>{CASE_STATUS_LABELS[status as CaseStatus]}</option>)}</select></label>
+          <label className="case-creator-filter"><span>Estado técnico</span><select aria-label="Filtrar por estado técnico" value={statusFilter} onChange={event => { setCases(preview ? getLocalPreviewCases() : null); setNextCursor(null); setStatusFilter(event.target.value as CaseStatus | 'ALL'); }}><option value="ALL">Todos</option>{(bucketFilter === 'ERRORS' ? ['ERROR'] : bucketFilter === 'DRAFTS' ? ['DRAFT', 'READY', 'COMPLETED', 'ERROR'] : ['DRAFT', 'READY', 'AUDITING', 'COMPLETED', 'ERROR']).map(status => <option key={status} value={status}>{CASE_STATUS_LABELS[status as CaseStatus]}</option>)}</select></label>
           {canReadAllCases && (
             <label className="case-creator-filter">
               <span>Perfil del creador</span>
@@ -358,7 +372,7 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
             placeholder="Buscar folio, matrícula o nombre…"
           />
         </label>
-        <Button variant="secondary" onClick={() => { setQuery(''); setDebouncedQuery(''); setStatusFilter('ALL'); setBucketFilter('ALL'); setCreatorRole('ALL'); setCreatorId('ALL'); setAssignedTo('ALL'); setCountry(''); setChannel(''); setCreatedFrom(''); setCreatedTo(''); setNextCursor(null); setCases(preview ? getLocalPreviewCases() : null); setSelectedCaseIds(new Set()); }}>Limpiar filtros</Button>
+        <Button variant="secondary" onClick={() => { setQuery(''); setDebouncedQuery(''); setStatusFilter('ALL'); setBucketFilter('ALL'); setStage('PENDING_AUDIT'); setCreatorRole('ALL'); setCreatorId('ALL'); setAssignedTo('ALL'); setCountry(''); setChannel(''); setCreatedFrom(''); setCreatedTo(''); setNextCursor(null); setCases(preview ? getLocalPreviewCases() : null); setSelectedCaseIds(new Set()); }}>Limpiar filtros</Button>
         </div>
       </div>
 
@@ -486,10 +500,10 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
                         </td>
                       )}
                       <td><span className="inline-flex items-center gap-1.5"><FileText size={15} aria-hidden="true" />{item.evidenceCount}</span></td>
-                      <td>{resolution ? <><Badge tone={resolutionTone(resolution.result)}>{resolutionLabel(resolution.result)}</Badge><span className="case-cell-secondary">{RESOLUTION_SOURCE_LABELS[resolution.source]}</span></> : <span className="text-muted">{item.auditIsCurrent === false ? 'Dictamen histórico' : 'Sin dictamen'}</span>}</td>
+                      <td>{resolution ? <><Badge tone={resolutionTone(resolution.result)}>{resolutionLabel(resolution.result)}</Badge><span className="case-cell-secondary">{RESOLUTION_SOURCE_LABELS[resolution.source]}</span></> : <span className="text-muted">{item.auditIsCurrent === false ? 'Pendiente de nueva auditoría' : 'Sin dictamen'}</span>}</td>
                       <td>
                         <div className="flex flex-col items-start gap-1">
-                          <Badge tone={CASE_STATUS_TONE[item.status]}>{CASE_STATUS_LABELS[item.status]}</Badge>
+                          <Badge tone={progressTone(item)}>{caseProgressLabel(item)}</Badge>
                           <Badge tone={caseKindTone(item.isTest)}>{caseKindLabel(item.isTest)}</Badge>
                         </div>
                       </td>
@@ -504,7 +518,7 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
           {selectedCase !== null && (
             <aside className="case-preview" aria-label="Resumen del expediente seleccionado">
               <div className="flex items-start justify-between gap-3">
-                <Badge tone={CASE_STATUS_TONE[selectedCase.status]}>{CASE_STATUS_LABELS[selectedCase.status]}</Badge>
+                <Badge tone={progressTone(selectedCase)}>{caseProgressLabel(selectedCase)}</Badge>
                 <span className="text-xs text-muted">{formatDateTime(selectedCase.updatedAt)}</span>
               </div>
               <h2 className="mt-3 text-lg font-semibold">{selectedCase.studentIdentifier || 'Sin matrícula'}{selectedCase.studentName ? ` · ${selectedCase.studentName}` : ''}</h2>
@@ -515,7 +529,7 @@ export function CasesPanel({ canReadAllCases = false }: { canReadAllCases?: bool
               <dl className="mt-4 flex flex-col gap-3 text-sm">
                 <div className="flex justify-between gap-3"><dt className="text-muted">Evidencias</dt><dd>{selectedCase.evidenceCount}</dd></div>
                 <div className="flex justify-between gap-3"><dt className="text-muted">Clasificación</dt><dd><Badge tone={caseKindTone(selectedCase.isTest)}>{caseKindLabel(selectedCase.isTest)}</Badge></dd></div>
-                <div className="flex justify-between gap-3"><dt className="text-muted">Dictamen vigente</dt><dd className="max-w-[65%] text-right">{selectedCase.effectiveResolution ? resolutionLabel(selectedCase.effectiveResolution.result) : selectedCase.auditIsCurrent === false ? 'Dictamen IA desactualizado' : 'Sin dictamen'}</dd></div>
+                <div className="flex justify-between gap-3"><dt className="text-muted">Dictamen vigente</dt><dd className="max-w-[65%] text-right">{selectedCase.effectiveResolution ? resolutionLabel(selectedCase.effectiveResolution.result) : selectedCase.auditIsCurrent === false ? 'Pendiente de nueva auditoría' : 'Sin dictamen'}</dd></div>
                 {selectedCase.effectiveResolution && <div className="flex justify-between gap-3"><dt className="text-muted">Origen</dt><dd title={RESOLUTION_SOURCE_DESCRIPTIONS[selectedCase.effectiveResolution.source]}>{RESOLUTION_SOURCE_LABELS[selectedCase.effectiveResolution.source]}</dd></div>}
               </dl>
               {selectedCase.canManageCases && !preview && selectedCase.status === 'DRAFT' && selectedCase.evidenceCount === 0 && (
