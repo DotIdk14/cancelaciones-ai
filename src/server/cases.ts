@@ -376,7 +376,7 @@ async function enrichCaseSummaries(
 export async function listCaseSummaryPage(
   client: InsForgeClient,
   auth: AuthContext,
-  options: { offset: number; limit: number; snapshot: string; status?: CaseStatus; creatorRole?: CaseCreatorRole; creatorId?: string; assignedTo?: string },
+  options: { offset: number; limit: number; snapshot: string; status?: CaseStatus; creatorRole?: CaseCreatorRole; creatorId?: string; assignedTo?: string; country?: string; channel?: string; createdFrom?: string; createdTo?: string },
 ): Promise<CaseSummaryRow[]> {
   const creatorIds = options.creatorRole ? await caseCreatorIdsForRole(client, options.creatorRole) : null;
   if (creatorIds?.length === 0) return [];
@@ -388,6 +388,10 @@ export async function listCaseSummaryPage(
     .order('id', { ascending: false });
   if (!capabilitiesForRole(auth.role).canReadAllCases) query = query.or(`created_by.eq.${auth.sub},assigned_to.eq.${auth.sub}`);
   if (options.status) query = query.eq('status', options.status);
+  if (options.country) query = query.eq('country', options.country);
+  if (options.channel) query = query.eq('channel', options.channel);
+  if (options.createdFrom) query = query.gte('created_at', options.createdFrom);
+  if (options.createdTo) query = query.lte('created_at', options.createdTo);
   if (options.creatorId) query = query.eq('created_by', options.creatorId);
   if (options.assignedTo) query = options.assignedTo === 'UNASSIGNED' ? query.is('assigned_to', null) : query.eq('assigned_to', options.assignedTo);
   if (creatorIds) query = query.in('created_by', creatorIds);
@@ -421,6 +425,65 @@ export async function countCaseSummaryStatuses(
   };
   const [all, ...values] = await Promise.all([count(), ...statuses.map((status) => count(status))]);
   return { ALL: all, ...Object.fromEntries(statuses.map((status, index) => [status, values[index] ?? 0])) } as Record<CaseStatus | 'ALL', number>;
+}
+
+export interface CaseBucketCounts {
+  ALL: number;
+  IN_PROGRESS: number;
+  COMPLETED: number;
+  ERRORS: number;
+}
+
+/** Cuenta las mismas cohortes persistidas que usa la bandeja, bajo sus filtros. */
+export async function countCaseBuckets(
+  client: InsForgeClient,
+  auth: AuthContext,
+  options: { status?: CaseStatus; creatorRole?: CaseCreatorRole; creatorId?: string; assignedTo?: string; country?: string; channel?: string; createdFrom?: string; createdTo?: string; search?: string },
+): Promise<CaseBucketCounts> {
+  const creatorIds = options.creatorRole ? await caseCreatorIdsForRole(client, options.creatorRole) : null;
+  if (creatorIds?.length === 0) return { ALL: 0, IN_PROGRESS: 0, COMPLETED: 0, ERRORS: 0 };
+  const rows: Array<{ id: string; status: CaseStatus; assigned_to: string | null; student_identifier: string | null; student_name?: string | null; external_case_id?: string | null }> = [];
+  for (let offset = 0; ; offset += 500) {
+    let query = client.database.from('cases')
+      .select('id,status,assigned_to,student_identifier,student_name,external_case_id')
+      .is('merged_into_case_id', null);
+    if (!capabilitiesForRole(auth.role).canReadAllCases) query = query.or(`created_by.eq.${auth.sub},assigned_to.eq.${auth.sub}`);
+    if (options.status) query = query.eq('status', options.status);
+    if (options.country) query = query.eq('country', options.country);
+    if (options.channel) query = query.eq('channel', options.channel);
+    if (options.createdFrom) query = query.gte('created_at', options.createdFrom);
+    if (options.createdTo) query = query.lte('created_at', options.createdTo);
+    if (options.creatorId) query = query.eq('created_by', options.creatorId);
+    if (options.assignedTo) query = options.assignedTo === 'UNASSIGNED' ? query.is('assigned_to', null) : query.eq('assigned_to', options.assignedTo);
+    if (creatorIds) query = query.in('created_by', creatorIds);
+    const { data, error } = await query.order('created_at', { ascending: false }).range(offset, offset + 499);
+    if (error || !data) dbError(error);
+    const page = data as typeof rows;
+    rows.push(...page);
+    if (page.length < 500) break;
+  }
+
+  const needle = options.search?.trim().toLocaleLowerCase('es');
+  const filtered = needle
+    ? rows.filter(row => [row.id, row.student_identifier ?? '', row.student_name ?? '', row.external_case_id ?? ''].some(value => value.toLocaleLowerCase('es').includes(needle)))
+    : rows;
+  const reviews = new Map<string, { created_by: string | null; coordinator_decision: string | null }>();
+  for (let offset = 0; offset < filtered.length; offset += 40) {
+    const ids = filtered.slice(offset, offset + 40).map(row => row.id);
+    const { data, error } = await client.database.from('case_reviews')
+      .select('case_id,created_by,coordinator_decision').in('case_id', ids);
+    if (error || !data) dbError(error);
+    for (const row of data as Array<{ case_id: string; created_by: string | null; coordinator_decision: string | null }>) reviews.set(row.case_id, row);
+  }
+  const capabilities = capabilitiesForRole(auth.role);
+  const counts: CaseBucketCounts = { ALL: filtered.length, IN_PROGRESS: 0, COMPLETED: 0, ERRORS: 0 };
+  for (const row of filtered) {
+    const review = reviews.get(row.id);
+    if (row.status === 'DRAFT' && row.assigned_to && (!capabilities.canReviewOwnCases || row.assigned_to === auth.sub)) counts.IN_PROGRESS += 1;
+    if (review?.coordinator_decision != null && row.status !== 'ERROR' && (!capabilities.canReviewOwnCases || review.created_by === auth.sub)) counts.COMPLETED += 1;
+    if (row.status === 'ERROR' && (!capabilities.canReviewOwnCases || (review?.coordinator_decision != null && review.created_by === auth.sub))) counts.ERRORS += 1;
+  }
+  return counts;
 }
 
 /** Contrato legado: devuelve todos los casos, conservado para clientes existentes. */

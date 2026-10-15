@@ -12,7 +12,7 @@ import {
   idempotencyKey,
 } from '../../src/server/http.js';
 import { createServerClient } from '../../src/server/insforge.js';
-import { countCaseSummaryStatuses, createCase, listCaseCreatorOptions, listCaseSummaries, listCaseSummaryPage, type CaseCreatorRole } from '../../src/server/cases.js';
+import { countCaseBuckets, countCaseSummaryStatuses, createCase, listCaseCreatorOptions, listCaseSummaries, listCaseSummaryPage, type CaseCreatorRole } from '../../src/server/cases.js';
 import { caseToSummary, deriveWorkflowState } from '../../src/server/dto.js';
 import { assertCaseWriteCapability } from '../../src/server/auth.js';
 import { CASE_STATUSES } from '../../src/skills/audit/types.js';
@@ -58,9 +58,16 @@ const CaseCursorSchema = z.object({
   creatorId: z.string().uuid().optional(),
   assignedTo: z.union([z.string().uuid(), z.literal('UNASSIGNED')]).optional(),
   workflowState: z.enum(['PENDING_ADVISOR', 'PENDING_COORDINATOR']).optional(),
+  bucket: z.enum(['ALL', 'IN_PROGRESS', 'COMPLETED', 'ERRORS']).optional(),
+  search: z.string().max(200).optional(),
+  country: z.string().max(80).optional(),
+  channel: z.string().max(80).optional(),
+  createdFrom: z.string().datetime().optional(),
+  createdTo: z.string().datetime().optional(),
 }).strict();
 
 const WorkflowFilterSchema = z.enum(['PENDING_ADVISOR', 'PENDING_COORDINATOR']);
+const CaseBucketSchema = z.enum(['ALL', 'IN_PROGRESS', 'COMPLETED', 'ERRORS']);
 
 function decodeCursor(value: string): z.infer<typeof CaseCursorSchema> {
   try {
@@ -137,6 +144,9 @@ export default handleRoute(async (req, res) => {
       if (req.query.workflowState !== undefined && typeof req.query.workflowState !== 'string') {
         throw new ApiError(400, 'VALIDATION_ERROR', 'workflowState debe ser una cadena');
       }
+      for (const key of ['bucket', 'search', 'country', 'channel', 'createdFrom', 'createdTo'] as const) {
+        if (req.query[key] !== undefined && typeof req.query[key] !== 'string') throw new ApiError(400, 'VALIDATION_ERROR', `${key} debe ser una cadena`);
+      }
       const cursor = typeof req.query.cursor === 'string' ? decodeCursor(req.query.cursor) : null;
       const rawStatus = typeof req.query.status === 'string' ? req.query.status : undefined;
       const statusParsed = rawStatus === undefined ? undefined : z.enum(CASE_STATUSES).safeParse(rawStatus);
@@ -153,11 +163,22 @@ export default handleRoute(async (req, res) => {
       const rawWorkflowState = typeof req.query.workflowState === 'string' ? req.query.workflowState : undefined;
       const workflowStateParsed = rawWorkflowState === undefined ? undefined : WorkflowFilterSchema.safeParse(rawWorkflowState);
       if (workflowStateParsed && !workflowStateParsed.success) throw new ApiError(400, 'VALIDATION_ERROR', 'workflowState no es válido');
+      const rawBucket = typeof req.query.bucket === 'string' ? req.query.bucket : undefined;
+      const bucketParsed = rawBucket === undefined ? undefined : CaseBucketSchema.safeParse(rawBucket);
+      if (bucketParsed && !bucketParsed.success) throw new ApiError(400, 'VALIDATION_ERROR', 'bucket no es válido');
+      const search = typeof req.query.search === 'string' ? req.query.search.trim().slice(0, 200) : undefined;
+      const country = typeof req.query.country === 'string' ? req.query.country.trim() : undefined;
+      const channel = typeof req.query.channel === 'string' ? req.query.channel.trim() : undefined;
+      const fromParsed = req.query.createdFrom === undefined ? undefined : z.string().datetime().safeParse(req.query.createdFrom);
+      const toParsed = req.query.createdTo === undefined ? undefined : z.string().datetime().safeParse(req.query.createdTo);
+      if (fromParsed && !fromParsed.success) throw new ApiError(400, 'VALIDATION_ERROR', 'createdFrom no es válido');
+      if (toParsed && !toParsed.success) throw new ApiError(400, 'VALIDATION_ERROR', 'createdTo no es válido');
+      if (fromParsed?.success && toParsed?.success && fromParsed.data > toParsed.data) throw new ApiError(400, 'VALIDATION_ERROR', 'El rango de fechas no es válido');
       const capabilities = capabilitiesForRole(req.auth!.role);
       if (workflowStateParsed?.success && !capabilities.canFinalizeAnyCase) {
         throw new ApiError(403, 'AUTH_ERROR', 'No tienes permiso para consultar las bandejas de coordinación');
       }
-      if (cursor && (cursor.limit !== parsedLimit.data || cursor.status !== statusParsed?.data || cursor.creatorRole !== creatorRoleParsed?.data || cursor.creatorId !== creatorIdParsed?.data || cursor.assignedTo !== assignedTo || cursor.workflowState !== workflowStateParsed?.data)) {
+      if (cursor && (cursor.limit !== parsedLimit.data || cursor.status !== statusParsed?.data || cursor.creatorRole !== creatorRoleParsed?.data || cursor.creatorId !== creatorIdParsed?.data || cursor.assignedTo !== assignedTo || cursor.workflowState !== workflowStateParsed?.data || cursor.bucket !== bucketParsed?.data || cursor.search !== search || cursor.country !== country || cursor.channel !== channel || cursor.createdFrom !== fromParsed?.data || cursor.createdTo !== toParsed?.data)) {
         throw new ApiError(400, 'VALIDATION_ERROR', 'El cursor no corresponde a los filtros solicitados');
       }
       const limit = cursor?.limit ?? parsedLimit.data;
@@ -166,6 +187,12 @@ export default handleRoute(async (req, res) => {
       const creatorRole = cursor?.creatorRole ?? creatorRoleParsed?.data;
       const creatorId = cursor?.creatorId ?? creatorIdParsed?.data;
       const workflowState = cursor?.workflowState ?? workflowStateParsed?.data;
+      const bucket = cursor?.bucket ?? bucketParsed?.data ?? 'ALL';
+      const effectiveSearch = cursor?.search ?? search;
+      const effectiveCountry = cursor?.country ?? country;
+      const effectiveChannel = cursor?.channel ?? channel;
+      const createdFrom = cursor?.createdFrom ?? fromParsed?.data;
+      const createdTo = cursor?.createdTo ?? toParsed?.data;
       const offset = cursor?.offset ?? 0;
       const listOptions = {
         offset,
@@ -175,14 +202,18 @@ export default handleRoute(async (req, res) => {
         ...(creatorRole ? { creatorRole: creatorRole as CaseCreatorRole } : {}),
         ...(creatorId ? { creatorId } : {}),
         ...(assignedTo ? { assignedTo } : {}),
+        ...(effectiveCountry ? { country: effectiveCountry } : {}),
+        ...(effectiveChannel ? { channel: effectiveChannel } : {}),
+        ...(createdFrom ? { createdFrom } : {}),
+        ...(createdTo ? { createdTo } : {}),
       };
       let cases;
       let hasMore: boolean;
       let nextOffset: number;
-      if (workflowState) {
-        // workflowState se deriva de case_reviews y no es una columna de cases.
-        // Escanea páginas acotadas del conjunto filtrado para que la paginación
-        // siga siendo correcta aunque la mayoría no pertenezca a esta bandeja.
+      if (workflowState || bucket !== 'ALL' || effectiveSearch) {
+        // La clasificación humana se deriva de case_reviews, así que las
+        // bandejas se filtran sobre páginas acotadas ya enriquecidas. El cursor
+        // guarda el offset de lectura para que búsqueda y bandeja paginen igual.
         const pageSize = 100;
         const matching = [];
         let scanOffset = offset;
@@ -192,9 +223,22 @@ export default handleRoute(async (req, res) => {
           if (batch.length === 0) break;
           for (let index = 0; index < batch.length; index += 1) {
             const row = batch[index]!;
-            const matchesWorkflow = deriveWorkflowState(row.review ?? null) === workflowState;
+            const matchesWorkflow = !workflowState || deriveWorkflowState(row.review ?? null) === workflowState;
             const hasCurrentAiResolution = caseToSummary(row).effectiveResolution?.source === 'AI';
             if (!matchesWorkflow || (workflowState === 'PENDING_ADVISOR' && !hasCurrentAiResolution)) continue;
+            const summary = caseToSummary(row);
+            const isOwnerReviewer = row.review?.created_by === req.auth!.sub;
+            if (bucket === 'IN_PROGRESS' && (row.status !== 'DRAFT' || !row.assigned_to || (capabilities.canReviewOwnCases && row.assigned_to !== req.auth!.sub))) continue;
+            if (bucket === 'COMPLETED' && (summary.workflowState !== 'FINALIZED' || row.status === 'ERROR' || (capabilities.canReviewOwnCases && !isOwnerReviewer))) continue;
+            // ERROR conserva su significado técnico actual (cases.status). Para
+            // Asesor se limita a un expediente propio, con revisión propia ya
+            // finalizada; los roles de supervisión ven el conjunto global.
+            if (bucket === 'ERRORS' && (row.status !== 'ERROR' || (capabilities.canReviewOwnCases && (summary.workflowState !== 'FINALIZED' || !isOwnerReviewer)))) continue;
+            if (effectiveSearch) {
+              const needle = effectiveSearch.toLocaleLowerCase('es');
+              const searchable = [row.id, row.external_case_id ?? '', row.student_identifier ?? '', row.student_name ?? ''];
+              if (!searchable.some(value => value.toLocaleLowerCase('es').includes(needle))) continue;
+            }
             if (matching.length === limit) {
               extraMatchOffset = scanOffset + index;
               break;
@@ -214,7 +258,7 @@ export default handleRoute(async (req, res) => {
         nextOffset = offset + limit;
       }
       const nextCursor = hasMore
-        ? Buffer.from(JSON.stringify({ offset: workflowState ? nextOffset : offset + limit, snapshot, limit, ...(status ? { status } : {}), ...(creatorRole ? { creatorRole } : {}), ...(creatorId ? { creatorId } : {}), ...(assignedTo ? { assignedTo } : {}), ...(workflowState ? { workflowState } : {}) })).toString('base64url')
+        ? Buffer.from(JSON.stringify({ offset: workflowState || bucket !== 'ALL' || effectiveSearch ? nextOffset : offset + limit, snapshot, limit, ...(status ? { status } : {}), ...(creatorRole ? { creatorRole } : {}), ...(creatorId ? { creatorId } : {}), ...(assignedTo ? { assignedTo } : {}), ...(workflowState ? { workflowState } : {}), ...(bucket !== 'ALL' ? { bucket } : {}), ...(effectiveSearch ? { search: effectiveSearch } : {}), ...(effectiveCountry ? { country: effectiveCountry } : {}), ...(effectiveChannel ? { channel: effectiveChannel } : {}), ...(createdFrom ? { createdFrom } : {}), ...(createdTo ? { createdTo } : {}) })).toString('base64url')
         : null;
       const statusCounts = cursor ? undefined : await countCaseSummaryStatuses(
         client,
@@ -223,6 +267,17 @@ export default handleRoute(async (req, res) => {
         creatorId,
         assignedTo,
       );
+      const bucketCounts = cursor ? undefined : await countCaseBuckets(client, req.auth!, {
+        ...(status ? { status } : {}),
+        ...(creatorRole ? { creatorRole: creatorRole as CaseCreatorRole } : {}),
+        ...(creatorId ? { creatorId } : {}),
+        ...(assignedTo ? { assignedTo } : {}),
+        ...(effectiveCountry ? { country: effectiveCountry } : {}),
+        ...(effectiveChannel ? { channel: effectiveChannel } : {}),
+        ...(createdFrom ? { createdFrom } : {}),
+        ...(createdTo ? { createdTo } : {}),
+        ...(effectiveSearch ? { search: effectiveSearch } : {}),
+      });
       const creatorOptions = !cursor && capabilities.canReadAllCases
         ? await listCaseCreatorOptions(client)
         : undefined;
@@ -230,6 +285,7 @@ export default handleRoute(async (req, res) => {
         cases: cases.map((row) => caseToSummary(row, capabilities.canManageCases)),
         nextCursor,
         statusCounts,
+        ...(bucketCounts ? { bucketCounts } : {}),
         ...(creatorOptions ? { creatorOptions } : {}),
         ...(creatorOptions ? { responsibleOptions: creatorOptions.map((item) => ({ userId: item.creatorId, name: item.name })) } : {}),
       });

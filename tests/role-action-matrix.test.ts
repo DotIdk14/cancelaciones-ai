@@ -53,6 +53,7 @@ vi.mock('../src/server/cases', async () => {
     caseOwnedBy: store.caseOwnedBy,
     assertCaseNotFinalized: store.assertCaseNotFinalized,
     listCaseSummaries: store.listCaseSummaries,
+    countCaseBuckets: async () => ({ ALL: 0, IN_PROGRESS: 0, COMPLETED: 0, ERRORS: 0 }),
     createCase: store.createCase,
     listEvidenceRows: store.listEvidenceRows,
     getEvidenceOr404: store.getEvidenceOr404,

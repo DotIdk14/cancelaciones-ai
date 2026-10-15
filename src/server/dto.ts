@@ -39,6 +39,8 @@ export interface CaseSummaryDto {
   creatorId?: string | null;
   assignedTo?: string | null;
   assignedName?: string | null;
+  country: string | null;
+  channel: string | null;
 }
 
 export interface CaseDetailDto {
@@ -242,6 +244,8 @@ export function caseToSummary(row: CaseSummaryRow, canManageCases = false): Case
     creatorId: row.created_by ?? null,
     assignedTo: row.assigned_to ?? null,
     assignedName: row.assigned_name ?? null,
+    country: row.country ?? null,
+    channel: row.channel ?? null,
   };
 }
 

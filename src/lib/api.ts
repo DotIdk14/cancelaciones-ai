@@ -72,6 +72,8 @@ export interface CaseSummary {
   creatorId?: string | null;
   assignedTo?: string | null;
   assignedName?: string | null;
+  country?: string | null;
+  channel?: string | null;
 }
 
 export type CaseCreatorRole = 'user' | 'coordinator' | 'manager';
@@ -171,6 +173,7 @@ export interface CaseSummaryPage {
   cases: CaseSummary[];
   nextCursor: string | null;
   statusCounts?: Record<CaseStatus | 'ALL', number>;
+  bucketCounts?: { ALL: number; IN_PROGRESS: number; COMPLETED: number; ERRORS: number };
   creatorOptions?: CaseCreatorOption[];
   responsibleOptions?: Array<{ userId: string; name: string | null }>;
 }
@@ -614,6 +617,12 @@ export async function listCasePage(options: {
   creatorRole?: CaseCreatorRole | 'ALL';
   creatorId?: string | 'ALL';
   assignedTo?: string | 'ALL';
+  country?: string;
+  channel?: string;
+  createdFrom?: string;
+  createdTo?: string;
+  search?: string;
+  bucket?: 'ALL' | 'IN_PROGRESS' | 'COMPLETED' | 'ERRORS';
   limit?: number;
 } = {}): Promise<CaseSummaryPage> {
   const params = new URLSearchParams({ limit: String(options.limit ?? 50) });
@@ -623,6 +632,12 @@ export async function listCasePage(options: {
   if (options.creatorRole && options.creatorRole !== 'ALL') params.set('creatorRole', options.creatorRole);
   if (options.creatorId && options.creatorId !== 'ALL') params.set('creatorId', options.creatorId);
   if (options.assignedTo && options.assignedTo !== 'ALL') params.set('assignedTo', options.assignedTo);
+  if (options.country) params.set('country', options.country);
+  if (options.channel) params.set('channel', options.channel);
+  if (options.createdFrom) params.set('createdFrom', options.createdFrom);
+  if (options.createdTo) params.set('createdTo', options.createdTo);
+  if (options.search?.trim()) params.set('search', options.search.trim());
+  if (options.bucket && options.bucket !== 'ALL') params.set('bucket', options.bucket);
   return request<CaseSummaryPage>(`/api/cases?${params.toString()}`, {}, [200]);
 }
 

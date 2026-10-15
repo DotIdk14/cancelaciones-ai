@@ -18,7 +18,7 @@ interface DockItem {
 
 const DOCK_ITEMS: readonly DockItem[] = [
   { name: 'dashboard', href: '#/', label: 'Resumen', Icon: LayoutDashboard, allowed: (c) => c.canReadAllCases, previewAllowed: true },
-  { name: 'quality', href: '#/calidad', label: 'Calidad', Icon: ShieldCheck, allowed: (c) => c.canManageCases, previewAllowed: true },
+  { name: 'quality', href: '#/calidad', label: 'Calidad', Icon: ShieldCheck, allowed: (c) => c.canManageCases || c.canFinalizeAnyCase, previewAllowed: true },
   { name: 'ai-costs', href: '#/ia-costos', label: 'Actividad y consumo', Icon: Coins, allowed: (c) => c.canManageCases, previewAllowed: true },
   { name: 'cases', href: '#/casos', label: 'Expedientes', Icon: FolderOpen, allowed: (c) => c.canReadAllCases || c.canReviewOwnCases, previewAllowed: true },
   { name: 'new-case', href: '#/nuevo', label: 'Nueva auditoría', Icon: Plus, allowed: (c) => c.canWriteOwnedCases || c.canManageCases, previewAllowed: true },

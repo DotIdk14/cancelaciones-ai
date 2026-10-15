@@ -44,12 +44,17 @@ async function renderList(cases: CaseSummary[], canReadAllCases = false, canFina
     const creatorId = url.searchParams.get('creatorId');
     const assignedTo = url.searchParams.get('assignedTo');
     const workflowState = url.searchParams.get('workflowState');
+    const bucket = url.searchParams.get('bucket');
     const filtered = cases.filter((item) => (!status || item.status === status)
       && (!creatorRole || item.creatorRole === creatorRole)
       && (!creatorId || item.creatorId === creatorId)
       && (!assignedTo || (assignedTo === 'UNASSIGNED' ? !item.assignedTo : item.assignedTo === assignedTo))
       && (!workflowState || (item.workflowState === workflowState
-        && (workflowState !== 'PENDING_ADVISOR' || item.effectiveResolution?.source === 'AI'))));
+        && (workflowState !== 'PENDING_ADVISOR' || item.effectiveResolution?.source === 'AI')))
+      && (!bucket || bucket === 'ALL'
+        || (bucket === 'IN_PROGRESS' && item.status === 'DRAFT' && Boolean(item.assignedTo))
+        || (bucket === 'COMPLETED' && item.workflowState === 'FINALIZED')
+        || (bucket === 'ERRORS' && item.status === 'ERROR' && (canReadAllCases || item.workflowState === 'FINALIZED'))));
     const scoped = creatorRole || creatorId || assignedTo ? filtered : cases;
     const statusCounts = {
       ALL: scoped.length,
@@ -99,34 +104,41 @@ describe('CasesPanel — resolución efectiva', () => {
     await vi.waitFor(() => expect(screen.getByRole('row', { name: /SIN-RESPONSABLE/ })).toBeTruthy());
     expect(screen.queryByRole('row', { name: /ASIGNADO/ })).toBeNull();
   });
-  it('ofrece las bandejas de coordinación y el historial completo de dictámenes', async () => {
+  it('muestra exactamente las cuatro pestañas y clasifica por estado persistido', async () => {
     await renderList([
       makeCase({ id: 'case-ai', studentIdentifier: 'IA-PENDIENTE', workflowState: 'PENDING_ADVISOR', effectiveResolution: { result: 'BAJA', source: 'AI' } }),
       makeCase({ id: 'case-unresolved', studentIdentifier: 'SIN-DICTAMEN', workflowState: 'PENDING_ADVISOR', effectiveResolution: null }),
       makeCase({ id: 'case-reviewed', studentIdentifier: 'REVISADO', workflowState: 'PENDING_COORDINATOR', effectiveResolution: { result: 'BAJA', source: 'HUMAN' } }),
       makeCase({ id: 'case-finalized', studentIdentifier: 'FINALIZADO', workflowState: 'FINALIZED', effectiveResolution: { result: 'BAJA', source: 'HUMAN' } }),
+      makeCase({ id: 'case-progress', studentIdentifier: 'EN-CURSO', status: 'DRAFT', assignedTo: 'advisor-1' }),
+      makeCase({ id: 'case-error', studentIdentifier: 'CON-ERROR', status: 'ERROR' }),
     ], true, true);
 
-    expect(screen.getByRole('button', { name: 'Pendientes de Asesor' }).getAttribute('aria-pressed')).toBe('true');
-    expect(screen.getByRole('row', { name: /IA-PENDIENTE/ })).toBeTruthy();
-    expect(screen.queryByRole('row', { name: /SIN-DICTAMEN|REVISADO|FINALIZADO/ })).toBeNull();
+    expect(screen.getAllByRole('tab')).toHaveLength(4);
+    expect(screen.getByRole('tab', { name: /^Todo/ })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: /^En Curso/ })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: /^Completados/ })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: /^Errores/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Listos para|Borradores|Pendientes de/ })).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Pendientes de Coordinador' }));
-    await vi.waitFor(() => expect(screen.getByRole('row', { name: /REVISADO/ })).toBeTruthy());
-    expect(screen.queryByRole('row', { name: /IA-PENDIENTE|SIN-DICTAMEN|FINALIZADO/ })).toBeNull();
-    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).includes('workflowState=PENDING_COORDINATOR'))).toBe(true);
+    fireEvent.click(screen.getByRole('tab', { name: /^En Curso/ }));
+    await vi.waitFor(() => expect(screen.getByRole('row', { name: /EN-CURSO/ })).toBeTruthy());
+    expect(screen.queryByRole('row', { name: /IA-PENDIENTE|SIN-DICTAMEN|REVISADO|FINALIZADO/ })).toBeNull();
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).includes('bucket=IN_PROGRESS'))).toBe(true);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Historial completo' }));
-    await vi.waitFor(() => expect(screen.getByRole('row', { name: /IA-PENDIENTE/ })).toBeTruthy());
-    expect(screen.getByRole('row', { name: /SIN-DICTAMEN/ })).toBeTruthy();
-    expect(screen.getByRole('row', { name: /REVISADO/ })).toBeTruthy();
-    expect(screen.getByRole('row', { name: /FINALIZADO/ })).toBeTruthy();
-  });
+    fireEvent.click(screen.getByRole('tab', { name: /^Completados/ }));
+    await vi.waitFor(() => expect(screen.getByRole('row', { name: /FINALIZADO/ })).toBeTruthy());
+    expect(screen.queryByRole('row', { name: /REVISADO/ })).toBeNull();
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).includes('bucket=COMPLETED'))).toBe(true);
 
-  it('no muestra las bandejas de coordinación a quien no tiene esa capacidad', async () => {
+    fireEvent.click(screen.getByRole('tab', { name: /^Errores/ }));
+    await vi.waitFor(() => expect(screen.getByRole('row', { name: /CON-ERROR/ })).toBeTruthy());
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input).includes('bucket=ERRORS'))).toBe(true);
+  }, 15000);
+
+  it('no cambia el número ni el nombre de pestañas por el rol', async () => {
     await renderList([makeCase()], true, false);
-    expect(screen.queryByRole('button', { name: 'Pendientes de Asesor' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Pendientes de Coordinador' })).toBeNull();
+    expect(screen.getAllByRole('tab')).toHaveLength(4);
   });
 
   it('muestra Humano para el caso revisado y IA para el que sólo tiene dictamen', async () => {
@@ -177,7 +189,7 @@ describe('CasesPanel — resolución efectiva', () => {
     fireEvent.change(screen.getByRole('searchbox', { name: /buscar por folio/i }), { target: { value: '2025' } });
     expect(screen.getByRole('row', { name: /UTEL-2025-002/ })).toBeTruthy();
     expect(screen.queryByRole('row', { name: /UTEL-2026-001/ })).toBeNull();
-    expect(screen.getByText('Mostrando 1 de 2 expedientes')).toBeTruthy();
+    expect(screen.getByText('Mostrando 1 expedientes en esta página')).toBeTruthy();
   });
 
   it('filtra por estado y actualiza el expediente seleccionado', async () => {
@@ -186,7 +198,7 @@ describe('CasesPanel — resolución efectiva', () => {
       makeCase({ id: 'case-draft', status: 'DRAFT' }),
     ]);
 
-    fireEvent.click(screen.getByRole('button', { name: /borradores/i }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Filtrar por estado técnico' }), { target: { value: 'DRAFT' } });
     await vi.waitFor(() => expect(screen.getByRole('row', { name: /UTEL-2026-001/ })).toBeTruthy());
     expect(screen.getByRole('link', { name: /abrir expediente/i }).getAttribute('href')).toBe('#/casos/case-draft');
   });
@@ -244,7 +256,7 @@ describe('CasesPanel — resolución efectiva', () => {
     await vi.waitFor(() => expect(screen.getByRole('row', { name: /UTEL-2026-002/i })).toBeTruthy());
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(String(fetchMock.mock.calls[1]?.[0])).toContain('cursor=cursor-page-two');
-    expect(screen.getByText('Mostrando 2 de 2 expedientes')).toBeTruthy();
+    expect(screen.getByText('Mostrando 2 expedientes en esta página')).toBeTruthy();
   });
 });
 

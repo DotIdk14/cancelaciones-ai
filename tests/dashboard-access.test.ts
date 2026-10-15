@@ -10,7 +10,7 @@ vi.mock('../src/server/http', () => ({
 vi.mock('../src/server/insforge', () => ({ createServerClient: () => ({}) }));
 vi.mock('../src/server/dashboard-queries', () => ({
   getDashboardSummary: vi.fn(async () => ({ kpi: { auditedCases: 3 }, cost: { totalCostUsd: 7 }, activity: { tokens: 99 } })),
-  getAiCosts: vi.fn(async () => ({ realReport: true })), getAiQuality: vi.fn(), getDashboardFilterOptions: vi.fn(),
+  getAiCosts: vi.fn(async () => ({ realReport: true })), getAiQuality: vi.fn(async () => ({ qualityData: true })), getDashboardFilterOptions: vi.fn(),
 }));
 import handler from '../api/dashboard/[view]';
 import type { ApiRequest, ApiResponse } from '../src/server/http';
@@ -25,5 +25,17 @@ describe('consumo administrativo en la frontera HTTP', () => {
     const res = { body: null };
     await handler({ method: 'GET', query: { view: 'ai-costs', from: '2026-10-01', to: '2026-10-31' }, auth: fakeAuthContext('manager') } as ApiRequest, res as unknown as ApiResponse);
     expect(res.body).toEqual({ costs: { realReport: true } });
+  });
+  it('el Coordinador puede consultar Calidad, pero no IA y Costos', async () => {
+    const quality = { body: null };
+    await handler({ method: 'GET', query: { view: 'quality', from: '2026-10-01', to: '2026-10-31' }, auth: fakeAuthContext('coordinator') } as ApiRequest, quality as unknown as ApiResponse);
+    expect(quality.body).toEqual({ quality: { qualityData: true } });
+
+    await expect(handler({ method: 'GET', query: { view: 'ai-costs', from: '2026-10-01', to: '2026-10-31' }, auth: fakeAuthContext('coordinator') } as ApiRequest, { body: null } as unknown as ApiResponse))
+      .rejects.toMatchObject({ status: 403 });
+  });
+  it('el Asesor sigue sin acceso al informe de Calidad', async () => {
+    await expect(handler({ method: 'GET', query: { view: 'quality', from: '2026-10-01', to: '2026-10-31' }, auth: fakeAuthContext('user') } as ApiRequest, { body: null } as unknown as ApiResponse))
+      .rejects.toMatchObject({ status: 403 });
   });
 });

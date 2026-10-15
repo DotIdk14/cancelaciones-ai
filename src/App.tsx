@@ -155,7 +155,8 @@ function Shell({
   const restrictedRoute =
     (!capabilities.canReadAllCases && route.name === 'dashboard') ||
     ((route.name === 'flokzu-import' || route.name === 'flokzu-review') && !capabilities.canImportCases) ||
-    (!capabilities.canManageCases && (route.name === 'quality' || route.name === 'ai-costs' || route.name === 'incidents'));
+    (route.name === 'quality' && !capabilities.canManageCases && !capabilities.canFinalizeAnyCase) ||
+    (!capabilities.canManageCases && (route.name === 'ai-costs' || route.name === 'incidents'));
   const displayRoute: AppRoute = restrictedRoute ? { name: 'cases' } : route;
   const routeKey = route.name === 'case' ? `${route.name}:${route.caseId}` : route.name;
 

@@ -43,6 +43,7 @@ vi.mock('../src/server/cases', async () => {
         status === 'ALL' ? rows.length : rows.filter((row) => row.status === status).length,
       ]));
     },
+    countCaseBuckets: async () => ({ ALL: 0, IN_PROGRESS: 0, COMPLETED: 0, ERRORS: 0 }),
     listCaseCreatorOptions: async () => [],
     createCase: store.createCase,
     listEvidenceRows: store.listEvidenceRows,
@@ -278,6 +279,34 @@ describe('GET /api/cases — alcance por capacidad, no por nombre de rol', () =>
 });
 
 describe('GET /api/cases — bandejas derivadas del flujo humano', () => {
+  it('aplica el alcance de Asesor en En Curso, Completados y Errores con datos persistidos', async () => {
+    const otherAdvisor = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    seedCase({ id: 'assigned-to-me', status: 'DRAFT', assigned_to: FAKE_USER_SUB });
+    seedCase({ id: 'assigned-to-other', status: 'DRAFT', assigned_to: otherAdvisor });
+    seedCase({ id: 'my-final-review', status: 'COMPLETED' });
+    seedAudit({ id: 'audit-my-final', case_id: 'my-final-review', resultJson: validAuditResult });
+    seedReview({ case_id: 'my-final-review', audit_id: 'audit-my-final', created_by: FAKE_USER_SUB, coordinator_decision: 'APPROVE' });
+    seedCase({ id: 'other-final-review', status: 'COMPLETED' });
+    seedAudit({ id: 'audit-other-final', case_id: 'other-final-review', resultJson: validAuditResult });
+    seedReview({ case_id: 'other-final-review', audit_id: 'audit-other-final', created_by: otherAdvisor, coordinator_decision: 'APPROVE' });
+    seedCase({ id: 'my-final-error', status: 'ERROR' });
+    seedReview({ case_id: 'my-final-error', created_by: FAKE_USER_SUB, coordinator_decision: 'APPROVE' });
+    seedCase({ id: 'other-final-error', status: 'ERROR' });
+    seedReview({ case_id: 'other-final-error', created_by: otherAdvisor, coordinator_decision: 'APPROVE' });
+
+    for (const [bucket, expected] of [
+      ['IN_PROGRESS', ['assigned-to-me']],
+      ['COMPLETED', ['my-final-review']],
+      ['ERRORS', ['my-final-error']],
+    ] as const) {
+      const res = makeApiResponse();
+      await casesHandler(makeApiRequest('GET', { limit: '20', bucket }, undefined, fakeAuthContext('user')), res);
+      expect(res.statusCode).toBe(200);
+      const ids = (JSON.parse(res.body) as { cases: Array<{ id: string }> }).cases.map((row) => row.id);
+      expect(ids).toEqual(expected);
+    }
+  });
+
   it('solo incluye dictámenes IA vigentes en Pendientes de Asesor y pagina el siguiente resultado', async () => {
     for (const id of ['ai-1', 'ai-2']) {
       seedCase({ id, status: 'COMPLETED' });
