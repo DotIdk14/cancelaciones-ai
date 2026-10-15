@@ -1,5 +1,23 @@
 # Auditoría y conciliación de migraciones
 
+## Preparación de Resumen y canales CaVe · 15 de octubre de 2026
+
+La migración `20261015100000_dashboard-sales-channel-flokzu.sql` se ensayó con
+el runner oficial en la rama aislada `cancelaciones-predeploy-20261009`, cuya
+historia ya incluía las migraciones hasta `20261014180300`. La aplicación
+terminó correctamente. Las cuatro vistas nuevas exponen `sales_channel` como
+texto; `anon` y `authenticated` no tienen `SELECT`, y `project_admin` sí.
+
+No se aplicó en producción. `backups create` respondió `Manual backup quota full
+(1/1)`. Se conservó el único backup nativo, `pre-deploy-current-schema-2026-10-09`;
+no se restauró porque es anterior al estado actual. Como resguardo complementario
+se exportó el SQL actual de la base a
+`tmp/release-dashboard-cave/production-before.sql` (SHA-256
+`01D2B35E73BF2260656C2459F8FCB62ADD3BD19DC8959E64DDBC486CCAFC2F80`). Esa
+exportación solo cubre la base de datos: no incluye Storage ni se ha probado su
+restauración, por lo que no sustituye el respaldo requerido. La migración sigue
+pendiente en producción; tampoco se hizo push a `main` ni despliegue de Vercel.
+
 ## Asignación y vinculación · 14 de octubre de 2026
 
 Con autorización expresa del propietario para corregir también la base real,
