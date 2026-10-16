@@ -199,7 +199,7 @@ describe('CasesPanel — resolución efectiva', () => {
     ]);
 
     fireEvent.change(screen.getByRole('searchbox', { name: /buscar por folio/i }), { target: { value: '2025' } });
-    expect(screen.getByRole('row', { name: /UTEL-2025-002/ })).toBeTruthy();
+    await vi.waitFor(() => expect(screen.getByRole('row', { name: /UTEL-2025-002/ })).toBeTruthy());
     expect(screen.queryByRole('row', { name: /UTEL-2026-001/ })).toBeNull();
     expect(screen.getByText('Mostrando 1 expedientes en esta página')).toBeTruthy();
   });

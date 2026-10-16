@@ -385,12 +385,14 @@ describe('finalizar como coordinador · POST /api/cases/:id/review {decision}', 
     { decision: 'APPROVE', comment: 'Comentario en expediente ajeno.' },
   ])('permite cambiar la decisión y agregar comentarios en casos ajenos: %j', async (body) => {
     seedCase({ id: OTHER_CASE, created_by: OTHER_OWNER });
-    const review = seedReview({ case_id: OTHER_CASE, result: 'BAJA', coordinator_decision: null });
+    seedReview({ case_id: OTHER_CASE, result: 'BAJA', coordinator_decision: null });
     const res = await postReview('coordinator', OTHER_CASE, { country: 'MX', channel: 'WHATSAPP', ...body });
     expect(res.statusCode, res.body).toBe(200);
-    expect(review.coordinator_decision).toBe(body.decision);
-    expect(review.coordinator_comment).toBe(body.comment ?? '');
-    expect(review.result).toBe('BAJA');
+    const payload = JSON.parse(res.body) as { review: { coordinatorDecision: string; coordinatorResolution: string | null; coordinatorComment: string; result: string } };
+    expect(payload.review.coordinatorDecision).toBe(body.decision);
+    expect(payload.review.coordinatorComment).toBe(body.comment ?? '');
+    expect(payload.review.result).toBe('BAJA');
+    if (body.decision === 'CHANGE') expect(payload.review.coordinatorResolution).toBe(body.resolution);
   });
 
   it('permite cambiar resolución y comentar al coordinador propietario', async () => {
