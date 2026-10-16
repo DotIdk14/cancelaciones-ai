@@ -37,6 +37,7 @@ export type WorkflowState = 'PENDING_ADVISOR' | 'PENDING_COORDINATOR' | 'FINALIZ
 
 export interface CaseSummary {
   id: string;
+  externalCaseId?: string | null;
   status: CaseStatus;
   studentIdentifier: string | null;
   studentName?: string | null;

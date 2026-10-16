@@ -486,8 +486,8 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
             role={role}
             canReviewOwnCase={capabilities.canReviewOwnCases && detail.case.canWrite}
             canFinalizeAnyCase={capabilities.canFinalizeAnyCase}
-            canChangeResolution={detail.case.canWrite}
-            canAddComments={detail.case.canWrite}
+            canChangeResolution={capabilities.canFinalizeAnyCase}
+            canAddComments={capabilities.canFinalizeAnyCase}
             caseCountry={detail.case.country ?? null}
             caseChannel={detail.case.channel ?? null}
             onSubmitted={() => void load()}

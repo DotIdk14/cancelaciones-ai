@@ -673,7 +673,7 @@ pre, code, .font-mono { font-family: var(--font-mono); }
 .case-detail-workspace .case-detail-evidence { top: 12px; max-height: calc(100dvh - 180px); }
 .case-detail-workspace .case-detail-tab-content { min-height: 440px; }
 .case-detail-preview-page .case-workspace { padding-top: 16px; }
-.case-context-menu { position: fixed; top: 80px; left: max(16px, calc((100vw - 1680px) / 2 + 16px)); margin: 0; z-index: 45; width: min(390px, calc(100vw - 32px)); max-width: calc(100vw - 32px); height: calc(100dvh - 180px); min-height: 0; max-height: calc(100dvh - 180px); border-radius: var(--radius-surface); background: var(--surface-1); box-shadow: var(--elevation-menu); }
+.case-context-menu { position: fixed; top: 80px; left: max(16px, calc((100vw - 1680px) / 2 + 16px)); margin: 0; z-index: 45; width: min(390px, calc(100vw - 32px)); max-width: min(800px, calc(100vw - 32px)); height: calc(100dvh - 180px); min-width: min(320px, calc(100vw - 32px)); min-height: min(320px, calc(100dvh - 96px)); max-height: calc(100dvh - 96px); resize: both; overflow: hidden; border-radius: var(--radius-surface); background: var(--surface-1); box-shadow: var(--elevation-menu); }
 .case-context-menu:not([open]) { display: none; }
 .case-context-menu[open] { animation-name: case-context-enter; }
 .case-context-menu .flokzu-panel-header { align-items: center; padding: 8px 12px 4px 16px; border: 0; }
@@ -727,7 +727,7 @@ pre, code, .font-mono { font-family: var(--font-mono); }
   .case-workspace-header { align-items: flex-start; flex-direction: column; gap: 12px; }
   .case-workspace, .case-workspace-context-open { grid-template-columns: minmax(0, 1fr); }
   .case-workspace-context-open .case-context-slot { display: block; }
-  .case-context-menu { position: fixed; inset: 0; width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; min-height: 0; border-radius: 0; }
+  .case-context-menu { position: fixed; inset: 0; width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; min-width: 0; min-height: 0; resize: none; border-radius: 0; }
   .case-context-scroll { padding-bottom: max(24px, env(safe-area-inset-bottom)); }
   .case-detail-layout.case-detail-workspace { grid-template-columns: minmax(0, 1fr); }
   .case-detail-workspace .case-detail-evidence { position: static; max-height: 260px; }

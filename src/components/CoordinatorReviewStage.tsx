@@ -167,7 +167,7 @@ function CoordinatorFinalizeForm({
       title="Decisión del Coordinador"
       description={canChangeResolution
         ? 'Aprueba la resolución del Asesor o cámbiala por otra distinta. No se modifica la decisión del Asesor.'
-        : 'Puedes aprobar la resolución del Asesor. Solo el propietario puede cambiarla o agregar comentarios.'}
+        : 'Puedes aprobar la resolución del Asesor.'}
     >
       <form className="flex flex-col gap-5" onSubmit={handleSubmit} aria-busy={sending}>
         <fieldset className="flex flex-col gap-2" disabled={sending}>

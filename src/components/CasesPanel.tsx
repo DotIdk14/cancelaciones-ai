@@ -153,6 +153,8 @@ export function CasesPanel({ canReadAllCases = false, canFinalizeAnyCase = false
     }
   }, [assignedTo, bucketFilter, cases, channel, country, createdFrom, createdTo, creatorId, creatorRole, debouncedQuery, nextCursor, preview, stage, statusFilter]);
 
+  const searchPending = !preview && query.trim() !== debouncedQuery;
+
   useEffect(() => { if (!preview) void load(); }, [load, preview]);
 
   useEffect(() => {
@@ -178,7 +180,7 @@ export function CasesPanel({ canReadAllCases = false, canFinalizeAnyCase = false
       const result = item.effectiveResolution === null || item.effectiveResolution === undefined
         ? ''
         : resolutionLabel(item.effectiveResolution.result);
-      return [item.id, shortId(item.id), item.studentIdentifier ?? '', item.studentName ?? '', result]
+      return [item.id, shortId(item.id), item.externalCaseId ?? '', item.studentIdentifier ?? '', item.studentName ?? '', result]
         .some((value) => value.toLocaleLowerCase('es').includes(normalized));
     });
   }, [assignedTo, bucketFilter, canFinalizeAnyCase, cases, channel, country, createdFrom, createdTo, creatorId, creatorRole, preview, query, stage, statusFilter]);
@@ -368,7 +370,18 @@ export function CasesPanel({ canReadAllCases = false, canFinalizeAnyCase = false
           <input
             type="search"
             value={query}
-            onChange={(event) => { setSelectedCaseIds(new Set()); setQuery(event.target.value); }}
+            onChange={(event) => {
+              const nextQuery = event.target.value;
+              setSelectedCaseIds(new Set());
+              setSelectedId(null);
+              setQuery(nextQuery);
+              if (!preview) {
+                requestId.current += 1;
+                setNextCursor(null);
+                if (nextQuery.trim() !== debouncedQuery) setCases(null);
+                else if (cases === null) void load();
+              }
+            }}
             placeholder="Buscar folio, matrícula o nombre…"
           />
         </label>
@@ -376,7 +389,7 @@ export function CasesPanel({ canReadAllCases = false, canFinalizeAnyCase = false
         </div>
       </div>
 
-      {loading && cases === null ? (
+      {(searchPending || (loading && cases === null)) ? (
         <div className="flex min-h-56 items-center justify-center rounded-xl border border-line bg-surface-1"><Spinner label="Cargando casos" /></div>
       ) : cases !== null && cases.length === 0 && bucketFilter === 'ALL' && !debouncedQuery && !country && !channel && !createdFrom && !createdTo && statusFilter === 'ALL' ? (
         <EmptyState title="Todavía no hay casos" description="Crea un caso para empezar a cargar evidencias y auditar con IA." />
@@ -551,10 +564,10 @@ export function CasesPanel({ canReadAllCases = false, canFinalizeAnyCase = false
         </div>
       )}
       <p className="text-xs text-muted">Mostrando {filteredCases.length} expedientes en esta página</p>
-      {nextCursor && !query.trim() && (
+      {nextCursor && (
         <div className="flex flex-wrap justify-center gap-2">
-          <Button variant="secondary" onClick={() => void loadMore()} loading={loading} loadingLabel="Cargando expedientes">Mostrar más</Button>
-          {canReadAllCases && <Button onClick={() => void loadAll()} loading={loading} loadingLabel="Cargando todos los expedientes">Cargar todos los expedientes</Button>}
+          <Button variant="secondary" onClick={() => void loadMore()} loading={loading} loadingLabel={query.trim() ? 'Cargando coincidencias' : 'Cargando expedientes'}>{query.trim() ? 'Mostrar más coincidencias' : 'Mostrar más'}</Button>
+          {canReadAllCases && <Button onClick={() => void loadAll()} loading={loading} loadingLabel={query.trim() ? 'Cargando todas las coincidencias' : 'Cargando todos los expedientes'}>{query.trim() ? 'Cargar todas las coincidencias' : 'Cargar todos los expedientes'}</Button>}
         </div>
       )}
     </div>
