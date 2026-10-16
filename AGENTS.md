@@ -40,7 +40,7 @@ Tres roles persistidos en `app_memberships.role` (vocabulario cerrado, `CHECK` e
 | `coordinator` | Coordinador | sí | no | sí | sí |
 | `manager` | Gerente | sí | no | no | no |
 
-Los tres roles pueden leer el expediente completo, incluidas evidencias y comentarios. Cambiar la resolución o escribir comentarios requiere propiedad y la capacidad de escritura correspondiente. El Coordinador puede aprobar un caso ajeno sin comentario.
+Los tres roles pueden leer el expediente completo, incluidas evidencias y comentarios. El Coordinador puede aprobar o cambiar la resolución final y agregar un comentario en cualquier caso; la resolución del Asesor permanece preservada. Los comentarios por área siguen sujetos a propiedad según `AREA_COMMENTS_ARE_WRITABLE_BY_OWNER_ONLY`.
 
 La autorización se decide SIEMPRE con `capabilitiesForRole(role)`, nunca con un `if (role === 'user')` repartido por los endpoints: preguntar "¿TIENE la capacidad?" y no "¿el rol es exactamente este?" es lo que evita congelar el vocabulario en cada guard. Rol desconocido, `null` o `undefined` → `DENY_ALL_CAPABILITIES` (fail-closed). Los dos guards de casos son `assertCaseWriteCapability` (capacidad antes que propiedad: un Gerente no muta ni su propio caso) y `assertCaseOwner` (propiedad: un caso ajeno es `404`).
 
@@ -133,7 +133,7 @@ Cuando se alcanza un limite, el run debe terminar en `NEEDS_INPUT` o `FAILED`. N
 
 This project uses [InsForge](https://insforge.dev): an all-in-one, open-source Postgres-based backend (BaaS) that gives this app a database, authentication, file storage, edge functions, realtime, an AI model gateway, and payments through one platform.
 
-- **Project:** **Cancelaciones** (API base `https://4pw4jdzv.us-west.insforge.app`)
+- **Project:** **Cancelaciones** (API base `https://x5vh8qc6.us-west.insforge.app`)
 - **Skills:** these InsForge skills are installed for supported coding agents. Reach for them before implementing any InsForge feature instead of guessing the API:
   - `insforge`: app code with the `@insforge/sdk` client (database CRUD, auth, storage, edge functions, realtime, AI, email, and Stripe payments).
   - `insforge-cli`: backend and infrastructure via the `insforge` CLI (projects, SQL, migrations, RLS policies, storage buckets, functions, secrets, payment setup, schedules, deploys).

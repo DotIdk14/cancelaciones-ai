@@ -383,13 +383,14 @@ describe('finalizar como coordinador · POST /api/cases/:id/review {decision}', 
   it.each([
     { decision: 'CHANGE', resolution: 'TICKET_RECHAZADO' },
     { decision: 'APPROVE', comment: 'Comentario en expediente ajeno.' },
-  ])('rechaza cambios y comentarios ajenos antes de persistir: %j', async (body) => {
+  ])('permite cambiar la decisión y agregar comentarios en casos ajenos: %j', async (body) => {
     seedCase({ id: OTHER_CASE, created_by: OTHER_OWNER });
     const review = seedReview({ case_id: OTHER_CASE, result: 'BAJA', coordinator_decision: null });
     const res = await postReview('coordinator', OTHER_CASE, { country: 'MX', channel: 'WHATSAPP', ...body });
-    expect(res.statusCode, res.body).toBe(403);
-    expect(review.coordinator_decision).toBeNull();
-    expect(review.coordinator_comment).toBeNull();
+    expect(res.statusCode, res.body).toBe(200);
+    expect(review.coordinator_decision).toBe(body.decision);
+    expect(review.coordinator_comment).toBe(body.comment ?? '');
+    expect(review.result).toBe('BAJA');
   });
 
   it('permite cambiar resolución y comentar al coordinador propietario', async () => {
