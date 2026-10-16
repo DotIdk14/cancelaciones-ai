@@ -9,8 +9,11 @@ import type { DashboardFilters as DashboardFiltersValue } from '../../lib/dashbo
 import { defaultDateRange } from '../../lib/dashboard';
 import type { OriginBreakdownPoint } from '../../lib/dashboard';
 import { formatDate } from '../../lib/format';
+import { getLocalPreviewRole } from '../../lib/local-ui-preview';
+import { isLocalDashboardPreview } from '../../lib/local-dashboard-preview';
 import { useDashboard } from '../../lib/useDashboard';
-import { ChartFrame, ErrorCard } from '../ui';
+import { useSession } from '../../lib/useSession';
+import { ChartFrame, ErrorCard, StatCard } from '../ui';
 import { DashboardFilters } from './DashboardFilters';
 import { CaseProgressChart } from './charts/CaseProgressChart';
 import { OriginBreakdownChart } from './charts/OriginBreakdownChart';
@@ -28,8 +31,13 @@ function dateLabel(value: string): string {
 export function OverviewPage(): ReactNode {
   const [filters, setFilters] = useState<DashboardFiltersValue>(defaultDateRange);
   const { data, isLoading, error, reload } = useDashboard(filters, 'summary');
+  const { capabilities } = useSession();
   const handleRetry = useCallback((): void => reload(), [reload]);
   const progress = data?.caseProgress;
+  const advisorAssignments = data?.advisorAssignments;
+  const showAdvisorAssignments = isLocalDashboardPreview()
+    ? getLocalPreviewRole() === 'user'
+    : capabilities.canReviewOwnCases;
 
   const byCountry = data?.byCountry?.points ?? [];
   const bySalesChannel = data?.bySalesChannel?.points ?? [];
@@ -50,6 +58,26 @@ export function OverviewPage(): ReactNode {
       </header>
 
       {error !== null && <ErrorCard title="No se pudo cargar el resumen" message={error} onRetry={handleRetry} retrying={isLoading} />}
+
+      {showAdvisorAssignments && (
+        <section className="rounded-xl border border-line bg-surface-1 p-4" aria-labelledby="advisor-assignments-title">
+          <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+            <div>
+              <h2 id="advisor-assignments-title" className="text-base font-semibold text-ink">Contactos asignados</h2>
+              <p className="mt-1 text-xs text-muted">Asignaciones actuales del Asesor, agrupadas por etapa.</p>
+            </div>
+            <p className="text-sm text-muted">Total: <strong className="text-ink">{isLoading ? '…' : advisorAssignments?.total ?? 0}</strong></p>
+          </div>
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+            <StatCard label="Borradores" value={advisorAssignments?.drafts ?? 0} isLoading={isLoading} />
+            <StatCard label="Por auditar" value={advisorAssignments?.pendingAudit ?? 0} isLoading={isLoading} />
+            <StatCard label="Dictamen del Asesor" value={advisorAssignments?.pendingAdvisor ?? 0} isLoading={isLoading} />
+            <StatCard label="Cierre del Coordinador" value={advisorAssignments?.pendingCoordinator ?? 0} isLoading={isLoading} />
+            <StatCard label="Completados" value={advisorAssignments?.finalized ?? 0} isLoading={isLoading} />
+            <StatCard label="Errores" value={advisorAssignments?.errors ?? 0} isLoading={isLoading} />
+          </div>
+        </section>
+      )}
 
       <ChartFrame
         title="Expedientes por etapa"

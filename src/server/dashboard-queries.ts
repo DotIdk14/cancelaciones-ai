@@ -198,8 +198,12 @@ export async function getDashboardSummary(
   query = query.order('created_at', { ascending: false }).order('id', { ascending: false });
   const rows = await readAllPages<DashboardMetricRow>(query as never);
   const canReadConsumption = capabilitiesForRole(auth?.role).canManageCases;
-  const [caseBuckets, comparisons] = await Promise.all([
+  const canReviewOwnCases = capabilitiesForRole(auth?.role).canReviewOwnCases;
+  const [caseBuckets, advisorAssignmentBuckets, comparisons] = await Promise.all([
     auth ? countCaseBuckets(client, auth, { createdFrom: fromIso, createdTo: toIso, excludeTests: true, scopeToActor: false }) : Promise.resolve(null),
+    auth && canReviewOwnCases
+      ? countCaseBuckets(client, auth, { assignedTo: auth.sub, excludeTests: true, scopeToActor: false })
+      : Promise.resolve(null),
     canReadConsumption ? getComparisonActivity(client, filters, auth) : Promise.resolve([]),
   ]);
   const caseProgress = caseBuckets ? {
@@ -211,11 +215,20 @@ export async function getDashboardSummary(
     finalized: caseBuckets.COMPLETED,
     errors: caseBuckets.ERRORS,
   } : null;
+  const advisorAssignments = advisorAssignmentBuckets ? {
+    total: advisorAssignmentBuckets.ALL,
+    drafts: advisorAssignmentBuckets.DRAFTS,
+    pendingAudit: advisorAssignmentBuckets.PENDING_AUDIT,
+    pendingAdvisor: advisorAssignmentBuckets.PENDING_ADVISOR,
+    pendingCoordinator: advisorAssignmentBuckets.PENDING_COORDINATOR,
+    finalized: advisorAssignmentBuckets.COMPLETED,
+    errors: advisorAssignmentBuckets.ERRORS,
+  } : null;
   let identities = null;
   try { const result = await client.database.rpc('dashboard_request_identities', { p_case_ids: [...new Set(rows.map(row=>row.case_id))] });
     if (!result.error && result.data) identities = { ...(result.data as {students:number;tickets:number;caseFiles:number;requests:number}),auditExecutions:rows.length };
   } catch { /* Contadores no disponibles hasta validar la migración; no inventar ceros. */ }
-  return { ...aggregateSummary(rows, filters, rows.length), caseProgress, ...(canReadConsumption ? { activity: aggregateMonthlyActivity(rows, comparisons) } : {}), identities };
+  return { ...aggregateSummary(rows, filters, rows.length), caseProgress, ...(canReviewOwnCases ? { advisorAssignments } : {}), ...(canReadConsumption ? { activity: aggregateMonthlyActivity(rows, comparisons) } : {}), identities };
 }
 
 

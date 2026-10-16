@@ -289,6 +289,8 @@ export interface HumanMismatchRow {
 export interface DashboardSummary {
   /** Conteo de expedientes reales por su etapa actual en el periodo. */
   caseProgress?: CaseProgressSummary | null;
+  /** Casos reales asignados al Asesor autenticado, agrupados por etapa actual. */
+  advisorAssignments?: CaseProgressSummary | null;
   identities?: {students:number;tickets:number;caseFiles:number;requests:number;auditExecutions:number} | null;
   activity?: import('./dashboard-metrics-contracts').MonthlyActivity;
   generatedAt: string;
