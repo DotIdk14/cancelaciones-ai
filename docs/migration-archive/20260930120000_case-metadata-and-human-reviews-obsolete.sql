@@ -104,27 +104,9 @@ COMMENT ON COLUMN public.cases.guideline IS
 -- (dictamen IA, dictamen humano) comparable 1:1, y es lo que ya hace
 -- `human_reviews`.
 
-CREATE TABLE IF NOT EXISTS public.case_human_reviews (
-  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  audit_id      uuid NOT NULL UNIQUE
-                  REFERENCES public.audits(id) ON DELETE CASCADE,
-  decision_type text NOT NULL,
-  human_outcome text,
-  human_reason  text,
-  reviewed_by   uuid NOT NULL REFERENCES auth.users(id),
-  reviewed_at   timestamptz NOT NULL,
-  created_at    timestamptz NOT NULL DEFAULT now(),
-  updated_at    timestamptz NOT NULL DEFAULT now(),
-  updated_by    uuid REFERENCES auth.users(id),
-  CONSTRAINT case_human_reviews_decision_type_check
-    CHECK (decision_type IN ('APPROVE', 'CORRECT'))
-);
-
-COMMENT ON TABLE public.case_human_reviews IS
-  'Dictamen humano sobre una auditoria concreta. NO sobrescribe el resultado de la IA: result_json permanece inmutable y la coincidencia se calcula.';
-
-CREATE INDEX IF NOT EXISTS case_human_reviews_reviewed_at_idx
-  ON public.case_human_reviews (reviewed_at DESC);
+-- La revisión vigente se almacena en `case_reviews` y `case_comparisons`.
+-- Este paso conserva únicamente las dimensiones históricas del expediente;
+-- no recrea la tabla retirada `case_human_reviews`.
 
 -- -----------------------------------------------------------------------------
 -- 3. Proyección de métricas extendida
@@ -137,9 +119,8 @@ CREATE INDEX IF NOT EXISTS case_human_reviews_reviewed_at_idx
 --
 -- Columnas nuevas:
 --   - Las 6 dimensiones del caso, por el `LEFT JOIN` que ya existía.
---   - `human_outcome`, por un `LEFT JOIN` 1:1 sobre `case_human_reviews`
---     (`UNIQUE (audit_id)`), para que la coincidencia no requiera una segunda
---     consulta ni un N+1.
+  --   - `human_result`, reservado como NULL durante la transición; el flujo de
+  --     revisión actual se proyecta después desde `case_reviews`.
 --
 -- NO se trae `result_json` ni `provider_metadata` crudos: la vista aplana el
 -- jsonb dentro del CTE y solo expone escalares, como ya hacía.
@@ -245,14 +226,13 @@ SELECT
   -- Dictamen humano del MISMO audit_id. 1:1 por el UNIQUE, así que el LEFT JOIN
   -- no multiplica filas ni puede inflar un agregado. `null` = nadie revisó,
   -- que NO es lo mismo que "discrepó".
-  hr.human_outcome AS human_result
+  NULL::text AS human_result
 FROM public.audits a
 LEFT JOIN public.cases c ON c.id = a.case_id
-LEFT JOIN att ON att.audit_id = a.id
-LEFT JOIN public.case_human_reviews hr ON hr.audit_id = a.id;
+LEFT JOIN att ON att.audit_id = a.id;
 
 COMMENT ON VIEW public.audit_dashboard_metrics IS
-  'Proyeccion de solo lectura para el dashboard. Incluye student_identifier (dato personal) y el dictamen humano de case_human_reviews. NO contiene credenciales ni jsonb crudo.';
+  'Proyeccion de solo lectura para el dashboard. Incluye student_identifier (dato personal). NO contiene credenciales ni jsonb crudo.';
 
 -- -----------------------------------------------------------------------------
 -- 4. Permisos
@@ -263,19 +243,11 @@ COMMENT ON VIEW public.audit_dashboard_metrics IS
 -- administrativo del servidor. Una vista no pasa por RLS, así que el permiso es
 -- la única barrera real.
 --
--- `case_human_reviews` se LEÍ y se ESCRIBE desde el servidor (el detalle del
--- caso), nunca desde el navegador. Por eso INSERT/UPDATE van al rol
--- administrativo y no a `authenticated`.
 
 REVOKE ALL ON public.audit_dashboard_metrics FROM anon;
 REVOKE ALL ON public.audit_dashboard_metrics FROM authenticated;
 REVOKE ALL ON public.audit_dashboard_metrics FROM PUBLIC;
 GRANT SELECT ON public.audit_dashboard_metrics TO project_admin;
-
-REVOKE ALL ON public.case_human_reviews FROM anon;
-REVOKE ALL ON public.case_human_reviews FROM authenticated;
-REVOKE ALL ON public.case_human_reviews FROM PUBLIC;
-GRANT SELECT, INSERT, UPDATE ON public.case_human_reviews TO project_admin;
 
 -- -----------------------------------------------------------------------------
 -- 5. Verificación
@@ -288,7 +260,7 @@ BEGIN
   -- 5.1 Las 6 dimensiones existen y son NULL-able. Si alguna fuera NOT NULL o
   --     tuviera valor por defecto, el dashboard tendría que inventar datos para
   --     poder leerla, que es justo lo que no se quiere.
-  FOREACH v_col SLICE 1 IN ARRAY ARRAY[
+  FOREACH v_col IN ARRAY ARRAY[
     'country','campus','modality','project','responsible','guideline'
   ] LOOP
     SELECT count(*) INTO v_count
@@ -301,45 +273,7 @@ BEGIN
     END IF;
   END LOOP;
 
-  -- 5.2 La tabla de revisión humana existe y apunta a `audits`, NO a
-  --     `legacy_audits`. Ese es el error que motivó la tabla nueva.
-  IF NOT EXISTS (
-    SELECT 1 FROM information_schema.tables
-    WHERE table_schema='public' AND table_name='case_human_reviews'
-  ) THEN
-    RAISE EXCEPTION 'falta public.case_human_reviews';
-  END IF;
-
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
-    WHERE conrelid='public.case_human_reviews'::regclass
-      AND contype='f' AND confrelid='public.audits'::regclass
-  ) THEN
-    RAISE EXCEPTION 'case_human_reviews.audit_id no referencia public.audits';
-  END IF;
-
-  IF EXISTS (
-    SELECT 1 FROM pg_constraint
-    WHERE conrelid='public.case_human_reviews'::regclass
-      AND confrelid='public.legacy_audits'::regclass
-  ) THEN
-    RAISE EXCEPTION 'case_human_reviews no debe referenciar legacy_audits';
-  END IF;
-
-  -- Una revisión por auditoría: sin esto el LEFT JOIN de la vista podría
-  -- multiplicar filas y cualquier agregado contaría de más.
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
-    WHERE conrelid='public.case_human_reviews'::regclass AND contype='u'
-      AND conkey = ARRAY[
-        (SELECT attnum FROM pg_attribute
-         WHERE attrelid='public.case_human_reviews'::regclass AND attname='audit_id')
-      ]::smallint[]
-  ) THEN
-    RAISE EXCEPTION 'case_human_reviews.audit_id debe ser UNIQUE (una revision por auditoria)';
-  END IF;
-
-  -- 5.3 La vista existe, es una vista, y expone las 31 columnas.
+  -- 5.2 La vista existe, es una vista, y expone las 31 columnas.
   IF NOT EXISTS (
     SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
     WHERE n.nspname='public' AND c.relname='audit_dashboard_metrics' AND c.relkind='v'
@@ -356,7 +290,7 @@ BEGIN
     RAISE EXCEPTION 'la vista deberia exponer 31 columnas y expone %', v_count;
   END IF;
 
-  -- 5.4 Permisos: la vista no puede ser alcanzable desde el navegador.
+  -- 5.3 Permisos: la vista no puede ser alcanzable desde el navegador.
   IF EXISTS (
     SELECT 1 FROM pg_class c
     CROSS JOIN LATERAL aclexplode(c.relacl) g
@@ -378,28 +312,6 @@ BEGIN
     RAISE EXCEPTION 'project_admin debe tener SELECT en la vista';
   END IF;
 
-  -- 5.5 La revisión humana solo se escribe desde el servidor.
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_class c
-    CROSS JOIN LATERAL aclexplode(c.relacl) g
-    WHERE c.oid='public.case_human_reviews'::regclass
-      AND g.grantee='project_admin'::regrole AND g.privilege_type='INSERT'
-  ) THEN
-    RAISE EXCEPTION 'project_admin debe poder INSERTar en case_human_reviews';
-  END IF;
-
-  IF EXISTS (
-    SELECT 1 FROM pg_class c
-    CROSS JOIN LATERAL aclexplode(c.relacl) g
-    WHERE c.oid='public.case_human_reviews'::regclass
-      AND g.grantee IN (
-        (SELECT oid FROM pg_roles WHERE rolname='anon'),
-        (SELECT oid FROM pg_roles WHERE rolname='authenticated')
-      )
-  ) THEN
-    RAISE EXCEPTION 'case_human_reviews no debe ser accesible por anon/authenticated';
-  END IF;
-
-  RAISE NOTICE 'OK — dimensiones, case_human_reviews y vista de 31 columnas verificadas';
+  RAISE NOTICE 'OK — dimensiones y vista de 31 columnas verificadas';
 END
 $verify$;

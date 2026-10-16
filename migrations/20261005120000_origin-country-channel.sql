@@ -12,7 +12,7 @@
 -- filtrar y graficar sin leer `result_json` fila por fila.
 --
 -- CONTRADICE A PROPÓSITO UN `COMMENT` ANTERIOR, y conviene explicarlo. La
--- migración `20260930120000_case-metadata-and-human-reviews.sql` marcó
+-- migración `20261005020000_case-dimensions-current.sql` marcó
 -- `cases.country` como "NO se infiere ni se deriva de texto generado por la IA".
 -- Aquel comentario protegía contra un riesgo real: derivar un filtro de
 -- `audit.rule`, que es TEXTO LIBRE del modelo y no es una dimensión confiable.
@@ -33,7 +33,7 @@
 -- 1. La columna del canal
 -- -----------------------------------------------------------------------------
 --
--- `country` ya existe desde `20260930120000`; solo cambia su significado, y eso
+-- `country` ya existe desde `20261005020000`; solo cambia su significado, y eso
 -- se refleja en su `COMMENT`, no en un ALTER.
 --
 -- `text` y NULL-able, igual que las demás dimensiones del caso. NULL significa
@@ -60,7 +60,8 @@ COMMENT ON COLUMN public.cases.country IS
 -- -----------------------------------------------------------------------------
 --
 -- En una instalación que todavía no proyecta `channel`, se recrea la vista y la
--- columna nueva queda al final, después de `human_result`. Si `channel` ya está
+-- columna nueva queda al final, después de `human_result` reservado como NULL.
+-- Si `channel` ya está
 -- proyectado (por ejemplo, cuando se reconcilia el ledger de una base existente
 -- que también incluye columnas añadidas por migraciones posteriores), se conserva
 -- la definición actual: CREATE OR REPLACE VIEW no permite quitar esas columnas.
@@ -180,24 +181,22 @@ SELECT
   c.project,
   c.responsible,
   c.guideline,
-  -- Dictamen humano del MISMO audit_id. 1:1 por el UNIQUE, así que el LEFT JOIN
-  -- no multiplica filas ni puede inflar un agregado. `null` = nadie revisó,
-  -- que NO es lo mismo que "discrepó".
-  hr.human_outcome AS human_result,
+  -- Columna reservada durante la transición. La revisión vigente usa
+  -- `case_reviews` y se proyecta en las vistas actuales.
+  NULL::text AS human_result,
   -- Columna 32, agregada al final: ver la nota del encabezado. Canal de ORIGEN,
   -- no el administrativo.
   c.channel
 FROM public.audits a
 LEFT JOIN public.cases c ON c.id = a.case_id
-LEFT JOIN att ON att.audit_id = a.id
-LEFT JOIN public.case_human_reviews hr ON hr.audit_id = a.id;
+LEFT JOIN att ON att.audit_id = a.id;
     $view$;
   END IF;
 END
 $create_view$;
 
 COMMENT ON VIEW public.audit_dashboard_metrics IS
-  'Proyeccion de solo lectura para el dashboard. Incluye student_identifier (dato personal) y el dictamen humano de case_human_reviews. NO contiene credenciales ni jsonb crudo.';
+  'Proyeccion de solo lectura para el dashboard. Incluye student_identifier (dato personal). NO contiene credenciales ni jsonb crudo.';
 
 -- -----------------------------------------------------------------------------
 -- 3. Permisos

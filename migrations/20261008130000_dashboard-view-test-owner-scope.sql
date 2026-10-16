@@ -126,7 +126,7 @@ SELECT
   c.project,
   c.responsible,
   c.guideline,
-  hr.human_outcome AS human_result,
+  cr.result AS human_result,
   c.channel,
   -- Columna 33: dueño del caso, para que el scope del Asesor viaje en la consulta
   -- (`created_by = <sub>`) y no en un filtro en memoria DESPUÉS del limit.
@@ -137,7 +137,7 @@ SELECT
 FROM public.audits a
 LEFT JOIN public.cases c ON c.id = a.case_id
 LEFT JOIN att ON att.audit_id = a.id
-LEFT JOIN public.case_human_reviews hr ON hr.audit_id = a.id;
+LEFT JOIN public.case_reviews cr ON cr.case_id = a.case_id;
 
 COMMENT ON VIEW public.audit_dashboard_metrics IS
   'Proyeccion de solo lectura para el dashboard. Incluye student_identifier (dato personal), created_by e is_test para el scope del servidor. NO contiene credenciales ni jsonb crudo.';

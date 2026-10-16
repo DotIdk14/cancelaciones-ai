@@ -767,6 +767,9 @@ CREATE POLICY audits_delete_for_visible_cases ON public.audits
 -- no es miembro de `authenticated` no vería las filas y la comprobación
 -- fallaría sobre un esquema correcto. El catálogo no filtra nada.
 -- =============================================================================
+-- InsForge instala extensiones en `public`; la comprobación de abajo excluye
+-- únicamente las funciones que pertenecen a una extensión.
+
 DO $baseline$
 DECLARE
   v_leaked   text;
@@ -868,7 +871,13 @@ BEGIN
     INTO v_leaked
   FROM pg_proc p
   JOIN pg_namespace n ON n.oid = p.pronamespace
+  LEFT JOIN pg_depend d
+    ON d.classid = 'pg_proc'::regclass
+   AND d.objid = p.oid
+   AND d.deptype = 'e'
+  LEFT JOIN pg_extension e ON e.oid = d.refobjid
   WHERE n.nspname = 'public'
+    AND e.oid IS NULL
     AND p.proname <> 'set_updated_at';
   IF v_leaked IS NOT NULL THEN
     RAISE EXCEPTION
@@ -876,15 +885,22 @@ BEGIN
       v_leaked;
   END IF;
 
-  -- 3b) Y ninguna función de public ejecutable por PUBLIC ni por anon.
+  -- 3b) Ninguna función propia de la aplicación queda ejecutable por PUBLIC ni
+  --     por anon. Las rutinas de extensiones no son RPC de la aplicación.
   --     grantee = 0 es PUBLIC en la representación de ACL de Postgres. Se
   --     excluye al propietario, que sí debe poder ejecutarla por definición.
   SELECT string_agg(p.proname, ', ' ORDER BY p.proname)
     INTO v_leaked
   FROM pg_proc p
   JOIN pg_namespace n ON n.oid = p.pronamespace
+  LEFT JOIN pg_depend d
+    ON d.classid = 'pg_proc'::regclass
+   AND d.objid = p.oid
+   AND d.deptype = 'e'
+  LEFT JOIN pg_extension e ON e.oid = d.refobjid
   CROSS JOIN LATERAL aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) AS acl
   WHERE n.nspname = 'public'
+    AND e.oid IS NULL
     AND acl.privilege_type = 'EXECUTE'
     AND acl.grantee <> p.proowner
     AND (acl.grantee = 0 OR acl.grantee = v_anon_oid);
