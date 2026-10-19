@@ -273,8 +273,8 @@ export async function getHistoricalAudit(caseId: string, auditId: string): Promi
 }
 
 /**
- * Revisión humana del caso. Es ÚNICA por caso y, si existe, ES la resolución
- * final: el dictamen de la auditoría se conserva intacto y no la sobrescribe.
+ * Revisión humana de una auditoría. Es ÚNICA por versión; una nueva auditoría
+ * puede recibir su propia revisión sin sobrescribir las anteriores.
  *
  * `result` es `AuditResultType` (superset, no `HumanResolution`) porque las
  * revisiones humanas registradas ANTES de acotar el vocabulario a 6 opciones
@@ -387,6 +387,12 @@ export interface CaseDetailResponse {
   audit: AuditDetail | null;
   audits: AuditHistoryItem[];
   review: CaseReviewDto | null;
+  /** Revisiones humanas ligadas a cada auditoría del expediente, recientes primero. */
+  reviews?: CaseReviewDto[];
+  canUploadEvidence?: boolean;
+  canDeleteEvidence?: boolean;
+  canEditAuditContext?: boolean;
+  canRunAudit?: boolean;
   comparison: ComparisonDto | null;
   effectiveResolution: EffectiveResolution | null;
   /** Si el último dictamen completado usa evidencias y datos actuales. */

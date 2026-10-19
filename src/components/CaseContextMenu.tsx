@@ -76,13 +76,27 @@ export function CaseContextMenu({ detail, open, tab, onTabChange, onClose, notes
   const source = selection && selection.owner.case.id !== detail.case.id ? selection.owner : detail;
   const audit = selection?.audit ?? detail.audit;
   const assessment = audit?.status === 'COMPLETED' ? audit.resultJson?.audit : null;
-  const matchedReview = audit && source.review?.auditId === audit.id ? source.review : null;
+  const matchedReview = audit
+    ? source.reviews?.find((candidate) => candidate.auditId === audit.id)
+      ?? (source.review?.auditId === audit.id ? source.review : null)
+    : null;
   const historical = selection !== null || detail.auditIsCurrent === false;
   const data = detail.case.flokzuData ?? EMPTY_FLOKZU;
   const row = detail.case;
 
   function auditList(owner: CaseDetailResponse): ReactNode {
-    return owner.audits.length === 0 ? <p className="case-context-note">Sin auditorías registradas en este ticket.</p> : <ol className="case-context-audits">{owner.audits.map((item) => <li key={item.id}><button type="button" onClick={() => void selectAudit(owner, item.id)} aria-label={`Consultar auditoría del ${formatDateTime(item.createdAt)}`}><time>{formatDateTime(item.createdAt)}</time><strong>{item.result ? resolutionLabel(item.result) : item.status === 'RUNNING' ? 'En curso' : 'Sin resolución'}</strong><span>{item.procedureSection ? `Sección ${item.procedureSection}` : 'Lineamiento no disponible'} · {item.status === 'COMPLETED' ? 'Completada' : item.status === 'ERROR' ? 'Con error' : 'En curso'}</span><small>{owner.review?.auditId === item.id ? owner.review.coordinatorDecision === 'CHANGE' ? 'Resolución modificada por Coordinador' : owner.review.coordinatorDecision ? 'Validada por Coordinador' : 'Revisada por Asesor' : 'Sin revisión humana vinculada'}</small></button></li>)}</ol>;
+    if (owner.audits.length === 0) return <p className="case-context-note">Sin auditorías registradas en este ticket.</p>;
+    return <ol className="case-context-audits">{owner.audits.map((item) => {
+      const review = owner.reviews?.find(candidate => candidate.auditId === item.id)
+        ?? (owner.review?.auditId === item.id ? owner.review : null);
+      const version = owner.auditIsCurrent === true && owner.audit?.id === item.id ? 'Auditoría vigente' : 'Auditoría anterior';
+      const reviewLabel = review
+        ? review.coordinatorDecision === 'CHANGE' ? 'Resolución modificada por Coordinador'
+          : review.coordinatorDecision ? 'Validada por Coordinador'
+            : 'Revisada por Asesor'
+        : 'Sin revisión humana vinculada';
+      return <li key={item.id}><button type="button" onClick={() => void selectAudit(owner, item.id)} aria-label={`Consultar auditoría del ${formatDateTime(item.createdAt)}`}><time>{formatDateTime(item.createdAt)}</time><strong>{item.result ? resolutionLabel(item.result) : item.status === 'RUNNING' ? 'En curso' : 'Sin resolución'}</strong><span>{version} · {item.procedureSection ? `Sección ${item.procedureSection}` : 'Lineamiento no disponible'} · {item.status === 'COMPLETED' ? 'Completada' : item.status === 'ERROR' ? 'Con error' : 'En curso'}</span><small>{reviewLabel}</small></button></li>;
+    })}</ol>;
   }
 
   return <FlokzuContextPanel data={data} open={open} nonModal={!mobile} panelTitle="Contexto del expediente" className="case-context-menu" onClose={onClose}>

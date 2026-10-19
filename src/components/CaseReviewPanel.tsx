@@ -16,9 +16,10 @@
 //   un Coordinador no ve el formulario de Asesor y un Gerente no ve ninguno. Si
 //   la UI se equivocara, la API seguiría rechazando la mutación.
 //
-// LA REVISIÓN DEL ASESOR ES ÚNICA
+// LA REVISIÓN DEL ASESOR ES ÚNICA POR AUDITORÍA
 //   Cuando existe, es su resolución propuesta y las auditorías posteriores NO la
-//   sobrescriben. Un `CHANGE` del Coordinador se guarda APARTE.
+//   sobrescriben. Una nueva auditoría por evidencia insuficiente exige una nueva
+//   revisión. Un `CHANGE` del Coordinador se guarda APARTE.
 //
 // DOS MÉTRICAS QUE NO SON LA MISMA
 //   `agrees` es el acierto MEDIDO. `confidence` es la confianza que la IA DECLARA
@@ -189,7 +190,7 @@ export function CaseReviewPanel({
         onSubmitted?.();
       } catch (err) {
         if (err instanceof ApiError && err.status === 409) {
-          // La revisión es única por caso: no hay nada que reenviar, sólo leer.
+          // Esta versión ya tiene resolución: no hay nada que reenviar, sólo leer.
           setConflict(true);
           setPhase('done');
           return;
@@ -299,7 +300,7 @@ export function CaseReviewPanel({
       <div ref={takeoverRef} tabIndex={-1}>
         <Panel
           title="Revisión humana"
-          description="Este caso ya tiene una revisión registrada del Asesor; la resolución final la decide un Coordinador."
+          description="Esta auditoría ya tiene una revisión registrada del Asesor; la resolución final la decide un Coordinador."
         >
           <div className="flex flex-col gap-4">
             {error !== null && (

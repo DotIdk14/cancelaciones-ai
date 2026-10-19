@@ -11,6 +11,7 @@ import {
   listEvidenceRows,
   updateCaseStatus,
 } from '../../../../../src/server/cases.js';
+import { assertEvidenceMayBeDeleted } from '../../../../../src/server/review-locks.js';
 
 // DELETE /api/cases/:caseId/evidence/:evidenceId → 200 { ok: true }
 export default handleRoute(async (req, res) => {
@@ -27,6 +28,7 @@ export default handleRoute(async (req, res) => {
   assertCaseWriteCapability(req.auth!);
   assertCaseOwner(caseRow, req.auth!);
   await assertCaseNotFinalized(client, caseId);
+  await assertEvidenceMayBeDeleted(client, caseId);
   const evidence = await getEvidenceOr404(client, caseId, evidenceId);
 
   // Se intenta borrar el objeto del storage ANTES de borrar la fila. Si el

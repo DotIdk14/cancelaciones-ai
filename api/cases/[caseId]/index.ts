@@ -24,7 +24,7 @@ import {
   deleteUnusedDraftCase,
   deleteUnreviewedAudit,
 } from '../../../src/server/cases.js';
-import { getCaseReview, listComparisonsForCase } from '../../../src/server/reviews.js';
+import { listCaseReviewsForCase, listComparisonsForReview } from '../../../src/server/reviews.js';
 import {
   auditHistoryItemToDto,
   auditToDto,
@@ -39,6 +39,7 @@ import { healStaleComparison } from '../../../src/server/comparison-service.js';
 import { capabilitiesForRole } from '../../../src/server/capabilities.js';
 import { computeEvidenceFingerprint } from '../../../src/server/audit-fingerprint.js';
 import { assignImportedCase } from '../../../src/server/flokzu-import.js';
+import { assertCaseHasNoAdvisorReview } from '../../../src/server/review-locks.js';
 
 // GET   /api/cases/:caseId → { case, evidences, audit, audits, review, comparison, effectiveResolution }
 // PATCH /api/cases/:caseId → 200 { case } | 400 | 404
@@ -95,6 +96,7 @@ export default handleRoute(async (req, res) => {
     assertCaseWriteCapability(req.auth!);
     assertCaseOwner(caseRow, req.auth!);
     await assertCaseNotFinalized(client, caseId);
+    await assertCaseHasNoAdvisorReview(client, caseId);
 
     const input = parseCaseCycleStartDateInput(body);
     await setCaseCycleStartDate(client, caseId, {
@@ -163,24 +165,46 @@ export default handleRoute(async (req, res) => {
   // lectura: si hay revisión manda la persona; si no, el resultado de la
   // auditoría COMPLETED vigente. La auditoría original no se modifica jamás.
   await healStaleComparison(client, caseId);
-  const review = await getCaseReview(client, caseId);
-  const comparisons = await listComparisonsForCase(client, caseId);
+  const reviews = await listCaseReviewsForCase(client, caseId);
   const completedAudit = await latestCompletedAudit(client, caseId);
   const areaRows = await listAreaComments(client, caseId).catch(() => null);
   const auditIsCurrent = completedAudit === null
     ? (audit?.status === 'COMPLETED' ? false : null)
     : areaRows !== null && completedAudit.evidence_fingerprint === computeEvidenceFingerprint(evidences, caseRow.cycle_start_date ?? null, areaRows, caseRow.flokzu_data);
+  const review = auditIsCurrent === true
+    ? reviews.find((candidate) => candidate.audit_id === completedAudit?.id) ?? null
+    : null;
+  const comparisons = review ? await listComparisonsForReview(client, review.id) : [];
+  const hasCoordinatorDecision = reviews.some(item => item.coordinator_decision != null);
+  const ownsWritableCase = capabilitiesForRole(req.auth!.role).canWriteOwnedCases && caseOwnedBy(caseRow, req.auth!.sub) && !hasCoordinatorDecision;
+  const auditVersionUnreviewed = auditIsCurrent === true && review === null;
+  const canAddEvidence = ownsWritableCase && (
+    reviews.length === 0 || reviews[0]?.result === 'EVIDENCIA_INSUFICIENTE'
+  );
+  const canDeleteEvidence = ownsWritableCase && (reviews.length === 0 || auditVersionUnreviewed);
+  const canEditAuditContext = ownsWritableCase && reviews.length === 0;
+  const canRunAudit = ownsWritableCase && (
+    reviews.length === 0 || (
+      reviews[0]?.result === 'EVIDENCIA_INSUFICIENTE' &&
+      auditIsCurrent !== true
+    )
+  );
 
   ok(res, {
     case: caseToDetail(
       audit?.status === 'COMPLETED' && auditIsCurrent === true && caseRow.status === 'AUDITING' ? { ...caseRow, status: 'COMPLETED' } : caseRow,
-      capabilitiesForRole(req.auth!.role).canWriteOwnedCases && caseOwnedBy(caseRow, req.auth!.sub) && review?.coordinator_decision == null,
+      ownsWritableCase,
       capabilitiesForRole(req.auth!.role).canManageCases,
     ),
     evidences: evidences.map(evidenceToDto),
     audit: completedAudit && auditIsCurrent === true ? auditToDto(completedAudit) : audit ? auditToDto(audit) : null,
     audits: audits.map(auditHistoryItemToDto),
     review: review ? caseReviewToDto(review) : null,
+    reviews: reviews.map(caseReviewToDto),
+    canUploadEvidence: canAddEvidence,
+    canDeleteEvidence,
+    canEditAuditContext,
+    canRunAudit,
     comparison: review?.coordinator_decision != null && review.coordinator_created_at && comparisons[0] &&
       Date.parse(comparisons[0].created_at) >= Date.parse(review.coordinator_created_at)
       ? comparisonToDto(comparisons[0])
