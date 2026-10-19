@@ -281,6 +281,20 @@ describe('evidencia NO-audio: nace en un estado que la auditoría acepta', () =>
     spy.mockRestore();
   });
 
+  it('delete evidence limpia la fila si el objeto ya no existe en Storage', async () => {
+    const row = seedEvidence({ id: 'ev-missing', storage_path: 'case-1/ev-missing' });
+    storageLog.removeErrors.set(row.storage_path, Object.assign(new Error('missing'), {
+      statusCode: 404,
+      error: 'STORAGE_NOT_FOUND',
+    }));
+    const res = makeApiResponse();
+
+    await evidenceDeleteHandler(makePlainRequest('DELETE', { caseId: row.case_id, evidenceId: row.id }), res);
+
+    expect(res.statusCode).toBe(200);
+    expect(listEvidence()).toHaveLength(0);
+  });
+
   it('runAudit con evidencia no-audio lista NO devuelve pendingEvidence: ejecuta el dictamen', async () => {
     await upload('text/plain', 'renuncia.txt', 'Por medio de la presente cancelo mi matricula.');
 

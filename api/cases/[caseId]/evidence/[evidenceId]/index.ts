@@ -12,6 +12,12 @@ import {
   updateCaseStatus,
 } from '../../../../../src/server/cases.js';
 
+function isStorageObjectNotFound(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const storageError = error as { statusCode?: unknown; error?: unknown };
+  return storageError.statusCode === 404 && storageError.error === 'STORAGE_NOT_FOUND';
+}
+
 // DELETE /api/cases/:caseId/evidence/:evidenceId → 200 { ok: true }
 export default handleRoute(async (req, res) => {
   if (req.method !== 'DELETE') {
@@ -29,12 +35,12 @@ export default handleRoute(async (req, res) => {
   await assertCaseNotFinalized(client, caseId);
   const evidence = await getEvidenceOr404(client, caseId, evidenceId);
 
-  // Se intenta borrar el objeto del storage ANTES de borrar la fila. Si el
-  // objeto no se puede remover, se PROPAGA el error y la fila sobrevive: al revés
-  // (borrar la fila y avisar después) el objeto queda huérfano sin forma de
-  // localizarlo, porque `storage_path` solo vive en la fila.
+  // Se intenta borrar el objeto del storage ANTES de borrar la fila. Si ya no
+  // existe (404 STORAGE_NOT_FOUND), la eliminación es idempotente y se limpia
+  // la fila huérfana. Cualquier otro error conserva la fila para no perder la
+  // referencia a un objeto que podría seguir existiendo.
   const removal = await client.storage.from(getEnv().INSFORGE_STORAGE_BUCKET).remove(evidence.storage_path);
-  if (removal?.error) {
+  if (removal?.error && !isStorageObjectNotFound(removal.error)) {
     console.error('[evidence] no se pudo remover el objeto; la fila se conserva', {
       evidenceId,
       category: 'STORAGE_ERROR',
