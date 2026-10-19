@@ -14,6 +14,7 @@ import {
   upsertAreaComment,
 } from '../../../../src/server/area-comments.js';
 import { areaCommentToDto } from '../../../../src/server/dto.js';
+import { assertCaseHasNoAdvisorReview } from '../../../../src/server/review-locks.js';
 
 // GET  /api/cases/:caseId/area-comments → 200 { comments }
 // POST /api/cases/:caseId/area-comments → 200 { comment } | 400 | 404
@@ -42,6 +43,7 @@ export default handleRoute(async (req, res) => {
     assertCaseWriteCapability(req.auth!);
     assertCaseOwner(caseRow, req.auth!);
     await assertCaseNotFinalized(client, caseId);
+    await assertCaseHasNoAdvisorReview(client, caseId);
     // Validación SIEMPRE en servidor: el comentario es texto libre de una
     // persona y el área es vocabulario cerrado. Nunca se confía en el cliente.
     const input = parseAreaCommentInput(await readJsonBody(req));

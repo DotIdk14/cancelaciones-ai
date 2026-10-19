@@ -32,6 +32,7 @@ import {
 } from '../../../../src/server/evidence-prep.js';
 import { prepareAudio } from '../../../../src/server/audio-preparation.js';
 import { checkPaidQuota } from '../../../../src/server/quotas.js';
+import { assertEvidenceMayBeAdded } from '../../../../src/server/review-locks.js';
 
 // POST /api/cases/:caseId/evidence
 // Body binario crudo; headers: content-type = MIME, x-file-name = nombre URL-encoded.
@@ -49,6 +50,7 @@ export default handleRoute(async (req, res) => {
   assertCaseWriteCapability(req.auth!);
   assertCaseOwner(caseRow, req.auth!);
   await assertCaseNotFinalized(client, caseId);
+  await assertEvidenceMayBeAdded(client, caseId);
 
   const headerValue = (value: string | string[] | undefined): string =>
     typeof value === 'string' ? value : Array.isArray(value) ? (value[0] ?? '') : '';

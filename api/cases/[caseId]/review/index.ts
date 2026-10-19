@@ -9,8 +9,10 @@ import {
 } from '../../../../src/server/http.js';
 import { createServerClient } from '../../../../src/server/insforge.js';
 import { capabilitiesForRole } from '../../../../src/server/auth.js';
-import { assertCaseOwner, getScopedCaseOr404, latestCompletedAudit, updateCaseDimensions } from '../../../../src/server/cases.js';
-import { DUPLICATE_FINALIZATION_MESSAGE, finalizeCaseReview, getCaseReview, listComparisonsForCase } from '../../../../src/server/reviews.js';
+import { assertCaseOwner, getCaseOr404, getScopedCaseOr404, latestCompletedAudit, listEvidenceRows, updateCaseDimensions } from '../../../../src/server/cases.js';
+import { DUPLICATE_FINALIZATION_MESSAGE, finalizeCaseReview, getCaseReviewForAudit, listComparisonsForReview } from '../../../../src/server/reviews.js';
+import { computeEvidenceFingerprint } from '../../../../src/server/audit-fingerprint.js';
+import { listAreaComments } from '../../../../src/server/area-comments.js';
 import { parseCoordinatorReviewInput, parseHumanReviewInput } from '../../../../src/skills/review/schema.js';
 import {
   caseReviewToDto,
@@ -48,9 +50,10 @@ export default handleRoute(async (req, res) => {
     // función de Vercel murió a mitad, el cliente verá ERROR en vez de un
     // RUNNING eterno (NO_PROCESS_LOCAL_DURABILITY).
     await healStaleComparison(client, caseId);
-    const review = await getCaseReview(client, caseId);
-    const comparisons = await listComparisonsForCase(client, caseId);
     const latest = await latestCompletedAudit(client, caseId);
+    const current = latest && await auditMatchesCurrentCase(client, caseId, latest) ? latest : null;
+    const review = current ? await getCaseReviewForAudit(client, current.id) : null;
+    const comparisons = review ? await listComparisonsForReview(client, review.id) : [];
 
     ok(res, {
       review: review ? caseReviewToDto(review) : null,
@@ -59,7 +62,7 @@ export default handleRoute(async (req, res) => {
         ? comparisonToDto(comparisons[0])
         : null,
       workflowState: deriveWorkflowState(review),
-      effectiveResolution: deriveEffectiveResolution(review, latest),
+      effectiveResolution: deriveEffectiveResolution(review, current),
     });
     return;
   }
@@ -75,7 +78,9 @@ export default handleRoute(async (req, res) => {
       throw new ApiError(403, 'AUTH_ERROR', 'No tienes permiso para revisar ni finalizar casos.');
     }
 
-    const review = await getCaseReview(client, caseId);
+    const latest = await latestCompletedAudit(client, caseId);
+    const current = latest && await auditMatchesCurrentCase(client, caseId, latest) ? latest : null;
+    const review = current ? await getCaseReviewForAudit(client, current.id) : null;
     const workflowState = deriveWorkflowState(review);
 
     // Asesor: registra la decisión propia. El alcance ya garantizó que el caso
@@ -93,7 +98,7 @@ export default handleRoute(async (req, res) => {
         throw new ApiError(
           409,
           'VALIDATION_ERROR',
-          'El caso ya tiene una revisión de asesor; la decisión del asesor es única e inmutable.',
+          'Esta auditoría ya tiene una revisión del Asesor; la decisión de esta versión es única e inmutable.',
         );
       }
       const input = parseHumanReviewInput(await readJsonBody(req));
@@ -136,6 +141,7 @@ export default handleRoute(async (req, res) => {
     await updateCaseDimensions(client, caseId, { country, channel });
     const finalized = await finalizeCaseReview(client, {
       caseId,
+      auditId: current!.id,
       decision: input.decision,
       resolution: input.resolution ?? null,
       comment: input.comment,
@@ -160,3 +166,21 @@ export default handleRoute(async (req, res) => {
 
   methodNotAllowed(req, res, 'GET, POST');
 });
+
+async function auditMatchesCurrentCase(
+  client: ReturnType<typeof createServerClient>,
+  caseId: string,
+  audit: { evidence_fingerprint: string | null },
+): Promise<boolean> {
+  const [caseRow, evidences, areaComments] = await Promise.all([
+    getCaseOr404(client, caseId),
+    listEvidenceRows(client, caseId),
+    listAreaComments(client, caseId),
+  ]);
+  return audit.evidence_fingerprint === computeEvidenceFingerprint(
+    evidences,
+    caseRow.cycle_start_date ?? null,
+    areaComments,
+    caseRow.flokzu_data,
+  );
+}

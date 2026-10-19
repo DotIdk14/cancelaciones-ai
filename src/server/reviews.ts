@@ -4,9 +4,9 @@
 // Igual que `cases.ts`: aquí NO hay reglas de negocio ni criterio. InsForge
 // guarda; el servicio (`comparison-service.ts`) orquesta y el modelo evalúa.
 // Lo único que esta capa decide es el conflicto evidente de "una revisión por
-// caso", porque es una restricción de la clave única y no una regla del
-// producto: sin ella, dos escrituras simultáneas meterían dos resoluciones
-// humanas para el mismo caso y la "resolución final" dejaría de ser única.
+// auditoría", porque es una restricción de la clave única y no una regla del
+// producto: cada versión conserva su revisión y una carrera no crea dos para
+// el mismo dictamen.
 // =============================================================================
 
 import type { InsForgeClient } from './insforge.js';
@@ -16,7 +16,7 @@ import { ApiError, mapProviderError } from './http.js';
 
 export type ComparisonStatusRow = 'RUNNING' | 'COMPLETED' | 'ERROR';
 
-/** Fila de `case_reviews`: la resolución humana final del caso. */
+/** Fila de `case_reviews`: revisión humana inmutable de una auditoría concreta. */
 export interface CaseReviewRow {
   id: string;
   case_id: string;
@@ -72,6 +72,9 @@ export interface CreateCaseReviewInput {
 
 export interface FinalizeCaseReviewInput {
   caseId: string;
+  /** Auditoría exacta cuya revisión se finaliza. */
+  auditId: string;
+  auditId?: string;
   /** `APPROVE` conserva `result`; `CHANGE` la sustituye por `resolution`. */
   decision: CoordinatorDecision;
   /** Resolución final; requerida solo cuando `decision === 'CHANGE'`. */
@@ -118,11 +121,11 @@ export interface UpdateComparisonErrorInput {
   expectedAttemptCount?: number;
 }
 
-/** Mensaje único del conflicto "una revisión por caso" (lo comparan cliente y test). */
+/** Mensaje único del conflicto "una revisión por auditoría". */
 export const DUPLICATE_REVIEW_MESSAGE =
-  'El caso ya tiene una revisión humana registrada; cada caso admite una sola revisión.';
+  'Esta auditoría ya tiene una revisión del Asesor registrada; cada auditoría admite una sola revisión.';
 
-/** Mensaje único del conflicto "una finalización por caso" (el coordinador no decide dos veces). */
+/** Mensaje único del conflicto "una finalización por revisión" (el coordinador no decide dos veces). */
 export const DUPLICATE_FINALIZATION_MESSAGE =
   'El caso ya tiene la decisión final del coordinador registrada; la finalización es única e inmutable.';
 
@@ -137,9 +140,9 @@ function isUniqueViolation(error: unknown): boolean {
 }
 
 /**
- * Registra la revisión humana del caso.
+ * Registra la revisión humana de una auditoría concreta.
  *
- * `case_reviews.case_id` es UNIQUE en la base, así que la carrera entre dos
+ * `case_reviews.audit_id` es UNIQUE en la base, así que la carrera entre dos
  * peticiones simultáneas la resuelve PostgreSQL con un 23505 aunque la
  * comprobación previa pase en las dos. Por eso el 23505 se traduce al mismo
  * 409 que devuelve la comprobación previa: quien llama ve "ya existe revisión"
@@ -149,7 +152,7 @@ export async function createCaseReview(
   client: InsForgeClient,
   input: CreateCaseReviewInput,
 ): Promise<CaseReviewRow> {
-  const existing = await getCaseReview(client, input.caseId);
+  const existing = await getCaseReviewForAudit(client, input.auditId);
   if (existing) {
     throw new ApiError(409, 'VALIDATION_ERROR', DUPLICATE_REVIEW_MESSAGE);
   }
@@ -183,10 +186,40 @@ export async function getCaseReview(client: InsForgeClient, caseId: string): Pro
     .from('case_reviews')
     .select('*')
     .eq('case_id', caseId)
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
     .limit(1);
   if (error) dbError(error);
   const rows = data as CaseReviewRow[] | null;
   return rows?.[0] ?? null;
+}
+
+export async function getCaseReviewForAudit(client: InsForgeClient, auditId: string): Promise<CaseReviewRow | null> {
+  const { data, error } = await client.database
+    .from('case_reviews')
+    .select('*')
+    .eq('audit_id', auditId)
+    .limit(1);
+  if (error) dbError(error);
+  const rows = data as CaseReviewRow[] | null;
+  return rows?.[0] ?? null;
+}
+
+export async function listCaseReviewsForCase(client: InsForgeClient, caseId: string): Promise<CaseReviewRow[]> {
+  const rows: CaseReviewRow[] = [];
+  for (let offset = 0; ; offset += 500) {
+    const { data, error } = await client.database
+      .from('case_reviews')
+      .select('*')
+      .eq('case_id', caseId)
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .range(offset, offset + 499);
+    if (error || !data) dbError(error);
+    const page = data as CaseReviewRow[];
+    rows.push(...page);
+    if (page.length < 500) return rows;
+  }
 }
 
 /**
@@ -217,7 +250,7 @@ export async function finalizeCaseReview(
   client: InsForgeClient,
   input: FinalizeCaseReviewInput,
 ): Promise<CaseReviewRow> {
-  const existing = await getCaseReview(client, input.caseId);
+  const existing = await getCaseReviewForAudit(client, input.auditId);
   if (!existing) {
     throw new ApiError(
       400,
@@ -401,10 +434,14 @@ export async function updateComparisonError(
 export async function listComparisonsForCase(client: InsForgeClient, caseId: string): Promise<ComparisonRow[]> {
   const review = await getCaseReview(client, caseId);
   if (!review) return [];
+  return listComparisonsForReview(client, review.id);
+}
+
+export async function listComparisonsForReview(client: InsForgeClient, reviewId: string): Promise<ComparisonRow[]> {
   const { data, error } = await client.database
     .from('case_comparisons')
     .select('*')
-    .eq('case_review_id', review.id)
+    .eq('case_review_id', reviewId)
     .order('created_at', { ascending: false });
   if (error) dbError(error);
   return (data as ComparisonRow[] | null) ?? [];
