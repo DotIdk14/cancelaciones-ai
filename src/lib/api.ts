@@ -1097,7 +1097,29 @@ export interface SessionSnapshot {
     canWriteOwnedCases: boolean;
     canManageCases: boolean;
     canImportCases: boolean;
+    canValidateAuditFeedback: boolean;
+    canManageAiLab: boolean;
   };
+}
+
+export interface ContinuousImprovementData {
+  feedback: Array<Record<string, unknown> & { id: string; status: string; case_id: string; created_at: string }>;
+  examples: Array<Record<string, unknown> & { id: string; eligibility: string }>;
+  versions: Array<Record<string, unknown> & { id: string; version_key: string; status: string }>;
+  datasets: Array<Record<string, unknown> & { id: string; name: string; split: string }>;
+  runs: Array<Record<string, unknown> & { id: string; status: string }>;
+  results: Array<Record<string, unknown> & { run_id: string; version_id: string; resolution_match: boolean | null; procedure_match: boolean | null }>;
+  procedure: { code: string; version: string; sha256: string; sections: Array<{ id: string; title: string; pages: number[] }> };
+  feedbackTargets: Array<{ caseId: string; auditId: string; advisorResolution: string; coordinatorResolution: string; createdAt: string; evidenceIds: string[] }>;
+  permissions: { canSubmitFeedback: boolean; canReviewFeedback: boolean; canManageLab: boolean };
+}
+
+export async function getContinuousImprovement(): Promise<ContinuousImprovementData> {
+  return request('/api/dashboard/continuous-improvement', {}, [200]);
+}
+
+export async function updateContinuousImprovement(body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  return request('/api/dashboard/continuous-improvement', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, [200, 201, 202]);
 }
 
 export async function signOut(): Promise<void> {
@@ -1133,9 +1155,11 @@ export async function refreshSession(): Promise<SessionSnapshot | null> {
       canWriteOwnedCases: caps?.canWriteOwnedCases === true,
       canManageCases: caps?.canManageCases === true,
       canImportCases: caps?.canImportCases === true,
+      canValidateAuditFeedback: caps?.canValidateAuditFeedback === true,
+      canManageAiLab: caps?.canManageAiLab === true,
     } };
   } catch {
-    return { role: null, capabilities: { canReadAllCases: false, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false, canManageCases: false, canImportCases: false } };
+    return { role: null, capabilities: { canReadAllCases: false, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false, canManageCases: false, canImportCases: false, canValidateAuditFeedback: false, canManageAiLab: false } };
   }
 }
 

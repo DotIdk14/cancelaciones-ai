@@ -139,7 +139,12 @@ function renderPanel(overrides: {
   workflowState?: WorkflowState;
   canReviewOwnCase?: boolean;
   canFinalizeAnyCase?: boolean;
+  canChangeResolution?: boolean;
   onSubmitted?: () => void;
+  caseCountry?: string | null;
+  caseChannel?: string | null;
+  externalCaseId?: string | null;
+  studentIdentifier?: string | null;
 } = {}): HTMLElement {
   const view = render(
     createElement(CaseReviewPanel, {
@@ -150,12 +155,56 @@ function renderPanel(overrides: {
       role: overrides.role === undefined ? 'user' : overrides.role,
       canReviewOwnCase: overrides.canReviewOwnCase ?? true,
       canFinalizeAnyCase: overrides.canFinalizeAnyCase ?? false,
+      canChangeResolution: overrides.canChangeResolution ?? overrides.canFinalizeAnyCase ?? false,
+      caseCountry: overrides.caseCountry ?? 'MX',
+      caseChannel: overrides.caseChannel ?? 'WHATSAPP',
+      externalCaseId: overrides.externalCaseId ?? 'CaVe-41008',
+      studentIdentifier: overrides.studentIdentifier ?? 'MAT-41008',
       workflowState: overrides.workflowState,
       onSubmitted: overrides.onSubmitted ?? noop,
     }),
   );
   return view.container;
 }
+
+describe('confirmación de finalización de auditoría', () => {
+  it('muestra el resumen y requiere confirmar antes de guardar la decisión final', () => {
+    const calls = stubFetch(() => fakeResponse(500, { error: { message: 'No debe guardarse aún' } }));
+    renderPanel({
+      review: makeReview({ result: 'BAJA' }),
+      role: 'coordinator',
+      canReviewOwnCase: false,
+      canFinalizeAnyCase: true,
+      canChangeResolution: true,
+    });
+
+    fireEvent.click(screen.getByLabelText('Aprobar la resolución del Asesor'));
+    fireEvent.click(screen.getByRole('button', { name: 'Finalizar auditoría' }));
+
+    const dialog = screen.getByRole('dialog', { name: 'Confirma la finalización de la auditoría' });
+    expect(within(dialog).getByText('CaVe-41008')).toBeTruthy();
+    expect(within(dialog).getByText('MAT-41008')).toBeTruthy();
+    expect(within(dialog).getByText('Auditoría finalizada. El cierre del ticket en Flokzu se administra por separado.')).toBeTruthy();
+    expect(calls).toHaveLength(0);
+  });
+
+  it('exige elegir un lineamiento citado por la auditoría cuando se cambia la resolución', () => {
+    renderPanel({
+      review: makeReview({ result: 'BAJA' }),
+      role: 'coordinator',
+      canReviewOwnCase: false,
+      canFinalizeAnyCase: true,
+      canChangeResolution: true,
+    });
+    fireEvent.click(screen.getByLabelText('Cambiar la resolución'));
+    fireEvent.click(screen.getByLabelText('Cancelación de venta'));
+    const finish = screen.getByRole('button', { name: 'Finalizar auditoría' }) as HTMLButtonElement;
+    expect(finish.disabled).toBe(true);
+    const section = screen.getByLabelText(/Lineamiento V5 que fundamenta el cambio/);
+    fireEvent.change(section, { target: { value: '5.2' } });
+    expect(finish.disabled).toBe(false);
+  });
+});
 
 function renderForm(onSubmitted: () => void = noop): HTMLFormElement {
   const container = renderPanel({ onSubmitted });
@@ -186,6 +235,8 @@ function chooseReview(resultLabel = 'Baja'): void {
   // El comentario es opcional y la atribución la pone el servidor: para habilitar
   // el envío basta con elegir una resolución.
   fireEvent.click(screen.getByRole('radio', { name: resultLabel }));
+  const section = screen.queryByLabelText(/Lineamiento V5 que fundamenta la diferencia/);
+  if (section) fireEvent.change(section, { target: { value: '5.2' } });
 }
 
 function submitButton(): HTMLButtonElement {
@@ -223,7 +274,7 @@ describe('CaseReviewPanel — cuándo existe', () => {
     const container = renderPanel({ review: makeReview() });
 
     // La revisión registrada sí se muestra (es la resolución del Asesor)...
-    expect(screen.getByRole('heading', { name: /revisión humana/i })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: /resolución de asesor/i })).toBeTruthy();
     // ...pero el formulario del Asesor NO: su decisión es única e inmutable.
     expect(container.querySelector('form')).toBeNull();
     expect(screen.queryByRole('button', { name: /registrar la revisión/i })).toBeNull();
@@ -261,7 +312,7 @@ describe('CaseReviewPanel — gating por rol (solo presentación)', () => {
     // Hay revisión de Asesor y falta la decisión final: es la etapa del Coordinador.
     renderPanel({ role: 'user', review: makeReview() });
 
-    expect(screen.queryByRole('button', { name: /finalizar el caso/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /finalizar auditoría/i })).toBeNull();
     expect(screen.queryByRole('group', { name: /decisión final/i })).toBeNull();
     // Se le deja constancia de que su etapa ya quedó registrada e inmutable.
     expect(screen.getByText(/pendiente de la decisión del coordinador/i)).toBeTruthy();
@@ -278,7 +329,7 @@ describe('CaseReviewPanel — gating por rol (solo presentación)', () => {
   it('la capacidad de finalización muestra el formulario cuando la etapa está PENDING_COORDINATOR', () => {
     renderPanel({ role: 'user', canReviewOwnCase: false, canFinalizeAnyCase: true, review: makeReview(), workflowState: 'PENDING_COORDINATOR' });
 
-    expect(screen.getByRole('button', { name: /finalizar el caso/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /finalizar auditoría/i })).toBeTruthy();
   });
 
   it('el Gerente no ve ningún control de mutación, ni del Asesor ni del Coordinador', () => {
@@ -290,14 +341,14 @@ describe('CaseReviewPanel — gating por rol (solo presentación)', () => {
 
     // Etapa pendiente de Coordinador: sin formulario de Coordinador.
     renderPanel({ role: 'manager', canReviewOwnCase: false, review: makeReview() });
-    expect(screen.queryByRole('button', { name: /finalizar el caso/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /finalizar auditoría/i })).toBeNull();
     expect(screen.getByText(/solo lectura/i)).toBeTruthy();
   });
 
   it('con la decisión final registrada nadie ve un formulario: sólo el registro', () => {
     renderPanel({ role: 'coordinator', review: makeReview({ coordinatorDecision: 'APPROVE' }) });
 
-    expect(screen.queryByRole('button', { name: /finalizar el caso/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /finalizar auditoría/i })).toBeNull();
     expect(screen.queryByRole('button', { name: /registrar la revisión/i })).toBeNull();
     expect(screen.getByText(/decisión del coordinador/i)).toBeTruthy();
   });
@@ -333,13 +384,15 @@ describe('CaseReviewPanel — decisión y datos de la revisión', () => {
     expect(calls[0]?.body).toEqual({ result: aiResult, comment: COMMENT });
   });
 
-  it('requiere elegir una resolución, pero permite dejar las notas vacías', () => {
+  it('requiere resolución y lineamiento al apartarse de IA, pero permite dejar las notas vacías', () => {
     renderForm();
 
     // Sin resolución no hay envío posible...
     expect(submitButton().disabled).toBe(true);
     fireEvent.click(screen.getByRole('radio', { name: /^baja$/i }));
-    // ...y con resolución, el comentario vacío es válido: es opcional.
+    expect(submitButton().disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText(/Lineamiento V5 que fundamenta la diferencia/), { target: { value: '5.2' } });
+    // Con resolución y fundamento, el comentario vacío sigue siendo válido.
     expect(submitButton().disabled).toBe(false);
     expect(commentBox().value).toBe('');
   });
@@ -351,11 +404,12 @@ describe('CaseReviewPanel — decisión y datos de la revisión', () => {
 
     expect(submitButton().disabled).toBe(false);
 
-    fireEvent.change(box, { target: { value: 'x'.repeat(2001) } });
-    expect(box.value).toHaveLength(2001);
+    const max = 2000 - 'Fundamento V5: sección 5.2.\n'.length;
+    fireEvent.change(box, { target: { value: 'x'.repeat(max + 1) } });
+    expect(box.value).toHaveLength(max + 1);
     expect(submitButton().disabled).toBe(true);
 
-    fireEvent.change(box, { target: { value: 'x'.repeat(2000) } });
+    fireEvent.change(box, { target: { value: 'x'.repeat(max) } });
     expect(submitButton().disabled).toBe(false);
 
     expect(form).toBeTruthy();
@@ -408,7 +462,7 @@ describe('CaseReviewPanel — envío válido', () => {
     // Los datos viajan recortados: es exactamente lo que valida el servidor.
     expect(calls[0]?.body).toEqual({
       result: 'BAJA',
-      comment: COMMENT,
+      comment: `Fundamento V5: sección 5.2.\n${COMMENT}`,
     });
     // El cliente NUNCA envía la atribución: el servidor la deriva de la sesión y
     // rechazaría un `reviewerName` (schema estricto).
@@ -434,7 +488,7 @@ describe('CaseReviewPanel — envío válido', () => {
 
     expect(await screen.findByText(COMPARISON_RESULT.discrepancyReason)).toBeTruthy();
     // `agrees` es el acierto medido...
-    expect(screen.getByText(/no coincide con la resolución humana/i)).toBeTruthy();
+    expect(screen.getByText(/no coincide con la resolución del asesor/i)).toBeTruthy();
     // ...y `confidence` es la confianza que la IA declara sobre SU comparación.
     // No puede presentarse como porcentaje de acierto.
     expect(screen.getByText(/confianza declarada por la IA en su comparación/i)).toBeTruthy();
@@ -522,7 +576,7 @@ describe('CaseReviewRecord — la revisión registrada y su comparación', () =>
   it('muestra la resolución humana prioritaria y conserva el resultado de IA separado', () => {
     renderRecord(makeComparison());
 
-    expect(screen.getByRole('heading', { name: /revisión humana/i })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: /resolución de asesor/i })).toBeTruthy();
     expect(screen.getAllByText('Dictaminación')).toHaveLength(2);
     expect(screen.getByText('Cancelación de venta')).toBeTruthy();
     expect(screen.getByText('Revisora de pruebas')).toBeTruthy();
@@ -571,7 +625,7 @@ describe('CaseReviewRecord — la revisión registrada y su comparación', () =>
     expect(calls.every((call) => call.method === 'GET')).toBe(true);
     expect(calls.some((call) => call.url === '/api/cases/case-1/review')).toBe(true);
     // El tick resuelve la comparación y la conclusión aparece sin recargar.
-    expect(screen.getByText(/no coincide con la resolución humana/i)).toBeTruthy();
+    expect(screen.getByText(/no coincide con la resolución del asesor/i)).toBeTruthy();
   });
 
   it('el botón de reintento aparece sólo en ERROR, con su aclaración', () => {
@@ -603,13 +657,13 @@ describe('CaseReviewRecord — la revisión registrada y su comparación', () =>
     expect(calls).toHaveLength(1);
     expect(calls[0]?.url).toBe('/api/cases/case-1/comparison');
     expect(calls[0]?.method).toBe('POST');
-    expect(await screen.findByText(/no coincide con la resolución humana/i)).toBeTruthy();
+    expect(await screen.findByText(/no coincide con la resolución del asesor/i)).toBeTruthy();
   });
 
   it('con agrees === true informa coincidencia y no inventa discrepancia', () => {
     renderRecord(makeComparison({ resultJson: { ...COMPARISON_RESULT, agrees: true, discrepancyReason: null } }));
 
-    expect(screen.getByText(/coincide con la resolución humana/i)).toBeTruthy();
+    expect(screen.getByText(/coincide con la resolución del asesor/i)).toBeTruthy();
     expect(screen.getByText(COMPARISON_RESULT.explanation)).toBeTruthy();
   });
 
@@ -632,7 +686,7 @@ describe('CaseReviewRecord — la revisión registrada y su comparación', () =>
 
     const row = screen.getByText(/resolución vigente/i).closest('div');
     expect(row?.textContent).toContain('Dictaminación');
-    expect(row?.textContent).toContain('Humano');
+    expect(row?.textContent).toContain('Asesor');
     expect(row?.textContent).not.toContain('—');
   });
 
@@ -669,6 +723,6 @@ describe('CaseReviewRecord — la revisión registrada y su comparación', () =>
     await settle();
 
     expect(calls.some((call) => call.url === '/api/cases/case-1/comparison' && call.method === 'POST')).toBe(true);
-    expect(screen.getByText(/no coincide con la resolución humana/i)).toBeTruthy();
+    expect(screen.getByText(/no coincide con la resolución del asesor/i)).toBeTruthy();
   });
 });

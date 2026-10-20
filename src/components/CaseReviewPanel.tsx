@@ -50,7 +50,6 @@ import { cx } from '../lib/cx';
 import { DASH, formatDateTime, formatLatency, formatPercent, shortId } from '../lib/format';
 import {
   COMPARISON_STATUS_LABELS,
-  RESOLUTION_SOURCE_LABELS,
   RESULT_DESCRIPTIONS,
   RESULT_LABELS,
   REVIEW_COMMENT_LIMITS,
@@ -99,6 +98,8 @@ export interface CaseReviewPanelProps {
   canAddComments?: boolean;
   caseCountry?: string | null;
   caseChannel?: string | null;
+  externalCaseId?: string | null;
+  studentIdentifier?: string | null;
   /** Se llama tras registrar la revisión o la decisión final, para refrescar el caso. */
   onSubmitted?: () => void;
 }
@@ -119,10 +120,13 @@ export function CaseReviewPanel({
   canAddComments = false,
   caseCountry = null,
   caseChannel = null,
+  externalCaseId = null,
+  studentIdentifier = null,
   onSubmitted,
 }: CaseReviewPanelProps): ReactNode {
   const [result, setResult] = useState<AuditResultType | ''>('');
   const [comment, setComment] = useState('');
+  const [procedureSection, setProcedureSection] = useState('');
   const [confirmingAiAgreement, setConfirmingAiAgreement] = useState(false);
   const [resultBeforeAiAgreement, setResultBeforeAiAgreement] = useState<AuditResultType | ''>('');
   const [phase, setPhase] = useState<ReviewPhase>('idle');
@@ -141,6 +145,7 @@ export function CaseReviewPanel({
   useEffect(() => {
     setResult('');
     setComment('');
+    setProcedureSection('');
     setConfirmingAiAgreement(false);
     setResultBeforeAiAgreement('');
     setPhase('idle');
@@ -168,14 +173,21 @@ export function CaseReviewPanel({
 
   // Longitud del comentario YA RECORTADO: la misma que valida el servidor.
   const trimmed = comment.trim();
-  const commentLength = trimmed.length;
-  const commentValid = isValidReviewComment(commentLength);
-  const lengthError = comment.length === 0 ? null : commentLengthError(commentLength);
   const aiResult = audit?.resultJson?.audit?.result ?? null;
+  const needsProcedureSection = result !== '' && aiResult !== null && result !== aiResult;
+  const tracePrefix = needsProcedureSection && procedureSection ? `Fundamento V5: sección ${procedureSection}.\n` : '';
+  const commentLength = trimmed.length + tracePrefix.length;
+  const commentValid = isValidReviewComment(commentLength);
+  const lengthError = commentLength === 0 ? null : commentLengthError(commentLength);
+  const availableProcedureSections = Array.from(new Set([
+    ...(audit?.resultJson?.audit?.auditPath?.procedureSections ?? []),
+    ...(audit?.resultJson?.audit?.procedureChecks?.map((check) => check.procedureSection) ?? []),
+    ...(audit?.resultJson?.audit?.procedureSection ? [audit.resultJson.audit.procedureSection] : []),
+  ])).filter((section) => /^\d+(?:\.\d+)*$/.test(section)).sort((a, b) => a.localeCompare(b, 'es', { numeric: true }));
   const sending = phase === 'sending';
   // El comentario es OPCIONAL (el servidor lo acepta vacío); la resolución es lo
   // único obligatorio para registrar la etapa del Asesor.
-  const canSubmit = result !== '' && commentValid && !sending && !conflict;
+  const canSubmit = result !== '' && commentValid && (!needsProcedureSection || procedureSection !== '') && !sending && !conflict;
 
   const handleSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>): Promise<void> => {
@@ -184,7 +196,7 @@ export function CaseReviewPanel({
       setPhase('sending');
       setError(null);
       try {
-        const data = await submitCaseReview(caseId, { result, comment: trimmed });
+        const data = await submitCaseReview(caseId, { result, comment: [tracePrefix.trim(), trimmed].filter(Boolean).join('\n') });
         setSubmitted({ review: data.review, comparison: data.comparison, effectiveResolution: null, reviewAuditResult: aiResult });
         setPhase(data.comparison?.status === 'RUNNING' ? 'comparing' : 'done');
         onSubmitted?.();
@@ -199,7 +211,7 @@ export function CaseReviewPanel({
         setPhase('error');
       }
     },
-    [aiResult, canSubmit, caseId, onSubmitted, result, trimmed],
+    [aiResult, canSubmit, caseId, onSubmitted, result, tracePrefix, trimmed],
   );
 
   const loadExisting = useCallback(async (): Promise<void> => {
@@ -251,6 +263,9 @@ export function CaseReviewPanel({
           canAddComment={canAddComments}
           caseCountry={caseCountry}
           caseChannel={caseChannel}
+          externalCaseId={externalCaseId}
+          studentIdentifier={studentIdentifier}
+          audit={audit}
           onSubmitted={onSubmitted}
         />
       </div>
@@ -289,6 +304,9 @@ export function CaseReviewPanel({
           canAddComment={canAddComments}
           caseCountry={caseCountry}
           caseChannel={caseChannel}
+          externalCaseId={externalCaseId}
+          studentIdentifier={studentIdentifier}
+          audit={audit}
           onSubmitted={onSubmitted}
         />
       </div>
@@ -299,7 +317,7 @@ export function CaseReviewPanel({
     return (
       <div ref={takeoverRef} tabIndex={-1}>
         <Panel
-          title="Revisión humana"
+          title="Resolución de asesor"
           description="Esta auditoría ya tiene una revisión registrada del Asesor; la resolución final la decide un Coordinador."
         >
           <div className="flex flex-col gap-4">
@@ -310,7 +328,7 @@ export function CaseReviewPanel({
               Ver la revisión registrada
             </Button>
             <p className="text-xs text-muted">
-              La revisión humana es única por caso y no se puede sustituir ni duplicar. Para cambiar
+              La resolución del Asesor es única por caso y no se puede sustituir ni duplicar. Para cambiar
               una decisión hay que abrir un caso nuevo con la evidencia que la sostienen.
             </p>
           </div>
@@ -321,8 +339,8 @@ export function CaseReviewPanel({
 
   return (
     <Panel
-      title="Revisión humana"
-      description="Registra la resolución de una persona sin modificar el dictamen original de la auditoría."
+      title="Resolución de asesor"
+      description="Registra la resolución que propone el Asesor sin modificar el dictamen original de la auditoría."
     >
       <form
         className="flex flex-col gap-5"
@@ -347,6 +365,7 @@ export function CaseReviewPanel({
                 onClick={() => {
                   setResultBeforeAiAgreement(result);
                   setResult(aiResult);
+                  setProcedureSection('');
                   setError(null);
                   setConfirmingAiAgreement(true);
                 }}
@@ -375,7 +394,7 @@ export function CaseReviewPanel({
                       name="revision-result"
                       value={option}
                       checked={selected}
-                      onChange={() => setResult(option)}
+                      onChange={() => { setResult(option); if (option === aiResult) setProcedureSection(''); }}
                       aria-describedby={descId}
                       className="mt-0.5 h-4 w-4 shrink-0 accent-brand"
                     />
@@ -390,6 +409,15 @@ export function CaseReviewPanel({
               );
             })}
           </div>
+          {needsProcedureSection && <label htmlFor="asesor-procedure-section" className="mt-3 flex flex-col gap-1.5 text-sm font-semibold text-ink">
+            Lineamiento V5 que fundamenta la diferencia <span className="font-normal text-danger">(obligatorio)</span>
+            <select id="asesor-procedure-section" value={procedureSection} onChange={(event) => setProcedureSection(event.target.value)} disabled={sending} required className="rounded-lg border border-line bg-surface-2 px-3 py-2 font-normal text-ink">
+              <option value="">Selecciona una sección citada por la auditoría</option>
+              {availableProcedureSections.map((section) => <option key={section} value={section}>Sección {section}</option>)}
+            </select>
+            <span className="text-xs font-normal text-muted">La sección quedará registrada junto con la justificación de la revisión.</span>
+            {availableProcedureSections.length === 0 && <span role="alert" className="text-xs font-medium text-danger">La auditoría no contiene secciones V5 seleccionables; contacta al Coordinador antes de registrar una resolución distinta.</span>}
+          </label>}
         </fieldset>}
 
         {/* ------------------------------------------------- comentario */}
@@ -511,7 +539,7 @@ function AdvisorReadOnlyStage({ role }: { role: AppRole | null }): ReactNode {
       : 'La etapa de Asesor la registra el Asesor dueño del caso. Todavía no hay una decisión que finalizar.';
   return (
     <Panel
-      title="Revisión humana"
+      title="Resolución de asesor"
       description="Flujo de revisión en dos etapas: primero el Asesor, después el Coordinador."
     >
       <p role="status" className="text-sm text-muted">
@@ -606,9 +634,9 @@ export function CaseReviewRecord({
 
   return (
     <Panel
-      title="Revisión humana"
-      description="Resolución del Asesor. Es la decisión de la persona y no altera el dictamen original de la auditoría."
-      labelledBy="revision-humana"
+      title="Resolución de asesor"
+      description="Es la propuesta del Asesor y no altera el dictamen original de la auditoría."
+      labelledBy="resolucion-asesor"
     >
       {/* ------------------------------------------------- la decisión */}
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -625,15 +653,13 @@ export function CaseReviewRecord({
       </div>
 
       <div className="mt-4">
-        <SectionTitle>Revisión registrada por</SectionTitle>
+        <SectionTitle>Resolución registrada por</SectionTitle>
         <p className="mt-1 text-sm text-ink">{review.reviewerName || 'No indicado'}</p>
       </div>
 
       {review.comment !== '' && <div className="mt-4">
         <SectionTitle>Comentario</SectionTitle>
-        <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-ink">
-          {review.comment}
-        </p>
+        <ExpandableText text={review.comment} className="mt-1 text-sm leading-relaxed text-ink" />
       </div>}
 
       {isFinalized && <div className="mt-5 rounded-xl border border-line bg-surface-2 p-4">
@@ -661,7 +687,7 @@ export function CaseReviewRecord({
           value={
             effectiveResolution === null || effectiveResolution.source !== 'HUMAN'
               ? DASH
-              : `${resolutionLabel(effectiveResolution.result)} · ${RESOLUTION_SOURCE_LABELS[effectiveResolution.source]}`
+            : `${resolutionLabel(effectiveResolution.result)} · ${isFinalized ? 'Coordinador' : 'Asesor'}`
           }
         />
       </dl>
@@ -711,7 +737,7 @@ export function CaseReviewRecord({
           ) : (
             <div role="status" className="flex items-center gap-2 text-sm text-brand">
               <Spinner label="Comparación en curso" className="h-3.5 w-3.5" />
-              <span>Comparando el dictamen original con la resolución humana…</span>
+              <span>Comparando el dictamen original con la resolución del Asesor…</span>
             </div>
           )
         ) : live.status === 'ERROR' ? (
@@ -774,19 +800,17 @@ function ComparisonOutcomeView({ comparison, evidenceNames }: { comparison: Comp
           )}
         >
           {outcome.agrees
-            ? 'Coincide con la resolución humana'
-            : 'No coincide con la resolución humana'}
+            ? 'Coincide con la resolución del Asesor'
+            : 'No coincide con la resolución del Asesor'}
         </p>
       </div>
 
-      <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-ink">{outcome.explanation}</p>
+      <ExpandableText text={outcome.explanation} className="text-sm leading-relaxed text-ink" />
 
       {outcome.discrepancyReason !== null && (
         <div className="rounded-xl border border-warning/30 bg-warning/5 p-3">
           <p className="text-xs font-medium uppercase tracking-wide text-muted">Causa de la discrepancia</p>
-          <p className="mt-1 whitespace-pre-wrap break-words text-sm text-ink">
-            {outcome.discrepancyReason}
-          </p>
+          <ExpandableText text={outcome.discrepancyReason} className="mt-1 text-sm text-ink" />
         </div>
       )}
 
@@ -838,4 +862,16 @@ function ComparisonOutcomeView({ comparison, evidenceNames }: { comparison: Comp
       </dl>
     </div>
   );
+}
+
+function ExpandableText({ text, className = '' }: { text: string; className?: string }): ReactNode {
+  const limit = 300;
+  if (text.length <= limit) return <p className={`whitespace-pre-wrap break-words ${className}`}>{text}</p>;
+  const slice = text.slice(0, limit);
+  const wordEnd = slice.lastIndexOf(' ');
+  const preview = slice.slice(0, wordEnd > 0 ? wordEnd : limit).trimEnd();
+  return <div className="case-expandable-text">
+    <p className={`whitespace-pre-wrap break-words ${className}`}>{preview}…</p>
+    <details><summary>Leer texto completo</summary><p className={`whitespace-pre-wrap break-words ${className}`}>{text}</p></details>
+  </div>;
 }

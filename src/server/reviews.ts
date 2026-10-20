@@ -74,7 +74,6 @@ export interface FinalizeCaseReviewInput {
   caseId: string;
   /** Auditoría exacta cuya revisión se finaliza. */
   auditId: string;
-  auditId?: string;
   /** `APPROVE` conserva `result`; `CHANGE` la sustituye por `resolution`. */
   decision: CoordinatorDecision;
   /** Resolución final; requerida solo cuando `decision === 'CHANGE'`. */

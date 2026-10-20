@@ -33,9 +33,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiRequest, ApiResponse } from '../src/server/http';
 import type { AppRole } from '../src/server/capabilities';
 import type { SubmitCaseReviewInput } from '../src/server/comparison-service';
+import { computeEvidenceFingerprint } from '../src/server/audit-fingerprint';
 import { setTestEnv } from './helpers/env';
 import { fakeAuthContext, FAKE_USER_EMAIL, FAKE_USER_SUB } from './helpers/auth';
-import { resetStore, seedCase, seedReview } from './helpers/fake-store';
+import { resetStore, seedAudit, seedCase, seedReview } from './helpers/fake-store';
 
 import casesHandler from '../api/cases/index';
 import reviewHandler from '../api/cases/[caseId]/review/index';
@@ -79,6 +80,8 @@ vi.mock('../src/server/reviews', async () => {
   return {
     createCaseReview: store.createCaseReview,
     getCaseReview: store.getCaseReview,
+    getCaseReviewForAudit: store.getCaseReviewForAudit,
+    listCaseReviewsForCase: store.listCaseReviewsForCase,
     finalizeCaseReview: store.finalizeCaseReview,
     DUPLICATE_FINALIZATION_MESSAGE: 'La decisión final del coordinador es única e inmutable.',
     insertComparison: store.insertComparison,
@@ -125,7 +128,7 @@ vi.mock('../src/server/comparison-service', async () => {
 const { upsertAreaCommentMock } = vi.hoisted(() => ({ upsertAreaCommentMock: vi.fn() }));
 vi.mock('../src/server/area-comments', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/server/area-comments')>();
-  return { ...actual, upsertAreaComment: upsertAreaCommentMock };
+  return { ...actual, listAreaComments: async () => [], upsertAreaComment: upsertAreaCommentMock };
 });
 
 // --- Cliente server-side de InsForge: store aislado, sin red ----------------
@@ -138,6 +141,10 @@ vi.mock('../src/server/insforge', async (importOriginal) => {
 const OWN_CASE = 'case-propio';
 const OTHER_CASE = 'case-ajeno';
 const OTHER_OWNER = 'otro-usuario';
+
+function seedCurrentAudit(caseId: string): void {
+  seedAudit({ id: 'audit-1', case_id: caseId, evidence_fingerprint: computeEvidenceFingerprint([]) });
+}
 
 function makeApiResponse(): ApiResponse & { statusCode: number; body: string } {
   const fake = {
@@ -385,6 +392,7 @@ describe('finalizar como coordinador · POST /api/cases/:id/review {decision}', 
     { decision: 'APPROVE', comment: 'Comentario en expediente ajeno.' },
   ])('permite cambiar la decisión y agregar comentarios en casos ajenos: %j', async (body) => {
     seedCase({ id: OTHER_CASE, created_by: OTHER_OWNER });
+    seedCurrentAudit(OTHER_CASE);
     seedReview({ case_id: OTHER_CASE, result: 'BAJA', coordinator_decision: null });
     const res = await postReview('coordinator', OTHER_CASE, { country: 'MX', channel: 'WHATSAPP', ...body });
     expect(res.statusCode, res.body).toBe(200);
@@ -397,6 +405,7 @@ describe('finalizar como coordinador · POST /api/cases/:id/review {decision}', 
 
   it('permite cambiar resolución y comentar al coordinador propietario', async () => {
     seedCase({ id: OWN_CASE, created_by: FAKE_USER_SUB });
+    seedCurrentAudit(OWN_CASE);
     seedReview({ case_id: OWN_CASE, result: 'BAJA', coordinator_decision: null });
     const res = await postReview('coordinator', OWN_CASE, {
       country: 'MX', channel: 'WHATSAPP', decision: 'CHANGE', resolution: 'TICKET_RECHAZADO', comment: 'Cambio por nueva revisión humana.',
@@ -410,6 +419,7 @@ describe('finalizar como coordinador · POST /api/cases/:id/review {decision}', 
 
   it('Coordinador sobre caso PENDING_COORDINATOR: 200 (finaliza el caso de un asesor)', async () => {
     seedCase({ id: OTHER_CASE, created_by: OTHER_OWNER });
+    seedCurrentAudit(OTHER_CASE);
     seedReview({ case_id: OTHER_CASE, result: 'BAJA', coordinator_decision: null });
     const res = await postReview('coordinator', OTHER_CASE, COORDINATOR_BODY);
     expect(res.statusCode).toBe(200);
@@ -426,6 +436,7 @@ describe('finalizar como coordinador · POST /api/cases/:id/review {decision}', 
 
   it('Coordinador sobre caso ya finalizado: 409 (la finalización es única e inmutable)', async () => {
     seedCase({ id: OTHER_CASE, created_by: OTHER_OWNER });
+    seedCurrentAudit(OTHER_CASE);
     seedReview({ case_id: OTHER_CASE, result: 'BAJA', coordinator_decision: 'APPROVE' });
     const res = await postReview('coordinator', OTHER_CASE, COORDINATOR_BODY);
     expect(res.statusCode, res.body).toBe(409);
@@ -433,6 +444,7 @@ describe('finalizar como coordinador · POST /api/cases/:id/review {decision}', 
 
   it('Asesor sobre caso PENDING_COORDINATOR: 409 (no es su etapa; el cuerpo ni se mira)', async () => {
     seedCase({ id: OWN_CASE, created_by: FAKE_USER_SUB });
+    seedCurrentAudit(OWN_CASE);
     seedReview({ case_id: OWN_CASE, result: 'BAJA', coordinator_decision: null });
     const res = await postReview('user', OWN_CASE, COORDINATOR_BODY);
     expect(res.statusCode).toBe(409);

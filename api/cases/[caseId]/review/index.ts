@@ -11,7 +11,7 @@ import { createServerClient } from '../../../../src/server/insforge.js';
 import { capabilitiesForRole } from '../../../../src/server/auth.js';
 import { assertCaseOwner, getCaseOr404, getScopedCaseOr404, latestCompletedAudit, listEvidenceRows, updateCaseDimensions } from '../../../../src/server/cases.js';
 import { DUPLICATE_FINALIZATION_MESSAGE, finalizeCaseReview, getCaseReviewForAudit, listComparisonsForReview } from '../../../../src/server/reviews.js';
-import { computeEvidenceFingerprint } from '../../../../src/server/audit-fingerprint.js';
+import { fingerprintForAuditVersion, getActiveAuditVersion } from '../../../../src/server/audit-versions.js';
 import { listAreaComments } from '../../../../src/server/area-comments.js';
 import { parseCoordinatorReviewInput, parseHumanReviewInput } from '../../../../src/skills/review/schema.js';
 import {
@@ -177,10 +177,12 @@ async function auditMatchesCurrentCase(
     listEvidenceRows(client, caseId),
     listAreaComments(client, caseId),
   ]);
-  return audit.evidence_fingerprint === computeEvidenceFingerprint(
+  const activeVersion = await getActiveAuditVersion(client);
+  return audit.evidence_fingerprint === fingerprintForAuditVersion(
     evidences,
     caseRow.cycle_start_date ?? null,
     areaComments,
     caseRow.flokzu_data,
+    activeVersion,
   );
 }

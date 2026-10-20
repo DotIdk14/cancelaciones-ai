@@ -16,8 +16,11 @@ type QueryResult = { data: Row[] | Row | null; error: null };
 
 class FakeQuery implements PromiseLike<QueryResult> {
   private readonly filters: Array<[string, unknown, 'eq' | 'is']> = [];
+  private readonly notNullFilters: string[] = [];
   private readonly orders: Array<[string, boolean]> = [];
   private limitCount: number | null = null;
+  private rangeStart = 0;
+  private rangeEnd: number | null = null;
 
   constructor(
     private readonly db: FakeDatabaseImpl,
@@ -80,6 +83,11 @@ class FakeQuery implements PromiseLike<QueryResult> {
     return this;
   }
 
+  not(column: string, operator: string, value: unknown): this {
+    if (operator === 'is' && value === null) this.notNullFilters.push(column);
+    return this;
+  }
+
   order(column: string, options?: { ascending?: boolean }): this {
     this.orders.push([column, options?.ascending ?? true]);
     return this;
@@ -87,6 +95,12 @@ class FakeQuery implements PromiseLike<QueryResult> {
 
   limit(count: number): this {
     this.limitCount = count;
+    return this;
+  }
+
+  range(from: number, to: number): this {
+    this.rangeStart = from;
+    this.rangeEnd = to;
     return this;
   }
 
@@ -145,7 +159,7 @@ class FakeQuery implements PromiseLike<QueryResult> {
             return value === null ? row[column] === null || row[column] === undefined : row[column] === value;
           }
           return row[column] === value;
-        }),
+        }) && this.notNullFilters.every((column) => row[column] !== null && row[column] !== undefined),
       );
 
     if (this.op === 'update') {
@@ -169,7 +183,8 @@ class FakeQuery implements PromiseLike<QueryResult> {
         return ascending ? cmp : -cmp;
       });
     }
-    if (this.limitCount !== null) rows = rows.slice(0, this.limitCount);
+    if (this.rangeEnd !== null) rows = rows.slice(this.rangeStart, this.rangeEnd + 1);
+    else if (this.limitCount !== null) rows = rows.slice(0, this.limitCount);
 
     return { data: single ? rows[0] ?? null : rows, error: null };
   }

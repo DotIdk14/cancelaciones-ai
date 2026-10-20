@@ -17,8 +17,8 @@ const states: Record<string, string> = {
   PENDING_COMPARISON: 'Falta comparar con la decisión final', COMPARISON_RUNNING: 'Comparación en curso',
   COMPARISON_ERROR: 'Comparación fallida', AUDIT_ERROR: 'Auditoría fallida',
   AUDIT_RUNNING: 'Auditoría en curso', INVALID_COMPARISON: 'Comparación sin resultado válido',
-  PENDING_EVALUATION: 'Sin decisión humana final', WITHOUT_CONFIDENCE: 'Sin confianza declarada',
-  ISSUED: 'Con dictamen de IA', FINALIZED: 'Con decisión humana final',
+  PENDING_EVALUATION: 'Sin decisión final', WITHOUT_CONFIDENCE: 'Sin confianza declarada',
+  ISSUED: 'Con dictamen de IA', FINALIZED: 'Con decisión final',
 };
 const dateFormat = new Intl.DateTimeFormat('es-MX', { dateStyle: 'short', timeZone: 'UTC' });
 type View = 'results' | 'pending' | 'confidence';
@@ -44,7 +44,7 @@ function CasesTable({ rows }: { rows: QualityCase[] }): ReactNode {
     {historyCase && <Panel title="Historial de matrícula"><Button variant="ghost" onClick={() => setHistoryCase(null)}>Cerrar historial</Button><HistoryForCase caseId={historyCase} /></Panel>}
     <div role="region" aria-label="Casos de calidad" tabIndex={0} className="overflow-x-auto">
       <table className="w-full text-left text-sm tabular-nums">
-        <thead><tr className="border-b border-line text-muted">{['CaVe / caso', 'Responsable', 'Fecha · UTC', 'Dictamen de IA', 'Decisión humana final', 'Situación', ...(technical ? ['Propuesta del Asesor', 'Confianza del dictamen', 'Confianza de comparación'] : []), 'Consultar'].map(label => <th key={label} scope="col" className="whitespace-nowrap px-3 py-3 font-medium">{label}</th>)}</tr></thead>
+        <thead><tr className="border-b border-line text-muted">{['CaVe / caso', 'Responsable', 'Fecha · UTC', 'Dictamen de IA', 'Decisión final', 'Situación', ...(technical ? ['Propuesta del Asesor', 'Confianza del dictamen', 'Confianza de comparación'] : []), 'Consultar'].map(label => <th key={label} scope="col" className="whitespace-nowrap px-3 py-3 font-medium">{label}</th>)}</tr></thead>
         <tbody>{visible.map(row => <tr key={row.auditId} className="border-b border-line text-ink">
           <td className="px-3 py-3">{row.identifier}</td><td className="px-3 py-3">{row.responsibleName ?? row.responsible ?? 'Sin responsable disponible'}</td>
           <td className="whitespace-nowrap px-3 py-3">{dateFormat.format(new Date(row.auditedAt))}</td>
@@ -103,7 +103,7 @@ export function QualityPage(): ReactNode {
       <section className="quality-overview" aria-label="Resumen de calidad">
         <div><h2>Casos con dictamen de IA</h2><strong>{e.issued}</strong><p>Un dictamen vigente por expediente.</p></div>
         <div><h2>Coincidencia con la decisión final</h2><strong>{e.validComparisons ? percent(e.agreementRate) : 'Aún sin evaluar'}</strong><p>{e.validComparisons ? `${e.agreements} de ${e.validComparisons} casos comparados coinciden; ${e.disagreements} difieren.` : 'Todavía no hay comparaciones finales válidas.'}</p></div>
-        <div><h2>Sin decisión humana final</h2><strong>{e.pendingEvaluation}</strong><p>{count('PENDING_ADVISOR')} esperan al Asesor · {count('PENDING_COORDINATOR')} al Coordinador.</p></div>
+        <div><h2>Sin decisión final</h2><strong>{e.pendingEvaluation}</strong><p>{count('PENDING_ADVISOR')} esperan la resolución del Asesor · {count('PENDING_COORDINATOR')} al Coordinador.</p></div>
       </section>
       <p className="text-sm text-muted" role="status">{e.issued === 0 ? 'No hay dictámenes emitidos para los filtros elegidos.' : e.validComparisons === 0 ? `Hay ${e.issued} dictámenes, pero todavía no podemos medir cuánto coincide la IA con la decisión final.${pendingComparison ? ` ${pendingComparison} casos ya tienen decisión final y falta una comparación válida.` : ''}` : `La coincidencia se ha medido en ${e.validComparisons} de ${e.issued} dictámenes (${percent(e.coverageRate)}).${withoutComparison ? ` Quedan ${withoutComparison} sin comparación final válida.` : ''}`}</p>
     </>}
@@ -112,13 +112,13 @@ export function QualityPage(): ReactNode {
         {([['results', '¿Coincide la IA?'], ['pending', '¿Qué falta revisar?'], ['confidence', '¿Qué tan segura está la IA?']] as const).map(([value, label]) => <Button key={value} variant={view === value ? 'primary' : 'secondary'} aria-pressed={view === value} onClick={() => setView(value)}>{label}</Button>)}
       </div>
       {loading ? <Skeleton height={200} /> : !e ? <p className="text-sm text-muted">{error ? 'El informe no está disponible. Usa Reintentar para volver a cargarlo.' : 'Sin datos disponibles.'}</p> : view === 'results' ? <>
-        <h3 className="mb-2 font-semibold text-ink">Resultado frente a la decisión humana final</h3>
+        <h3 className="mb-2 font-semibold text-ink">Resultado frente a la decisión final</h3>
         <p className="mb-5 text-sm text-muted">Las barras muestran los {e.issued} dictámenes. La coincidencia se calcula solo con los casos ya comparados.</p>
         <CountBar label="Coinciden" count={e.agreements} total={e.issued} selection="AGREEMENT" onSelect={selectCases} />
         <CountBar label="Difieren" count={e.disagreements} total={e.issued} selection="DISAGREEMENT" tone="var(--warning)" onSelect={selectCases} />
         <div className="quality-count-bar quality-count-static"><span className="quality-bar-label">Sin comparación final</span><span className="quality-bar-track" aria-hidden="true"><span style={{ width: `${e.issued ? withoutComparison / e.issued * 100 : 0}%`, backgroundColor: 'var(--text-muted)' }} /></span><span className="quality-bar-value">{withoutComparison}<small>{e.issued ? formatPercent(withoutComparison / e.issued) : 'Sin casos'}</small></span></div>
         {withoutComparison > 0 && <Button variant="ghost" onClick={() => setView('pending')}>Ver qué falta para completar la evaluación</Button>}
-        <p className="mt-4 text-sm text-muted">Coincidir con la decisión humana no garantiza que el dictamen sea correcto. Las diferencias requieren revisar el expediente.</p>
+        <p className="mt-4 text-sm text-muted">Coincidir con la decisión final no garantiza que el dictamen sea correcto. Las diferencias requieren revisar el expediente.</p>
       </> : view === 'pending' ? <>
         <h3 className="mb-2 font-semibold text-ink">Dónde se detiene la evaluación</h3><p className="mb-5 text-sm text-muted">Casos con dictamen que aún no tienen una comparación final válida. Selecciona una barra para consultar los casos.</p>
         {(['PENDING_ADVISOR', 'PENDING_COORDINATOR', 'PENDING_COMPARISON', 'COMPARISON_RUNNING', 'COMPARISON_ERROR', 'INVALID_COMPARISON'] as const).filter(state => count(state) > 0 || state === 'PENDING_ADVISOR' || state === 'PENDING_COORDINATOR').map(state => <CountBar key={state} label={states[state]!} count={count(state)} total={withoutComparison} selection={state} tone={state === 'COMPARISON_ERROR' || state === 'INVALID_COMPARISON' ? 'var(--warning)' : 'var(--accent)'} onSelect={selectCases} />)}

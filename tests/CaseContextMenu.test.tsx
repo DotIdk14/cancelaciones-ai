@@ -64,7 +64,7 @@ it('consulta el histórico sin atribuirle la revisión del último dictamen ni c
   fireEvent.click(screen.getByRole('tab', { name: 'Auditorías' }));
   fireEvent.click(screen.getByRole('button', { name: `Consultar auditoría del ${formatDateTime('2026-10-12T10:00:00Z')}` }));
   expect(await screen.findByText('Justificación histórica')).toBeTruthy();
-  expect(screen.getByText('Esta auditoría no tiene una revisión humana vinculada.')).toBeTruthy();
+  expect(screen.getByText('Sin resolución de asesor registrada para esta auditoría.')).toBeTruthy();
   expect(getHistoricalAudit).toHaveBeenCalledWith('case-1', 'old');
   expect(screen.getByTestId('visor').textContent).toBe('Evidencia seleccionada');
   fireEvent.click(screen.getByRole('button', { name: 'Cerrar contexto del expediente' }));
@@ -111,10 +111,10 @@ it('refresca la revisión humana del ticket actual sin perder la selección hist
   const { rerender } = render(<Harness />);
   fireEvent.click(screen.getByRole('tab', { name: 'Auditorías' }));
   fireEvent.click(screen.getByRole('button', { name: `Consultar auditoría del ${formatDateTime('2026-10-12T10:00:00Z')}` }));
-  expect(await screen.findByText('Esta auditoría no tiene una revisión humana vinculada.')).toBeTruthy();
+  expect(await screen.findByText('Sin resolución de asesor registrada para esta auditoría.')).toBeTruthy();
   const updated = detail(); updated.review = { ...updated.review!, auditId: 'old', result: 'BAJA' };
   rerender(<Harness record={updated} />);
   expect(screen.getByText('Baja')).toBeTruthy();
-  expect(screen.queryByText('Esta auditoría no tiene una revisión humana vinculada.')).toBeNull();
+  expect(screen.queryByText('Sin resolución de asesor registrada para esta auditoría.')).toBeNull();
   expect(getHistoricalAudit).toHaveBeenCalledTimes(1);
 });

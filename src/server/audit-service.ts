@@ -31,7 +31,8 @@ import { checkPaidQuota } from './quotas.js';
 import { derivedExtractionOf } from './derived.js';
 import { listAreaComments } from './area-comments.js';
 import { buildAuditFailureLog } from './audit-observability.js';
-import { computeEvidenceFingerprint } from './audit-fingerprint.js';
+import { fingerprintForAuditVersion, getActiveAuditVersion } from './audit-versions.js';
+import { AUDIT_PIPELINE_VERSION } from './audit-fingerprint.js';
 export { AUDIT_PIPELINE_VERSION, computeEvidenceFingerprint, computeEvidenceFingerprintFor } from './audit-fingerprint.js';
 import {
   getCaseOr404,
@@ -408,7 +409,8 @@ export async function runAudit(
     console.warn('[audit] contexto de áreas no disponible; snapshot opcional vacío', { caseId, category: 'DATABASE_ERROR' });
     return [];
   });
-  const fingerprint = computeEvidenceFingerprint(evidences, caseRow.cycle_start_date ?? null, areaRows, caseRow.flokzu_data);
+  const activeVersion = await getActiveAuditVersion(client);
+  const fingerprint = fingerprintForAuditVersion(evidences, caseRow.cycle_start_date ?? null, areaRows, caseRow.flokzu_data, activeVersion);
   const completed = await latestCompletedAuditByFingerprint(client, caseId, fingerprint);
   if (completed) return { phase: 'done', audit: auditToDto(completed) };
   const running = await latestRunningAuditByFingerprint(client, caseId, fingerprint);
@@ -442,30 +444,46 @@ export async function runAudit(
   const startedAt = Date.now();
   const deadlineMs = startedAt + getEnv().TOTAL_AUDIT_TIMEOUT_MS;
   const attempts = await countAuditsByFingerprint(client, caseId, fingerprint);
+  const versionMetadata = activeVersion ? {
+    auditVersionId: activeVersion.id,
+    auditVersionKey: activeVersion.version_key,
+    auditVersionSnapshotSha256: activeVersion.snapshot_sha256,
+    instructionsSha256: activeVersion.instructions_sha256,
+    procedureSha256: activeVersion.procedure_sha256,
+    pipelineVersion: activeVersion.pipeline_version,
+    outputSchemaVersion: activeVersion.output_schema_version,
+    auditFingerprintVersion: activeVersion.config.baseline === true ? AUDIT_PIPELINE_VERSION : activeVersion.snapshot_sha256,
+  } : {};
   let auditRow;
   try {
     auditRow = await insertAudit(client, {
       case_id: caseId,
       status: 'RUNNING',
       provider: 'openrouter',
-      model: getEnv().OPENROUTER_MODEL,
+      model: activeVersion?.model ?? getEnv().OPENROUTER_MODEL,
       evidence_fingerprint: fingerprint,
       attempt_number: attempts + 1,
       deadline_at: new Date(deadlineMs).toISOString(),
-      provider_metadata: null,
+      provider_metadata: versionMetadata,
     });
   } catch (error) {
     const concurrent = await latestRunningAuditByFingerprint(client, caseId, fingerprint).catch(() => null);
     if (concurrent) return { phase: 'running', audit: auditToDto(concurrent) };
     throw error;
   }
-  let executionMetadata: Record<string, unknown> | null = null;
+  let executionMetadata: Record<string, unknown> | null = versionMetadata;
   try {
     await updateCaseStatus(client, caseId, 'AUDITING');
     // Relee la conciliación después de adquirir la fila RUNNING.
     await assertNoRedundantAudit(client, caseId);
-    const execution = await auditSkill.executeWithMetadata(inputs, { deadlineMs });
-    executionMetadata = { usage: execution.usage, usageScope: 'last_attempt', openrouterAttempts: execution.attempts };
+    const execution = await auditSkill.executeWithMetadata(inputs, {
+      deadlineMs,
+      ...(activeVersion && activeVersion.config.baseline !== true ? { model: activeVersion.model, supplementalInstructions: activeVersion.instructions } : {}),
+    });
+    executionMetadata = {
+      usage: execution.usage, usageScope: 'last_attempt', openrouterAttempts: execution.attempts,
+      ...versionMetadata,
+    };
     const result = execution.result;
     const latencyMs = Date.now() - startedAt;
 
@@ -547,7 +565,7 @@ export async function runAudit(
       result_json: null,
       error_category: category,
       latency_ms: latencyMs,
-      provider_metadata: { correlationId, ...(executionMetadata ?? (diagnostics ? { openrouterAttempts: diagnostics } : {})) },
+      provider_metadata: { correlationId, ...executionMetadata, ...(diagnostics ? { openrouterAttempts: diagnostics } : {}) },
     }).catch(() => undefined);
     await updateCaseStatus(client, caseId, 'ERROR').catch(() => undefined);
     if (error instanceof ApiError) throw error;

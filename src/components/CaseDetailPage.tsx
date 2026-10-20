@@ -23,6 +23,7 @@ import {
 import { goToCases } from '../lib/useHashRoute';
 import { usePolling } from '../lib/usePolling';
 import { AuditResultPanel } from './AuditResultPanel';
+import { AuditProgressSteps } from './AuditProgressSteps';
 import { CaseReviewPanel } from './CaseReviewPanel';
 import { AUDIT_RESULTS } from '../skills/audit/types';
 import type { AuditResultType } from '../skills/audit/types';
@@ -140,7 +141,7 @@ export interface CaseDetailPageProps {
   capabilities?: SessionSnapshot['capabilities'];
 }
 
-export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases: false, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false, canManageCases: false, canImportCases: false } }: CaseDetailPageProps): ReactNode {
+export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases: false, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false, canManageCases: false, canImportCases: false, canValidateAuditFeedback: false, canManageAiLab: false } }: CaseDetailPageProps): ReactNode {
   const loadGeneration = useRef(0);
   const loadedCaseId = useRef(caseId);
   const [progressOpen, setProgressOpen] = useState(false);
@@ -394,7 +395,7 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
     systemEvents.push({
       id: 'human-review',
       time: formatDateTime(review.createdAt),
-      title: 'Resolución humana registrada',
+      title: 'Resolución de asesor registrada',
       body: `${RESULT_LABELS[review.result]}${review.reviewerName ? ` · ${review.reviewerName}` : ''}`,
     });
   }
@@ -494,6 +495,8 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
             canAddComments={capabilities.canFinalizeAnyCase}
             caseCountry={detail.case.country ?? null}
             caseChannel={detail.case.channel ?? null}
+            externalCaseId={detail.case.externalCaseId ?? null}
+            studentIdentifier={detail.case.studentIdentifier}
             onSubmitted={() => void load()}
           />
   </>);
@@ -502,6 +505,20 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
                 {auditPhase === 'waiting' ? 'Esperando transcripción…' : auditPhase === 'running' || auditPhase === 'starting' ? 'Auditando con IA…' : caseIsError ? 'Reintentar auditoría' : shouldShowReauditLabel ? 'Volver a auditar' : 'Auditar con IA'}
               </Button>
               );
+  const reviewRegistered = review !== null;
+  const workflowFinalized = workflowState === 'FINALIZED';
+  const progressStages = [
+    { label: 'Revisar evidencias', status: evidences.length > 0 && allReady ? 'done' as const : hasFailedEvidence || evidences.length === 0 ? 'attention' as const : 'pending' as const, action: 'Adjunta y revisa las evidencias del expediente.' },
+    { label: 'Consultar análisis de IA', status: audit?.status === 'COMPLETED' && detail.auditIsCurrent !== false ? 'done' as const : Boolean(auditError) || detail.auditIsCurrent === false ? 'attention' as const : 'pending' as const, action: 'Genera o actualiza el análisis cuando las evidencias estén listas.' },
+    { label: 'Resolución de asesor', status: reviewRegistered ? 'done' as const : 'pending' as const, action: 'Revisa el dictamen y registra la resolución del Asesor.' },
+    { label: 'Finalizar auditoría', status: workflowFinalized ? 'done' as const : 'pending' as const, action: 'El Coordinador confirma o cambia la resolución y finaliza el flujo.' },
+  ];
+  const currentStageIndex = progressStages.findIndex((stage) => stage.status !== 'done');
+  const currentStage = progressStages[currentStageIndex];
+  const displayedProgressStages = progressStages.map((stage, index) => ({
+    ...stage,
+    status: stage.status === 'pending' && index === currentStageIndex ? 'current' as const : stage.status,
+  }));
   const auditControls = (<>
             {readOnly && (
               <p role="status" className="text-xs text-muted">
@@ -555,6 +572,13 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
         <div className="case-workspace-actions justify-end"><Button aria-expanded={contextOpen} aria-controls="case-context-slot" onClick={() => setContextOpen(!contextOpen)}>{contextOpen ? 'Cerrar contexto' : 'Ver datos y dictamen'}</Button><Button onClick={() => void load()} loading={loading} loadingLabel="Actualizando">Actualizar</Button>{auditAction}</div>
       </header>
       <div className="case-workspace-audit-actions">{auditControls}</div>
+      <AuditProgressSteps
+        stages={displayedProgressStages}
+        nextAction={currentStage?.action}
+        actionLabel={capabilities.canFinalizeAnyCase && workflowState === 'PENDING_COORDINATOR' ? 'Revisar resolución final' : undefined}
+        onAction={capabilities.canFinalizeAnyCase && workflowState === 'PENDING_COORDINATOR' ? () => { setContextOpen(true); setContextTab('verdict'); } : undefined}
+      />
+      {detail.case.externalSource === 'FLOKZU' && <p className="case-ticket-deadline-note"><strong>Plazo del ticket:</strong> sin fecha de notificación formal disponible; no es posible calcular días transcurridos ni vencimiento con la información importada.</p>}
 
 
       {(auditBusy || auditError) && <Button variant="secondary" onClick={() => setProgressOpen(true)}>Ver progreso de auditoría</Button>}

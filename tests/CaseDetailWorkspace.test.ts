@@ -210,10 +210,11 @@ describe('Buscador del expediente', () => {
 
   it('filtra los hechos de la pestaña activa y dice cuántas coincidencias hay', async () => {
     await renderDetail(makeDetailWithAudit());
+    const findings = within(document.querySelector('.case-detail-tab-content') as HTMLElement);
     await openTab(/^Hechos/);
 
-    expect(screen.getByText('Apertura de matrícula')).toBeTruthy();
-    expect(screen.getByText('Solicitud dentro del primer mes')).toBeTruthy();
+    expect(findings.getByText('Apertura de matrícula')).toBeTruthy();
+    expect(findings.getByText('Solicitud dentro del primer mes')).toBeTruthy();
 
     fireEvent.change(screen.getByRole('searchbox', { name: 'Buscar hechos o cronología' }), {
       target: { value: 'primer mes' },
@@ -223,8 +224,8 @@ describe('Buscador del expediente', () => {
       expect(screen.getByText(/coincidencias en Hechos/)).toBeTruthy();
     });
     // El check coincide; el hecho queda fuera.
-    expect(screen.getByText('Solicitud dentro del primer mes')).toBeTruthy();
-    expect(screen.queryByText('Apertura de matrícula')).toBeNull();
+    expect(findings.getByText('Solicitud dentro del primer mes')).toBeTruthy();
+    expect(findings.queryByText('Apertura de matrícula')).toBeNull();
   });
 
   it('avisa cuando no hay coincidencias y no filtra el dictamen completo', async () => {
@@ -414,9 +415,9 @@ it('la pestaña Dictamen no presenta una evaluación obsoleta como vigente', asy
   const historicalReasoning = screen.getAllByText('La alumna pidió cancelar dentro del primer mes.').find(element => element.closest('[hidden]'));
   expect(historicalReasoning).toBeTruthy();
   expect(historicalReasoning!.closest('[hidden]')).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: 'Consultar dictamen histórico' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Consultar historial de auditorías' }));
   expect(screen.getByText(/Consulta histórica de solo lectura/)).toBeTruthy();
-  expect(screen.getByText('Consultar dictamen histórico')).toBeTruthy();
+  expect(screen.getByText('Consultar historial de auditorías')).toBeTruthy();
 });
 
 

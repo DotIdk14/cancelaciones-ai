@@ -18,6 +18,19 @@ import {
   getDashboardFilterOptions,
   getDashboardSummary,
 } from '../../src/server/dashboard-queries.js';
+import {
+  createAuditFeedback,
+  createAuditVersion,
+  createEvaluationDataset,
+  createEvaluationRun,
+  getContinuousImprovement,
+  reviewAuditFeedback,
+  changeAuditVersionStatus,
+  FEEDBACK_CONCLUSIONS,
+  FEEDBACK_ERROR_TYPES,
+  runEvaluationBatch,
+  registerCurrentProductionVersion,
+} from '../../src/server/continuous-improvement.js';
 
 // Vercel Hobby admite 12 Functions por deployment y, en un proyecto sin
 // framework, cada archivo de `api/` es una Function. Los cuatro GET del
@@ -27,8 +40,13 @@ import {
 //   GET /api/dashboard/quality  → 200 { quality }
 //   GET /api/dashboard/ai-costs → 200 { costs }
 //   GET /api/dashboard/options  → 200 { options }
-const VIEWS = ['summary', 'ai-costs', 'quality', 'options', 'incidents'] as const;
+const VIEWS = ['summary', 'ai-costs', 'quality', 'options', 'incidents', 'continuous-improvement'] as const;
 type View = (typeof VIEWS)[number];
+
+// Los lotes experimentales preparan como máximo un expediente y comparan las
+// versiones seleccionadas; los resultados parciales quedan en InsForge para
+// que el usuario pueda continuar si la Function llega a su límite.
+export const maxDuration = 300;
 
 function ticketDto<T extends { reporter_user_id?: string; events?: Array<{ author_user_id?: string }> }>(ticket: T): Omit<T, 'reporter_user_id'> & { events?: Array<Omit<NonNullable<T['events']>[number], 'author_user_id'>> } {
   const { reporter_user_id: _reporterId, events, ...safe } = ticket;
@@ -86,6 +104,71 @@ export default handleRoute(async (req, res) => {
   // El método se resuelve ANTES que la vista: un 405 no puede depender de que el
   // path además sea una vista existente.
   const view = requiredView(req.query);
+  if (view === 'continuous-improvement') {
+    const client = createServerClient();
+    if (req.method === 'GET') {
+      ok(res, await getContinuousImprovement(client, req.auth!));
+      return;
+    }
+    if (req.method === 'POST') {
+      const body = await readJsonBody(req);
+      const action = z.object({ action: z.string() }).passthrough().safeParse(body);
+      if (!action.success) throw new ApiError(400, 'VALIDATION_ERROR', 'La solicitud del módulo no es válida.');
+      if (action.data.action === 'feedback') {
+        const parsed = z.object({ action: z.literal('feedback'), caseId: z.string().uuid(), auditId: z.string().uuid(), errorType: z.enum(FEEDBACK_ERROR_TYPES), conclusion: z.enum(FEEDBACK_CONCLUSIONS), correctedProcedureSection: z.string().max(40).nullable(), justification: z.string().trim().min(10).max(5000), evidenceIds: z.array(z.string().uuid()).max(50) }).strict().safeParse(body);
+        if (!parsed.success) throw new ApiError(400, 'VALIDATION_ERROR', 'La retroalimentación no cumple el formato esperado.');
+        json(res, 201, { feedback: await createAuditFeedback(client, req.auth!, parsed.data) });
+        return;
+      }
+      if (action.data.action === 'validate-feedback') {
+        const parsed = z.object({ action: z.literal('validate-feedback'), feedbackId: z.string().uuid(), status: z.enum(['VALIDATED','REJECTED','NEEDS_CLARIFICATION']), note: z.string().trim().min(5).max(3000), checks: z.object({ finalResolution: z.boolean(), procedureSection: z.boolean(), evidenceReferences: z.boolean(), factsSupported: z.boolean(), priorityRuleChecked: z.boolean() }).strict(), facts: z.array(z.object({ fact: z.string().trim().min(3).max(500), evidenceIds: z.array(z.string().uuid()).min(1).max(20) }).strict()).max(30).optional(), eligibility: z.enum(['CONTEXTUAL','EVALUATION_ONLY']).optional() }).strict().safeParse(body);
+        if (!parsed.success) throw new ApiError(400, 'VALIDATION_ERROR', 'La decisión de validación no cumple el formato esperado.');
+        ok(res, await reviewAuditFeedback(client, req.auth!, parsed.data));
+        return;
+      }
+      if (action.data.action === 'create-version') {
+        const parsed = z.object({ action: z.literal('create-version'), versionKey: z.string().regex(/^audit-v[0-9]+\.[0-9]+(?:\.[0-9]+)?$/), name: z.string().trim().min(2).max(100), description: z.string().trim().min(10).max(2000), instructions: z.string().trim().min(20).max(12000), model: z.string().trim().min(3).max(160), parentVersionId: z.string().uuid().nullable().optional(), config: z.record(z.unknown()).default({}) }).strict().safeParse(body);
+        if (!parsed.success) throw new ApiError(400, 'VALIDATION_ERROR', 'La versión del auditor no cumple el formato esperado.');
+        json(res, 201, { version: await createAuditVersion(client, req.auth!, parsed.data) });
+        return;
+      }
+      if (action.data.action === 'register-current-version') {
+        const parsed = z.object({ action: z.literal('register-current-version') }).strict().safeParse(body);
+        if (!parsed.success) throw new ApiError(400, 'VALIDATION_ERROR', 'La solicitud de versión activa no es válida.');
+        json(res, 201, { version: await registerCurrentProductionVersion(client, req.auth!) });
+        return;
+      }
+      if (action.data.action === 'version-status') {
+        const parsed = z.object({ action: z.literal('version-status'), versionId: z.string().uuid(), status: z.enum(['EVALUATING','APPROVED','ACTIVE','ARCHIVED']) }).strict().safeParse(body);
+        if (!parsed.success) throw new ApiError(400, 'VALIDATION_ERROR', 'La transición de versión no es válida.');
+        ok(res, { version: await changeAuditVersionStatus(client, req.auth!, parsed.data.versionId, parsed.data.status) });
+        return;
+      }
+      if (action.data.action === 'create-dataset') {
+        const parsed = z.object({ action: z.literal('create-dataset'), name: z.string().trim().min(2).max(100), description: z.string().trim().min(10).max(1000), split: z.enum(['IMPROVEMENT','HELD_OUT']), exampleIds: z.array(z.string().uuid()).min(1).max(100) }).strict().safeParse(body);
+        if (!parsed.success) throw new ApiError(400, 'VALIDATION_ERROR', 'El conjunto de evaluación no cumple el formato esperado.');
+        json(res, 201, { dataset: await createEvaluationDataset(client, req.auth!, parsed.data) });
+        return;
+      }
+      if (action.data.action === 'run-evaluation') {
+        const parsed = z.object({ action: z.literal('run-evaluation'), datasetId: z.string().uuid(), versionIds: z.array(z.string().uuid()).min(2).max(4), budgetLimit: z.number().positive().max(50), idempotencyKey: z.string().uuid() }).strict().safeParse(body);
+        if (!parsed.success) throw new ApiError(400, 'VALIDATION_ERROR', 'El experimento no cumple el formato esperado.');
+        const run = await createEvaluationRun(client, req.auth!, parsed.data);
+        const batch = await runEvaluationBatch(client, req.auth!, String((run as { id: string }).id));
+        json(res, 202, batch);
+        return;
+      }
+      if (action.data.action === 'resume-evaluation') {
+        const parsed = z.object({ action: z.literal('resume-evaluation'), runId: z.string().uuid() }).strict().safeParse(body);
+        if (!parsed.success) throw new ApiError(400, 'VALIDATION_ERROR', 'El experimento seleccionado no es válido.');
+        ok(res, await runEvaluationBatch(client, req.auth!, parsed.data.runId));
+        return;
+      }
+      throw new ApiError(400, 'VALIDATION_ERROR', 'La acción del módulo no existe.');
+    }
+    methodNotAllowed(req, res, 'GET, POST');
+    return;
+  }
   if (view !== 'incidents' && req.method !== 'GET') {
     methodNotAllowed(req, res, 'GET');
     return;

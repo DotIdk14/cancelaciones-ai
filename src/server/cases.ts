@@ -15,7 +15,7 @@ import type { CaseReviewRow } from './reviews.js';
 import type { AuthContext } from './auth.js';
 import { capabilitiesForRole } from './auth.js';
 import { ApiError, mapProviderError } from './http.js';
-import { computeEvidenceFingerprint } from './audit-fingerprint.js';
+import { fingerprintForAuditVersion, getActiveAuditVersion } from './audit-versions.js';
 
 
 export interface CaseRow {
@@ -262,6 +262,7 @@ async function enrichCaseSummaries(
   snapshot: string,
   includeProfiles = true,
 ): Promise<CaseSummaryRow[]> {
+  const activeVersion = await getActiveAuditVersion(client);
   // 100 UUID generaban una URL de 3995 caracteres para case_reviews y el
   // gateway devolvía 502. Se acotan las relaciones sin recortar la página.
   const pageSize = 40;
@@ -370,7 +371,7 @@ async function enrichCaseSummaries(
     const review = audit ? reviews.find((candidate) => candidate.audit_id === audit.id) ?? null : null;
     const auditIsCurrent = audit === null
       ? null
-      : audit.evidence_fingerprint === computeEvidenceFingerprint(evidencesByCase.get(row.id) ?? [], row.cycle_start_date ?? null, areaContext.get(row.id) ?? [], row.flokzu_data);
+      : audit.evidence_fingerprint === fingerprintForAuditVersion(evidencesByCase.get(row.id) ?? [], row.cycle_start_date ?? null, areaContext.get(row.id) ?? [], row.flokzu_data, activeVersion);
     return {
       ...row,
       assigned_name: row.assigned_to ? assignedNames.get(row.assigned_to) ?? null : null,

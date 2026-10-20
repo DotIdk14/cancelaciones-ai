@@ -67,6 +67,17 @@ vi.mock('../src/server/assemblyai', () => ({
   getTranscription: vi.fn(async () => null),
 }));
 
+vi.mock('../src/server/reviews', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/server/reviews')>();
+  return { ...actual, listCaseReviewsForCase: async () => [], getCaseReviewForAudit: async () => null };
+});
+vi.mock('../src/server/review-locks', () => ({
+  assertAuditMayRun: async () => undefined,
+  assertEvidenceMayBeAdded: async () => undefined,
+  assertEvidenceMayBeDeleted: async () => undefined,
+  assertCaseHasNoAdvisorReview: async () => undefined,
+}));
+
 function makeApiResponse(): ApiResponse & { statusCode: number; headers: Record<string, string>; body: string } {
   const fake = {
     statusCode: 200,

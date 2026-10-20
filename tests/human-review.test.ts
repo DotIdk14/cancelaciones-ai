@@ -78,10 +78,12 @@ vi.mock('../src/server/reviews', async () => {
   return {
     createCaseReview: store.createCaseReview,
     getCaseReview: store.getCaseReview,
+    getCaseReviewForAudit: store.getCaseReviewForAudit,
     finalizeCaseReview: store.finalizeCaseReview,
     DUPLICATE_FINALIZATION_MESSAGE: 'La decisión final del coordinador es única e inmutable.',
     insertComparison: store.insertComparison,
     getLatestComparisonForReview: store.getLatestComparisonForReview,
+    listComparisonsForReview: async () => [],
     rearmComparison: store.rearmComparison,
     updateComparisonResult: store.updateComparisonResult,
     updateComparisonError: store.updateComparisonError,

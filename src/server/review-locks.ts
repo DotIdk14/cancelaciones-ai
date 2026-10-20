@@ -1,7 +1,7 @@
 import type { InsForgeClient } from './insforge.js';
 import { ApiError } from './http.js';
 import { getCaseOr404, latestAudit, latestCompletedAudit, listEvidenceRows } from './cases.js';
-import { computeEvidenceFingerprint } from './audit-fingerprint.js';
+import { fingerprintForAuditVersion, getActiveAuditVersion } from './audit-versions.js';
 import { listAreaComments } from './area-comments.js';
 import { getCaseReviewForAudit, listCaseReviewsForCase } from './reviews.js';
 
@@ -11,7 +11,8 @@ async function fingerprintNow(client: InsForgeClient, caseId: string): Promise<s
     listEvidenceRows(client, caseId),
     listAreaComments(client, caseId),
   ]);
-  return computeEvidenceFingerprint(evidences, row.cycle_start_date ?? null, comments, row.flokzu_data);
+  const activeVersion = await getActiveAuditVersion(client);
+  return fingerprintForAuditVersion(evidences, row.cycle_start_date ?? null, comments, row.flokzu_data, activeVersion);
 }
 
 function isMissingEvidenceResolution(result: string): boolean {

@@ -148,6 +148,8 @@ Grafito verdoso como base, texto marfil frío y un acento menta-petróleo de alt
 
 El shell ocupa el viewport y separa cabecera, área de trabajo desplazable y dock como franja inferior propia; el dock no se superpone al contenido. La cabecera y el contenido se centran hasta un máximo de `1680px`. En escritorio, expedientes usa tabla y panel de vista previa. El detalle prioriza la lista de archivos y el visor, con un menú contextual izquierdo cerrado al entrar. Al abrirlo, reserva 360px (320px en anchuras intermedias), conserva scroll interno y deja las evidencias utilizables; la revisión humana se consulta en Dictamen dentro del mismo menú. En móvil, el menú existente ocupa la pantalla completa. Entre `761px` y `1100px`, el resumen coloca el total auditado en una fila y las métricas de atención en tres columnas. A `760px` o menos, el detalle y el resumen se apilan, el dock se reparte en el ancho disponible y las tablas conservan una región desplazable horizontal.
 
+La vista de Mejora continua comparte el ancho máximo de `1440px`; sus cuatro pestañas permanecen en una sola franja desplazable. El laboratorio colapsa la comparación en una columna por debajo de `900px`; a `760px`, los formularios y comparaciones pasan a una columna. Las tablas mantienen un ancho mínimo de `850px` dentro de regiones con scroll accesible.
+
 El ritmo observado usa pasos frecuentes de `4`, `8`, `12` y `16px`, con separaciones mayores de `20–24px` entre grupos. La cabecera mide `60px`; el contenido usa padding horizontal de `16px`, que se reduce a `14px` en móvil. El dock deja margen inferior con `safe-area-inset-bottom`.
 
 ## Elevation & Depth
@@ -195,6 +197,9 @@ Los controles emplean radio de `8px`; paneles y superficies usan `12px`; el elem
 - **Style:** el dock centrado presenta icono Lucide, etiqueta visible y nombre accesible. Enlaces dependen de capacidades de sesión; la ruta activa conserva un punto de acento.
 - **Hover / Focus:** ampliación moderada con movimiento breve entre el icono activo y sus vecinos; tooltip en puntero o foco; foco de teclado visible.
 - **Mobile:** distribución horizontal compacta con etiquetas, sin ampliación dependiente de hover.
+
+### Mejora continua de IA
+La vista mantiene la gramática de mesa operativa con cuatro pestañas de subrayado: Retroalimentación, Casos validados, Versiones de IA y Laboratorio. La pestaña activa usa el acento; las inactivas conservan texto secundario y el foco visible. Las regiones de tabla tienen borde y superficie `surface-1`, con encabezados de `10px`, cifras tabulares y desplazamiento horizontal; el hover de fila usa un tinte de acento tenue. Los formularios y paneles usan borde y superficie sin sombra propia. En el laboratorio, las métricas se muestran como barras cortas junto a su porcentaje y tamaño de muestra; si no hay resultados, se presenta “Sin datos” y no una barra ficticia.
 
 ### Contexto del expediente
 El menú reutiliza la superficie flotante de Flokzu y reúne Datos, Dictamen y Auditorías. Datos agrupa la identidad, la academia, el contexto reportado y las notas mediante secciones plegables. Los dictámenes históricos identifican ticket y fecha; una revisión humana se atribuye solo a su auditoría. En escritorio el menú no bloquea el foco del área de evidencias. El contenido y los borradores permanecen montados al cerrar o cambiar de pestaña.

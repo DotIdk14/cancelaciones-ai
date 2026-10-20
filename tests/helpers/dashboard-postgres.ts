@@ -16,7 +16,8 @@ export async function dashboardPostgres(): Promise<PGlite> {
       created_at timestamptz,result_json jsonb,provider_metadata jsonb,evidence_fingerprint text,retired_at timestamptz);
     CREATE TABLE evidence(id uuid PRIMARY KEY,case_id uuid REFERENCES cases(id),hash text,transcript_json jsonb);
     CREATE TABLE case_reviews(id uuid PRIMARY KEY,case_id uuid REFERENCES cases(id),audit_id uuid REFERENCES audits(id),
-      result text,coordinator_decision text,coordinator_resolution text,coordinator_created_at timestamptz);
+      result text,coordinator_decision text,coordinator_resolution text,coordinator_created_at timestamptz,
+      created_at timestamptz DEFAULT now());
     CREATE TABLE case_comparisons(id uuid PRIMARY KEY,case_review_id uuid REFERENCES case_reviews(id),audit_id uuid REFERENCES audits(id),
       status text,result_json jsonb,provider text,model text,latency_ms bigint,error_category text,
       attempt_count integer DEFAULT 1,created_at timestamptz);

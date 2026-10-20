@@ -219,7 +219,9 @@ export interface EffectiveResolution {
 
 export function caseToSummary(row: CaseSummaryRow, canManageCases = false): CaseSummaryDto {
   const count = row.evidence?.[0]?.count ?? 0;
-  const currentReview = row.auditIsCurrent === false ? null : row.review ?? null;
+  // Una huella nueva vuelve histórico el dictamen de IA, pero no borra ni
+  // invalida la resolución humana que ya fue registrada para ese expediente.
+  const review = row.review ?? null;
   return {
     id: row.id,
     externalCaseId: row.external_case_id ?? null,
@@ -229,9 +231,9 @@ export function caseToSummary(row: CaseSummaryRow, canManageCases = false): Case
     evidenceCount: count,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    workflowState: deriveWorkflowState(currentReview ?? null),
+    workflowState: deriveWorkflowState(review),
     effectiveResolution: deriveEffectiveResolution(
-      currentReview?.audit_id === row.audit?.id ? currentReview : null,
+      review,
       row.auditIsCurrent === false ? null : row.audit ?? null,
     ),
     auditIsCurrent: row.auditIsCurrent ?? (row.audit ? null : null),
@@ -242,7 +244,7 @@ export function caseToSummary(row: CaseSummaryRow, canManageCases = false): Case
     canManageCases,
     auditLifecycle: auditLifecycle(row.status, row.audit ?? null, row.auditIsCurrent ?? null, row.audit),
     auditId: row.audit?.id ?? null,
-    auditHasHumanReview: row.audit !== undefined && row.audit !== null && currentReview?.audit_id === row.audit.id,
+    auditHasHumanReview: row.audit !== undefined && row.audit !== null && review?.audit_id === row.audit.id,
     creatorRole: row.creator_role ?? null,
     creatorId: row.created_by ?? null,
     assignedTo: row.assigned_to ?? null,

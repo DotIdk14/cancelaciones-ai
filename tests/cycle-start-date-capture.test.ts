@@ -48,6 +48,13 @@ vi.mock('../src/server/insforge', async (importOriginal) => {
   return { ...actual, createServerClient: vi.fn() };
 });
 
+vi.mock('../src/server/review-locks', () => ({
+  assertAuditMayRun: async () => undefined,
+  assertEvidenceMayBeAdded: async () => undefined,
+  assertEvidenceMayBeDeleted: async () => undefined,
+  assertCaseHasNoAdvisorReview: async () => undefined,
+}));
+
 const db: FakeDatabase = createFakeDatabase();
 
 /** Fila de `cases` tal como la devuelve el cliente. */

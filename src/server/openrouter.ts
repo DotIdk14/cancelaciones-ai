@@ -22,6 +22,8 @@ export type OpenRouterContentPart =
   | { type: 'file'; file: { filename: string; file_data: string } };
 
 export interface CallOpenRouterAuditInput {
+  /** Model order pinned by a versioned evaluation; absent in production audits. */
+  models?: readonly string[];
   /** IDs autoritativos del expediente; restringen únicamente referencias. */
   evidenceIds?: readonly string[];
   system: string;
@@ -488,7 +490,9 @@ export async function callOpenRouterAudit(
   const perAttemptTimeoutMs = input.timeoutMs ?? env.AI_TIMEOUT_MS;
   const deadlineMs = input.deadlineMs ?? Date.now() + env.TOTAL_AUDIT_TIMEOUT_MS;
   const diagnostics: OpenRouterAttemptDiagnostic[] = [];
-  const models = [env.OPENROUTER_MODEL, env.OPENROUTER_FALLBACK_MODEL].filter((model): model is string => Boolean(model));
+  const models = input.models?.length
+    ? [...new Set(input.models)]
+    : [env.OPENROUTER_MODEL, env.OPENROUTER_FALLBACK_MODEL].filter((model): model is string => Boolean(model));
   let finalFailure: AttemptFailureCategory = 'PROVIDER_UNAVAILABLE';
   let attemptsMade = 0;
   /**

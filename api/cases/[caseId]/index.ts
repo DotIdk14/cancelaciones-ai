@@ -37,7 +37,7 @@ import {
 import { refreshTranscriptions } from '../../../src/server/audit-service.js';
 import { healStaleComparison } from '../../../src/server/comparison-service.js';
 import { capabilitiesForRole } from '../../../src/server/capabilities.js';
-import { computeEvidenceFingerprint } from '../../../src/server/audit-fingerprint.js';
+import { fingerprintForAuditVersion, getActiveAuditVersion } from '../../../src/server/audit-versions.js';
 import { assignImportedCase } from '../../../src/server/flokzu-import.js';
 import { assertCaseHasNoAdvisorReview } from '../../../src/server/review-locks.js';
 
@@ -168,9 +168,10 @@ export default handleRoute(async (req, res) => {
   const reviews = await listCaseReviewsForCase(client, caseId);
   const completedAudit = await latestCompletedAudit(client, caseId);
   const areaRows = await listAreaComments(client, caseId).catch(() => null);
+  const activeAuditVersion = await getActiveAuditVersion(client);
   const auditIsCurrent = completedAudit === null
     ? (audit?.status === 'COMPLETED' ? false : null)
-    : areaRows !== null && completedAudit.evidence_fingerprint === computeEvidenceFingerprint(evidences, caseRow.cycle_start_date ?? null, areaRows, caseRow.flokzu_data);
+    : areaRows !== null && completedAudit.evidence_fingerprint === fingerprintForAuditVersion(evidences, caseRow.cycle_start_date ?? null, areaRows, caseRow.flokzu_data, activeAuditVersion);
   const review = auditIsCurrent === true
     ? reviews.find((candidate) => candidate.audit_id === completedAudit?.id) ?? null
     : null;
