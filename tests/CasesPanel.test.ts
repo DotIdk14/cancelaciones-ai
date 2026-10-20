@@ -4,7 +4,7 @@
 // Listado de casos: resolución efectiva y su origen.
 //
 // Lo que estos tests fijan:
-//   1. Un caso con revisión muestra el distintivo `Humano`; uno sin ella, `IA`.
+//   1. Un caso con resolución registrada muestra su origen; uno sin ella, `IA`.
 //   2. El distintivo es la MISMA señal para las dos fuentes, y acompaña siempre al
 //      resultado, porque una resolución sin origen no es auditable.
 //   3. Un caso sin resolución efectiva se ve EXACTAMENTE como antes: no se
@@ -153,13 +153,13 @@ describe('CasesPanel — resolución efectiva', () => {
     expect(screen.queryByRole('button', { name: /^Cierre del Coordinador/ })).toBeNull();
   });
 
-  it('muestra Humano para el caso revisado y IA para el que sólo tiene dictamen', async () => {
+  it('muestra el origen de una resolución registrada y IA para el caso sin decisión', async () => {
     await renderList([
       makeCase({ id: 'case-human', effectiveResolution: { result: 'DICTAMINACION', source: 'HUMAN' } }),
       makeCase({ id: 'case-ai', effectiveResolution: { result: 'CANCELACION_VENTA', source: 'AI' } }),
     ]);
 
-    expect(screen.getAllByText('Humano').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Asesor / Coordinador').length).toBeGreaterThan(0);
     expect(screen.getAllByText('IA').length).toBeGreaterThan(0);
     // El resultado viaja con su origen: "Dictaminación" sin más sería ambiguo.
     expect(screen.getAllByText('Dictaminación').length).toBeGreaterThan(0);
@@ -173,10 +173,10 @@ describe('CasesPanel — resolución efectiva', () => {
     expect(link.getAttribute('href')).toBe('#/casos/case-human');
   });
 
-  it('un caso sin revisión se ve exactamente como antes: sin distintivo de origen', async () => {
+  it('un caso sin resolución se ve exactamente como antes: sin distintivo de origen', async () => {
     await renderList([makeCase({ id: 'case-plain' })]);
 
-    expect(screen.queryByText('Humano')).toBeNull();
+    expect(screen.queryByText('Asesor / Coordinador')).toBeNull();
     expect(screen.queryByText('IA')).toBeNull();
     const row = screen.getByRole('row', { name: /UTEL-2026-001/ });
     expect(row.textContent).toContain('UTEL-2026-001');
@@ -187,7 +187,7 @@ describe('CasesPanel — resolución efectiva', () => {
   it('no inventa resolución cuando el servidor no envía ninguna', async () => {
     await renderList([makeCase({ id: 'case-null', effectiveResolution: null })]);
 
-    expect(screen.queryByText('Humano')).toBeNull();
+    expect(screen.queryByText('Asesor / Coordinador')).toBeNull();
     expect(screen.queryByText('IA')).toBeNull();
     expect(screen.getAllByText('Sin dictamen').length).toBeGreaterThan(0);
   });

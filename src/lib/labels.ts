@@ -181,13 +181,13 @@ export function isValidReviewComment(trimmedLength: number): boolean {
  * pantalla.
  */
 export const RESOLUTION_SOURCE_LABELS: Record<'HUMAN' | 'AI', string> = {
-  HUMAN: 'Humano',
+  HUMAN: 'Asesor / Coordinador',
   AI: 'IA',
 };
 
 export const RESOLUTION_SOURCE_DESCRIPTIONS: Record<'HUMAN' | 'AI', string> = {
-  HUMAN: 'Resolución registrada por una persona. Es la resolución final del caso.',
-  AI: 'Dictamen emitido por la IA. El caso no tiene revisión humana registrada.',
+  HUMAN: 'Resolución registrada por el Asesor o el Coordinador.',
+  AI: 'Dictamen emitido por la IA. El caso no tiene una resolución de asesor registrada.',
 };
 
 export const RESOLUTION_SOURCE_TONE: Record<'HUMAN' | 'AI', Tone> = {

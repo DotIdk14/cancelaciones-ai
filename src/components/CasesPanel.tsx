@@ -255,7 +255,7 @@ export function CasesPanel({ canReadAllCases = false, canFinalizeAnyCase = false
       ? ' Se excluirán de las métricas operativas.'
       : action === 'mark-real'
         ? ' Volverán a incluirse en las métricas operativas.'
-        : ` Se retirarán de la selección vigente; las evidencias, versiones y costos se conservarán${targets.length < selectedCases.length ? `; se omitirá${selectedCases.length - targets.length === 1 ? '' : 'n'} ${selectedCases.length - targets.length} ${selectedCases.length - targets.length === 1 ? 'caso' : 'casos'} sin dictamen elegible, con revisión humana o con auditoría en curso` : ''}.`;
+        : ` Se retirarán de la selección vigente; las evidencias, versiones y costos se conservarán${targets.length < selectedCases.length ? `; se omitirá${selectedCases.length - targets.length === 1 ? '' : 'n'} ${selectedCases.length - targets.length} ${selectedCases.length - targets.length === 1 ? 'caso' : 'casos'} sin dictamen elegible, con resolución de asesor o con auditoría en curso` : ''}.`;
     const targetDescription = action === 'delete-audits'
       ? `${targets.length} ${targets.length === 1 ? 'dictamen seleccionado' : 'dictámenes seleccionados'}`
       : `${targets.length} ${targets.length === 1 ? 'expediente seleccionado' : 'expedientes seleccionados'}`;
@@ -422,14 +422,14 @@ export function CasesPanel({ canReadAllCases = false, canFinalizeAnyCase = false
                     className="case-bulk-action case-bulk-action-danger"
                     onClick={() => void runBulkAction('delete-audits')}
                     disabled={adminPending || deletableAuditCases.length === 0}
-                    title={deletableAuditCases.length === 0 ? 'Selecciona al menos un caso con dictamen sin revisión humana ni auditoría en curso.' : undefined}
+                    title={deletableAuditCases.length === 0 ? 'Selecciona al menos un caso con dictamen sin resolución de asesor ni auditoría en curso.' : undefined}
                   >
                     <Trash2 size={14} aria-hidden="true" /> Borrar dictámenes
                   </button>
                 </div>
                 {deletableAuditCases.length < selectedCases.length && (
                   <p className="case-bulk-hint">
-                    Se pueden borrar {deletableAuditCases.length} de {selectedCases.length} dictámenes seleccionados junto con sus archivos de evidencia. Los demás no tienen dictamen elegible, cuentan con revisión humana o tienen una auditoría en curso.
+                    Se pueden borrar {deletableAuditCases.length} de {selectedCases.length} dictámenes seleccionados junto con sus archivos de evidencia. Los demás no tienen dictamen elegible, cuentan con una resolución de asesor o tienen una auditoría en curso.
                   </p>
                 )}
                 {adminPending && <span role="status" className="case-bulk-progress"><Spinner label="Procesando selección" className="h-3.5 w-3.5" /> Procesando selección…</span>}

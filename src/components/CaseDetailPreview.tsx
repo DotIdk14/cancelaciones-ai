@@ -17,6 +17,7 @@ import { RESULT_LABELS, REVIEW_RESULT_OPTIONS, resolutionLabel } from '../lib/la
 import { CaseReviewRecord } from './CaseReviewPanel';
 
 import { CoordinatorDecisionRecord } from './CoordinatorReviewStage';
+import { AuditProgressSteps } from './AuditProgressSteps';
 
 import { Button, Panel } from './ui';
 
@@ -92,6 +93,15 @@ export function CaseDetailPreview({
 
       <header className="case-workspace-header"><div><a href="#/casos" className="case-workspace-back"><ArrowLeft size={16} /> Volver a casos</a><h1>{item.studentIdentifier ?? 'Sin matrícula'}<span> · CaVe-30841</span></h1></div><Button aria-expanded={contextOpen} onClick={() => setContextOpen(!contextOpen)}>{contextOpen ? 'Cerrar contexto' : 'Ver datos y dictamen'}</Button></header>
 
+      <AuditProgressSteps stages={[
+        { label: 'Revisar evidencias', status: item.evidenceCount > 0 ? 'done' : 'attention' },
+        { label: 'Consultar análisis de IA', status: item.effectiveResolution || workflowState !== 'PENDING_ADVISOR' ? 'done' : 'current' },
+        { label: 'Resolución de asesor', status: workflowState === 'PENDING_ADVISOR' ? 'current' : 'done' },
+        { label: 'Finalizar auditoría', status: workflowState === 'FINALIZED' ? 'done' : workflowState === 'PENDING_COORDINATOR' ? 'current' : 'pending' },
+      ]} nextAction={workflowState === 'FINALIZED' ? undefined : workflowState === 'PENDING_COORDINATOR' ? 'Revisa la resolución del Asesor y registra la decisión final.' : 'Revisa la propuesta y registra la resolución del Asesor.'}
+      actionLabel={role === 'coordinator' && workflowState === 'PENDING_COORDINATOR' ? 'Revisar resolución final' : undefined}
+      onAction={role === 'coordinator' && workflowState === 'PENDING_COORDINATOR' ? () => { setContextOpen(true); setContextTab('verdict'); } : undefined} />
+
       <div className={`case-workspace${contextOpen ? ' case-workspace-context-open' : ''}`}>
 
         <div className="case-context-slot"><CaseContextMenu key={caseId} detail={contextDetail} open={contextOpen} tab={contextTab} onTabChange={setContextTab} onClose={() => setContextOpen(false)} preview reviewContent={<PreviewReviewFlow caseId={caseId} role={role} workflowState={workflowState} />} /></div>
@@ -136,7 +146,7 @@ export function CaseDetailPreview({
 
             {activeTab === 'timeline' && <div className="case-workspace-empty"><Clock3 size={22} /><strong>Cronología de ejemplo</strong><p>Las fechas y eventos reales se consultan dentro de un expediente autenticado.</p></div>}
 
-            {activeTab === 'verdict' && (item.effectiveResolution ? <div className="preview-demo-result"><small>Resultado ilustrativo</small><strong>{resolutionLabel(item.effectiveResolution.result)}</strong><p>No procede de una auditoría ni de una decisión humana real.</p></div> : <div className="case-workspace-empty"><FileText size={22} /><strong>Sin dictamen vinculado</strong><p>La vista local no ejecuta auditorías reales.</p></div>)}
+            {activeTab === 'verdict' && (item.effectiveResolution ? <div className="preview-demo-result"><small>Resultado ilustrativo</small><strong>{resolutionLabel(item.effectiveResolution.result)}</strong><p>No procede de una auditoría ni de una resolución real.</p></div> : <div className="case-workspace-empty"><FileText size={22} /><strong>Sin dictamen vinculado</strong><p>La vista local no ejecuta auditorías reales.</p></div>)}
 
           </Panel>
 
@@ -196,7 +206,7 @@ function PreviewReviewFlow({
 
       <Panel
 
-        title="Revisión humana"
+        title="Resolución de asesor"
 
         description="Flujo de revisión en dos etapas: primero el Asesor, después el Coordinador."
 
@@ -270,7 +280,7 @@ function PreviewReviewFlow({
 
     <Panel
 
-      title="Revisión humana"
+      title="Resolución de asesor"
 
       description="Flujo de revisión en dos etapas: primero el Asesor, después el Coordinador."
 
@@ -348,7 +358,7 @@ function PreviewAdvisorForm(): ReactNode {
 
     <Panel
 
-      title="Revisión humana"
+      title="Resolución de asesor"
 
       description="Registra la resolución del Asesor sin modificar el dictamen original de la auditoría."
 

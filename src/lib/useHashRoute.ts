@@ -21,6 +21,7 @@ export type AppRoute =
   | { name: 'new-case' } // #/nuevo
   | { name: 'cases' } // #/casos
   | { name: 'incidents' } // #/incidencias
+  | { name: 'continuous-improvement' } // #/mejora-continua
   | { name: 'flokzu-review' } // #/revision-flokzu
   | { name: 'flokzu-import' } // #/importacion-tickets
   | { name: 'case'; caseId: string }; // #/casos/:id
@@ -63,6 +64,8 @@ export function parseHash(hash: string): AppRoute {
       return { name: 'new-case' };
     case 'incidencias':
       return { name: 'incidents' };
+    case 'mejora-continua':
+      return { name: 'continuous-improvement' };
     case 'revision-flokzu':
       return { name: 'flokzu-review' };
     case 'importacion-tickets':

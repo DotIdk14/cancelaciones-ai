@@ -24,8 +24,8 @@ import { randomUUID } from 'node:crypto';
 import { ApiError } from './http.js';
 import { getEnv } from './env.js';
 import {
-  getAuditById,
   getCaseOr404,
+  getAuditById,
   latestCompletedAudit,
   listEvidenceRows,
   type AuditRow,
@@ -33,11 +33,12 @@ import {
 } from './cases.js';
 import { buildAuditInputs } from './audit-service.js';
 import { checkPaidQuota } from './quotas.js';
-import { computeEvidenceFingerprint } from './audit-fingerprint.js';
+import { fingerprintForAuditVersion, getActiveAuditVersion } from './audit-versions.js';
 import { listAreaComments } from './area-comments.js';
 import {
   createCaseReview,
   getCaseReview,
+  getCaseReviewForAudit,
   getLatestComparisonForReview,
   insertComparison,
   rearmComparison,
@@ -117,7 +118,8 @@ export async function submitCaseReview(
 
   const evidences = await listEvidenceRows(client, caseId);
   const areaComments = await listAreaComments(client, caseId);
-  if (audit.evidence_fingerprint !== computeEvidenceFingerprint(evidences, caseRow.cycle_start_date ?? null, areaComments, caseRow.flokzu_data)) {
+  const activeVersion = await getActiveAuditVersion(client);
+  if (audit.evidence_fingerprint !== fingerprintForAuditVersion(evidences, caseRow.cycle_start_date ?? null, areaComments, caseRow.flokzu_data, activeVersion)) {
     throw new ApiError(409, 'VALIDATION_ERROR', 'Las evidencias o el contexto cambiaron. Ejecuta una auditoría vigente antes de registrar la revisión.');
   }
 
@@ -286,19 +288,30 @@ export async function retryComparison(
 
 async function loadContext(client: InsForgeClient, caseId: string): Promise<ComparisonContext> {
   const caseRow = await getCaseOr404(client, caseId);
-
   const review = await getCaseReview(client, caseId);
   if (!review) {
-    throw new ApiError(
-      400,
-      'VALIDATION_ERROR',
-      'El caso no tiene revisión humana; regístrala en POST /api/cases/:caseId/review antes de comparar.',
-    );
+    throw new ApiError(400, 'VALIDATION_ERROR', 'El caso no tiene revisión humana para comparar.');
   }
-
   const audit = await getAuditById(client, review.audit_id);
-  if (!audit) {
-    throw new ApiError(404, 'NOT_FOUND', 'No existe la auditoría a la que apunta la revisión del caso.');
+  if (!audit || audit.case_id !== caseId) {
+    throw new ApiError(400, 'VALIDATION_ERROR', 'La revisión no referencia una auditoría disponible.');
+  }
+  if (audit.status !== 'COMPLETED') {
+    throw new ApiError(409, 'VALIDATION_ERROR', 'La auditoría referenciada por la revisión no está completada.');
+  }
+  const [evidences, areaComments] = await Promise.all([
+    listEvidenceRows(client, caseId),
+    listAreaComments(client, caseId),
+  ]);
+  const activeVersion = await getActiveAuditVersion(client);
+  if (audit.evidence_fingerprint !== fingerprintForAuditVersion(
+    evidences,
+    caseRow.cycle_start_date ?? null,
+    areaComments,
+    caseRow.flokzu_data,
+    activeVersion,
+  )) {
+    throw new ApiError(409, 'VALIDATION_ERROR', 'La auditoría cambió o dejó de estar vigente. Registra una nueva resolución del Asesor antes de comparar.');
   }
 
   return { caseRow, review, audit, comparison: await getLatestComparisonForReview(client, review.id) };
@@ -337,7 +350,8 @@ function isStale(comparison: ComparisonRow): boolean {
  * quede atascado viendo un RUNNING de un proceso que ya no existe.
  */
 export async function healStaleComparison(client: InsForgeClient, caseId: string): Promise<void> {
-  const review = await getCaseReview(client, caseId);
+  const audit = await latestCompletedAudit(client, caseId);
+  const review = audit ? await getCaseReviewForAudit(client, audit.id) : null;
   if (!review) return;
   const comparison = await getLatestComparisonForReview(client, review.id);
   if (!comparison || comparison.status !== 'RUNNING' || !isStale(comparison)) return;

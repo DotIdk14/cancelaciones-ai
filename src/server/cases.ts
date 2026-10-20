@@ -15,7 +15,7 @@ import type { CaseReviewRow } from './reviews.js';
 import type { AuthContext } from './auth.js';
 import { capabilitiesForRole } from './auth.js';
 import { ApiError, mapProviderError } from './http.js';
-import { computeEvidenceFingerprint } from './audit-fingerprint.js';
+import { fingerprintForAuditVersion, getActiveAuditVersion } from './audit-versions.js';
 
 
 export interface CaseRow {
@@ -80,6 +80,7 @@ export interface CaseSummaryRow extends CaseRow {
   creator_role?: CaseCreatorRole | null;
   /** Resolución humana del caso (cargada en batch junto con el listado). */
   review?: CaseReviewRow | null;
+  reviews?: CaseReviewRow[];
   /** Auditoría COMPLETED vigente del caso (cargada en batch junto con el listado). */
   audit?: AuditRow | null;
   /** Si la última auditoría completada usa los datos actuales del expediente. */
@@ -261,22 +262,30 @@ async function enrichCaseSummaries(
   snapshot: string,
   includeProfiles = true,
 ): Promise<CaseSummaryRow[]> {
+  const activeVersion = await getActiveAuditVersion(client);
   // 100 UUID generaban una URL de 3995 caracteres para case_reviews y el
   // gateway devolvía 502. Se acotan las relaciones sin recortar la página.
   const pageSize = 40;
   // Las relaciones se consultan por bloques acotados, evitando tanto N+1 como
   // URLs PostgREST con miles de UUID. `id DESC` resuelve empates de fecha.
-  const reviewMap = new Map<string, CaseReviewRow>();
+  const reviewsByCase = new Map<string, CaseReviewRow[]>();
   const auditMap = new Map<string, AuditRow>();
   const evidencesByCase = new Map<string, EvidenceRow[]>();
   for (let offset = 0; offset < rows.length; offset += pageSize) {
     const caseIds = rows.slice(offset, offset + pageSize).map((row) => row.id);
-    const [{ data: reviewsData, error: reviewsError }] = await Promise.all([
-      client.database.from('case_reviews').select('*').in('case_id', caseIds),
-    ]);
-    if (reviewsError) dbError(reviewsError);
-    for (const review of (reviewsData as CaseReviewRow[] | null) ?? []) {
-      if (!reviewMap.has(review.case_id)) reviewMap.set(review.case_id, review);
+    for (let reviewOffset = 0; ; reviewOffset += 500) {
+      const { data: reviewsData, error: reviewsError } = await client.database
+        .from('case_reviews').select('*').in('case_id', caseIds)
+        .order('created_at', { ascending: false }).order('id', { ascending: false })
+        .range(reviewOffset, reviewOffset + 499);
+      if (reviewsError || !reviewsData) dbError(reviewsError);
+      const reviewPage = reviewsData as CaseReviewRow[];
+      for (const review of reviewPage) {
+        const group = reviewsByCase.get(review.case_id) ?? [];
+        group.push(review);
+        reviewsByCase.set(review.case_id, group);
+      }
+      if (reviewPage.length < 500) break;
     }
     // Un caso puede acumular más auditorías que el límite REST. Paginar también
     // esta consulta evita perder la auditoría COMPLETED más reciente del lote.
@@ -357,11 +366,12 @@ async function enrichCaseSummaries(
     }));
   }
   return rows.map((row) => {
-    const review = reviewMap.get(row.id) ?? null;
+    const reviews = reviewsByCase.get(row.id) ?? [];
     const audit = auditMap.get(row.id) ?? null;
+    const review = audit ? reviews.find((candidate) => candidate.audit_id === audit.id) ?? null : null;
     const auditIsCurrent = audit === null
       ? null
-      : audit.evidence_fingerprint === computeEvidenceFingerprint(evidencesByCase.get(row.id) ?? [], row.cycle_start_date ?? null, areaContext.get(row.id) ?? [], row.flokzu_data);
+      : audit.evidence_fingerprint === fingerprintForAuditVersion(evidencesByCase.get(row.id) ?? [], row.cycle_start_date ?? null, areaContext.get(row.id) ?? [], row.flokzu_data, activeVersion);
     return {
       ...row,
       assigned_name: row.assigned_to ? assignedNames.get(row.assigned_to) ?? null : null,
@@ -543,6 +553,7 @@ export async function assertCaseNotFinalized(client: InsForgeClient, caseId: str
     .from('case_reviews')
     .select('coordinator_decision')
     .eq('case_id', caseId)
+    .not('coordinator_decision', 'is', null)
     .limit(1);
   if (error) dbError(error);
   const review = (data as Array<{ coordinator_decision?: string | null }> | null)?.[0];

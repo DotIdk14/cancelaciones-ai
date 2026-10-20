@@ -1,5 +1,16 @@
 # Auditoría y conciliación de migraciones
 
+## Revisión humana por versión de auditoría · 19 de octubre de 2026
+
+El código y la migración local `20261019100000_case-reviews-per-audit.sql`
+permiten conservar una revisión por auditoría y abrir una nueva revisión cuando
+una resolución de evidencia insuficiente da lugar a otra auditoría. La migración
+cambia la unicidad de `case_reviews.case_id` a `case_reviews.audit_id` y actualiza
+el RPC de historial de matrícula para leer la revisión de la auditoría vigente.
+Esta versión **no está confirmada en el ledger ni aplicada en producción**. No
+ejecutarla hasta reconciliar el ledger y seguir el procedimiento de staging y
+respaldo descrito en este documento.
+
 ## Preparación de Resumen y canales CaVe · 15 de octubre de 2026
 
 La migración `20261015100000_dashboard-sales-channel-flokzu.sql` se ensayó con

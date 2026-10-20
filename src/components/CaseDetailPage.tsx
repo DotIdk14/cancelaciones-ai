@@ -23,6 +23,7 @@ import {
 import { goToCases } from '../lib/useHashRoute';
 import { usePolling } from '../lib/usePolling';
 import { AuditResultPanel } from './AuditResultPanel';
+import { AuditProgressSteps } from './AuditProgressSteps';
 import { CaseReviewPanel } from './CaseReviewPanel';
 import { AUDIT_RESULTS } from '../skills/audit/types';
 import type { AuditResultType } from '../skills/audit/types';
@@ -140,7 +141,7 @@ export interface CaseDetailPageProps {
   capabilities?: SessionSnapshot['capabilities'];
 }
 
-export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases: false, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false, canManageCases: false, canImportCases: false } }: CaseDetailPageProps): ReactNode {
+export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases: false, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false, canManageCases: false, canImportCases: false, canValidateAuditFeedback: false, canManageAiLab: false } }: CaseDetailPageProps): ReactNode {
   const loadGeneration = useRef(0);
   const loadedCaseId = useRef(caseId);
   const [progressOpen, setProgressOpen] = useState(false);
@@ -267,6 +268,10 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
    * no ve controles de mutación. El servidor sigue siendo la frontera real.
    */
   const readOnly = detail?.case.canWrite !== true;
+  const canUploadEvidence = !readOnly && detail?.canUploadEvidence !== false;
+  const canDeleteEvidence = !readOnly && detail?.canDeleteEvidence !== false;
+  const canEditAuditContext = !readOnly && detail?.canEditAuditContext !== false;
+  const canRunAudit = !readOnly && detail?.canRunAudit !== false;
   const reviewAuditValue = review === null ? null : detail?.audits.find((item) => item.id === review.auditId)?.result ?? null;
   const reviewAuditResult: AuditResultType | null =
     AUDIT_RESULTS.find((result) => result === reviewAuditValue) ?? null;
@@ -390,7 +395,7 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
     systemEvents.push({
       id: 'human-review',
       time: formatDateTime(review.createdAt),
-      title: 'Resolución humana registrada',
+      title: 'Resolución de asesor registrada',
       body: `${RESULT_LABELS[review.result]}${review.reviewerName ? ` · ${review.reviewerName}` : ''}`,
     });
   }
@@ -458,7 +463,7 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
             autoFocus={focusNotesRequest}
             initialComments={quickComments ?? undefined}
             onSaved={() => void loadQuickComments()}
-            readOnly={readOnly}
+            readOnly={!canEditAuditContext}
           />
           {/* La fecha de inicio es un dato humano con procedencia, no evidencia:
               vive junto a las notas de las áreas, antes del dictamen, y nunca
@@ -469,7 +474,7 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
             cycleStartDate={detail.case.cycleStartDate ?? null}
             cycleStartDateByName={detail.case.cycleStartDateByName ?? null}
             cycleStartDateAt={detail.case.cycleStartDateAt ?? null}
-            readOnly={readOnly}
+            readOnly={!canEditAuditContext}
             onSaved={() => void load()}
           />
   </>);
@@ -490,14 +495,30 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
             canAddComments={capabilities.canFinalizeAnyCase}
             caseCountry={detail.case.country ?? null}
             caseChannel={detail.case.channel ?? null}
+            externalCaseId={detail.case.externalCaseId ?? null}
+            studentIdentifier={detail.case.studentIdentifier}
             onSubmitted={() => void load()}
           />
   </>);
   const auditAction = !readOnly && (
-              <Button id={AUDIT_TRIGGER_ID} variant="primary" className="shrink-0" onClick={() => { setContextOpen(false); void maybeRunAudit(); }} disabled={!canAudit} loading={auditBusy} loadingLabel="Consultando auditoría">
+              <Button id={AUDIT_TRIGGER_ID} variant="primary" className="shrink-0" onClick={() => { setContextOpen(false); void maybeRunAudit(); }} disabled={!canAudit || !canRunAudit} loading={auditBusy} loadingLabel="Consultando auditoría">
                 {auditPhase === 'waiting' ? 'Esperando transcripción…' : auditPhase === 'running' || auditPhase === 'starting' ? 'Auditando con IA…' : caseIsError ? 'Reintentar auditoría' : shouldShowReauditLabel ? 'Volver a auditar' : 'Auditar con IA'}
               </Button>
-            );
+              );
+  const reviewRegistered = review !== null;
+  const workflowFinalized = workflowState === 'FINALIZED';
+  const progressStages = [
+    { label: 'Revisar evidencias', status: evidences.length > 0 && allReady ? 'done' as const : hasFailedEvidence || evidences.length === 0 ? 'attention' as const : 'pending' as const, action: 'Adjunta y revisa las evidencias del expediente.' },
+    { label: 'Consultar análisis de IA', status: audit?.status === 'COMPLETED' && detail.auditIsCurrent !== false ? 'done' as const : Boolean(auditError) || detail.auditIsCurrent === false ? 'attention' as const : 'pending' as const, action: 'Genera o actualiza el análisis cuando las evidencias estén listas.' },
+    { label: 'Resolución de asesor', status: reviewRegistered ? 'done' as const : 'pending' as const, action: 'Revisa el dictamen y registra la resolución del Asesor.' },
+    { label: 'Finalizar auditoría', status: workflowFinalized ? 'done' as const : 'pending' as const, action: 'El Coordinador confirma o cambia la resolución y finaliza el flujo.' },
+  ];
+  const currentStageIndex = progressStages.findIndex((stage) => stage.status !== 'done');
+  const currentStage = progressStages[currentStageIndex];
+  const displayedProgressStages = progressStages.map((stage, index) => ({
+    ...stage,
+    status: stage.status === 'pending' && index === currentStageIndex ? 'current' as const : stage.status,
+  }));
   const auditControls = (<>
             {readOnly && (
               <p role="status" className="text-xs text-muted">
@@ -551,6 +572,13 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
         <div className="case-workspace-actions justify-end"><Button aria-expanded={contextOpen} aria-controls="case-context-slot" onClick={() => setContextOpen(!contextOpen)}>{contextOpen ? 'Cerrar contexto' : 'Ver datos y dictamen'}</Button><Button onClick={() => void load()} loading={loading} loadingLabel="Actualizando">Actualizar</Button>{auditAction}</div>
       </header>
       <div className="case-workspace-audit-actions">{auditControls}</div>
+      <AuditProgressSteps
+        stages={displayedProgressStages}
+        nextAction={currentStage?.action}
+        actionLabel={capabilities.canFinalizeAnyCase && workflowState === 'PENDING_COORDINATOR' ? 'Revisar resolución final' : undefined}
+        onAction={capabilities.canFinalizeAnyCase && workflowState === 'PENDING_COORDINATOR' ? () => { setContextOpen(true); setContextTab('verdict'); } : undefined}
+      />
+      {detail.case.externalSource === 'FLOKZU' && <p className="case-ticket-deadline-note"><strong>Plazo del ticket:</strong> sin fecha de notificación formal disponible; no es posible calcular días transcurridos ni vencimiento con la información importada.</p>}
 
 
       {(auditBusy || auditError) && <Button variant="secondary" onClick={() => setProgressOpen(true)}>Ver progreso de auditoría</Button>}
@@ -566,7 +594,7 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
       {actionError !== null && <ErrorCard message={actionError.message} category={actionError.category} />}
 
       {detail.case.mergedIntoCaseId && <Panel title="Expediente consolidado"><p className="text-sm text-muted">Este registro conserva el historial de una ficha duplicada. Continúa en el <a className="text-brand underline" href={'#/casos/' + detail.case.mergedIntoCaseId}>expediente principal</a>.</p></Panel>}
-      {capabilities.canImportCases && !detail.case.mergedIntoCaseId && <CaseAssignment key={caseId + ':' + detail.case.assignedTo} caseId={caseId} assignedTo={detail.case.assignedTo ?? null} finalized={workflowStateOf(detail.review) === 'FINALIZED'} onSaved={load} />}
+      {capabilities.canImportCases && !detail.case.mergedIntoCaseId && <CaseAssignment key={caseId + ':' + detail.case.assignedTo} caseId={caseId} assignedTo={detail.case.assignedTo ?? null} finalized={(detail.reviews ?? []).some(item => item.coordinatorDecision != null) || workflowStateOf(detail.review) === 'FINALIZED'} onSaved={load} />}
       <div className={`case-workspace${contextOpen ? ' case-workspace-context-open' : ''}`}>
         <div className="case-context-slot">
           <CaseContextMenu key={caseId} detail={detail} open={contextOpen} tab={contextTab} onTabChange={setContextTab} onClose={() => setContextOpen(false)} notesContent={notesContent} reviewContent={reviewContent} canReconcile={capabilities.canFinalizeAnyCase} />
@@ -587,10 +615,10 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
               onCancelConfirm={() => setConfirmId(null)}
               deletingId={deletingId}
               confirmId={confirmId}
-              readOnly={readOnly}
+              readOnly={!canDeleteEvidence}
             />
           </Panel>
-          {!readOnly && (
+          {canUploadEvidence ? (
             <div className="case-detail-upload">
               <button
                 type="button"
@@ -606,7 +634,9 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
                 <EvidenceUploader caseId={caseId} onUploaded={() => load()} />
               </div>
             </div>
-          )}
+          ) : !readOnly ? (
+            <p className="case-context-note">La evidencia queda bloqueada después de la resolución del Asesor, salvo cuando su resolución indica evidencia insuficiente.</p>
+          ) : null}
         </aside>
 
         <section className="case-detail-assessment">
@@ -756,7 +786,7 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
             )}
 
             {activeTab === 'verdict' && (
-              audit?.status === 'COMPLETED' && detail.auditIsCurrent !== false ? <section className="case-detail-full-verdict"><h2>Dictamen original de IA</h2><AuditResultPanel audit={audit} canEditComments={detail.case.canWrite} /></section> : <Panel title="Dictamen original de IA"><div className="case-workspace-empty"><FileText size={22} /><strong>No hay un dictamen vigente</strong><p>La evidencia cambió o aún no se ha evaluado. Consulta el historial para ver resultados anteriores y vuelve a auditar para obtener el vigente.</p><Button variant="secondary" onClick={() => { setContextOpen(true); setContextTab('verdict'); }}>Consultar dictamen histórico</Button></div></Panel>
+              audit?.status === 'COMPLETED' && detail.auditIsCurrent !== false ? <section className="case-detail-full-verdict"><h2>Dictamen original de IA</h2><AuditResultPanel audit={audit} canEditComments={canEditAuditContext} /></section> : <Panel title="Dictamen original de IA"><div className="case-workspace-empty"><FileText size={22} /><strong>No hay un dictamen vigente</strong><p>La evidencia cambió o aún no se ha evaluado. Consulta el historial para ver resultados anteriores y vuelve a auditar para obtener el vigente.</p><Button variant="secondary" onClick={() => { setContextOpen(true); setContextTab('verdict'); }}>Consultar historial de auditorías</Button></div></Panel>
             )}
 
             {activeTab === 'evidence' && (

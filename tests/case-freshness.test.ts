@@ -41,7 +41,7 @@ describe('proyección de dictamen actual e histórico', () => {
   it('mantiene la resolución humana aunque el dictamen IA sea antiguo', () => {
     const dto = caseToSummary(summaryRow({
       auditIsCurrent: false,
-      review: { result: 'DICTAMINACION' } as never,
+      review: { id: 'review-1', case_id: 'case-1', audit_id: 'audit-1', result: 'DICTAMINACION' } as never,
     }));
     expect(dto.effectiveResolution).toEqual({ result: 'DICTAMINACION', source: 'HUMAN' });
   });

@@ -7,8 +7,8 @@ import type { EvidenceRow } from './cases.js';
 export const AUDIT_PIPELINE_VERSION = 'audit-v5-pipeline-2';
 
 /** Huella canónica compartida por la ejecución y la proyección de vigencia. */
-export function computeEvidenceFingerprint(evidences: EvidenceRow[], humanCycleStartDate?: string | null, areaComments: Array<{ area: string; comment: string }> = [], flokzuData?: unknown): string {
-  return computeEvidenceFingerprintFor(AUDIT_PIPELINE_VERSION, evidences, humanCycleStartDate, areaComments, flokzuData);
+export function computeEvidenceFingerprint(evidences: EvidenceRow[], humanCycleStartDate?: string | null, areaComments: Array<{ area: string; comment: string }> = [], flokzuData?: unknown, pipelineVersion = AUDIT_PIPELINE_VERSION): string {
+  return computeEvidenceFingerprintFor(pipelineVersion, evidences, humanCycleStartDate, areaComments, flokzuData);
 }
 
 export function computeEvidenceFingerprintFor(

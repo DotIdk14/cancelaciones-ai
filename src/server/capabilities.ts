@@ -31,6 +31,10 @@ export interface AuthCapabilities {
   readonly canWriteOwnedCases: boolean;
   readonly canManageCases: boolean;
   readonly canImportCases: boolean;
+  /** Puede validar feedback humano, sin adquirir permisos de cierre de casos. */
+  readonly canValidateAuditFeedback: boolean;
+  /** Puede administrar versiones, datasets, experimentos y promoción del auditor. */
+  readonly canManageAiLab: boolean;
 }
 
 function freezeCapabilities(caps: AuthCapabilities): AuthCapabilities {
@@ -45,6 +49,8 @@ export const DENY_ALL_CAPABILITIES: AuthCapabilities = freezeCapabilities({
   canWriteOwnedCases: false,
   canManageCases: false,
   canImportCases: false,
+  canValidateAuditFeedback: false,
+  canManageAiLab: false,
 });
 
 const CAPABILITIES_BY_ROLE: Record<AppRole, AuthCapabilities> = {
@@ -56,6 +62,8 @@ const CAPABILITIES_BY_ROLE: Record<AppRole, AuthCapabilities> = {
     canWriteOwnedCases: true,
     canManageCases: false,
     canImportCases: false,
+    canValidateAuditFeedback: false,
+    canManageAiLab: false,
   }),
   // Coordinador: consulta global y puede cerrar la etapa del Coordinador; la
   // API exige propiedad para cambiar la resolución o agregar comentarios.
@@ -66,6 +74,8 @@ const CAPABILITIES_BY_ROLE: Record<AppRole, AuthCapabilities> = {
     canWriteOwnedCases: true,
     canManageCases: false,
     canImportCases: true,
+    canValidateAuditFeedback: true,
+    canManageAiLab: false,
   }),
   // Gerente: lectura global y mantenimiento administrativo acotado.
   manager: freezeCapabilities({
@@ -75,6 +85,8 @@ const CAPABILITIES_BY_ROLE: Record<AppRole, AuthCapabilities> = {
     canWriteOwnedCases: false,
     canManageCases: true,
     canImportCases: false,
+    canValidateAuditFeedback: false,
+    canManageAiLab: true,
   }),
 };
 

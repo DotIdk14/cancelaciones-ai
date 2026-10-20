@@ -25,6 +25,7 @@ import dashboardHandler from '../api/dashboard/[view]';
 import { getScopedCaseOr404, assertCaseOwner } from '../src/server/cases';
 import { assertCaseWriteCapability } from '../src/server/auth';
 import type { InsForgeClient } from '../src/server/insforge';
+import { computeEvidenceFingerprint } from '../src/server/audit-fingerprint';
 
 /** Nombre real de la cookie de acceso que escribe el SDK SSR de InsForge. */
 const ACCESS_COOKIE = 'insforge_access_token';
@@ -350,7 +351,15 @@ describe('matriz de capacidades sobre /review · el servidor resuelve la etapa',
       cases: foreignCase,
       case_reviews: advisorReview,
       case_comparisons: null,
-      audits: null,
+      evidence: null,
+      case_area_comments: null,
+      audits: {
+        id: 'audit-1',
+        case_id: 'c-ajeno',
+        status: 'COMPLETED',
+        evidence_fingerprint: computeEvidenceFingerprint([]),
+        result_json: { audit: { result: 'BAJA' } },
+      },
     };
     Object.assign(state, []);
 
@@ -360,8 +369,10 @@ describe('matriz de capacidades sobre /review · el servidor resuelve la etapa',
       chain.select = () => chain;
       chain.eq = () => chain;
       chain.is = () => chain;
+      chain.not = () => chain;
       chain.order = () => chain;
       chain.limit = () => chain;
+      chain.range = () => chain;
       chain.update = (patch: Record<string, unknown>) => {
         Object.assign(advisorReview, patch);
         return chain;

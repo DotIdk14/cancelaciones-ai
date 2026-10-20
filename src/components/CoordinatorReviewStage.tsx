@@ -2,7 +2,7 @@
 import type { FormEvent, ReactNode } from 'react';
 import { useCallback, useState } from 'react';
 import { finalizeCaseReview, toErrorState, workflowStateOf } from '../lib/api';
-import type { AppRole, CaseReviewDto, CoordinatorDecision, ErrorState, WorkflowState } from '../lib/api';
+import type { AppRole, AuditDetail, CaseReviewDto, CoordinatorDecision, ErrorState, WorkflowState } from '../lib/api';
 import type { AuditResultType } from '../skills/audit/types';
 import { cx } from '../lib/cx';
 import { formatDateTime } from '../lib/format';
@@ -17,6 +17,7 @@ import {
 import { Badge, Button, DataRow, ErrorCard, Panel, SectionTitle } from './ui';
 import { EVIDENCE_CHANNELS, EVIDENCE_COUNTRIES } from '../skills/audit/types';
 import { CHANNEL_LABELS, COUNTRY_LABELS } from '../lib/labels';
+import { ModalShell } from './OperationProgressDialog';
 
 /** Etiqueta de la decisión de etapa 2, para los radios del Coordinador. */
 const DECISION_OPTIONS: ReadonlyArray<{ value: CoordinatorDecision; label: string; description: string }> = [
@@ -50,6 +51,9 @@ export function CoordinatorStage({
   canAddComment = false,
   caseCountry = null,
   caseChannel = null,
+  externalCaseId = null,
+  studentIdentifier = null,
+  audit = null,
   onSubmitted,
 }: {
   caseId: string;
@@ -61,6 +65,9 @@ export function CoordinatorStage({
   canAddComment?: boolean;
   caseCountry?: string | null;
   caseChannel?: string | null;
+  externalCaseId?: string | null;
+  studentIdentifier?: string | null;
+  audit?: AuditDetail | null;
   onSubmitted?: () => void;
 }): ReactNode {
   const state = workflowStateOf(review, workflowState);
@@ -68,7 +75,7 @@ export function CoordinatorStage({
     return <CoordinatorDecisionRecord review={review} />;
   }
   if (canFinalize) {
-    return <CoordinatorFinalizeForm caseId={caseId} review={review} caseCountry={caseCountry} caseChannel={caseChannel} canChangeResolution={canChangeResolution} canAddComment={canAddComment} onSubmitted={onSubmitted} />;
+    return <CoordinatorFinalizeForm caseId={caseId} review={review} caseCountry={caseCountry} caseChannel={caseChannel} externalCaseId={externalCaseId} studentIdentifier={studentIdentifier} audit={audit} canChangeResolution={canChangeResolution} canAddComment={canAddComment} onSubmitted={onSubmitted} />;
   }
   const message =
     role === 'manager'
@@ -92,6 +99,9 @@ function CoordinatorFinalizeForm({
   review,
   caseCountry,
   caseChannel,
+  externalCaseId,
+  studentIdentifier,
+  audit,
   canChangeResolution,
   canAddComment,
   onSubmitted,
@@ -100,6 +110,9 @@ function CoordinatorFinalizeForm({
   review: CaseReviewDto;
   caseCountry: string | null;
   caseChannel: string | null;
+  externalCaseId: string | null;
+  studentIdentifier: string | null;
+  audit: AuditDetail | null;
   canChangeResolution: boolean;
   canAddComment: boolean;
   onSubmitted?: () => void;
@@ -113,14 +126,25 @@ function CoordinatorFinalizeForm({
   const [country, setCountry] = useState(caseCountry ?? '');
   const [channel, setChannel] = useState(caseChannel ?? '');
   const [showOriginModal, setShowOriginModal] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [procedureSection, setProcedureSection] = useState('');
 
   const trimmed = comment.trim();
-  const tooLong = trimmed.length > REVIEW_COMMENT_LIMITS.max;
+  const tracePrefix = decision === 'CHANGE' && procedureSection ? `Fundamento V5: sección ${procedureSection}.\n` : '';
+  const tooLong = `${tracePrefix}${trimmed}`.length > REVIEW_COMMENT_LIMITS.max;
   // La resolución de cambio debe ser DISTINTA de la del Asesor: la del Asesor no
   // se ofrece, así que "misma" no es una opción representable.
   const resolutionOptions = REVIEW_RESULT_OPTIONS.filter((option) => option !== review.result);
+  const aiAudit = audit?.resultJson?.audit ?? null;
+  const aiResolution = aiAudit?.result ?? null;
+  const missingEvidence = aiAudit?.missingEvidence ?? [];
+  const availableProcedureSections = Array.from(new Set([
+    ...(aiAudit?.auditPath.procedureSections ?? []),
+    ...(aiAudit?.procedureChecks.map((check) => check.procedureSection) ?? []),
+    ...(aiAudit?.procedureSection ? [aiAudit.procedureSection] : []),
+  ])).filter((section) => /^\d+(?:\.\d+)*$/.test(section)).sort((a, b) => a.localeCompare(b, 'es', { numeric: true }));
   const canSubmit =
-    (decision === 'APPROVE' || (decision === 'CHANGE' && canChangeResolution && resolution !== '')) &&
+    (decision === 'APPROVE' || (decision === 'CHANGE' && canChangeResolution && resolution !== '' && procedureSection !== '')) &&
     (canAddComment || trimmed === '') && !tooLong && !sending;
 
   const submitDecision = useCallback(async (): Promise<void> => {
@@ -131,7 +155,7 @@ function CoordinatorFinalizeForm({
         const data = await finalizeCaseReview(caseId, {
           decision,
           ...(decision === 'CHANGE' && resolution !== '' ? { resolution } : {}),
-          comment: trimmed,
+          comment: [decision === 'CHANGE' ? `Fundamento V5: sección ${procedureSection}.` : '', trimmed].filter(Boolean).join('\n'),
           country,
           channel,
         });
@@ -143,7 +167,7 @@ function CoordinatorFinalizeForm({
       } finally {
         setSending(false);
       }
-    }, [canSubmit, caseId, channel, country, decision, onSubmitted, resolution, trimmed]);
+    }, [canSubmit, caseId, channel, country, decision, onSubmitted, procedureSection, resolution, trimmed]);
 
   const handleSubmit = useCallback((event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
@@ -152,8 +176,8 @@ function CoordinatorFinalizeForm({
       setShowOriginModal(true);
       return;
     }
-    void submitDecision();
-  }, [canSubmit, channel, country, decision, submitDecision]);
+    setConfirming(true);
+  }, [canSubmit, channel, country, decision]);
 
   if (finalized !== null) {
     return <CoordinatorDecisionRecord review={finalized} />;
@@ -210,6 +234,7 @@ function CoordinatorFinalizeForm({
         </fieldset>
 
         {decision === 'CHANGE' && (
+          <div className="flex flex-col gap-4">
           <fieldset className="flex flex-col gap-2" disabled={sending}>
             <legend className="text-sm font-semibold text-ink">Resolución final distinta</legend>
             <p className="text-xs text-muted">
@@ -250,6 +275,16 @@ function CoordinatorFinalizeForm({
               })}
             </div>
           </fieldset>
+          <label htmlFor="coordinador-procedure-section" className="flex flex-col gap-1.5 text-sm font-semibold text-ink">
+            Lineamiento V5 que fundamenta el cambio <span className="font-normal text-danger">(obligatorio)</span>
+            <select id="coordinador-procedure-section" value={procedureSection} onChange={(event) => setProcedureSection(event.target.value)} disabled={sending} required className="rounded-lg border border-line bg-surface-2 px-3 py-2 font-normal text-ink">
+              <option value="">Selecciona una sección citada por la auditoría</option>
+              {availableProcedureSections.map((section) => <option key={section} value={section}>Sección {section}</option>)}
+            </select>
+            <span className="text-xs font-normal text-muted">La sección y el comentario quedarán registrados con la decisión del Coordinador.</span>
+            {availableProcedureSections.length === 0 && <span role="alert" className="text-xs font-medium text-danger">La auditoría no contiene secciones V5 seleccionables; no se puede registrar un cambio sin ese fundamento.</span>}
+          </label>
+          </div>
         )}
 
         <div className="flex flex-col gap-1.5">
@@ -289,18 +324,36 @@ function CoordinatorFinalizeForm({
           <Button
             type="submit"
             variant="primary"
+            className="min-h-12 px-6 text-base"
             disabled={!canSubmit}
             loading={sending}
             loadingLabel="Registrando la decisión"
             aria-describedby={error !== null ? formErrorId : undefined}
           >
-            Finalizar el caso
+            Finalizar auditoría
           </Button>
           <p className="text-xs text-muted">
             La decisión final es única e inmutable: no se puede reabrir ni sustituir.
           </p>
         </div>
       </form>
+      {confirming && (
+        <ModalShell title="Confirma la finalización de la auditoría" onClose={() => setConfirming(false)}>
+          <p className="mb-4 text-sm text-muted">Verifica el resumen. La decisión final se guardará una sola vez y conservará la resolución propuesta por el Asesor.</p>
+          <dl className="flex flex-col gap-2 rounded-xl border border-line bg-surface-2 p-4 text-sm">
+            <DataRow label="Ticket" value={externalCaseId || caseId.slice(0, 8)} />
+            <DataRow label="Matrícula" value={studentIdentifier || 'Sin matrícula'} />
+            <DataRow label="Resultado formal de IA" value={aiResolution ? resolutionLabel(aiResolution) : 'No disponible'} />
+            {aiAudit?.provisionalResolution && <DataRow label="Propuesta preliminar de IA" value={`${resolutionLabel(aiAudit.provisionalResolution.result)} · sección ${aiAudit.provisionalResolution.procedureSection}`} />}
+            <DataRow label="Resolución del Asesor" value={resolutionLabel(review.result)} />
+            <DataRow label="Resolución final" value={decision === 'CHANGE' && resolution ? resolutionLabel(resolution) : resolutionLabel(review.result)} />
+            <DataRow label="Lineamiento V5" value={decision === 'CHANGE' ? `Sección ${procedureSection}` : (aiAudit?.procedureSection ? `Sección ${aiAudit.procedureSection}` : 'No disponible en el dictamen')} />
+            <DataRow label="Estado" value="Auditoría finalizada. El cierre del ticket en Flokzu se administra por separado." />
+          </dl>
+          {missingEvidence.length > 0 && <div className="mt-4 rounded-xl border border-warning/30 bg-warning/5 p-3"><strong className="text-sm text-warning">Evidencias faltantes o advertencias ({missingEvidence.length})</strong><ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-ink">{missingEvidence.map((item, index) => <li key={`${item.title}-${index}`}>{item.title}: {item.reason}</li>)}</ul><p className="mt-2 text-xs text-muted">La propuesta puede ser preliminar. Estas advertencias permanecen en el dictamen.</p></div>}
+          <div className="mt-5 flex justify-end gap-2"><Button variant="secondary" onClick={() => setConfirming(false)} disabled={sending}>Volver a revisar</Button><Button variant="primary" onClick={() => void submitDecision()} disabled={!canSubmit} loading={sending} loadingLabel="Finalizando auditoría">Confirmar y finalizar auditoría</Button></div>
+        </ModalShell>
+      )}
       {showOriginModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowOriginModal(false); }}>
           <section role="dialog" aria-modal="true" aria-labelledby="origin-required-title" className="w-full max-w-lg rounded-2xl border border-line bg-surface-1 p-5 shadow-xl">
@@ -323,7 +376,7 @@ function CoordinatorFinalizeForm({
             <p className="mt-3 text-xs text-muted">Registra el canal que se acredita en la evidencia. El canal de venta reportado por Flokzu es un dato distinto.</p>
             <div className="mt-6 flex justify-end gap-2">
               <Button variant="secondary" onClick={() => setShowOriginModal(false)} disabled={sending}>Volver</Button>
-              <Button variant="primary" onClick={() => void submitDecision()} disabled={!country || !channel || sending} loading={sending} loadingLabel="Finalizando">Guardar y finalizar</Button>
+              <Button variant="primary" onClick={() => { setShowOriginModal(false); setConfirming(true); }} disabled={!country || !channel || sending}>Continuar a confirmación</Button>
             </div>
           </section>
         </div>

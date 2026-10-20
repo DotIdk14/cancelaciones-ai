@@ -516,6 +516,15 @@ export async function getCaseReview(_client: unknown, caseId: string): Promise<C
   return row ? { ...row } : null;
 }
 
+export async function getCaseReviewForAudit(_client: unknown, auditId: string): Promise<CaseReviewRow | null> {
+  const row = reviewRows.find((item) => item.audit_id === auditId);
+  return row ? { ...row } : null;
+}
+
+export async function listCaseReviewsForCase(_client: unknown, caseId: string): Promise<CaseReviewRow[]> {
+  return reviewRows.filter((item) => item.case_id === caseId).map((row) => ({ ...row }));
+}
+
 /**
  * Espejo de `finalizeCaseReview` de producción: misma semántica de persistencia
  * (sin revisión → 400; ya finalizada → 409; CHANGE exige resolución distinta).

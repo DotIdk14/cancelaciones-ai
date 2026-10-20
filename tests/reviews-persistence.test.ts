@@ -32,6 +32,7 @@ const INPUT = {
 
 const COORDINATOR = {
   caseId: 'case-1',
+  auditId: 'audit-1',
   coordinatorUserId: 'coordinator-test',
   comment: 'De acuerdo con la revisión del asesor.',
 };
@@ -69,7 +70,7 @@ describe('createCaseReview', () => {
   it('un caso distinto sí puede tener su propia revisión', async () => {
     await createCaseReview(db.client, INPUT);
 
-    await createCaseReview(db.client, { ...INPUT, caseId: 'case-2' });
+    await createCaseReview(db.client, { ...INPUT, caseId: 'case-2', auditId: 'audit-2' });
 
     expect(db.rows('case_reviews')).toHaveLength(2);
   });

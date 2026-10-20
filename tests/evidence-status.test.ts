@@ -39,6 +39,17 @@ import {
 } from './helpers/fake-store';
 
 vi.mock('../src/server/area-comments', () => ({ listAreaComments: async () => contextRows.rows }));
+vi.mock('../src/server/reviews', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/server/reviews')>();
+  const store = await import('./helpers/fake-store');
+  return { ...actual, listCaseReviewsForCase: store.listCaseReviewsForCase, getCaseReviewForAudit: store.getCaseReviewForAudit };
+});
+vi.mock('../src/server/review-locks', () => ({
+  assertAuditMayRun: async () => undefined,
+  assertEvidenceMayBeAdded: async () => undefined,
+  assertEvidenceMayBeDeleted: async () => undefined,
+  assertCaseHasNoAdvisorReview: async () => undefined,
+}));
 
 // --- Persistencia: store en memoria de `cases`/`evidence`/`audits` -----------
 vi.mock('../src/server/cases', async () => {
@@ -64,6 +75,7 @@ vi.mock('../src/server/cases', async () => {
     updateEvidenceStatus: store.updateEvidenceStatus,
     deleteEvidenceRow: store.deleteEvidenceRow,
     latestAudit: store.latestAudit,
+    latestCompletedAudit: store.latestCompletedAudit,
     latestCompletedAuditByFingerprint: store.latestCompletedAuditByFingerprint,
     latestRunningAuditByFingerprint: store.latestRunningAuditByFingerprint,
     countAuditsByFingerprint: store.countAuditsByFingerprint,

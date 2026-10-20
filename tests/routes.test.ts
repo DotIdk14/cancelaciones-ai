@@ -52,6 +52,7 @@ vi.mock('../src/server/cases', async () => {
     deleteEvidenceRow: store.deleteEvidenceRow,
     persistDerivedExtraction: store.persistDerivedExtraction,
     latestAudit: store.latestAudit,
+    latestCompletedAudit: store.latestCompletedAudit,
     latestCompletedAuditByFingerprint: store.latestCompletedAuditByFingerprint,
     latestRunningAuditByFingerprint: store.latestRunningAuditByFingerprint,
     countAuditsByFingerprint: store.countAuditsByFingerprint,
@@ -60,6 +61,8 @@ vi.mock('../src/server/cases', async () => {
     updateCaseStatus: store.updateCaseStatus,
   };
 });
+
+vi.mock('../src/server/review-locks', () => ({ assertAuditMayRun: async () => undefined }));
 
 // --- Cliente server-side de InsForge: store aislado, sin red ----------------
 vi.mock('../src/server/insforge', async (importOriginal) => {

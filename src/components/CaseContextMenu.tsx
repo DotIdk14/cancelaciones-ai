@@ -77,13 +77,31 @@ export function CaseContextMenu({ detail, open, tab, onTabChange, onClose, notes
   const source = selection && selection.owner.case.id !== detail.case.id ? selection.owner : detail;
   const audit = selection?.audit ?? detail.audit;
   const assessment = audit?.status === 'COMPLETED' ? audit.resultJson?.audit : null;
-  const matchedReview = audit && source.review?.auditId === audit.id ? source.review : null;
+  const facts = audit?.resultJson?.facts ?? [];
+  const procedureChecks = assessment?.procedureChecks ?? [];
+  const missingEvidence = assessment?.missingEvidence ?? [];
+  const conflicts = audit?.resultJson?.conflicts ?? [];
+  const matchedReview = audit
+    ? source.reviews?.find((candidate) => candidate.auditId === audit.id)
+      ?? (source.review?.auditId === audit.id ? source.review : null)
+    : null;
   const historical = selection !== null || detail.auditIsCurrent === false;
   const data = detail.case.flokzuData ?? EMPTY_FLOKZU;
   const row = detail.case;
 
   function auditList(owner: CaseDetailResponse): ReactNode {
-    return owner.audits.length === 0 ? <p className="case-context-note">Sin auditorías registradas en este ticket.</p> : <ol className="case-context-audits">{owner.audits.map((item) => <li key={item.id}><button type="button" onClick={() => void selectAudit(owner, item.id)} aria-label={`Consultar auditoría del ${formatDateTime(item.createdAt)}`}><time>{formatDateTime(item.createdAt)}</time><strong>{item.result ? resolutionLabel(item.result) : item.status === 'RUNNING' ? 'En curso' : 'Sin resolución'}</strong><span>{owner.auditIsCurrent === true && owner.audit?.id === item.id ? 'Auditoría vigente' : 'Auditoría anterior'} · {item.procedureSection ? `Sección ${item.procedureSection}` : 'Lineamiento no disponible'} · {item.status === 'COMPLETED' ? 'Completada' : item.status === 'ERROR' ? 'Con error' : 'En curso'}</span><small>{owner.review?.auditId === item.id ? owner.review.coordinatorDecision === 'CHANGE' ? 'Resolución modificada por Coordinador' : owner.review.coordinatorDecision ? 'Validada por Coordinador' : 'Revisada por Asesor' : 'Sin revisión humana vinculada'}</small></button></li>)}</ol>;
+    if (owner.audits.length === 0) return <p className="case-context-note">Sin auditorías registradas en este ticket.</p>;
+    return <ol className="case-context-audits">{owner.audits.map((item) => {
+      const review = owner.reviews?.find(candidate => candidate.auditId === item.id)
+        ?? (owner.review?.auditId === item.id ? owner.review : null);
+      const version = owner.auditIsCurrent === true && owner.audit?.id === item.id ? 'Auditoría vigente' : 'Auditoría anterior';
+      const reviewLabel = review
+        ? review.coordinatorDecision === 'CHANGE' ? 'Resolución modificada por Coordinador'
+          : review.coordinatorDecision ? 'Validada por Coordinador'
+            : 'Revisada por Asesor'
+        : 'Sin resolución de asesor vinculada';
+      return <li key={item.id}><button type="button" onClick={() => void selectAudit(owner, item.id)} aria-label={`Consultar auditoría del ${formatDateTime(item.createdAt)}`}><time>{formatDateTime(item.createdAt)}</time><strong>{item.result ? resolutionLabel(item.result) : item.status === 'RUNNING' ? 'En curso' : 'Sin resolución'}</strong><span>{version} · {item.procedureSection ? `Sección ${item.procedureSection}` : 'Lineamiento no disponible'} · {item.status === 'COMPLETED' ? 'Completada' : item.status === 'ERROR' ? 'Con error' : 'En curso'}</span><small>{reviewLabel}</small></button></li>;
+    })}</ol>;
   }
 
   return <FlokzuContextPanel data={data} open={open} nonModal={!mobile} panelTitle="Contexto del expediente" className="case-context-menu" onClose={onClose}>
@@ -98,9 +116,13 @@ export function CaseContextMenu({ detail, open, tab, onTabChange, onClose, notes
       {([{ id: 'data', label: 'Datos', Icon: UserRound }, { id: 'verdict', label: 'Dictamen', Icon: FileText }, { id: 'audits', label: 'Auditorías', Icon: History }] as const).map(({ id, label, Icon }) => <button type="button" key={id} role="tab" tabIndex={tab === id ? 0 : -1} id={`context-tab-${id}`} aria-controls={`context-content-${id}`} aria-selected={tab === id} onClick={() => onTabChange(id)}><Icon size={14} aria-hidden="true" />{label}</button>)}
     </nav>
     <div className="case-context-scroll">
-      <div className="case-context-identity"><div><Badge tone={caseKindTone(row.isTest)}>{caseKindLabel(row.isTest)}</Badge><span>Actualizado {formatDateTime(row.updatedAt)}</span></div><strong>{row.studentIdentifier || 'Sin matrícula'}</strong><h3>{row.studentName || 'Nombre no reportado'}</h3><p>{row.externalCaseId ? `Ticket ${row.externalCaseId}` : `Expediente ${row.id.slice(0, 8)}`} · Creado {formatDateTime(row.createdAt)}</p></div>
+      <header className="case-context-identity"><Badge tone={caseKindTone(row.isTest)}>{caseKindLabel(row.isTest)}</Badge><div><strong>{row.studentIdentifier || 'Sin matrícula'}</strong><p>{row.studentName || 'Nombre no reportado'}</p>{historical && <small>Expediente abierto: {detail.case.externalCaseId ? `Ticket ${detail.case.externalCaseId}` : `expediente ${detail.case.id.slice(0, 8)}`}</small>}</div></header>
       <section role="tabpanel" id="context-content-data" aria-labelledby="context-tab-data" hidden={tab !== 'data'}>
         <button className="case-context-history-trigger" type="button" onClick={() => onTabChange('audits')}><History size={15} /> Ver historial de auditorías</button>
+        <Section title="Identificadores y seguimiento" initialOpen><dl>
+          <Property label="Ticket CaVe" value={row.externalCaseId} /><Property label="Expediente" value={row.id} />
+          <Property label="Creado en sistema" value={formatDateTime(row.createdAt)} /><Property label="Última actualización" value={formatDateTime(row.updatedAt)} />
+        </dl></Section>
         <Section title="Información del estudiante" initialOpen><dl>
           <Property label="Nombre" value={row.studentName} /><Property label="Matrícula" value={row.studentIdentifier} />
           <Property label="País reportado" value={data.academic.countryReported} /><Property label="Campus" value={data.academic.campus} />
@@ -111,7 +133,7 @@ export function CaseContextMenu({ detail, open, tab, onTabChange, onClose, notes
           <div className="case-context-property"><dt>Estado del expediente</dt><dd><Badge tone={CASE_STATUS_TONE[row.status]}>{CASE_STATUS_LABELS[row.status]}</Badge></dd></div>
         </dl></Section>
         {row.externalSource === 'FLOKZU' && <Section title="Contexto administrativo · Flokzu" initialOpen><p className="case-context-note">Información reportada; no acredita evidencia ni determina el dictamen.</p><dl>
-          <Property label="Caso CaVe" value={row.externalCaseId} /><Property label="Estado del procedimiento" value={data.operations.statusReported} />
+          <Property label="Estado del procedimiento" value={data.operations.statusReported} />
           <Property label="Canal de venta reportado · Flokzu" value={salesChannelLabel(data.operations.salesChannelReported)} />
           <Property label="País asociado al canal · catálogo CaVe" value={salesChannelCountry(data.operations.salesChannelReported)} />
           <Property label="Política reportada" value={data.procedure.policyReported} /><Property label="Tarea actual" value={data.operations.currentTask} />
@@ -122,17 +144,47 @@ export function CaseContextMenu({ detail, open, tab, onTabChange, onClose, notes
       </section>
       <section role="tabpanel" id="context-content-verdict" aria-labelledby="context-tab-verdict" hidden={tab !== 'verdict'}>
         {pending && <p role="status">Consultando auditoría…</p>}{error && <p role="alert" className="case-context-error">{error}</p>}
-        <div hidden={pending || error !== null}>
-          <p className="case-context-audit-source">{source.case.externalCaseId ? `Ticket ${source.case.externalCaseId}` : `Expediente ${source.case.id.slice(0, 8)}`}{audit && ` · ${formatDateTime(audit.createdAt)}`}</p>
+        <div className="case-context-verdict-body" hidden={pending || error !== null}>
+          <header className="case-context-audit-header">
+            <span className="case-context-kicker">{historical ? 'Auditoría anterior' : 'Auditoría vigente'}</span>
+            <strong>{source.case.externalCaseId ? `Ticket ${source.case.externalCaseId}` : `Expediente ${source.case.id.slice(0, 8)}`}</strong>
+            {audit && <time>{formatDateTime(audit.createdAt)}</time>}
+          </header>
           {historical && <p className="case-context-warning">Consulta histórica de solo lectura. El expediente abierto permanece sin cambios.</p>}
-          {assessment ? <><h3 className="case-context-heading">Resolución propuesta por IA</h3><Badge tone={RESULT_TONE[assessment.result]}>{RESULT_LABELS[assessment.result]}</Badge><dl><Property label="Lineamiento" value={assessment.rule} /><Property label="Sección" value={assessment.procedureSection} /><Property label="Confianza declarada" value={typeof assessment.confidence === 'number' ? formatPercent(assessment.confidence) : null} /></dl><h3 className="case-context-heading">Justificación</h3><p className="case-context-reasoning">{assessment.reasoning}</p>
-            <Section title={`Errores y discrepancias (${audit?.resultJson?.conflicts?.length ?? 0})`}>{audit?.resultJson?.conflicts?.length ? audit.resultJson.conflicts.map((conflict, index) => <p key={index} className="case-context-reasoning">{conflict.description}</p>) : <p className="case-context-note">Sin discrepancias registradas.</p>}{(assessment.procedureChecks ?? []).filter((check) => check.status === 'NO_ACREDITADO').map((check, index) => <p key={index} className="case-context-reasoning">{check.procedureSection} · {check.reasoning}</p>)}</Section>
-            <Section title={`Evidencias faltantes (${(assessment.missingEvidence ?? []).length})`}>{(assessment.missingEvidence ?? []).length ? (assessment.missingEvidence ?? []).map((item, index) => <div key={index} className="case-context-missing"><strong>{item.title}</strong><p>{item.reason}</p><small>{item.acceptedEvidence.join(' · ')}</small></div>) : <p className="case-context-note">Sin faltantes registrados.</p>}</Section>
+          {assessment && audit?.resultJson ? <>
+            <article className="case-context-result-card">
+              <div className="case-context-result-heading"><div><span className="case-context-kicker">Resolución propuesta por IA</span><Badge tone={RESULT_TONE[assessment.result]}>{RESULT_LABELS[assessment.result]}</Badge></div><span className="case-context-confidence">Confianza declarada <strong>{typeof assessment.confidence === 'number' ? formatPercent(assessment.confidence) : '—'}</strong></span></div>
+              <dl className="case-context-foundation"><div><dt>Lineamiento</dt><dd>{assessment.rule || 'No especificado'}</dd></div><div><dt>Sección V5</dt><dd>{assessment.procedureSection || 'No especificada'}</dd></div></dl>
+            </article>
+
+            {missingEvidence.length > 0 && <section className="case-context-attention-card" aria-label="Evidencias faltantes">
+              <h3>Faltan evidencias por revisar <span>{missingEvidence.length}</span></h3>
+              <p>La resolución puede ser preliminar; estas advertencias siguen vigentes.</p>
+              <ul>{missingEvidence.map((item, index) => <li key={`${item.title}-${index}`}><strong>{item.title}</strong><span>{item.reason}</span>{item.acceptedEvidence.length > 0 && <small>Puede acreditarse con: {item.acceptedEvidence.join(' · ')}</small>}</li>)}</ul>
+            </section>}
+
+            <section className="case-context-explanation">
+              <h3>¿Por qué propone esta resolución?</h3>
+              <p className="case-context-excerpt">{excerpt(assessment.reasoning)}</p>
+              {assessment.reasoning.length > 240 && <details className="case-context-more"><summary>Leer justificación completa</summary><p>{assessment.reasoning}</p></details>}
+            </section>
+
+            <Section title={`Hallazgos y criterios (${facts.length} hechos · ${procedureChecks.length} criterios)`}>
+              {facts.length > 0 && <div className="case-context-fact-list"><h4>Hechos identificados</h4>{facts.map((fact) => <article key={fact.key}><strong>{fact.label}</strong><span>{fact.value === null ? 'Sin dato determinable' : String(fact.value)}</span>{fact.evidenceText && <p>{fact.evidenceText}</p>}</article>)}</div>}
+              {procedureChecks.length > 0 && <div className="case-context-check-list"><h4>Criterios del procedimiento</h4>{procedureChecks.map((check, index) => <article key={`${check.procedureSection}-${index}`}><div><strong>Sección {check.procedureSection}</strong><Badge tone={check.status === 'ACREDITADO' ? 'success' : check.status === 'NO_ACREDITADO' ? 'danger' : 'warning'}>{check.status.replaceAll('_', ' ')}</Badge></div><p>{check.criterion}</p><small>{check.reasoning}</small></article>)}</div>}
+            </Section>
+
+            <Section title={`Discrepancias (${conflicts.length})`}>
+              {conflicts.length > 0 ? conflicts.map((conflict, index) => <p key={index} className="case-context-reasoning">{conflict.description}</p>) : <p className="case-context-note">No se registraron discrepancias.</p>}
+            </Section>
           </> : <p className="case-context-note">{audit?.status === 'RUNNING' ? 'Auditoría en curso. El resultado aparecerá al terminar.' : audit?.status === 'ERROR' ? `Auditoría con error: ${audit.errorCategory ?? 'sin categoría'}.` : 'Sin dictamen completado.'}</p>}
-          <h3 className="case-context-heading">Resolución humana vinculada</h3>
-          {matchedReview ? <dl><Property label="Asesor" value={resolutionLabel(matchedReview.result)} /><Property label="Revisado" value={formatDateTime(matchedReview.createdAt)} />{matchedReview.coordinatorDecision && <Property label="Coordinador" value={resolutionLabel(matchedReview.coordinatorDecision === 'CHANGE' ? matchedReview.coordinatorResolution ?? matchedReview.result : matchedReview.result)} />}</dl> : <p className="case-context-note">Esta auditoría no tiene una revisión humana vinculada.</p>}
+
+          <section className="case-context-linked-review">
+            <h3>Resolución de asesor</h3>
+            {matchedReview ? <><Badge tone={RESULT_TONE[matchedReview.result]}>{resolutionLabel(matchedReview.result)}</Badge><time>{formatDateTime(matchedReview.createdAt)}</time>{matchedReview.coordinatorDecision && <p>Resolución final del Coordinador: <strong>{resolutionLabel(matchedReview.coordinatorDecision === 'CHANGE' ? matchedReview.coordinatorResolution ?? matchedReview.result : matchedReview.result)}</strong></p>}</> : <p>Sin resolución de asesor registrada para esta auditoría.</p>}
+          </section>
+          <div hidden={selection !== null || pending || error !== null}>{reviewContent}</div>
         </div>
-        <div hidden={selection !== null || pending || error !== null}>{reviewContent}</div>
         {selection !== null && <button type="button" className="case-context-history-trigger" onClick={() => { generation.current += 1; setSelection(null); setError(null); setPending(false); }}>Volver al dictamen actual</button>}
       </section>
       <section role="tabpanel" id="context-content-audits" aria-labelledby="context-tab-audits" hidden={tab !== 'audits'}>
@@ -146,4 +198,11 @@ export function CaseContextMenu({ detail, open, tab, onTabChange, onClose, notes
       </section>
     </div>
   </FlokzuContextPanel>;
+}
+
+function excerpt(value: string, max = 240): string {
+  if (value.length <= max) return value;
+  const slice = value.slice(0, max);
+  const wordEnd = slice.lastIndexOf(' ');
+  return `${slice.slice(0, wordEnd > 0 ? wordEnd : max).trimEnd()}…`;
 }

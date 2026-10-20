@@ -3,6 +3,7 @@ import { createServerClient } from '../../../../src/server/insforge.js';
 import { assertCaseWriteCapability } from '../../../../src/server/auth.js';
 import { assertCaseOwner, assertCaseNotFinalized, getScopedCaseOr404 } from '../../../../src/server/cases.js';
 import { getAuditForPolling, runAudit } from '../../../../src/server/audit-service.js';
+import { assertAuditMayRun } from '../../../../src/server/review-locks.js';
 
 // GET  /api/cases/:caseId/audit → { audit: AuditDetail|null } (polling + refresco de transcripción)
 // POST /api/cases/:caseId/audit → 200 { audit } | 202 { audit: null, pendingEvidence } | 400 { error }
@@ -30,6 +31,7 @@ export default handleRoute(async (req, res) => {
   assertCaseWriteCapability(req.auth!);
   assertCaseOwner(caseRow, req.auth!);
   await assertCaseNotFinalized(client, caseId);
+  await assertAuditMayRun(client, caseId);
   const outcome = await runAudit(client, caseId, { userId: req.auth!.sub, correlationId: req.correlationId });
   if (outcome.phase === 'pending') {
     json(res, 202, { audit: null, pendingEvidence: outcome.pendingEvidence });
