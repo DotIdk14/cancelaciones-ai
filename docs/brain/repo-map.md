@@ -4,7 +4,7 @@ Using openrouter/deepseek/deepseek-r1:free model with API key from environment.
 Aider v0.86.2
 Model: openrouter/deepseek/deepseek-r1:free with diff edit format, prompt 
 cache, infinite output
-Git repo: .git with 384 files
+Git repo: .git with 386 files
 Repo-map: using 4096 tokens, auto refresh
 Here are summaries of some files present in my git repository.
 Do not propose changes to these files, treat them as *read-only*.
@@ -221,14 +221,6 @@ src\components\dashboard\charts\ConfidenceBandsChart.tsx:
 │  ariaLabel: string;
 ⋮
 
-src\components\dashboard\charts\ConfidenceByEvidenceChart.tsx:
-⋮
-│export interface ConfidenceByEvidenceChartProps {
-│  data: Bucket[];
-│  /** Texto alternativo: qué compara y cuál es la lectura principal. */
-│  ariaLabel: string;
-⋮
-
 src\components\dashboard\charts\CostOverTimeChart.tsx:
 ⋮
 │export interface CostOverTimeChartProps {
@@ -399,11 +391,6 @@ primero. */
 │  canUploadEvidence?: boolean;
 │  canDeleteEvidence?: boolean;
 ⋮
-│export interface ErrorState {
-│  category: string;
-│  message: string;
-│  correlationId?: string;
-⋮
 │export class ApiError extends Error {
 │  readonly category: string;
 │  readonly status: number;
@@ -475,6 +462,13 @@ src\lib\dashboard-shared.ts:
 │  evaluation?: string | null;
 ⋮
 
+src\lib\flokzu-administrative.ts:
+⋮
+│export function usefulAdministrativeText(value: string): boolean {
+│  return !/^(?:|99|sin dato|sin datos|n\/a|no aplica|pendiente|seguimiento|se 
+da seguimiento)[.! ]*
+⋮
+
 src\lib\layout.ts:
 ⋮
 │export function isDashboardRoute(name: AppRoute['name']): boolean {
@@ -533,6 +527,9 @@ null): void {
 ⋮
 
 src\lib\useSession.ts:
+⋮
+│export type SessionStatus = 'loading' | 'anon' | 'authed';
+│
 ⋮
 │export interface UseSessionResult {
 │  status: SessionStatus;

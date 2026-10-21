@@ -623,6 +623,15 @@ describe('AuditResultSchema (serialización)', () => {
 });
 
 describe('detalle saneado atestiguado (parseWithInvalidAiError)', () => {
+  it('informa juntos los errores independientes para que quepan en una sola corrección', () => {
+    const invalid = structuredClone(validResult);
+    invalid.audit.result = 'EVIDENCIA_INSUFICIENTE';
+    invalid.audit.provisionalResolution = null;
+    invalid.audit.confidence = 1;
+    invalid.audit.missingEvidence = [];
+    invalid.temporalAnalysis.relationToCycleStart = 'NO_DETERMINABLE';
+    expect(() => parseAuditResult(invalid)).toThrow(/audit.provisionalResolution:.*audit.missingEvidence:.*audit.confidence:/);
+  });
   it('una nota auxiliar omitida se normaliza, pero un objeto explícito sigue fallando', () => {
     const { model: _model, usage: _usage, ...assessment } = validResult;
     const { observations: _observations, ...audit } = assessment.audit;

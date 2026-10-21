@@ -14,7 +14,7 @@ function collectKeys(value: unknown, output: string[] = []): string[] {
 }
 
 describe('provider schema proyectado desde Zod', () => {
-  it.each(['gemini', 'openai'] as const)('restringe todas las referencias al registro del expediente para %s', (profile) => {
+  it.each(['gemini', 'openai'] as const)('proyecta referencias compatibles con el perfil %s sin cambiar los tipos', (profile) => {
     const ids = ['30b5b238-1e3b-4fb8-997f-99e4e9ddb5b4', 'ev-2'];
     const schema = buildProviderJsonSchema(AiAuditAssessmentSchema, profile, ids);
     const fields: string[] = [];
@@ -25,9 +25,9 @@ describe('provider schema proyectado desde Zod', () => {
       if (object.properties && typeof object.properties === 'object') {
         for (const [name, raw] of Object.entries(object.properties)) {
           const property = raw as Record<string, unknown>;
-          if (name === 'evidenceId') { expect(property.enum).toEqual(ids); fields.push(name); }
+          if (name === 'evidenceId') { expect(property.enum).toEqual(profile === 'openai' ? ids : undefined); fields.push(name); }
           if (name === 'evidenceIds' || name.endsWith('EvidenceIds')) {
-            expect((property.items as Record<string, unknown>).enum).toEqual(ids); fields.push(name);
+            expect((property.items as Record<string, unknown>).enum).toEqual(profile === 'openai' ? ids : undefined); fields.push(name);
           }
         }
       }
@@ -40,6 +40,16 @@ describe('provider schema proyectado desde Zod', () => {
     expect(() => assertProviderSchemaCompatible(schema, profile)).not.toThrow();
     expect(JSON.stringify(buildProviderJsonSchema(AiAuditAssessmentSchema, profile))).not.toContain(ids[0]);
     expect(JSON.stringify(schema)).not.toContain('99e9e9ddb5b4');
+    if (profile === 'gemini') expect(JSON.stringify(schema)).not.toContain(ids[0]);
+  });
+  it('el tamaño del schema Gemini no crece con UUIDs aleatorios del expediente', () => {
+    const ids = Array.from({ length: 50 }, (_, i) => `${i.toString(16).padStart(8, '0')}-8f31-4acd-bc22-657a2f1d98a3`);
+    const base = buildProviderJsonSchema(AiAuditAssessmentSchema, 'gemini');
+    expect(buildProviderJsonSchema(AiAuditAssessmentSchema, 'gemini', ids)).toEqual(base);
+    const audit = (base.properties as Record<string, { properties: Record<string, unknown> }>).audit!;
+    const fields = Object.keys(audit.properties);
+    expect(fields.indexOf('procedureChecks')).toBeLessThan(fields.indexOf('result'));
+    expect(fields.indexOf('auditPath')).toBeLessThan(fields.indexOf('result'));
   });
   it('el perfil Gemini omite keywords fuera de su subconjunto compatible', () => {
     const providerSchema = buildProviderJsonSchema(AiAuditAssessmentSchema, 'gemini');
@@ -112,5 +122,6 @@ describe('provider schema proyectado desde Zod', () => {
       expect(contract).toContain(`"${field}"`);
     }
     expect(contract).toContain('exclusivamente un objeto JSON');
+    expect(contract).toContain('Null es un valor, no permiso para omitir');
   });
 });

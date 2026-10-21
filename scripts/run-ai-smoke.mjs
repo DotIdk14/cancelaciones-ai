@@ -5,7 +5,7 @@ import { loadEnv } from 'vite';
 const modeIndex = process.argv.indexOf('--mode');
 const mode = modeIndex >= 0 ? process.argv[modeIndex + 1] : 'development';
 if (!mode || !['development', 'preview', 'production'].includes(mode)) {
-  console.error('Uso: node scripts/run-ai-smoke.mjs [--mode development|preview|production]');
+  console.error('Uso: node scripts/run-ai-smoke.mjs [--mode development|preview|production] [--schema-only]');
   process.exit(2);
 }
 Object.assign(process.env, loadEnv(mode, process.cwd(), ''));
@@ -19,7 +19,10 @@ if (!process.env.OPENROUTER_MODEL?.trim()) {
 }
 
 const vitest = resolve('node_modules/vitest/vitest.mjs');
-const result = spawnSync(process.execPath, [vitest, 'run', 'tests/ai-smoke.live.test.ts'], {
+const targets = process.argv.includes('--schema-only')
+  ? ['tests/provider-schema.live.test.ts']
+  : ['tests/ai-smoke.live.test.ts', 'tests/provider-schema.live.test.ts'];
+const result = spawnSync(process.execPath, [vitest, 'run', ...targets], {
   stdio: 'inherit',
   env: { ...process.env, RUN_AI_SMOKE: '1' },
 });

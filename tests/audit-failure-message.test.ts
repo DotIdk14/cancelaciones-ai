@@ -20,4 +20,8 @@ describe('explicación operativa de fallos de auditoría', () => {
   it('un diagnóstico viejo no sustituye un error nuevo de sesión', () => {
     expect(auditFailureMessage('AUTH_ERROR', [{ failureCategory: 'SCHEMA_VALIDATION_ERROR', path: 'audit.observations' }], 'Inicia sesión.')).toBe('Inicia sesión.');
   });
+
+  it('explica el rechazo por complejidad del esquema sin culpar a las evidencias', () => {
+    expect(auditFailureMessage('UNSUPPORTED_MODEL_CAPABILITY', [{ failureCategory: 'PROVIDER_BAD_REQUEST', failureReason: 'provider schema complexity limit exceeded' }], '')).toContain('estructura de la auditoría por su complejidad');
+  });
 });

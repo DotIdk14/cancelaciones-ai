@@ -24,6 +24,9 @@ export function auditFailureMessage(category: string, attempts: FailureAttempt[]
     return `La IA citó una evidencia que no corresponde al expediente. Los archivos originales siguen disponibles. ${retry}`;
   }
   if (failure === 'PROVIDER_BAD_REQUEST' || failure === 'UNSUPPORTED_MODEL_CAPABILITY') {
+    if (last?.failureReason === 'provider schema complexity limit exceeded') {
+      return 'El proveedor de IA no pudo procesar la estructura de la auditoría por su complejidad. Usa «Reportar problema» con la referencia para que el equipo técnico la revise.';
+    }
     return 'El proveedor de IA rechazó la configuración de la solicitud. Usa «Reportar problema» con la referencia para que el equipo técnico la revise.';
   }
   if (failure === 'TIMEOUT' || failure === 'PROVIDER_UNAVAILABLE' || failure === 'AI_PROVIDER_ERROR') {

@@ -56,7 +56,12 @@ export function buildProviderJsonSchema(zodSchema: unknown, profile: ProviderSch
   const generated = zodToJsonSchema(zodSchema as never, { $refStrategy: 'none' });
   const root = inlineRootReference(generated as unknown as Record<string, unknown>);
   const projected = project(root, profile);
-  if (evidenceIds?.length) {
+  // Gemini convierte el schema en una gramática de estados. Repetir UUIDs
+  // aleatorios en cada campo de referencia multiplica esa gramática y puede
+  // rechazar un expediente de sólo siete imágenes antes de generar tokens.
+  // Los IDs siguen en el contexto autoritativo y se validan SIEMPRE localmente.
+  // OpenAI conserva los enums dinámicos, cuyo perfil no presentó ese límite.
+  if (profile !== 'gemini' && evidenceIds?.length) {
     const allowed = [...new Set(evidenceIds)];
     const constrain = (node: unknown): void => {
       if (Array.isArray(node)) { node.forEach(constrain); return; }
@@ -101,7 +106,7 @@ export function assertProviderSchemaCompatible(schema: unknown, profile: Provide
 
 export function buildJsonObjectContract(schema: Record<string, unknown>): string {
   return [
-    'Devuelve exclusivamente un objeto JSON que cumpla esta estructura completa. Todas las propiedades listadas son obligatorias salvo que su tipo admita null. No agregues texto fuera del JSON.',
+    'Devuelve exclusivamente un objeto JSON que cumpla esta estructura completa. Incluye todas las propiedades listadas como required, incluso cuando su valor sea null. Null es un valor, no permiso para omitir la propiedad. No agregues texto fuera del JSON.',
     JSON.stringify(schema),
   ].join('\n');
 }

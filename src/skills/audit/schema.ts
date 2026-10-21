@@ -199,21 +199,23 @@ export const AiAuditAssessmentSchema = z
     origin: OriginSchema,
 
     audit: z.object({
-      result: z.enum(AUDIT_RESULTS),
-      rule: z.string().min(1),
-      procedureSection: z.string().min(1),
+      // Evalúa la ruta y sus requisitos antes de comprometer el resultado en
+      // la generación secuencial. Son las mismas claves y el mismo contrato.
       auditPath: z.object({
         hypothesis: z.string().min(1),
         procedureSections: z.array(z.string().min(1)).min(1),
         reasoning: z.string().min(1),
       }).strict(),
+      procedureChecks: z.array(ProcedureCheckSchema),
+      missingEvidence: z.array(MissingEvidenceSchema),
+      result: z.enum(AUDIT_RESULTS),
+      rule: z.string().min(1),
+      procedureSection: z.string().min(1),
       provisionalResolution: ProvisionalResolutionSchema.nullable(),
       rejectionReason: z.string().min(1).nullable(),
       reasoning: z.string().min(1),
       confidence: z.number().min(0).max(1),
       supportingEvidenceIds: z.array(z.string().min(1)),
-      missingEvidence: z.array(MissingEvidenceSchema),
-      procedureChecks: z.array(ProcedureCheckSchema),
       observations: z.array(z.string()),
     }),
   })
@@ -427,39 +429,47 @@ function validateContactAttemptsMinimum(assessment: ValidatedAssessment): void {
 }
 
 function validateBusinessRules(assessment: ValidatedAssessment, context: AssessmentValidationContext): void {
+  const failures: ApiError[] = [];
+  const reject = (message: string): void => { failures.push(new ApiError(502, 'INVALID_AI_RESPONSE', message)); };
+  const check = (validate: () => void): void => {
+    try { validate(); } catch (error) {
+      if (!(error instanceof ApiError) || error.category !== 'INVALID_AI_RESPONSE') throw error;
+      failures.push(error);
+    }
+  };
   if (assessment.audit.rule.trim().length === 0) {
-    throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.rule: debe ser un string no vacío');
+    reject('INVALID_AI_RESPONSE: audit.rule: debe ser un string no vacío');
   }
   if (assessment.audit.procedureSection.trim().length === 0) {
-    throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.procedureSection: debe ser un string no vacío');
+    reject('INVALID_AI_RESPONSE: audit.procedureSection: debe ser un string no vacío');
   }
   if (assessment.audit.result === 'TICKET_RECHAZADO') {
     if (assessment.audit.rejectionReason === null || assessment.audit.rejectionReason.trim() === '') {
-      throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.rejectionReason: TICKET_RECHAZADO exige la razón del rechazo con los números exactos de los intentos de la sección 5.2');
+      reject('INVALID_AI_RESPONSE: audit.rejectionReason: TICKET_RECHAZADO exige la razón del rechazo con los números exactos de los intentos de la sección 5.2');
     }
   } else if (assessment.audit.rejectionReason !== null) {
-    throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.rejectionReason: solo aplica a TICKET_RECHAZADO; en los demás resultados debe ser null');
+    reject('INVALID_AI_RESPONSE: audit.rejectionReason: solo aplica a TICKET_RECHAZADO; en los demás resultados debe ser null');
   }
   if (assessment.audit.result !== 'EVIDENCIA_INSUFICIENTE' && assessment.audit.result !== 'TICKET_RECHAZADO' && assessment.audit.supportingEvidenceIds.length === 0) {
-    throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.supportingEvidenceIds: debe incluir al menos una evidencia');
+    reject('INVALID_AI_RESPONSE: audit.supportingEvidenceIds: debe incluir al menos una evidencia');
   }
   if (assessment.audit.result === 'EVIDENCIA_INSUFICIENTE') {
     if (assessment.audit.provisionalResolution === null) {
-      throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.provisionalResolution: EVIDENCIA_INSUFICIENTE exige una orientación provisional');
+      reject('INVALID_AI_RESPONSE: audit.provisionalResolution: EVIDENCIA_INSUFICIENTE exige una orientación provisional');
     }
     if (assessment.audit.missingEvidence.length === 0) {
-      throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.missingEvidence: EVIDENCIA_INSUFICIENTE exige al menos un elemento');
+      reject('INVALID_AI_RESPONSE: audit.missingEvidence: EVIDENCIA_INSUFICIENTE exige al menos un elemento');
     }
     if (!assessment.audit.missingEvidence.some((item) => item.blocking)) {
-      throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.missingEvidence: al menos un item debe tener blocking === true');
+      reject('INVALID_AI_RESPONSE: audit.missingEvidence: al menos un item debe tener blocking === true');
     }
   }
   if (assessment.audit.result !== 'EVIDENCIA_INSUFICIENTE' && assessment.audit.provisionalResolution !== null) {
-    throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.provisionalResolution: solo aplica a EVIDENCIA_INSUFICIENTE');
+    reject('INVALID_AI_RESPONSE: audit.provisionalResolution: solo aplica a EVIDENCIA_INSUFICIENTE');
   }
   const hasBlocking = assessment.audit.missingEvidence.some((item) => item.blocking);
   if (hasBlocking && assessment.audit.result !== 'EVIDENCIA_INSUFICIENTE' && assessment.audit.result !== 'TICKET_RECHAZADO') {
-    throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.missingEvidence: no puede haber bloqueo cuando el resultado no admite evidencia faltante (solo EVIDENCIA_INSUFICIENTE o TICKET_RECHAZADO)');
+    reject('INVALID_AI_RESPONSE: audit.missingEvidence: no puede haber bloqueo cuando el resultado no admite evidencia faltante (solo EVIDENCIA_INSUFICIENTE o TICKET_RECHAZADO)');
   }
   assessment.audit.procedureChecks.forEach((check, index) => {
     if (check.status === 'ACREDITADO' || check.status === 'NO_ACREDITADO') {
@@ -471,17 +481,28 @@ function validateBusinessRules(assessment: ValidatedAssessment, context: Assessm
         const statusRequirement = check.status === 'ACREDITADO'
           ? 'ACREDITADO exige evidencia que respalde el cumplimiento y valores observados'
           : 'NO_ACREDITADO exige evidencia que respalde la ausencia o incumplimiento y valores observados';
-        throw new ApiError(
-          502,
-          'INVALID_AI_RESPONSE',
+        reject(
           `INVALID_AI_RESPONSE: audit.procedureChecks.${index}.status: ${statusRequirement}; ${missing.join(' y ')}. Si no puedes completar ambos campos con datos del expediente, usa NO_DETERMINABLE.`,
         );
       }
     }
   });
-  validateContactAttemptsMinimum(assessment);
-  validateTemporalCoherence(assessment, context);
-  validateOrigin(assessment);
+  check(() => validateContactAttemptsMinimum(assessment));
+  check(() => validateTemporalCoherence(assessment, context));
+  check(() => validateOrigin(assessment));
+  // Esta comprobación es independiente de citas/fechas y no debe quedar oculta
+  // detrás del primer fallo temporal o de una orientación provisional ausente.
+  if (assessment.temporalAnalysis.relationToCycleStart === 'NO_DETERMINABLE' && assessment.audit.confidence >= 1) {
+    reject('INVALID_AI_RESPONSE: audit.confidence: con relationToCycleStart NO_DETERMINABLE el dictamen no admite confianza 1; la cronología crítica no está acreditada');
+  }
+  if (failures.length > 0) {
+    const primary = failures[0]!;
+    // Sólo el primer detalle atestiguado se publica. Todos los motivos van al
+    // único reintento correctivo, para no descubrirlos de uno en uno pagando IA.
+    primary.sanitizedDetail ??= primary.message;
+    primary.message = failures.map(failure => failure.message).join(' | ');
+    throw primary;
+  }
 }
 
 /**
@@ -692,9 +713,6 @@ function validateTemporalCoherence(assessment: ValidatedAssessment, context: Ass
     }
   }
 
-  if (temporal.relationToCycleStart === 'NO_DETERMINABLE' && assessment.audit.confidence >= 1) {
-    throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.confidence: con relationToCycleStart NO_DETERMINABLE el dictamen no admite confianza 1; la cronología crítica no está acreditada');
-  }
 }
 
 function parseWithInvalidAiError<T>(schema: z.ZodType<T>, raw: unknown, context: AssessmentValidationContext = {}): T {
