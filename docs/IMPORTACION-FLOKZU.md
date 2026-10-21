@@ -1,78 +1,34 @@
-# Importación diaria de tickets de Flokzu
+# Consulta directa de Flokzu
 
-La opción **Importar tickets** está disponible solo para Coordinadores. El endpoint vuelve a comprobar la capacidad en el servidor, aunque alguien intente invocarlo fuera de la interfaz.
+La importación Excel está retirada: no hay pantalla, parser XLSX, endpoint multipart ni dependencia ExcelJS. Los lotes y migraciones históricos se conservan como registro; no se elimina información almacenada.
 
-## Preparar el Excel
+## Crear expediente
 
-1. Desde Flokzu, exporta a Excel la vista de tickets CaVe que usa el equipo para la carga diaria.
-2. Conserva la primera fila de metadatos, los encabezados en la segunda fila y los datos desde la tercera. El libro debe conservar una sola hoja y los nombres de columna de la exportación.
-3. Revisa que existan `Identificador`, `Matricula (CaVe)` y `Nombre del estudiante (CaVe)`. Si falta alguno, la vista previa se rechaza antes de crear el batch.
-4. Conserva las matrículas como texto para mantener ceros iniciales. No cambies el identificador CaVe por una matrícula.
-5. En la aplicación, abre `#/importacion-tickets`, selecciona o arrastra el `.xlsx`, revisa conteos, filas con error y reparto propuesto; confirma solo cuando el resumen sea correcto.
+1. Abre **Nueva auditoría** e introduce una matrícula de exactamente nueve dígitos, conservando sus ceros iniciales.
+2. Consulta Flokzu. Se muestran todos los trámites encontrados; solo los identificadores CaVe se pueden incorporar como expedientes de cancelación. No se elige un ticket automáticamente.
+3. Elige el CaVe. Un Coordinador puede elegir responsable; el Asesor se asigna a sí mismo conforme al RPC existente.
+4. Crea el expediente. El servidor vuelve a comprobar que el ticket pertenece a la matrícula y trae el nombre del origen. No acepta nombres ni archivos arbitrarios para crear un expediente.
 
-El parser identifica campos por encabezado; no depende de posiciones fijas. Normaliza mayúsculas, acentos y espacios, mantiene los sufijos distintivos como `. (CaVe)` y rechaza encabezados ambiguos en campos conocidos. La cadena `99` y el número `99` se tratan como dato ausente. Las fechas `DD/MM/YYYY`, ISO y las fechas de Excel válidas se guardan como `YYYY-MM-DD`.
+El servidor consulta los formularios existentes de n8n por POST. No requiere cambios en Apps Script ni credenciales administrativas de n8n. La respuesta HTML se interpreta con un parser sin ejecutar JavaScript; cualquier campo obligatorio ausente, matrícula distinta o adjunto inaccesible impide completar la carga.
 
-El libro de referencia analizado tiene una hoja, 92 columnas, metadatos en la fila 1 y 185 tickets desde la fila 3. Los 185 identificadores CaVe son válidos; se encontraron 181 matrículas distintas y cuatro matrículas repetidas asociadas a identificadores CaVe diferentes. La prueba versionada usa los encabezados extraídos y valores sintéticos: el Excel real no se guarda en Git porque contiene datos personales.
+## Contenido y procedencia
 
-## Campos almacenados
+Se conserva la información administrativa y todos los campos de la tabla, comentarios de cada área, adjuntos e imágenes incrustadas. Los archivos solo se descargan desde los dos hosts de almacenamiento Flokzu permitidos, sin seguir redirecciones. Se validan los bytes, MIME, tamaño por archivo, cantidad y volumen total antes de escribir. Los enlaces temporales se usan para descargar; sus firmas y tokens no se persisten.
 
-`cases.student_identifier` y `cases.student_name` conservan matrícula y nombre. `cases.external_source = 'FLOKZU'` junto con `cases.external_case_id` forma la clave externa única. `cases.flokzu_data` guarda la última proyección administrativa:
+Los originales se guardan como evidencias con hash. `flokzu_data.acquisition.assets` registra ID de evidencia, origen sin query, campo, nombre y hash. Los comentarios importados quedan separados de la bitácora humana local. Solo BO/HelpDesk alimentan el contexto administrativo del auditor y permanecen como afirmaciones no acreditadas. Un dictamen histórico no es política ni resolución humana de la aplicación.
 
-- **Académico:** campus, universidad, país reportado explícitamente por nombres de campus conocidos, programa, nivel, bloque, clave de programa y fecha de ingreso.
-- **Procedimiento:** política reportada, motivo, descripción, fecha de solicitud y `Fecha Inicio` administrativa de Flokzu.
-- **Operación:** tarea actual, estado y finalización reportados, agente revisor, supervisor, iniciador y área solicitante.
-- **Referencias:** acceso al aula, documentos, intentos de contactación, no calificación, no continuidad, seguimiento, fecha de inicio, pago SIU, evidencia UVE, registro de contacto, llamadas y tipo de evidencia.
+## Recuperación y límites
 
-`countryReported` no cambia `cases.country`: el país de origen del dictamen sigue viniendo del assessment de auditoría con evidencia. Si el campus no nombra explícitamente un país conocido, el dato académico queda `null`. La fecha administrativa de Flokzu nunca rellena `cycle_start_date`, que requiere evidencia o captura humana. Los estados y las resoluciones reportados por Flokzu se muestran como contexto; no se convierten en resultado de auditoría.
+La identidad de creación se conserva en sessionStorage. La clave externa evita dos expedientes para el mismo CaVe; los archivos usan IDs deterministas por expediente, origen y hash. Una carga interrumpida queda `INCOMPLETE`, impide auditar y se recupera al repetir la matrícula y ticket. Solo pasa a `COMPLETE` después de confirmar todas las evidencias. No se inicia IA de auditoría al crear; el audio utiliza la preparación y cuota existentes.
 
-### Encabezados fuente que se leen
+Los casos existentes se identifican por su CaVe. Si están en DRAFT o tienen cero evidencias realmente guardadas, y el actor tiene capacidad de importación o es el responsable con escritura, respetando los bloqueos de revisión, se actualizan en el mismo expediente los datos administrativos, nombre y archivos. Se conservan originales y procedencia anteriores; no se duplica el expediente. La existencia de una auditoría anterior no impide recuperar archivos en esos dos supuestos: se conserva el intento y nunca se vuelve a ejecutar automáticamente. Los expedientes finalizados por el Coordinador o con una auditoría en curso mantienen sus bloqueos. Si ya tienen auditoría y no necesitan sincronización, se ofrece un enlace directo `#/casos/:id?audit=:auditId` al intento más reciente no retirado y no se modifica el expediente. Los demás casos se abren en consulta. La presencia de auditoría se comprueba nuevamente después de descargar y antes de guardar. Las solicitudes finalizadas en Flokzu se distinguen de la bandeja activa mediante la clasificación administrativa existente.
 
-Los tres encabezados requeridos son `Identificador`, `Matricula (CaVe)` y `Nombre del estudiante (CaVe)`. Los demás se leen si están presentes; su ausencia produce `null` o una lista vacía:
+La ruta de colección existente sirve la consulta y creación: se mantienen las 12 Functions, sin migraciones ni nuevos servicios.
 
-| Destino en `flokzu_data` | Encabezados exactos de la exportación |
-| --- | --- |
-| `academic` | `Campus (CaVe)`, `Universidad. (CaVe)`, `Programa (CaVe)`, `Nivel (CaVe)`, `Bloque (CaVe)`, `Clave de Programa (CaVe)`, `Fecha de ingreso (CaVe)` |
-| `procedure` | `Política que aplica (CaVe)`, `Motivo (CaVe)`, `Descripción (CaVe)`, `Fecha de solicitud (CaVe)`, `Fecha Inicio` |
-| `operations` | `Tarea Actual`, `Estado (CaVe)`, `Finalizado`, `Agente revisor CV (CaVe)`, `Supervisor (CaVe)`, `Iniciador`, `Área del solicitante (CaVe)` |
-| `evidenceReferences` | `Evidencia acceso al aula (CaVe)`, `Evidencia de documentos (CaVe)`, `Evidencia de intentos de contactación (CaVe)`, `Evidencia de no calificación (CaVe)`, `Evidencia de no continuar (CaVe)`, `Evidencia de seguimiento (CaVe)`, `Evidencia fecha de inicio (CaVe)`, `Evidencia pago en SIU (CaVe)`, `Evidencia UVE. (CaVe)`, `Registro de contacto (CaVe)`, `Llamada asesor de ventas (CaVe)`, `Llamada tutor (CaVe)`, `Tipo de evidencias (CaVe)` |
+## Verificación
 
-La comparación para reimportar incluye únicamente matrícula, nombre y toda la proyección administrativa anterior. Otras columnas exportadas no se guardan ni se sincronizan.
+`npm run lint`, `npm test` y `npm run build`. Las pruebas usan exclusivamente datos sintéticos. Las comprobaciones manuales de origen se ejecutan sin persistir PII en Git ni escribir expedientes remotos.
 
-Los nombres incluidos en las columnas de evidencia son referencias reportadas, no archivos cargados. Se muestran separados de `evidence`; no se crean objetos en Storage ni evidencias ficticias. No se sincronizan correos personales ni columnas libres que no sean parte del contrato anterior.
+### Alcance del Coordinador al sincronizar
 
-## Sincronización, asignación y privacidad
-
-- CaVe + `FLOKZU` hace idempotente la importación. Una segunda carga igual cuenta como sin cambios; una carga con diferencias actualiza solo matrícula, nombre y `flokzu_data`.
-- La confirmación corre en una función SQL transaccional con un bloqueo compartido y clave única. Conserva el estado, creador, responsable, fecha de inicio humana, evidencias, auditorías, revisiones y comentarios existentes. Los casos nuevos empiezan en `DRAFT`.
-- Solo los casos nuevos cuya `Tarea Actual` sea exactamente `[BACKOFFICE] [REVISION BO] [CV]` entran al reparto. Se consideran cuentas con membership activa de rol `user`, y se elige primero la menor cantidad de casos no completados; los empates se resuelven por UUID para mantener un reparto determinista. El sistema no tiene una capacidad numérica configurada por asesor, así que la carga pendiente es la medida disponible.
-- HelpDesk, SER, cancelaciones por HelpDesk, Dictaminador y las demás etapas se importan sin asignación automática. Si no hay Asesores elegibles, el caso queda pendiente y el Coordinador puede reasignarlo desde esta página.
-- `created_by` identifica al Coordinador que creó el registro y `assigned_to` al Asesor responsable. Los guardas permiten trabajar al Asesor asignado; la RLS no sustituye los controles server-side.
-- La vista previa guarda temporalmente las filas válidas en `case_import_batches` para que la confirmación sobreviva a un reinicio. Vence en 24 horas; en la siguiente consulta de historial o nueva importación, un RPC borra su staging personal. Al confirmar, el staging se vacía de inmediato. Los errores guardan número de fila, CaVe y mensaje, no el contenido completo de la fila.
-- El tamaño máximo es 4 MB para dejar margen al límite de 4.5 MB por petición de Vercel Functions.
-- Importar no llama a OpenRouter, no inicia auditorías y no genera costos de IA.
-
-## Migración y verificaciones
-
-### Revisión Flokzu: motivo, etapa y canal de venta
-
-La fila completa del ticket abre el detalle administrativo con ratón, Enter o Espacio. El detalle explica qué campo impide el reparto y qué acción puede tomar el Coordinador. El rechazo reportado por Flokzu se distingue de la exclusión del reparto y del dictamen de IA.
-
-`CANCELADO POR HELPDESK` es un desenlace reconocido. `APLICA` en `[SER] [APLICACION] [CV]` y `DICTAMINAR` en `[DICTAMINADOR] [DICTAMINAR] [CV]` son otras etapas, sin reparto BO. Las contradicciones siguen requiriendo verificación: por ejemplo, Estado `REVISIÓN` con Finalizado `RETENCION POR AJUSTE`. Valores desconocidos indican el campo y valor exactos que hay que revisar.
-
-La columna `Canal de venta (CaVe)` se guarda literalmente en `flokzu_data.operations.salesChannelReported` y se muestra en la revisión y en el contexto del expediente. No modifica `cases.channel` ni `audits.result_json.origin`: es información administrativa reportada, no el origen confirmado por evidencia. Los expedientes anteriores sin ese campo muestran «No reportado»; una nueva importación lo incorpora.
-
-Las nuevas explicaciones se calculan en lectura para tickets existentes sin escribir ni alterar decisiones manuales. Si la clasificación guardada difiere de la lectura actual, el detalle indica ambas y solicita reimportar para sincronizarla. No se ejecutan auditorías ni se modifican dictámenes al abrir la fila. Este cambio no requiere migraciones ni endpoints nuevos.
-
-La migración incremental es `migrations/20261012100000_flokzu-case-import.sql`. Añade el identificador externo único, `assigned_to`, la proyección Flokzu, historial/staging aislado y RPCs disponibles solo para `project_admin`.
-
-La migración quedó aplicada en staging y producción por el runner oficial de InsForge. El cierre del 12 de octubre de 2026 se registra en `docs/MIGRATION-RECONCILIATION.md`. Para cambios posteriores, seguir ese procedimiento y comprobar el ledger antes de aplicar una migración. La implementación mantiene los 12 archivos de `api/`; reutiliza `api/cases/index.ts` y `api/cases/[caseId]/index.ts` para permanecer dentro del límite Hobby.
-
-Verificaciones de código:
-
-```powershell
-npm run typecheck
-npx vitest run tests/flokzu-parser.test.ts tests/flokzu-assignment.test.ts tests/flokzu-import-route.test.ts tests/case-assignment-ownership.test.ts tests/role-capabilities.test.ts
-npm test
-npm run lint
-npm run build
-```
+La capacidad `canImportCases` autoriza al Coordinador a incorporar contenido de Flokzu en un CaVe existente aunque esté asignado a otro Asesor, como la importación de origen anterior. Esta autorización solo opera en la sincronización desde el portal, con matrícula y CaVe verificados: no modifica `caseOwnedBy`, asignación, autor, comentarios humanos locales, revisiones ni permisos de otras rutas. El Asesor sigue necesitando propiedad. Los casos consolidados y los bloqueos de revisión, finalización y auditoría en curso se conservan.

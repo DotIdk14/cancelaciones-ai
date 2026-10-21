@@ -204,7 +204,9 @@ beforeEach(() => {
 // ------------------------------------------------------------------ llamadas
 async function createCase(role: AppRole | undefined, body: unknown = { studentIdentifier: 'UTEL-2026-001' }) {
   const res = makeApiResponse();
-  await casesHandler(makeApiRequest({ method: 'POST', auth: rogueAuth(role), body }), res);
+  const req = makeApiRequest({ method: 'POST', auth: rogueAuth(role), body });
+  req.headers['content-type'] = 'application/json';
+  await casesHandler(req, res);
   return res;
 }
 
@@ -251,11 +253,11 @@ const COORDINATOR_BODY = { decision: 'APPROVE', country: 'MX', channel: 'WHATSAP
 
 // =============================================================================
 describe('crear caso · POST /api/cases', () => {
-  it('Asesor y Coordinador crean: 201 (la colección está en alcance y tienen escritura)', async () => {
+  it('Asesor y Coordinador deben proporcionar matrícula y ticket válidos', async () => {
     for (const role of ['user', 'coordinator'] as const) {
       resetStore();
       const res = await createCase(role);
-      expect(res.statusCode, `rol ${role}`).toBe(201);
+      expect(res.statusCode, `rol ${role}`).toBe(400);
     }
   });
 

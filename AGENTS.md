@@ -1,4 +1,4 @@
-﻿# AGENTS.md
+# AGENTS.md
 
 ## Arquitectura actual
 
@@ -73,6 +73,10 @@ Cada caso lleva `is_test boolean NOT NULL DEFAULT false` (real = `false`). El **
 `?preview=dashboard&role=user|coordinator|manager&workflow=PENDING_ADVISOR|PENDING_COORDINATOR|FINALIZED` (`src/lib/local-ui-preview.ts`) solo se lee en desarrollo y **nunca llama a la API ni resuelve sesión**: cambiar el rol del preview no altera ninguna autorización real. Los rótulos (`Asesor`/`Coordinador`/`Gerente`) viven en `ROLE_LABELS` (`src/lib/useSession.ts`) y tampoco habilitan capacidades.
 
 InsForge (DB + Storage) es **solo server-side**: el navegador nunca habla con el. OpenRouter es la unica IA. Toda secret vive en el servidor y **no existe ninguna variable de entorno con prefijo `VITE_` o `NEXT_PUBLIC_`**.
+
+## Creación de expedientes desde Flokzu
+
+La importación Excel está retirada. `POST /api/cases` exige matrícula de nueve dígitos, CaVe seleccionado e identidad de solicitud. `src/server/flokzu-portal.ts` consulta el portal n8n sin ejecutar su JavaScript y verifica pertenencia; `flokzu-acquisition.ts` incorpora datos, comentarios y todos los adjuntos e imágenes admitidos. `flokzu_data.acquisition` conserva manifiesto y estado durable (`INCOMPLETE`/`COMPLETE`); una carga incompleta no puede auditarse. Solo los CaVe se incorporan a cancelaciones; los demás trámites se muestran separados. Los originales conservan hash y origen sin tokens temporales. Los comentarios importados no sobrescriben `case_area_comments` ni crean política. Se conservan las tablas y migraciones históricas de lotes, sin rutas ni parser XLSX activos. Ver `docs/IMPORTACION-FLOKZU.md`.
 
 ## Invariantes permanentes
 

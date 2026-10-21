@@ -116,7 +116,7 @@ function makeApiRequest(
   body?: unknown,
   auth: ReturnType<typeof fakeAuthContext> = fakeAuthContext(),
 ): ApiRequest {
-  return { method, url: '/', headers: {}, query, body, auth } as unknown as ApiRequest;
+  return { method, url: '/', headers: { 'content-type': 'application/json' }, query, body, auth } as unknown as ApiRequest;
 }
 
 beforeEach(() => {
@@ -173,26 +173,18 @@ async function listFor(role: 'user' | 'coordinator' | 'manager'): Promise<unknow
 }
 
 describe('POST /api/cases — nombre de estudiante y clasificación protegida', () => {
-  it('persiste matrícula y nombre; el caso nuevo siempre es real', async () => {
+  it('rechaza alta manual sin un ticket real y no persiste el nombre del cliente', async () => {
     const res = makeApiResponse();
-    await casesHandler(makeApiRequest('POST', {}, { studentIdentifier: '202312345', studentName: 'Andrea López' }), res);
-
-    expect(res.statusCode).toBe(201);
-    expect((JSON.parse(res.body) as { case: { isTest: boolean; studentIdentifier: string; studentName: string } }).case)
-      .toMatchObject({ isTest: false, studentIdentifier: '202312345', studentName: 'Andrea López' });
-
-    const rows = await listFor('manager');
-    expect(rows).toHaveLength(1);
-    expect(rows[0] as { is_test: boolean; student_name: string }).toMatchObject({ is_test: false, student_name: 'Andrea López' });
+    await casesHandler(makeApiRequest('POST', {}, { studentIdentifier: '000000001', studentName: 'Nombre sintético' }), res);
+    expect(res.statusCode).toBe(400);
+    expect(await listFor('manager')).toHaveLength(0);
   });
 
-  it('omitir isTest crea un caso REAL (false)', async () => {
+  it('rechaza crear un expediente sin matrícula ni CaVe', async () => {
     const res = makeApiResponse();
     await casesHandler(makeApiRequest('POST', {}, {}), res);
-
-    expect(res.statusCode).toBe(201);
-    expect((JSON.parse(res.body) as { case: { isTest: boolean } }).case.isTest).toBe(false);
-    expect((await listFor('manager'))[0] as { is_test: boolean }).toMatchObject({ is_test: false });
+    expect(res.statusCode).toBe(400);
+    expect(await listFor('manager')).toHaveLength(0);
   });
 
   it('rechaza isTest enviado por cliente incluso cuando es booleano', async () => {

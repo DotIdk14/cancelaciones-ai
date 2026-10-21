@@ -63,6 +63,7 @@ export function FlokzuContextPanel({ externalCaseId, assignedTo, assignedName, d
       </dl></section>
       {data.procedure.description && <section className="flokzu-section"><h3>Descripción de la solicitud</h3><p id="flokzu-description" className={`flokzu-description${expanded ? '' : ' flokzu-description-clamped'}`}>{data.procedure.description}</p><button type="button" className="flokzu-text-action" aria-expanded={expanded} aria-controls="flokzu-description" onClick={() => setExpanded(!expanded)}>{expanded ? 'Mostrar menos' : 'Leer completo'}</button></section>}
       <FlokzuEvidenceLinks references={data.evidenceReferences} />
+      {data.fields && <details className="flokzu-section"><summary>Todos los datos reportados por Flokzu</summary><dl>{data.fields.map(field => <FlokzuPropertyRow key={field.label} label={field.label} value={field.value} />)}</dl></details>}
       <details className="flokzu-section flokzu-operational"><summary>Datos operativos<ChevronDown size={16} aria-hidden="true" /></summary><dl>
         <FlokzuPropertyRow label="Responsable actual" value={assignedTo ? assignedName || 'Nombre no disponible' : 'Sin asignar'} />
         <FlokzuPropertyRow label="Supervisor reportado" value={data.operations.supervisorReported} />

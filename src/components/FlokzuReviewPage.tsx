@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ClipboardCheck, Search, X } from 'lucide-react';
 import { Badge, Button, Panel, Spinner } from './ui';
-import { getFlokzuReview, getFlokzuTicket, decideFlokzuTicket, getFlokzuImportHistory, type FlokzuTicketDetail, type FlokzuReviewPageData } from '../lib/api';
+import { getFlokzuReview, getFlokzuTicket, decideFlokzuTicket, getCaseAssignmentOptions, type FlokzuTicketDetail, type FlokzuReviewPageData } from '../lib/api';
 import { FLOKZU_CLASSIFICATIONS, FLOKZU_CLASSIFICATION_LABELS, FLOKZU_REVIEW_LABELS, classifyFlokzu, type FlokzuTicket, type FlokzuDecision } from '../shared/flokzu-review';
 import { formatDateTime } from '../lib/format';
 import { salesChannelCountry, salesChannelDisplay, salesChannelLabel } from '../lib/sales-channel-catalog';
@@ -44,7 +44,7 @@ export function FlokzuReviewPage({ previewOnly = false }: { previewOnly?: boolea
   useEffect(() => {
     if (previewOnly) { setAssignees([{ userId: 'demo-advisor', name: 'Asesor de demostración' }]); return; }
     let current = true;
-    void getFlokzuImportHistory().then(value => { if (current) setAssignees(value.assignmentOptions); }).catch(e => { if (current) setError(message(e)); });
+    void getCaseAssignmentOptions().then(value => { if (current) setAssignees(value); }).catch(e => { if (current) setError(message(e)); });
     return () => { current = false; };
   }, [previewOnly]);
   useEffect(() => {
@@ -95,7 +95,7 @@ export function FlokzuReviewPage({ previewOnly = false }: { previewOnly?: boolea
   const incomplete = !detail || (action === 'CLOSE' && !confirmed) || ((action === 'REACTIVATE' || action === 'DISCREPANCY') && !reason.trim()) || (action === 'REACTIVATE' && (!assignedTo || (ticket?.discrepancy && !observation.trim())));
 
   return <div className="mx-auto flex max-w-[1680px] flex-col gap-5">
-    <header className="flex flex-wrap items-start justify-between gap-3"><div><h1 className="text-2xl font-semibold">Revisión Flokzu</h1><p className="mt-2 max-w-3xl text-sm text-muted">Concilia cierres y etapas antes de enviar trabajo a auditoría. Cada decisión conserva el dato original y su historial.</p></div><a href="#/importacion-tickets" className="inline-flex min-h-10 items-center rounded-lg border border-line px-3 text-sm text-brand">Importar Excel diario</a></header>
+    <header className="flex flex-wrap items-start justify-between gap-3"><div><h1 className="text-2xl font-semibold">Revisión Flokzu</h1><p className="mt-2 max-w-3xl text-sm text-muted">Concilia cierres y etapas antes de enviar trabajo a auditoría. Cada decisión conserva el dato original y su historial.</p></div><a href="#/nuevo" className="inline-flex min-h-10 items-center rounded-lg border border-line px-3 text-sm text-brand">Crear desde Flokzu</a></header>
     {error && <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-danger/40 bg-danger/10 p-3 text-sm text-danger"><span>{error}</span><Button variant="secondary" onClick={() => { setRefresh(v => v + 1); if (selected) void open(selected); }}>Reintentar</Button></div>}
     {success && <p role="status" className="text-sm text-success">{success}</p>}
     <div className="grid grid-cols-2 gap-3 md:grid-cols-5" aria-label="Conteos globales de revisión administrativa">{[
@@ -141,7 +141,7 @@ export function FlokzuReviewPage({ previewOnly = false }: { previewOnly?: boolea
                 <p>{diagnosis?.reason ?? ticket.reason}</p>
                 <h3 className="pt-2 font-semibold">Qué hacer ahora</h3>
                 <p className="text-muted">{nextStep}</p>
-                {diagnosis && diagnosis.classification !== ticket.classification && <p className="text-warning">La clasificación guardada es {FLOKZU_CLASSIFICATION_LABELS[ticket.classification]}. Los datos corresponden a {FLOKZU_CLASSIFICATION_LABELS[diagnosis.classification]}; vuelve a importar el Excel para actualizarla. Esta lectura no cambia la asignación ni una decisión manual.</p>}
+                {diagnosis && diagnosis.classification !== ticket.classification && <p className="text-warning">La clasificación guardada es {FLOKZU_CLASSIFICATION_LABELS[ticket.classification]}. Los datos corresponden a {FLOKZU_CLASSIFICATION_LABELS[diagnosis.classification]}; vuelve a consultar Flokzu para actualizarla. Esta lectura no cambia la asignación ni una decisión manual.</p>}
               </section>
               <p className="mt-2 text-xs text-muted">{FLOKZU_REVIEW_LABELS[ticket.reviewState]} · {ticket.eligible ? 'Elegible para auditoría' : 'Fuera de la bandeja activa'}</p>
               {ticket.discrepancy && <p className="mt-2 text-xs text-warning">La discrepancia sigue registrada hasta que el Coordinador revise los datos y decida cómo continuar.</p>}

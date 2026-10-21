@@ -118,3 +118,11 @@ it('refresca la revisión humana del ticket actual sin perder la selección hist
   expect(screen.queryByText('Sin resolución de asesor registrada para esta auditoría.')).toBeNull();
   expect(getHistoricalAudit).toHaveBeenCalledTimes(1);
 });
+
+it('un enlace directo abre exactamente la auditoría histórica solicitada', async () => {
+  const historical = { ...audit, id: 'old' };
+  vi.mocked(getHistoricalAudit).mockResolvedValue(historical);
+  render(<CaseContextMenu detail={detail()} initialAuditId="old" open tab="verdict" onTabChange={() => {}} onClose={() => {}} />);
+  await waitFor(() => expect(getHistoricalAudit).toHaveBeenCalledWith('case-1','old'));
+  expect(getHistoricalAudit).toHaveBeenCalledTimes(1);
+});

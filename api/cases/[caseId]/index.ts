@@ -39,7 +39,7 @@ import { refreshTranscriptions } from '../../../src/server/audit-service.js';
 import { healStaleComparison } from '../../../src/server/comparison-service.js';
 import { capabilitiesForRole } from '../../../src/server/capabilities.js';
 import { fingerprintForAuditVersion, getActiveAuditVersion } from '../../../src/server/audit-versions.js';
-import { assignImportedCase } from '../../../src/server/flokzu-import.js';
+import { assignImportedCase } from '../../../src/server/flokzu-assignment.js';
 import { assertCaseHasNoAdvisorReview } from '../../../src/server/review-locks.js';
 
 // GET   /api/cases/:caseId → { case, evidences, audit, audits, review, comparison, effectiveResolution }

@@ -65,3 +65,7 @@ describe('parseHash — rutas desconocidas', () => {
     expect(parseHash('')).toEqual({ name: 'dashboard' });
   });
 });
+
+it('conserva la auditoría seleccionada en el enlace directo', () => {
+  expect(parseHash('#/casos/case-1?audit=audit-2')).toEqual({name:'case',caseId:'case-1',auditId:'audit-2'});
+});

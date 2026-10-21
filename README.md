@@ -1,4 +1,4 @@
-﻿# Cancelaciones AI
+# Cancelaciones AI
 
 Sistema **AI-native** para analizar expedientes de cancelación, baja y deserción
 de estudiantes (UTEL). El usuario crea un caso, sube las evidencias del

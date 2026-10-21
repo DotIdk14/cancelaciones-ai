@@ -4,7 +4,7 @@ import type { AuthContext } from './auth.js';
 import { capabilitiesForRole } from './capabilities.js';
 import { ApiError, mapProviderError } from './errors.js';
 import { FLOKZU_CLASSIFICATIONS, classifyFlokzu, type FlokzuTicket, type FlokzuEvent, type FlokzuDecision } from '../shared/flokzu-review.js';
-import type { FlokzuCaseData } from './flokzu-parser.js';
+import type { FlokzuCaseData } from './flokzu-types.js';
 
 export function assertFlokzuCoordinator(actor: AuthContext): void {
   if (!capabilitiesForRole(actor.role).canImportCases) throw new ApiError(403, 'AUTH_ERROR', 'Solo un Coordinador puede administrar la revisión Flokzu.');

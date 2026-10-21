@@ -22,8 +22,7 @@ export type AppRoute =
   | { name: 'cases' } // #/casos
   | { name: 'incidents' } // #/incidencias
   | { name: 'flokzu-review' } // #/revision-flokzu
-  | { name: 'flokzu-import' } // #/importacion-tickets
-  | { name: 'case'; caseId: string }; // #/casos/:id
+  | { name: 'case'; caseId: string; auditId?: string }; // #/casos/:id
 
 function decodeSegment(segment: string): string {
   try {
@@ -48,7 +47,8 @@ export function parseHash(hash: string): AppRoute {
     // se comportaban de forma distinta. Ahora toda ruta no reconocida cae al
     // dashboard, como dice el contrato de este archivo.
     if (segments.length === 2 && typeof id === 'string' && id !== '') {
-      return { name: 'case', caseId: id };
+      const auditId = new URLSearchParams(hash.split('?')[1] ?? '').get('audit');
+      return { name: 'case', caseId: id, ...(auditId && /^[a-zA-Z0-9-]{1,100}$/.test(auditId) ? { auditId } : {}) };
     }
     return segments.length > 2 ? { name: 'dashboard' } : { name: 'cases' };
   }
@@ -68,8 +68,6 @@ export function parseHash(hash: string): AppRoute {
       return { name: 'cases' };
     case 'revision-flokzu':
       return { name: 'flokzu-review' };
-    case 'importacion-tickets':
-      return { name: 'flokzu-import' };
     default:
       // Ruta desconocida: nunca dejamos al usuario en una pantalla rota.
       return { name: 'dashboard' };

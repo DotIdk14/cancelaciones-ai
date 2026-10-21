@@ -2,9 +2,9 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { FlokzuReviewPage } from '../src/components/FlokzuReviewPage';
-import { getFlokzuReview, getFlokzuTicket, getFlokzuImportHistory, decideFlokzuTicket, type FlokzuTicketDetail } from '../src/lib/api';
+import { getFlokzuReview, getFlokzuTicket, getCaseAssignmentOptions, decideFlokzuTicket, type FlokzuTicketDetail } from '../src/lib/api';
 
-vi.mock('../src/lib/api', () => ({ getFlokzuReview: vi.fn(), getFlokzuTicket: vi.fn(), getFlokzuImportHistory: vi.fn(), decideFlokzuTicket: vi.fn() }));
+vi.mock('../src/lib/api', () => ({ getFlokzuReview: vi.fn(), getFlokzuTicket: vi.fn(), getCaseAssignmentOptions: vi.fn(), decideFlokzuTicket: vi.fn() }));
 const detail: FlokzuTicketDetail = {
   ticket: { id: 'case-1', externalCaseId: 'CaVe-321', studentIdentifier: 'TEST-321', studentName: 'Estudiante sintético',
     classification: 'VERIFY', reviewState: 'OPEN', eligible: false, discrepancy: false, reason: 'Motivo anterior', revision: 1,
@@ -17,7 +17,7 @@ const detail: FlokzuTicketDetail = {
 };
 beforeEach(() => {
   vi.resetAllMocks();
-  vi.mocked(getFlokzuImportHistory).mockResolvedValue({ imports: [], cases: [], casesNextOffset: null, assignmentOptions: [] });
+  vi.mocked(getCaseAssignmentOptions).mockResolvedValue([]);
   vi.mocked(getFlokzuReview).mockResolvedValue({ tickets: [detail.ticket], nextOffset: null, counts: { pending: 1, rejected: 0, finalized: 0, otherStage: 0, discrepancies: 0 } });
   vi.mocked(getFlokzuTicket).mockResolvedValue(detail);
 });
@@ -32,7 +32,7 @@ it('abre desde otra celda de la fila y muestra etapa, canal, motivo concreto y s
   expect(within(panel).getByText(/Tarea actual = “\[SER\]/)).toBeTruthy();
   expect(within(panel).getByText('INC_INCONCERT')).toBeTruthy();
   expect(within(panel).getByText('Qué hacer ahora')).toBeTruthy();
-  expect(within(panel).getByText(/La clasificación guardada es/).textContent).toContain('vuelve a importar');
+  expect(within(panel).getByText(/La clasificación guardada es/).textContent).toContain('vuelve a consultar');
   expect(getFlokzuTicket).toHaveBeenCalledTimes(1);
   expect(decideFlokzuTicket).not.toHaveBeenCalled();
 });

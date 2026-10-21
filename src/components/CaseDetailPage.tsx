@@ -141,12 +141,13 @@ function AuditFailureDetail({ attempts }: { attempts: FailureAttemptDetail[] }):
 
 export interface CaseDetailPageProps {
   caseId: string;
+  initialAuditId?: string;
   /** Rol para PRESENTACIÓN. `null`/desconocido se trata como solo lectura. */
   role: AppRole | null;
   capabilities?: SessionSnapshot['capabilities'];
 }
 
-export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases: false, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false, canManageCases: false, canImportCases: false, canValidateAuditFeedback: false, canManageAiLab: false } }: CaseDetailPageProps): ReactNode {
+export function CaseDetailPage({ caseId, initialAuditId, role, capabilities = { canReadAllCases: false, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false, canManageCases: false, canImportCases: false, canValidateAuditFeedback: false, canManageAiLab: false } }: CaseDetailPageProps): ReactNode {
   const loadGeneration = useRef(0);
   const loadedCaseId = useRef(caseId);
   const [progressOpen, setProgressOpen] = useState(false);
@@ -231,8 +232,8 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
     setViewingEvidenceId(null);
     setActiveTab('evidence');
     setEvidenceUploaderOpen(false);
-    setContextOpen(false);
-    setContextTab('data');
+    setContextOpen(Boolean(initialAuditId));
+    setContextTab(initialAuditId ? 'verdict' : 'data');
     setSearch('');
     setQuickComments(null);
     setShowNotesPrompt(false);
@@ -241,7 +242,7 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
     void load();
     void loadQuickComments();
     return () => { loadGeneration.current += 1; };
-  }, [caseId, load, loadQuickComments]);
+  }, [caseId, initialAuditId, load, loadQuickComments]);
 
   // --------------------------------------------------------------- auditoría
   const maybeRunAudit = useCallback((): void => {
@@ -612,7 +613,7 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
       {capabilities.canImportCases && !detail.case.mergedIntoCaseId && <CaseAssignment key={caseId + ':' + detail.case.assignedTo} caseId={caseId} assignedTo={detail.case.assignedTo ?? null} finalized={(detail.reviews ?? []).some(item => item.coordinatorDecision != null) || workflowStateOf(detail.review) === 'FINALIZED'} onSaved={load} />}
       <div className={`case-workspace${contextOpen ? ' case-workspace-context-open' : ''}`}>
         <div className="case-context-slot">
-          <CaseContextMenu key={caseId} detail={detail} open={contextOpen} tab={contextTab} onTabChange={setContextTab} onClose={() => setContextOpen(false)} notesContent={notesContent} reviewContent={reviewContent} canReconcile={capabilities.canFinalizeAnyCase} />
+          <CaseContextMenu key={caseId} initialAuditId={initialAuditId} detail={detail} open={contextOpen} tab={contextTab} onTabChange={setContextTab} onClose={() => setContextOpen(false)} notesContent={notesContent} reviewContent={reviewContent} canReconcile={capabilities.canFinalizeAnyCase} />
         </div>
       <div className="case-detail-layout case-detail-workspace">
         <aside className="case-detail-evidence">

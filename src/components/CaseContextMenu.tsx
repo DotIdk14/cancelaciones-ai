@@ -24,7 +24,8 @@ function Section({ title, children, initialOpen = false }: { title: string; chil
 }
 
 /** La selección histórica es solo contextual: nunca sustituye el estado vivo del expediente. */
-export function CaseContextMenu({ detail, open, tab, onTabChange, onClose, notesContent, reviewContent, preview = false, canReconcile = false }: {
+export function CaseContextMenu({ detail, initialAuditId, open, tab, onTabChange, onClose, notesContent, reviewContent, preview = false, canReconcile = false }: {
+  initialAuditId?: string;
   detail: CaseDetailResponse; open: boolean; tab: ContextTab; onTabChange: (tab: ContextTab) => void; onClose: () => void;
   notesContent?: ReactNode; reviewContent?: ReactNode;
   preview?: boolean; canReconcile?: boolean;
@@ -73,6 +74,15 @@ export function CaseContextMenu({ detail, open, tab, onTabChange, onClose, notes
     } catch { if (mounted.current && token === generation.current) setError('No se pudo leer la auditoría seleccionada. Vuelve al historial para reintentar.'); }
     finally { if (mounted.current && token === generation.current) setPending(false); }
   }
+
+  const initialSelection = useRef<string | null>(null);
+  useEffect(() => {
+    if (!initialAuditId || initialSelection.current === initialAuditId) return;
+    initialSelection.current = initialAuditId;
+    void selectAudit(detail, initialAuditId);
+    // La selección inicial se aplica una vez por enlace; las posteriores son del usuario.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialAuditId, detail.case.id]);
 
   const source = selection && selection.owner.case.id !== detail.case.id ? selection.owner : detail;
   const audit = selection?.audit ?? detail.audit;

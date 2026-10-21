@@ -404,6 +404,8 @@ export async function runAudit(
   }
 
   const caseRow = await getCaseOr404(client, caseId);
+  const acquisition = (caseRow.flokzu_data as { acquisition?: { status?: string } } | null)?.acquisition;
+  if (acquisition && acquisition.status !== 'COMPLETE') throw new ApiError(409, 'VALIDATION_ERROR', 'La carga desde Flokzu está incompleta. Reintenta la creación con la misma matrícula y ticket.');
   // La fecha que capturó el equipo forma parte del QUÉ se audita: sin ella, un
   // dictamen cacheado volvería a devolverse y la fecha nunca llegaría al
   // análisis. Se pasa tal cual (`?? null`): columna ausente —migración sin

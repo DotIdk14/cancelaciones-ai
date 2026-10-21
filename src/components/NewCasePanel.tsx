@@ -1,741 +1,355 @@
-import { getCaseAssignmentOptions, getExistingStudentCases } from '../lib/api';
-import { capabilitiesForRole } from '../server/capabilities';
-// =============================================================================
-// Panel de alta de caso. Solo UI: la creación real vive en el backend.
-//
-// ORDEN DEL ALTA
-//   seleccionar archivos -> `createCase` -> `uploadEvidence` por archivo ->
-//   guardar notas de Back Office / HelpDesk -> navegar, SI Y SOLO SI al menos
-//   una evidencia subió con éxito.
-//
-// LA EXIGENCIA DE EVIDENCIA ES DE INTERFAZ, NO DE DATOS (Fase 1, Opción A)
-//   `POST /api/cases` crea la fila antes de que exista evidencia. Si el alta
-//   tiene éxito y fallan TODAS las subidas, la fila queda persistida aunque la
-//   interfaz no navegue. Eso se maneja aquí: se muestra el error y se ofrece
-//   reintentar SOLO la carga. El reintento reutiliza el `caseId` ya creado y
-//   nunca vuelve a llamar a `createCase`, así que no se duplica la fila.
-//
-// RECUPERACIÓN
-//   La identidad de la solicitud viaja al servidor y usa la clave primaria del
-//   expediente. Una respuesta perdida se recupera sin crear otra fila.
-//   Una carga parcial conserva los archivos fallidos hasta reintentar o abrir
-//   explícitamente el expediente con los originales ya guardados.
-//
-// REUTILIZACIÓN SIN DUPLICAR LÓGICA
-//   - La secuencia de subida vive en `useEvidenceUpload`, el mismo motor que
-//     usa `EvidenceUploader` dentro del expediente.
-//   - Las notas usan el vocabulario cerrado (`NOTE_AREAS`) y el mismo cliente
-//     `saveAreaComment`. Guardar notas nunca dispara una auditoría.
-// =============================================================================
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react";
+import { Search } from "lucide-react";
+import {
+  createCase,
+  lookupFlokzuStudent,
+  getCaseAssignmentOptions,
+  type AppRole,
+  type FlokzuPortalTicket,
+} from "../lib/api";
+import { capabilitiesForRole } from "../server/capabilities";
+import { isLocalDashboardPreview } from "../lib/local-dashboard-preview";
+import { goToCase } from "../lib/useHashRoute";
+import { Button, Panel } from "./ui";
 
-import { captureEvidenceFile } from '../shared/evidence-formats';
-import type { ChangeEvent, FormEvent, ReactNode } from 'react';
-import { useEffect, useId, useRef, useState } from 'react';
-import { ArrowRight, FilePlus2, FolderOpen, ShieldCheck, Upload, FileText, Music2, MessageSquare, X } from 'lucide-react';
-import { createCase, getCase, saveAreaComment, toErrorState, type ErrorState, type AppRole, type AreaCommentArea } from '../lib/api';
-import { OperationProgressDialog } from './OperationProgressDialog';
-import { ReportProblemModal } from './ReportProblemModal';
-import { isLocalDashboardPreview } from '../lib/local-dashboard-preview';
-import { getLocalPreviewCases, localPreviewCaseLabel } from '../lib/local-ui-preview';
-import { goToCase } from '../lib/useHashRoute';
-import { useEvidenceUpload } from '../lib/useEvidenceUpload';
-import { AREA_COMMENT_LABELS, CASE_STATUS_LABELS, CASE_STATUS_TONE, EVIDENCE_ACCEPT } from '../lib/labels';
-import { formatBytes, formatDateTime } from '../lib/format';
-import { Badge, Button, ErrorCard, Panel } from './ui';
-
-/** Mensaje amigable cuando el servidor devuelve 401 (sesión requerida). */
-const AUTH_ERROR_MESSAGE = 'Tu sesión no está disponible. Vuelve a iniciar sesión para continuar.';
-
-/**
- * Solo las dos áreas que el expediente puede usar. Coincide con
- * `QUICK_AREAS` de `AreaQuickComments`: la bitácora completa de cinco áreas vive
- * en el panel del dictamen y jamás cruza al modelo.
- */
-const NOTE_AREAS = ['BACK_OFFICE', 'HELPDESK'] as const satisfies readonly AreaCommentArea[];
-
-/** Solo las dos áreas del alta. Escribir en `SCHOOL_SERVICES` es un error de tipos. */
-type NoteArea = (typeof NOTE_AREAS)[number];
-
-/**
- * Mismo límite que valida el servidor (`AREA_COMMENT_MAX` en
- * `src/server/area-comments.ts`).
- *
- * NO se aplica como `maxLength`: el navegador recortaría en silencio al pegar y
- * el usuario no sabría que su texto cambió. En su lugar hay contador, mensaje de
- * error y guardado bloqueado, como en `AreaQuickComments`.
- */
-const MAX_NOTE_LENGTH = 4000;
-
-export function NewCasePanel({ role = null, canWrite = false }: { role?: AppRole | null; canWrite?: boolean }): ReactNode {
-  // El Gerente es solo lectura: no crea casos, NI siquiera en la vista previa
-  // local. El servidor lo rechaza igual (403); esto es presentación.
-  if (!canWrite && !isLocalDashboardPreview()) return <NewCaseReadOnly />;
-  if (!canWrite && role === 'manager') return <NewCaseReadOnly />;
-  if (isLocalDashboardPreview()) return <NewCasePreview />;
-  return <NewCaseForm canAssign={capabilitiesForRole(role).canImportCases} />;
-}
-
-/** Estado del alta cuando el rol no puede crear casos (Gerente). */
-function NewCaseReadOnly(): ReactNode {
-  return (
-    <div className="flex flex-col gap-5">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight text-ink">Crear caso de cancelación</h1>
-      </header>
-      <Panel title="Solo lectura" description="Tu rol no puede crear casos.">
-        <p role="status" className="text-sm text-muted">
-          El Gerente consulta todos los casos, pero no los crea ni los modifica. Pide a un Asesor que
-          abra el expediente.
-        </p>
-      </Panel>
-    </div>
+const control =
+  "min-h-11 w-full rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand";
+const canSelectTicket = (ticket: FlokzuPortalTicket): boolean =>
+  ticket.canImport && (!ticket.existing || ticket.existing.canUpdate);
+const auditLink = (caseId: string, auditId: string): string =>
+  `#/casos/${encodeURIComponent(caseId)}?audit=${encodeURIComponent(auditId)}`;
+export function NewCasePanel({
+  role = null,
+  canWrite = false,
+}: {
+  role?: AppRole | null;
+  canWrite?: boolean;
+}): ReactNode {
+  const [matricula, setMatricula] = useState("");
+  const [tickets, setTickets] = useState<FlokzuPortalTicket[] | null>(null);
+  const [selected, setSelected] = useState("");
+  const [busy, setBusy] = useState<"lookup" | "create" | null>(null);
+  const [resolvedAudit, setResolvedAudit] = useState<{
+    caseId: string;
+    auditId: string;
+  } | null>(null);
+  const selectedTicket = tickets?.find(
+    (ticket) => ticket.identifier === selected,
   );
-}
-
-/**
- * Una entrada de la lista del alta: un archivo que aún NO subió con éxito,
- * con su estado actual.
- *
- * `entries` es la única fuente de verdad. La lista que se pinta y el lote que
- * se envía salen de aquí, así que no pueden discrepar.
- */
-interface EvidenceEntry {
-  /** Identidad de la fila, estable entre renders. Es lo que se quita. */
-  key: string;
-  file: File;
-  status: 'pending' | 'uploading' | 'error';
-  message?: string;
-  category?: string;
-}
-
-/** Fila de evidencia del panel del alta: nombre, tamaño, estado y error. */
-interface EvidenceRow {
-  key: string;
-  name: string;
-  sizeBytes: number;
-  status: 'pending' | 'uploading' | 'error';
-  message?: string;
-  category?: string;
-}
-
-function newEntry(file: File, key: string): EvidenceEntry {
-  return { key, file, status: 'pending' };
-}
-
-function entryToRow(entry: EvidenceEntry): EvidenceRow {
-  return {
-    key: entry.key,
-    name: entry.file.name,
-    sizeBytes: entry.file.size,
-    status: entry.status,
-    message: entry.message,
-    category: entry.category,
-  };
-}
-
-/**
- * Resumen de la lista: distingue lo que el ALTA va a enviar de lo que quedó sin
- * subir. Contar `rows` sería falso: los fallidos se muestran en la lista pero
- * el botón de alta no los envía.
- */
-function summarizeUploads(fresh: number, failed: number): string {
-  const parts: string[] = [];
-  if (fresh > 0) parts.push(`${fresh} por enviar`);
-  if (failed > 0) parts.push(`${failed} sin subir`);
-  return parts.length > 0 ? `${parts.join(' · ')}.` : '';
-}
-
-function NewCaseForm({ canAssign }: { canAssign: boolean }): ReactNode {
-  const [separateRequest, setSeparateRequest] = useState(false);
-  const [existingCases, setExistingCases] = useState<Awaited<ReturnType<typeof getExistingStudentCases>>>([]);
-  const lookupSequence = useRef(0);
-  const [externalCaseId, setExternalCaseId] = useState('');
-  const [assignedTo, setAssignedTo] = useState('');
-  const [assignees, setAssignees] = useState<Array<{ userId: string; name: string | null }>>([]);
-  const [assignmentError, setAssignmentError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [assignees, setAssignees] = useState<
+    Array<{ userId: string; name: string | null }>
+  >([]);
+  const [assignedTo, setAssignedTo] = useState("");
+  const pending = useRef<{
+    student: string;
+    ticket: string;
+    id: string;
+  } | null>(null);
+  const canAssign = capabilitiesForRole(role).canImportCases;
+  const preview = isLocalDashboardPreview();
   useEffect(() => {
-    if (canAssign) void getCaseAssignmentOptions().then(setAssignees).catch(() => setAssignmentError('No se pudieron cargar los Asesores. Puedes usar la asignación automática.'));
-  }, [canAssign]);
-  const requestId = useRef<string | null>(null);
-  const locked = useRef(false);
-  const [progressOpen, setProgressOpen] = useState(false);
-  const [reportOpen, setReportOpen] = useState(false);
-  const [operationError, setOperationError] = useState<ErrorState | null>(null);
-  const [operation, setOperation] = useState('Creación del expediente');
-  useEffect(() => {
+    if (canAssign && !preview)
+      void getCaseAssignmentOptions()
+        .then(setAssignees)
+        .catch(() =>
+          setError(
+            "No se pudieron cargar los responsables. Puedes usar la asignación automática.",
+          ),
+        );
+  }, [canAssign, preview]);
+  async function lookup(e: FormEvent) {
+    e.preventDefault();
+    if (busy) return;
+    setBusy("lookup");
+    setError(null);
+    setResolvedAudit(null);
+    setTickets(null);
+    setSelected("");
     try {
-      const saved = sessionStorage.getItem('case-creation-request');
-      requestId.current = saved && /^[a-f0-9-]{36}$/i.test(saved) ? saved : crypto.randomUUID();
-      sessionStorage.setItem('case-creation-request', requestId.current);
-      if (saved) void getCase(saved).then((data) => {
-        setCaseId(data.case.id);
-        setStudentIdentifier(data.case.studentIdentifier ?? '');
-        setStudentName(data.case.studentName ?? '');
-        setCreateError('Expediente recuperado. Abre los archivos guardados o selecciona de nuevo los que quedaron sin enviar.');
-      }).catch((error: unknown) => {
-        const state = toErrorState(error);
-        if (state.category !== 'NOT_FOUND') setCreateError(state.message);
-      });
-    } catch { requestId.current = crypto.randomUUID(); }
-  }, []);
-  const formId = useId();
-  const identifierId = `${formId}-identifier`;
-  const evidenceId = `${formId}-evidence`;
-  const evidenceHintId = `${evidenceId}-hint`;
-  const evidenceRequiredId = `${formId}-evidence-required`;
-  const notesErrorId = `${formId}-notes-error`;
-
-  const [studentIdentifier, setStudentIdentifier] = useState('');
-  const [studentName, setStudentName] = useState('');
-  /**
-   * Archivos elegidos y AÚN NO SUBIDOS CON ÉXITO, cada uno con su estado.
-   *
-   * Es la única fuente de verdad de la lista y del envío. Se fusionan aquí los
-   * archivos recién elegidos con los que fallaron: antes vivían en dos estados
-   * separados y la lista era un `or` exclusivo entre ellos, así que un archivo
-   * añadido tras un fallo total quedaba invisible.
-   */
-  const [entries, setEntries] = useState<EvidenceEntry[]>([]);
-  /** Claves de fila incesantes. Mismo patrón que `sequence` en useEvidenceUpload. */
-  const nextEntryKey = useRef(0);
-  /** Se rellena tras `createCase`: permite reintentar sin duplicar el caso. */
-  const [caseId, setCaseId] = useState<string | null>(null);
-
-  const [readingFiles, setReadingFiles] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
-  /** Fallo al guardar notas con el caso y la evidencia ya creados (paso 2.9). */
-  const [notesError, setNotesError] = useState<string | null>(null);
-  const [notesPending, setNotesPending] = useState(false);
-
-  const [notes, setNotes] = useState<Record<NoteArea, string>>({ BACK_OFFICE: '', HELPDESK: '' });
-  // El servidor rechaza con 400 lo que pase del límite. Sin esto, "Reintentar
-  // notas" reenvía el mismo texto y el alta entra en bucle.
-  const noteTooLong = NOTE_AREAS.find((area) => notes[area].length > MAX_NOTE_LENGTH) ?? null;
-
-  const { items: uploadItems, busy: uploading, announcement, runUploads } = useEvidenceUpload();
-
-  const busy = creating || uploading || notesPending || readingFiles;
-  // El error de notas se anuncia desde CADA textarea: solo uno de los dos puede
-  // ser el que hay que corregir, y el lector de pantalla debe oírlo en ambos.
-  const noteErrorDesc = notesError !== null || noteTooLong !== null ? ` ${notesErrorId}` : '';
-  // La lista y el envío salen del MISMO estado, así que no pueden discrepar.
-  // `entries` solo contiene archivos que NO han subido con éxito: los exitosos
-  // se retiran al terminar el lote, así que ninguno se vuelve a enviar.
-  const rows = entries.map(entryToRow);
-  // Nunca intentados: es lo que envía el alta. Los fallidos tienen su propia
-  // acción ("Reintentar carga") para que un archivo nuevo no arrastre en el
-  // mismo lote la reintención de los anteriores.
-  const freshEntries = entries.filter((entry) => entry.status === 'pending');
-  const freshFiles = freshEntries.map((entry) => entry.file);
-  // Ya intentados y fallidos: solo reintentables, nunca automáticos.
-  const failedEntries = entries.filter((entry) => entry.status === 'error');
-  // Sin evidencia pendiente no hay alta: la exigencia vive aquí, en la interfaz.
-  const canSubmit = freshFiles.length > 0 && !busy && noteTooLong === null;
-  // Queda algo sin subir mientras haya CUALQUIER fallido, no solo si falló todo:
-  // añadir un archivo nuevo no puede hacer desaparecer la reintención de los
-  // anteriores, o se irían sin subir sin confirmación al navegar.
-  const hasFailedUploads = caseId !== null && failedEntries.length > 0;
-  /** El alta solo envía los pendientes, así que el contador no puede usar `rows`. */
-  const uploadSummary = summarizeUploads(freshFiles.length, failedEntries.length);
-
-  function handleEvidenceChange(event: ChangeEvent<HTMLInputElement>): void {
-    const picked = Array.from(event.target.files ?? []);
-    const input = event.target;
-    if (picked.length === 0) return;
-    // Contador MONÓTONO, no `entries.length`: quitar una fila baja la longitud
-    // del array y la siguiente adición heredaría una clave viva. Como
-    // `handleRemove` filtra por clave, eso borraría dos archivos de una vez.
-    const added = picked.map((file) => {
-      nextEntryKey.current += 1;
-      return newEntry(file, `${formId}-new-${nextEntryKey.current}`);
-    });
-    setEntries((current) => [...current.filter((entry) => !(entry.category === 'FILE_READ_ERROR' && picked.some((file) => file.name === entry.file.name && file.size === entry.file.size))), ...added]);
-    setCreateError(null);
-    setReadingFiles(true);
-    // Leer antes de liberar la selección. La identidad original se conserva
-    // para reconciliar filas; uploadEvidence utiliza la copia del mismo archivo.
-    void Promise.allSettled(picked.map(captureEvidenceFile)).then((results) => {
-      const failure = results.find((result) => result.status === 'rejected');
-      if (failure?.status === 'rejected') setCreateError(toErrorState(failure.reason).message);
-      setEntries((current) => current.map((entry) => {
-        const index = added.findIndex((candidate) => candidate.key === entry.key);
-        const result = results[index];
-        return result?.status === 'rejected' ? { ...entry, status: 'error', ...toErrorState(result.reason) } : entry;
-      }));
-      input.value = '';
-      setReadingFiles(false);
-    });
+      setTickets(await lookupFlokzuStudent(matricula.trim()));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo consultar Flokzu.");
+    } finally {
+      setBusy(null);
+    }
   }
-
-  function handleNoteChange(area: NoteArea, value: string): void {
-    setNotes((previous) => ({ ...previous, [area]: value }));
-    setNotesError(null);
-  }
-
-  /** Quita UNA entrada por su clave, no por posición: el índice no es estable. */
-  function handleRemove(key: string): void {
-    setEntries((current) => current.filter((entry) => entry.key !== key));
-  }
-
-  /**
-   * Guarda las notas que tengan contenido.
-   *
-   * Devuelve `true` si se pudo guardar todo. Un fallo NO borra el trabajo ya
-   * hecho (caso y evidencia): solo habilita el reintento de notas (paso 2.9).
-   * Guardar notas nunca dispara una auditoría.
-   */
-  async function saveNotes(targetCaseId: string): Promise<boolean> {
-    // Nunca se envía texto que el servidor va a rechazar.
-    if (noteTooLong !== null) return false;
-    const drafts = NOTE_AREAS.filter((area) => notes[area].trim() !== '');
-    if (drafts.length === 0) return true;
-
-    setOperation('Guardar comentarios');
-    setNotesPending(true);
-    setNotesError(null);
+  async function create() {
+    if (busy || !selected) return;
+    setBusy("create");
+    setError(null);
     try {
-      for (const area of drafts) {
-        await saveAreaComment(targetCaseId, { area, comment: notes[area] });
+      let request = pending.current;
+      if (
+        !request ||
+        request.student !== matricula.trim() ||
+        request.ticket !== selected
+      ) {
+        try {
+          const saved = sessionStorage.getItem("flokzu-creation-request");
+          const value = saved ? JSON.parse(saved) : null;
+          request =
+            value?.student === matricula.trim() &&
+            value?.ticket === selected &&
+            typeof value?.id === "string"
+              ? value
+              : null;
+        } catch {
+          request = null;
+        }
+        request ??= {
+          student: matricula.trim(),
+          ticket: selected,
+          id: crypto.randomUUID(),
+        };
+        pending.current = request;
+        sessionStorage.setItem(
+          "flokzu-creation-request",
+          JSON.stringify(request),
+        );
       }
-      return true;
-    } catch (cause) {
-      const state = toErrorState(cause);
-      setNotesError(state.message);
-      setOperationError(state);
-      return false;
-    } finally {
-      setNotesPending(false);
-    }
-  }
-
-  /** Crea el caso UNA sola vez. Un reintento reutiliza el `caseId` existente. */
-  async function ensureCase(): Promise<string | null> {
-    if (caseId !== null) return caseId;
-    setOperation('Creación del expediente');
-    setCreating(true);
-    setCreateError(null);
-    try {
-      const created = await createCase(
-        studentIdentifier.trim() === '' ? undefined : studentIdentifier.trim(),
-        studentName.trim() === '' ? undefined : studentName.trim(),
-        requestId.current ?? undefined,
-        { ...(externalCaseId.trim() ? { externalCaseId: externalCaseId.trim() } : {}), ...(canAssign && assignedTo ? { assignedTo } : {}), ...(separateRequest ? { separateRequest: true } : {}) },
+      const result = await createCase(
+        request.student,
+        request.ticket,
+        request.id,
+        assignedTo || undefined,
       );
-      setCaseId(created.id);
-      return created.id;
-    } catch (cause) {
-      const state = toErrorState(cause);
-      setCreateError(state.category === 'AUTH_ERROR' ? AUTH_ERROR_MESSAGE : state.message);
-      setOperationError(state);
-      return null;
+      sessionStorage.removeItem("flokzu-creation-request");
+      if (result.existingAuditId) {
+        setResolvedAudit({
+          caseId: result.id,
+          auditId: result.existingAuditId,
+        });
+        setTickets(
+          (current) =>
+            current?.map((ticket) =>
+              ticket.identifier === selected
+                ? {
+                    ...ticket,
+                    existing: {
+                      caseId: result.id,
+                      status: result.status,
+                      canUpdate: false,
+                      auditId: result.existingAuditId!,
+                    },
+                  }
+                : ticket,
+            ) ?? null,
+        );
+        setSelected("");
+        return;
+      }
+      goToCase(result.id);
+    } catch (e) {
+      setError(
+        e instanceof Error
+          ? e.message
+          : "La carga no terminó. Reintenta para recuperar los archivos pendientes.",
+      );
     } finally {
-      setCreating(false);
+      setBusy(null);
     }
   }
-
-  /**
-   * Sube un lote, guarda notas y navega cuando no quedan archivos fallidos.
-   *
-   * `batch` son únicamente archivos que aún no subieron con éxito: un reintento
-   * jamás vuelve a enviar los ya exitosos (riesgo 2 del plan). Los fallidos se
-   * quedan en `entries` con su error para que sigan visibles y reintentables.
-   */
-  async function uploadAndFinish(batch: EvidenceEntry[]): Promise<void> {
-    // Antes de `ensureCase`: crear el caso y descubrir después que no hay nada
-    // que subir dejaría una fila huérfana sin evidencia.
-    if (batch.length === 0) return;
-    if (locked.current) return;
-    locked.current = true;
-    setProgressOpen(true);
-    setOperationError(null);
-    try {
-    const targetCaseId = await ensureCase();
-    if (targetCaseId === null) return;
-
-    // Marca el lote como "subiendo" antes de tocar la red: la lista no puede
-    // ofrecer enviar de nuevo mientras la petición está en vuelo.
-    const batchKeys = new Set(batch.map((entry) => entry.key));
-    setEntries((current) =>
-      current.map((entry) =>
-        batchKeys.has(entry.key) ? { ...entry, status: 'uploading' } : entry,
-      ),
-    );
-
-    setOperation('Carga de evidencias');
-    const outcome = await runUploads(targetCaseId, batch.map((entry) => entry.file));
-
-    // Los exitosos salen de la lista; los fallidos permanecen con su error.
-    // `outcome.failed` es la fuente exacta: leer `items` aquí daría el render
-    // anterior y dejaría fuera archivos que acaban de subir.
-    const failedByFile = new Map(outcome.failed.map((failure) => [failure.file, failure]));
-    setEntries((current) =>
-      current.flatMap((entry) => {
-        // Fuera del lote (p. ej. añadido mientras subía): se queda como estaba.
-        if (!batchKeys.has(entry.key)) return [entry];
-        const failure = failedByFile.get(entry.file);
-        // Subió con éxito: sale de la lista. Jamás se vuelve a enviar.
-        if (failure === undefined) return [];
-        // Falló: sigue visible con su error y es reintentable.
-        return [{ ...entry, status: 'error' as const, message: failure.message, category: failure.category }];
-      }),
-    );
-
-    if (outcome.uploaded > 0 && !(await saveNotes(targetCaseId))) return;
-
-    // FALLO TOTAL: la fila ya existe pero sin evidencia. No se navega y el alta
-    // no se presenta como exitosa; se ofrece reintentar la carga.
-    if (outcome.failed.length > 0) {
-      const failure = outcome.failed[0]!;
-      setOperationError({ category: failure.category, message: failure.message, correlationId: failure.correlationId });
-      return;
-    }
-    if (entries.some((entry) => !batchKeys.has(entry.key) && entry.status === 'error')) {
-      setOperationError({ category: 'UPLOAD_ERROR', message: 'Aún hay archivos sin guardar. Reintenta su carga o abre explícitamente el expediente con los archivos disponibles.' });
-      return;
-    }
-    if (outcome.uploaded === 0) return;
-
-    // El lote y las notas están guardados. La navegación es segura.
-    try { sessionStorage.removeItem('case-creation-request'); } catch { /* Almacenamiento deshabilitado. */ }
-    goToCase(targetCaseId);
-    } finally { locked.current = false; }
-  }
-
-  async function handleCreate(event: FormEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault();
-    if (!canSubmit) return;
-    await uploadAndFinish(freshEntries);
-  }
-
-  async function handleRetryUploads(): Promise<void> {
-    if (failedEntries.length === 0 || busy) return;
-    // Reintenta SOLO lo fallido: nunca toca un archivo que ya subió.
-    await uploadAndFinish(failedEntries);
-  }
-
-  async function handleRetryNotes(): Promise<void> {
-    if (caseId === null || notesPending) return;
-    setOperationError(null);
-    if (!(await saveNotes(caseId))) return;
-    try { sessionStorage.removeItem('case-creation-request'); } catch { /* Almacenamiento deshabilitado. */ }
-    goToCase(caseId);
-  }
-
-  useEffect(() => {
-    const guard = (event: BeforeUnloadEvent): void => {
-      if (busy || entries.length > 0 || notesError) { event.preventDefault(); event.returnValue = ''; }
-    };
-    window.addEventListener('beforeunload', guard);
-    return () => window.removeEventListener('beforeunload', guard);
-  }, [busy, entries.length, notesError]);
-
   return (
     <div className="flex flex-col gap-5">
-      {caseId && <Button variant="secondary" onClick={() => goToCase(caseId)}>Abrir expediente guardado</Button>}
-      {(busy || operationError) && <Button variant="secondary" onClick={() => setProgressOpen(true)}>Ver progreso de creación</Button>}
-      {progressOpen && !reportOpen && <OperationProgressDialog title="Creación del expediente" stages={[
-        { label: 'Creación del expediente', status: caseId ? 'done' : creating ? 'current' : operationError ? 'error' : 'pending' },
-        { label: 'Carga de evidencias', status: uploading ? 'current' : operationError && operation === 'Carga de evidencias' ? 'error' : uploadItems.length > 0 && uploadItems.every((item) => item.status === 'done') ? 'done' : 'pending', detail: uploadItems.length ? `${uploadItems.filter((item) => item.status === 'done').length} de ${uploadItems.length} archivos guardados` : undefined },
-        { label: 'Guardar comentarios', status: notesPending ? 'current' : notesError ? 'error' : 'pending' },
-      ]} error={operationError ? { ...operationError, message: `${operation}: ${operationError.message}` } : null} onClose={() => setProgressOpen(false)} onRetry={busy ? undefined : () => { if (notesError) void handleRetryNotes(); else if (failedEntries.length) void handleRetryUploads(); else void uploadAndFinish(freshEntries); }} onReport={() => setReportOpen(true)} />}
-      {reportOpen && <ReportProblemModal initialDescription={`Problema en ${operation}. Código: ${operationError?.category ?? 'sin código'}. Referencia: ${operationError?.correlationId ?? 'sin referencia'}.`} module="Nueva auditoría" context={{ route: '#/nuevo', correlationId: operationError?.correlationId }} onClose={() => setReportOpen(false)} />}
       <header>
-        <h1 className="text-2xl font-semibold tracking-tight text-ink">Crear caso de cancelación</h1>
-        <p className="mt-1 text-sm text-muted">Abre un expediente para reunir evidencia y solicitar su auditoría.</p>
+        <h1 className="text-2xl font-semibold tracking-tight text-ink">
+          Crear expediente desde Flokzu
+        </h1>
+        <p className="mt-2 max-w-2xl text-sm text-muted">
+          Consulta una matrícula y elige la solicitud de cancelación. Se
+          incorporarán los datos, comentarios, adjuntos e imágenes de ese
+          ticket.
+        </p>
       </header>
-      <div className="new-case-layout">
-        <div className="flex flex-col gap-4">
-          <Panel
-            title={<span className="inline-flex items-center gap-2"><FilePlus2 size={18} aria-hidden="true" />Información del caso</span>}
-            description="Captura matrícula y nombre para identificar el expediente."
+      {!canWrite ? (
+        <Panel title="Solo lectura">
+          <p>Tu rol no puede crear expedientes.</p>
+        </Panel>
+      ) : (
+        <Panel
+          title="Buscar alumno"
+          description="La matrícula debe tener 9 dígitos y devolver una solicitud real en Flokzu."
+        >
+          {preview && (
+            <p role="status" className="mb-4 text-sm text-warning">
+              Vista previa local. La consulta de alumnos está deshabilitada.
+            </p>
+          )}
+          <form
+            onSubmit={(e) => void lookup(e)}
+            className="flex max-w-xl flex-col gap-3 sm:flex-row sm:items-end"
           >
-            <form onSubmit={(event) => void handleCreate(event)} className="flex flex-col gap-4" noValidate>
-              <div>
-                <label htmlFor={identifierId} className="mb-1.5 block text-sm font-medium text-ink">
-                  Matrícula del estudiante
-                </label>
-                <input
-                  id={identifierId}
-                  name="studentIdentifier"
-                  disabled={busy || caseId !== null}
-                  type="text"
-                  value={studentIdentifier}
-                  onChange={(event) => { lookupSequence.current++; setStudentIdentifier(event.target.value); setExistingCases([]); setSeparateRequest(false); }}
-                  onBlur={() => {
-                    const value = studentIdentifier.trim(); const sequence = ++lookupSequence.current;
-                    if (value) void getExistingStudentCases(value).then(cases => { if (sequence === lookupSequence.current) setExistingCases(cases); }).catch(() => { if (sequence === lookupSequence.current) setCreateError('No se pudieron verificar los expedientes existentes. El servidor volverá a comprobarlo al guardar.'); });
-                  }}
-                  placeholder="Ej. 202312345"
-                  aria-describedby={`${formId}-hint`}
-                  className="w-full rounded-lg border border-line bg-surface-2 px-3 py-2.5 text-sm text-ink placeholder:text-muted"
-                />
-                <p id={`${formId}-hint`} className="mt-1.5 text-xs text-muted">
-                  La matrícula puede añadirse después si aún no la tienes.
+            <label
+              className="flex-1 text-sm font-medium"
+              htmlFor="flokzu-student"
+            >
+              Matrícula
+              <input
+                id="flokzu-student"
+                className={`${control} mt-2`}
+                value={matricula}
+                required
+                inputMode="numeric"
+                pattern="[0-9]{9}"
+                maxLength={9}
+                disabled={busy !== null || preview}
+                onChange={(e) => {
+                  setMatricula(e.target.value.trim());
+                  setTickets(null);
+                  setSelected("");
+                  setError(null);
+                  setResolvedAudit(null);
+                }}
+              />
+            </label>
+            <Button
+              type="submit"
+              loading={busy === "lookup"}
+              disabled={
+                busy !== null || preview || !/^\d{9}$/.test(matricula.trim())
+              }
+            >
+              <Search size={16} aria-hidden="true" />
+              Consultar Flokzu
+            </Button>
+          </form>
+          {error && (
+            <p
+              role="alert"
+              className="mt-4 whitespace-pre-wrap text-sm text-danger"
+            >
+              {error}
+            </p>
+          )}
+          {resolvedAudit && (
+            <p role="status" className="mt-4 text-sm">
+              El expediente ya tiene auditoría.{" "}
+              <a
+                className="font-semibold text-brand underline underline-offset-4"
+                href={auditLink(resolvedAudit.caseId, resolvedAudit.auditId)}
+              >
+                Ver auditoría existente
+              </a>
+            </p>
+          )}
+          {tickets !== null && (
+            <div className="mt-6" aria-live="polite">
+              {tickets.length === 0 ? (
+                <p className="text-sm text-muted">
+                  Flokzu no devolvió solicitudes para esta matrícula. Revisa los
+                  9 dígitos y vuelve a consultar.
                 </p>
-              </div>
-
-              {existingCases.length > 0 && <div className="rounded-lg border border-line bg-surface-2 p-3 text-sm">
-                <p className="font-medium text-ink">Ya hay expedientes para esta matrícula</p>
-                <ul className="mt-2 space-y-1">{existingCases.map(item => <li key={item.id}><a className="text-brand underline" href={'#/casos/' + item.id}>{item.external_case_id ?? 'Expediente sin CaVe'} · {item.student_name ?? 'Sin nombre'}</a></li>)}</ul>
-              </div>}
-              <label className="flex items-start gap-2 text-sm text-muted"><input type="checkbox" checked={separateRequest} onChange={event => setSeparateRequest(event.target.checked)} disabled={busy || caseId !== null} />Confirmo que estoy creando otra solicitud para esta matrícula, distinta de los expedientes existentes.</label>
-
-              <div>
-                <label htmlFor={`${formId}-student-name`} className="mb-1.5 block text-sm font-medium text-ink">
-                  Nombre del estudiante
-                </label>
-                <input
-                  id={`${formId}-student-name`}
-                  name="studentName"
-                  disabled={busy || caseId !== null}
-                  type="text"
-                  value={studentName}
-                  onChange={(event) => setStudentName(event.target.value)}
-                  placeholder="Ej. Andrea López García"
-                  maxLength={200}
-                  className="w-full rounded-lg border border-line bg-surface-2 px-3 py-2.5 text-sm text-ink placeholder:text-muted"
-                />
-              </div>
-
-              <div>
-                <label htmlFor={formId + '-cave'} className="mb-1.5 block text-sm font-medium text-ink">Número de CaVe (opcional)</label>
-                <input id={formId + '-cave'} value={externalCaseId} onChange={event => setExternalCaseId(event.target.value)} disabled={busy || caseId !== null} placeholder="CaVe-12345" maxLength={21} className="w-full rounded-lg border border-line bg-surface-2 px-3 py-2.5 text-sm text-ink" />
-                <p className="mt-1.5 text-xs text-muted">Si aún no lo tienes, la importación diaria podrá vincularlo a este expediente.</p>
-              </div>
-              {canAssign ? <div>
-                <label htmlFor={formId + '-assignee'} className="mb-1.5 block text-sm font-medium text-ink">Asesor responsable</label>
-                <select id={formId + '-assignee'} value={assignedTo} onChange={event => setAssignedTo(event.target.value)} disabled={busy || caseId !== null} className="w-full rounded-lg border border-line bg-surface-2 px-3 py-2.5 text-sm text-ink">
-                  <option value="">Asignación automática por carga pendiente</option>
-                  {assignees.map(a => <option key={a.userId} value={a.userId}>{a.name ?? 'Asesor sin nombre'}</option>)}
-                </select>
-                {assignmentError && <p role="status" className="mt-1.5 text-xs text-muted">{assignmentError}</p>}
-              </div> : <p className="text-sm text-muted">Este expediente quedará asignado a ti automáticamente.</p>}
-              {createError !== null && !progressOpen && <ErrorCard message={createError} />}
-
-              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">
-                <a href="#/casos" className="text-sm font-medium text-muted hover:text-ink">Cancelar</a>
-                <Button
-                  type="submit"
-                  variant="primary"
-                  loading={busy}
-                  loadingLabel="Creando caso"
-                  disabled={!canSubmit}
-                  aria-describedby={
-                    // El bloqueo del botón puede venir de dos sitios y el lector
-                    // de pantalla necesita saber cuál: falta evidencia o la nota
-                    // excede el límite del servidor.
-                    freshFiles.length === 0
-                      ? evidenceRequiredId
-                      : noteTooLong !== null
-                        ? notesErrorId
-                        : undefined
-                  }
-                >
-                  Crear y abrir expediente <ArrowRight size={16} aria-hidden="true" />
-                </Button>
-              </div>
-            </form>
-          </Panel>
-
-          <Panel
-            title={<span className="inline-flex items-center gap-2"><Upload size={18} aria-hidden="true" />Evidencias iniciales</span>}
-            description="Se necesita al menos un archivo para abrir el expediente."
-          >
-            <label htmlFor={evidenceId} className="block text-sm font-medium text-ink">
-              Archivos de evidencia
-            </label>
-            <p id={evidenceHintId} className="mt-1 text-xs text-muted">
-              {readingFiles && <span role="status">Leyendo archivos seleccionados… </span>}
-              Formatos: PNG, JPG/JPEG/JFIF, WEBP, GIF, PDF, MP3, WAV, M4A, OGG, WEBM, TXT, CSV, MD, JSON y LOG. Puedes seleccionar varios a la vez.
-            </p>
-            <input
-              id={evidenceId}
-              type="file"
-              multiple
-              accept={EVIDENCE_ACCEPT}
-              disabled={busy}
-              aria-describedby={`${evidenceHintId} ${evidenceRequiredId}`}
-              onChange={handleEvidenceChange}
-              className="mt-3 block w-full rounded-xl border border-dashed border-line bg-surface-2 px-3 py-3 text-sm text-muted file:mr-3 file:rounded-lg file:border file:border-line file:bg-surface-3 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-ink hover:file:bg-[#1f262f] disabled:cursor-not-allowed disabled:opacity-55"
-            />
-            <p id={evidenceRequiredId} className="mt-1.5 text-xs text-muted">
-              {rows.length === 0 ? 'Selecciona al menos un archivo de evidencia para crear el caso.' : uploadSummary}
-            </p>
-
-            {/* El progreso se anuncia: no puede depender solo del color. */}
-            <div role="status" aria-live="polite" className="mt-2 min-h-5 text-sm text-muted">
-              {announcement}
-            </div>
-
-            {rows.length > 0 && (
-              <ul className="mt-3 flex flex-col gap-1.5">
-                {rows.map((row) => (
-                  <li
-                    key={row.key}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm"
-                  >
-                    <span className="min-w-0 truncate text-ink">{row.name}</span>
-                    <span className="flex items-center gap-2">
-                      <span className="text-xs text-muted">{formatBytes(row.sizeBytes)}</span>
-                      {row.status === 'pending' && <span className="text-xs text-muted">Pendiente de subir</span>}
-                      {row.status === 'uploading' && <span className="text-xs text-muted">Subiendo…</span>}
-                      {row.status === 'error' && (
-                        <span className="text-xs font-medium text-danger">
-                          {row.category ?? 'ERROR'} · {row.message}
-                        </span>
-                      )}
-                      {row.status !== 'uploading' && (
-                        <button
-                          type="button"
-                          onClick={() => handleRemove(row.key)}
-                          className="rounded px-1 text-xs text-muted hover:text-danger"
-                        >
-                          <X size={14} aria-hidden="true" />
-                          <span className="sr-only">Quitar {row.name}</span>
-                        </button>
-                      )}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            {hasFailedUploads && (
-              <div className="mt-4 flex flex-col gap-3">
-                <ErrorCard
-                  title="Archivos sin subir"
-                  message={
-                    freshFiles.length === 0
-                      ? 'El caso ya quedó creado. Hay archivos sin guardar: reintenta su carga o abre el expediente con los archivos guardados.'
-                      : `Estos archivos no se pudieron subir. Puedes enviar los pendientes y reintentar estos después, o reintentarlos ahora.`
-                  }
-                  onRetry={() => void handleRetryUploads()}
-                  retryLabel="Reintentar carga"
-                  retrying={busy}
-                />
-              </div>
-            )}
-          </Panel>
-
-          <Panel
-            title={<span className="inline-flex items-center gap-2"><MessageSquare size={18} aria-hidden="true" />Notas de Back Office y HelpDesk</span>}
-            description="Opcionales. Son contexto humano: no son política ni evidencia y por sí solas no deciden el resultado."
-          >
-            <div className="flex flex-col gap-4">
-              {NOTE_AREAS.map((area) => {
-                const label = AREA_COMMENT_LABELS[area];
-                const textareaId = `${formId}-note-${area}`;
-                const countId = `${textareaId}-count`;
-                const text = notes[area];
-                const tooLong = text.length > MAX_NOTE_LENGTH;
-                const describedBy = `${countId}${noteErrorDesc}`;
-                return (
-                  <div key={area}>
-                    <label htmlFor={textareaId} className="block text-sm font-semibold text-ink">
-                      {label}
+              ) : (
+                <>
+                  <fieldset disabled={busy !== null} className="space-y-2">
+                    <legend className="mb-3 text-sm font-semibold">
+                      Solicitudes encontradas · {tickets.length}
+                    </legend>
+                    {tickets.map((t) => (
+                      <div
+                        key={t.identifier}
+                        className="rounded-lg border border-line p-3 text-sm"
+                      >
+                        <label className="flex items-center gap-3">
+                          <input
+                            type="radio"
+                            name="flokzu-ticket"
+                            value={t.identifier}
+                            checked={selected === t.identifier}
+                            disabled={!canSelectTicket(t)}
+                            onChange={() => setSelected(t.identifier)}
+                          />
+                          <span>
+                            <span className="font-semibold">
+                              {t.identifier}
+                            </span>
+                            <span className="mt-1 block text-muted">
+                              {!t.canImport
+                                ? "Otro trámite · no corresponde a cancelaciones"
+                                : t.existing?.canUpdate
+                                  ? t.existing.evidenceCount === 0
+                                    ? "Expediente sin evidencias · se importarán los archivos de su CaVe."
+                                    : "Borrador existente · se actualizarán sus datos y archivos."
+                                  : t.existing?.auditId
+                                    ? "Este expediente ya tiene auditoría."
+                                    : t.existing
+                                      ? "Expediente existente · consulta sus datos y permisos."
+                                      : "Solicitud de cancelación · disponible para crear expediente"}
+                            </span>
+                          </span>
+                        </label>
+                        {t.existing && (
+                          <a
+                            className="mt-2 inline-flex min-h-10 items-center font-semibold text-brand underline underline-offset-4"
+                            href={
+                              t.existing.auditId
+                                ? auditLink(
+                                    t.existing.caseId,
+                                    t.existing.auditId,
+                                  )
+                                : `#/casos/${encodeURIComponent(t.existing.caseId)}`
+                            }
+                          >
+                            {t.existing.auditId
+                              ? "Ver auditoría existente"
+                              : "Abrir expediente existente"}
+                          </a>
+                        )}
+                      </div>
+                    ))}
+                  </fieldset>
+                  {canAssign && !selectedTicket?.existing && (
+                    <label className="mt-5 block max-w-xl text-sm">
+                      Responsable
+                      <select
+                        className={`${control} mt-2`}
+                        value={assignedTo}
+                        disabled={busy !== null}
+                        onChange={(e) => setAssignedTo(e.target.value)}
+                      >
+                        <option value="">Asignación automática</option>
+                        {assignees.map((a) => (
+                          <option key={a.userId} value={a.userId}>
+                            {a.name ?? "Asesor sin nombre"}
+                          </option>
+                        ))}
+                      </select>
                     </label>
-                    <textarea
-                      id={textareaId}
-                      rows={2}
-                      value={text}
-                      onChange={(event) => handleNoteChange(area, event.target.value)}
-                      placeholder={`Comentario de ${label}`}
-                      aria-describedby={describedBy}
-                      className="mt-1.5 w-full resize-y rounded-lg border border-line bg-surface-1 p-2 text-sm text-ink placeholder:text-muted"
-                    />
-                    <p
-                      id={countId}
-                      className={`mt-1 text-xs tabular-nums ${tooLong ? 'text-danger' : 'text-muted'}`}
-                    >
-                      {text.length}/{MAX_NOTE_LENGTH}
-                    </p>
-                  </div>
-                );
-              })}
+                  )}
+                  <p className="mt-4 max-w-2xl text-sm text-muted">
+                    Se adjuntarán únicamente los archivos del ticket
+                    seleccionado. Los dictámenes históricos se conservarán como
+                    contexto. Esta acción no ejecuta una auditoría.
+                  </p>
+                  <Button
+                    className="mt-4"
+                    variant="primary"
+                    disabled={!selected || busy !== null}
+                    loading={busy === "create"}
+                    loadingLabel="Incorporando expediente de Flokzu"
+                    onClick={() => void create()}
+                  >
+                    {busy === "create"
+                      ? "Incorporando datos y archivos…"
+                      : selectedTicket?.existing?.canUpdate
+                        ? selectedTicket.existing.status === "DRAFT"
+                          ? "Actualizar borrador con Flokzu"
+                          : "Importar evidencias del CaVe"
+                        : "Crear expediente con todo el contenido"}
+                  </Button>
+                </>
+              )}
             </div>
-
-            {noteTooLong !== null && (
-              <p role="alert" className="mt-3 text-sm font-medium text-danger">
-                La nota de {AREA_COMMENT_LABELS[noteTooLong]} supera los {MAX_NOTE_LENGTH} caracteres. Acórtala para
-                continuar.
-              </p>
-            )}
-
-            {notesError !== null && (
-              <div id={notesErrorId} className="mt-3">
-                <ErrorCard
-                  title="No se pudieron guardar las notas"
-                  message={`${notesError} El caso y su evidencia ya están guardados.`}
-                  onRetry={() => void handleRetryNotes()}
-                  retryLabel="Reintentar notas"
-                  retrying={notesPending}
-                />
-              </div>
-            )}
-          </Panel>
-        </div>
-
-        <aside className="new-case-next-steps">
-          <h2 className="text-base font-semibold text-ink">Siguientes pasos</h2>
-          <p className="mt-1 text-sm text-muted">El expediente conserva la evidencia original y su preparación técnica.</p>
-          <ol className="mt-5 flex flex-col gap-4">
-            <li className="new-case-step"><span><FolderOpen size={17} aria-hidden="true" /></span><div><strong>Cargar más evidencias</strong><p>Desde el expediente puedes adjuntar archivos adicionales.</p></div></li>
-            <li className="new-case-step"><span><Upload size={17} aria-hidden="true" /></span><div><strong>Esperar preparación</strong><p>Consulta el estado de validación y transcripción.</p></div></li>
-            <li className="new-case-step"><span><ShieldCheck size={17} aria-hidden="true" /></span><div><strong>Auditar con IA</strong><p>El dictamen cita evidencia y procedimiento.</p></div></li>
-          </ol>
-        </aside>
-      </div>
-    </div>
-  );
-}
-
-function NewCasePreview(): ReactNode {
-  const [files, setFiles] = useState<File[]>([]);
-  const [student, setStudent] = useState('');
-  const [ticket, setTicket] = useState('');
-  const recent = getLocalPreviewCases().slice(0, 3);
-  const addFiles = (incoming: FileList | null): void => {
-    if (incoming) setFiles((current) => [...current, ...Array.from(incoming)]);
-  };
-
-  return (
-    <div className="new-case-page flex flex-col gap-5">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight text-ink">Crear / cargar nuevo caso de cancelación</h1>
-        <p className="mt-1 text-sm text-muted">Agrupa las evidencias de una solicitud para su auditoría por el sistema y el equipo humano.</p>
-      </header>
-      <div className="new-case-layout">
-        <div className="flex flex-col gap-4">
-          <Panel title="Información del caso" description="Captura los datos del ticket y del estudiante.">
-            <div className="new-case-fields">
-              <label className="new-case-field"><span>Ticket / folio <em>*</em></span><input value={ticket} onChange={(event) => setTicket(event.target.value)} placeholder="Introduce el número de ticket" /></label>
-              <label className="new-case-field"><span>Estudiante <em>*</em></span><input value={student} onChange={(event) => setStudent(event.target.value)} placeholder="Buscar por nombre, matrícula o ID…" /></label>
-            </div>
-            <p className="mt-2 text-xs text-muted">Vista local: no consulta directorios estudiantiles ni guarda datos.</p>
-          </Panel>
-          <Panel title="Expediente y evidencias digitales" description="Archivos locales visibles solo durante esta sesión del navegador.">
-            <label className="preview-dropzone" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); addFiles(event.dataTransfer.files); }}>
-              <Upload size={30} aria-hidden="true" />
-              <strong>Arrastra y suelta archivos de evidencia aquí</strong>
-              <span>Audio, documentos, capturas e historial de conversación</span>
-              <span className="preview-file-button">Explorar archivos locales</span>
-              <input type="file" multiple accept={EVIDENCE_ACCEPT} onChange={(event) => addFiles(event.target.files)} />
-              <small>PNG, JPG/JPEG, WEBP, GIF, PDF, audio y texto</small>
-            </label>
-            <div className="preview-files-heading"><strong>Archivos seleccionados ({files.length})</strong><span>Sin carga al servidor</span></div>
-            {files.length === 0 ? <p className="preview-no-files">Todavía no hay archivos seleccionados.</p> : <ul className="preview-file-list">{files.map((file, index) => <li key={`${file.name}-${index}`}><span className="preview-file-icon">{file.type.startsWith('audio/') ? <Music2 size={17} /> : file.type.startsWith('text/') ? <MessageSquare size={17} /> : <FileText size={17} />}</span><span className="min-w-0 flex-1"><strong>{file.name}</strong><small>{(file.size / 1024 / 1024).toFixed(1)} MB · Solo vista local</small></span><button type="button" aria-label={`Quitar ${file.name}`} onClick={() => setFiles((current) => current.filter((_, fileIndex) => fileIndex !== index))}><X size={16} /></button></li>)}</ul>}
-            <p className="preview-note">El flujo productivo conserva los archivos originales y valida su preparación antes de iniciar una auditoría.</p>
-            <div className="new-case-preview-actions"><a href="#/casos">Cancelar</a><Button disabled title="Requiere una sesión productiva para guardar evidencia">Guardar y ejecutar auditoría IA</Button></div>
-            <p className="text-right text-xs text-muted">Inicia sesión en producción para guardar este caso.</p>
-          </Panel>
-        </div>
-        <aside className="new-case-next-steps">
-          <div className="flex items-center justify-between gap-3"><h2 className="text-base font-semibold text-ink">Expedientes recientes</h2><a href="#/casos">Ver todos</a></div>
-          <div className="preview-recent-list">{recent.map((item) => <a key={item.id} href={`#/casos/${encodeURIComponent(item.id)}`}><div className="flex items-start justify-between gap-2"><strong>{localPreviewCaseLabel(item.id)}</strong><Badge tone={CASE_STATUS_TONE[item.status]}>{CASE_STATUS_LABELS[item.status]}</Badge></div><span>{item.studentIdentifier ?? 'Sin estudiante vinculado'}</span><small>Actualizado {formatDateTime(item.updatedAt)}</small></a>)}</div>
-          <Button variant="secondary" disabled title="La importación masiva no está disponible en este flujo">Importar lote masivo (CSV / JSON)</Button>
-        </aside>
-      </div>
+          )}
+        </Panel>
+      )}
     </div>
   );
 }

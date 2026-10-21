@@ -4,8 +4,36 @@ Using openrouter/deepseek/deepseek-r1:free model with API key from environment.
 Aider v0.86.2
 Model: openrouter/deepseek/deepseek-r1:free with diff edit format, prompt 
 cache, infinite output
-Git repo: .git with 386 files
+Git repo: .git with 397 files
 Repo-map: using 4096 tokens, auto refresh
+Repo-map can't include 
+C:\Users\IanEmilianoJarquinHe\Desktop\cancelaciones-ai\src\components\FlokzuImp
+ortPage.tsx
+Has it been deleted from the file system but not from git?
+Repo-map can't include 
+C:\Users\IanEmilianoJarquinHe\Desktop\cancelaciones-ai\src\server\flokzu-import
+.ts
+Has it been deleted from the file system but not from git?
+Repo-map can't include 
+C:\Users\IanEmilianoJarquinHe\Desktop\cancelaciones-ai\src\server\flokzu-multip
+art.ts
+Has it been deleted from the file system but not from git?
+Repo-map can't include 
+C:\Users\IanEmilianoJarquinHe\Desktop\cancelaciones-ai\src\server\flokzu-parser
+.ts
+Has it been deleted from the file system but not from git?
+Repo-map can't include 
+C:\Users\IanEmilianoJarquinHe\Desktop\cancelaciones-ai\tests\flokzu-assignment.
+test.ts
+Has it been deleted from the file system but not from git?
+Repo-map can't include 
+C:\Users\IanEmilianoJarquinHe\Desktop\cancelaciones-ai\tests\flokzu-links-persi
+stence.test.ts
+Has it been deleted from the file system but not from git?
+Repo-map can't include 
+C:\Users\IanEmilianoJarquinHe\Desktop\cancelaciones-ai\tests\flokzu-parser.test
+.ts
+Has it been deleted from the file system but not from git?
 Here are summaries of some files present in my git repository.
 Do not propose changes to these files, treat them as *read-only*.
 If you need to edit any of these files, ask me to *add them to the chat* first.
@@ -33,16 +61,6 @@ ${error.message}`)
 │      await checkFreshness()
 │    })
 │  },
-⋮
-
-scripts\contrast.mjs:
-⋮
-│function relativeLuminance(hex) {
-│  const [r, g, b] = toRgb(hex).map((channel) => {
-│    const c = channel / 255;
-│    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-│  });
-│  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 ⋮
 
 scripts\generate-policy.mjs:
@@ -154,17 +172,6 @@ src\components\LoginScreen.tsx:
 │  sessionExpired?: boolean;
 ⋮
 
-src\components\NewCasePanel.tsx:
-⋮
-│interface EvidenceRow {
-│  key: string;
-│  name: string;
-│  sizeBytes: number;
-│  status: 'pending' | 'uploading' | 'error';
-│  message?: string;
-│  category?: string;
-⋮
-
 src\components\OperationProgressDialog.tsx:
 ⋮
 │export function ModalShell({ title, onClose, children, variant = 'modal', 
@@ -218,6 +225,14 @@ src\components\dashboard\charts\ConfidenceBandsChart.tsx:
 │export interface ConfidenceBandsChartProps {
 │  data: Band[];
 │  /** Texto alternativo: qué mide y sobre cuántos dictámenes. */
+│  ariaLabel: string;
+⋮
+
+src\components\dashboard\charts\ConfidenceByEvidenceChart.tsx:
+⋮
+│export interface ConfidenceByEvidenceChartProps {
+│  data: Bucket[];
+│  /** Texto alternativo: qué compara y cuál es la lectura principal. */
 │  ariaLabel: string;
 ⋮
 
@@ -304,6 +319,7 @@ src\lib\api.ts:
 │   *
 ⋮
 │export interface FlokzuCaseData {
+│  fields?: Array<{ label: string; value: string }>;
 │  observations?: import('./flokzu-administrative.js').FlokzuObservation[];
 │  administrativeComments?: Array<{ label: string; value: string }>;
 │  academic: { campus: string | null; university: string | null; 
@@ -464,6 +480,23 @@ src\lib\dashboard-shared.ts:
 
 src\lib\flokzu-administrative.ts:
 ⋮
+│export interface FlokzuObservation {
+│  field: string;
+│  area: 'BACK_OFFICE' | 'HELPDESK' | 'ADMINISTRATIVE';
+│  original: string;
+│  text: string;
+│  externalCaseId: string;
+│  exportedAt: string | null;
+│  version: string;
+⋮
+│export function normalizeAdministrativeText(value: string): string {
+│  return value.replace(/_x000D_/gi, '\n').replace(/<br\s*\/?\s*>|<\/p>/gi, 
+'\n')
+│    .replace(/<[^>]*>/g, '').replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&')
+│    .replace(/&lt;/gi, '<').replace(/&gt;/gi, '>').replace(/&quot;/gi, '"')
+│    .replace(/\r\n?/g, '\n').replace(/[\t \u00a0]+/g, ' ').replace(/ *\n */g, 
+'\n').replace(/\n{3,}
+⋮
 │export function usefulAdministrativeText(value: string): boolean {
 │  return !/^(?:|99|sin dato|sin datos|n\/a|no aplica|pendiente|seguimiento|se 
 da seguimiento)[.! ]*
@@ -506,9 +539,7 @@ src\lib\useHashRoute.ts:
 │  | { name: 'new-case' } // #/nuevo
 │  | { name: 'cases' } // #/casos
 │  | { name: 'incidents' } // #/incidencias
-│  | { name: 'continuous-improvement' } // #/mejora-continua
 │  | { name: 'flokzu-review' } // #/revision-flokzu
-│  | { name: 'flokzu-import' } // #/importacion-tickets
 ⋮
 
 src\lib\usePolling.ts:
@@ -527,9 +558,6 @@ null): void {
 ⋮
 
 src\lib\useSession.ts:
-⋮
-│export type SessionStatus = 'loading' | 'anon' | 'authed';
-│
 ⋮
 │export interface UseSessionResult {
 │  status: SessionStatus;
@@ -614,17 +642,6 @@ src\server\cases.ts:
 ⋮
 │export type CaseCreatorRole = 'user' | 'coordinator' | 'manager';
 │
-⋮
-│export interface EvidenceRow {
-│  id: string;
-│  case_id: string;
-│  filename: string;
-│  mime_type: string;
-│  size_bytes: number;
-│  hash: string;
-│  storage_path: string;
-│  processing_status: EvidenceStatus;
-│  transcript_json: unknown;
 ⋮
 │export type AuditStatus = 'RUNNING' | 'COMPLETED' | 'ERROR';
 │
@@ -726,20 +743,6 @@ intento,
 por
 │   * el propio emisor o códigos de error (p. ej. `ZodError.issue.code`): NUNCA
 │   * contenido de la respuesta del modelo ni PII. Si no puede garantizarse, no
-⋮
-
-src\server\flokzu-parser.ts:
-⋮
-│export interface FlokzuCaseData {
-│  externalCaseId: string;
-│  studentIdentifier: string;
-│  studentName: string;
-│  academic: {
-│    campus: string | null;
-│    university: string | null;
-│    countryReported: string | null;
-│    program: string | null;
-│    level: string | null;
 ⋮
 
 src\server\http.ts:
@@ -909,6 +912,27 @@ tests\case-dimensions.test.ts:
 │  value: unknown;
 ⋮
 
+tests\dashboard-human-review-query.test.ts:
+⋮
+│async function caseRow(value = 1, test = false): Promise<void> {
+│  await db.query('INSERT INTO 
+cases(id,country,campus,responsible,guideline,is_test,external_case_i
+⋮
+│async function review(auditId = 11, final: 'APPROVE' | 'CHANGE' | null = 
+'APPROVE'): Promise<void> 
+│  await db.query('INSERT INTO 
+case_reviews(id,case_id,audit_id,result,coordinator_decision,coordina
+│    [id(21), id(1), id(auditId), 'BAJA', final, final === 'CHANGE' ? 
+'CANCELACION_VENTA' : null, fi
+│}
+│async function comparison(status = 'COMPLETED', agrees = true, at = 
+'2026-10-12T12:00:00Z'): Promis
+│  await db.query('INSERT INTO 
+case_comparisons(id,case_review_id,audit_id,status,provider,model,cre
+│    [id(31), id(21), id(11), status, 'openrouter', 'test/model', at, status 
+=== 'COMPLETED' ? { agr
+⋮
+
 tests\evidence-mime-detection.test.ts:
 ⋮
 │function makeFetchMock(status = 201) {
@@ -921,22 +945,6 @@ tests\evidence-mime-detection.test.ts:
 │          filename: 'captura.png',
 │          mimeType: 'image/jpeg',
 │          sizeBytes: JPEG_BYTES.length,
-⋮
-
-tests\flokzu-parser.test.ts:
-⋮
-│async function sampleWorkbook(rows: Array<Record<string, ExcelJS.CellValue>> =
-[]): Promise<Buffer>
-│  const workbook = new ExcelJS.Workbook();
-│  const sheet = workbook.addWorksheet('FLOKZU-CaVe-2026-10-12');
-│  sheet.addRow(['FLOKZU', null, null, '2026-10-12', 'fixture sintético', 
-'CaVe']);
-│  sheet.addRow(headers);
-│  for (const [index, values] of rows.entries()) {
-│    const row = new Array<ExcelJS.CellValue>(headers.length).fill(null);
-│    for (const [name, value] of Object.entries(values)) {
-│      const column = headers.indexOf(name);
-│      if (column >= 0) row[column] = value;
 ⋮
 
 tests\helpers\fake-database.ts:

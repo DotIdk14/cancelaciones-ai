@@ -1,5 +1,4 @@
 import type { CaseBucket, CaseStage, CaseBucketCounts } from './case-workflow';
-import type { ManualCaseMatch, ImportLinkResolution } from '../shared/case-links';
 import type { StudentHistory } from './student-history';
 import type { AuditLifecycle } from './audit-lifecycle';
 // =============================================================================
@@ -120,6 +119,7 @@ export interface CaseDetail {
 }
 
 export interface FlokzuCaseData {
+  fields?: Array<{ label: string; value: string }>;
   observations?: import('./flokzu-administrative.js').FlokzuObservation[];
   administrativeComments?: Array<{ label: string; value: string }>;
   academic: { campus: string | null; university: string | null; countryReported: string | null; program: string | null; level: string | null; block: string | null; programKey: string | null; entryDate: string | null };
@@ -128,47 +128,9 @@ export interface FlokzuCaseData {
   evidenceReferences: Array<{ label: string; value: string; url?: string }>;
 }
 
-export interface FlokzuImportPreview {
-  batchId: string;
-  exportedAt: string | null;
-  totalRows: number;
-  validRows: number;
-  newRows: number;
-  changedRows: number;
-  unchangedRows: number;
-  errorRows: number;
-  unassignedRows: number;
-  activeRows: number;
-  administrativeRows: number;
-  issues: Array<{ rowNumber: number; externalCaseId: string | null; message: string }>;
-  assignments: Array<{ userId: string; name: string | null; count: number }>;
-  rows: Array<{ manualMatch?: ManualCaseMatch; rowNumber: number; externalCaseId: string; studentIdentifier: string; studentName: string; action: 'NEW' | 'UPDATE' | 'UNCHANGED'; assignmentUserId: string | null; assignmentName: string | null; canAutoAssign: boolean; classification: import('../shared/flokzu-review').FlokzuClassification; reason: string; previousStatus: string | null; nextStatus: string | null; previousTask: string | null; nextTask: string | null; previousFinalized: string | null; nextFinalized: string | null }>;
-}
-
-export interface FlokzuImportHistoryItem {
-  id: string;
-  status: 'PREVIEWED' | 'COMPLETED' | 'EXPIRED';
-  totalRows: number;
-  validRows: number;
-  newRows: number;
-  changedRows: number;
-  unchangedRows: number;
-  errorRows: number;
-  issues: FlokzuImportPreview['issues'];
-  result: { linked?: number; created?: number; updated?: number; unchanged?: number; errors?: number; unassigned?: number } | null;
-  createdAt: string;
-  completedAt: string | null;
-}
-
-export interface FlokzuImportedCase {
-  id: string;
-  externalCaseId: string;
-  studentIdentifier: string | null;
-  studentName: string | null;
-  status: CaseStatus;
-  assignedTo: string | null;
-  assignedName: string | null;
-  createdAt: string;
+export interface FlokzuPortalTicket { identifier: string; canImport: boolean; existing?: { caseId: string; status: string; canUpdate: boolean; auditId: string | null; evidenceCount?: number } }
+export function lookupFlokzuStudent(studentIdentifier: string): Promise<FlokzuPortalTicket[]> {
+  return request<{ tickets: FlokzuPortalTicket[] }>('/api/cases?' + new URLSearchParams({ view: 'flokzu-student', studentIdentifier }), {}, [200]).then(data => data.tickets);
 }
 
 export interface CaseSummaryPage {
@@ -652,44 +614,13 @@ export async function listCasePage(options: {
   return request<CaseSummaryPage>(`/api/cases?${params.toString()}`, {}, [200]);
 }
 
-export async function createCase(studentIdentifier?: string, studentName?: string, requestId?: string, options: { externalCaseId?: string; assignedTo?: string; separateRequest?: boolean } = {}): Promise<CaseSummary> {
-  const data = await request<{ case: CaseSummary }>(
-    '/api/cases',
-    {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', ...(requestId ? { 'x-idempotency-key': requestId } : {}) },
-      body: JSON.stringify({
-        ...(studentIdentifier ? { studentIdentifier } : {}),
-        ...(studentName ? { studentName } : {}),
-        ...options,
-      }),
-    },
-    [200, 201],
-  );
-  return data.case;
-}
-
-export async function previewFlokzuImport(file: File): Promise<FlokzuImportPreview> {
-  const form = new FormData();
-  form.set('file', file);
-  const response = await safeFetch('/api/cases', { method: 'POST', body: form, timeoutMs: 60_000 });
-  if (response.status !== 201) throw await readError(response);
-  return (await responseJson<{ preview: FlokzuImportPreview }>(response)).preview;
-}
-
-export async function confirmFlokzuImport(batchId: string, resolutions: ImportLinkResolution[] = []): Promise<NonNullable<FlokzuImportHistoryItem['result']>> {
-  const data = await request<{ result: NonNullable<FlokzuImportHistoryItem['result']> }>('/api/cases', {
-    method: 'PATCH',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ batchId, resolutions }),
-    timeoutMs: 60_000,
-  }, [200]);
-  return data.result;
-}
-
-export async function getFlokzuImportHistory(importOffset = 0): Promise<{ imports: FlokzuImportHistoryItem[]; assignmentOptions: Array<{ userId: string; name: string | null }>; cases: FlokzuImportedCase[]; casesNextOffset: number | null }> {
-  const params = new URLSearchParams({ view: 'imports', importOffset: String(importOffset) });
-  return request(`/api/cases?${params.toString()}`, {}, [200]);
+export async function createCase(studentIdentifier: string, externalCaseId: string, requestId: string, assignedTo?: string): Promise<CaseSummary & { existingAuditId?: string | null }> {
+  const data = await request<{ case: CaseSummary; existingAuditId?: string | null }>('/api/cases', {
+    method: 'POST', timeoutMs: 285_000,
+    headers: { 'content-type': 'application/json', 'x-idempotency-key': requestId },
+    body: JSON.stringify({ studentIdentifier, externalCaseId, ...(assignedTo ? { assignedTo } : {}) }),
+  }, [200, 201]);
+  return { ...data.case, existingAuditId: data.existingAuditId };
 }
 
 export async function assignImportedCase(caseId: string, assignedTo: string | null): Promise<void> {

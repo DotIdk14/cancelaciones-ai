@@ -9,46 +9,35 @@ import {
   created,
   methodNotAllowed,
   readJsonBody,
-  readRawBodyLimited,
   idempotencyKey,
 } from '../../src/server/http.js';
 import { createServerClient } from '../../src/server/insforge.js';
-import { caseOwnedBy, countCaseBuckets, countCaseSummaryStatuses, createCase, listCaseCreatorOptions, listCaseSummaries, listCaseSummaryPage, type CaseCreatorRole } from '../../src/server/cases.js';
+import { caseOwnedBy, countCaseBuckets, countCaseSummaryStatuses, listCaseCreatorOptions, listCaseSummaries, listCaseSummaryPage, type CaseCreatorRole } from '../../src/server/cases.js';
 import { caseToSummary, deriveWorkflowState } from '../../src/server/dto.js';
 import { assertCaseWriteCapability } from '../../src/server/auth.js';
 import { CASE_STATUSES } from '../../src/skills/audit/types.js';
 import { capabilitiesForRole } from '../../src/server/capabilities.js';
-import { createFlokzuPreview, confirmFlokzuImport, listFlokzuImportData } from '../../src/server/flokzu-import.js';
+import { describeExistingPortalCases } from '../../src/server/flokzu-existing.js';
+import { createCaseFromPortal } from '../../src/server/flokzu-acquisition.js';
+import { lookupPortalTickets, StudentNumberSchema, TicketIdSchema } from '../../src/server/flokzu-portal.js';
 import { assertFlokzuCoordinator, listFlokzuReview, getFlokzuTicket, decideFlokzuTicket, FlokzuDecisionSchema } from '../../src/server/flokzu-review.js';
-import { FLOKZU_MAX_FILE_BYTES } from '../../src/server/flokzu-parser.js';
-import { parseSingleXlsxMultipart } from '../../src/server/flokzu-multipart.js';
 import { z as zod } from 'zod';
 
+export const maxDuration = 300;
 export const config = { api: { bodyParser: false } };
 
 // GET  /api/cases            → { cases: CaseSummary[] }
-// POST /api/cases { studentIdentifier?, studentName? } → 201 { case: CaseSummary }
+// POST /api/cases { studentIdentifier, externalCaseId, assignedTo? } → 201 { case: CaseSummary }
 //
 // El alcance de la lectura lo aplica `listCaseSummaries` desde las capacidades
 // del rol (los tres roles autenticados pueden consultar todos los casos).
 //
 // El cuerpo es ESTRICTO: admite identificación, CaVe, elección de responsable y
-// confirmación de solicitud distinta. Un `created_by`, `role`, `actor` o `isTest`
+// ticket real verificado en Flokzu. Un `created_by`, `role`, `actor` o `isTest`
 // no puede falsificar la propiedad ni el rol. El autor SIEMPRE es `req.auth`.
 //
 // Los booleanos no se coaccionan y la marca de prueba se administra aparte.
-const CreateCaseBodySchema = z
-  .object({
-    // `unknown()` a propósito: el identificador conserva el comportamiento
-    // previo (se trimea y se recorta a 200; un valor no-string se ignora), pero
-    // la clave sigue estando permitida para que `.strict()` no la rechace.
-    studentIdentifier: z.unknown().optional(),
-    studentName: z.unknown().optional(),
-    externalCaseId: z.string().trim().regex(/^CaVe-\d{1,16}$/i).transform(value => 'CaVe-' + value.slice(5)).optional(),
-    assignedTo: z.string().uuid().optional(),
-    separateRequest: z.boolean().optional(),
-  })
-  .strict();
+const CreateCaseBodySchema = z.object({ studentIdentifier: StudentNumberSchema, externalCaseId: TicketIdSchema, assignedTo: z.string().uuid().optional() }).strict();
 
 const CaseCursorSchema = z.object({
   offset: z.number().int().min(0).max(10_000_000),
@@ -87,6 +76,14 @@ export default handleRoute(async (req, res) => {
     return;
   }
   if (req.method === 'GET') {
+    if (req.query.view === 'flokzu-student') {
+      assertCaseWriteCapability(req.auth!);
+      const parsed = StudentNumberSchema.safeParse(req.query.studentIdentifier);
+      if (!parsed.success) throw new ApiError(400, 'VALIDATION_ERROR', 'La matrícula debe contener exactamente 9 dígitos.');
+      const tickets = await lookupPortalTickets(parsed.data);
+      ok(res, { tickets: await describeExistingPortalCases(createServerClient(), req.auth!, parsed.data, tickets) });
+      return;
+    }
     if (req.query.view === 'student-options') {
       if (!capabilitiesForRole(req.auth!.role).canReadAllCases) throw new ApiError(403, 'AUTH_ERROR', 'No tienes permiso para consultar expedientes.');
       const parsed = z.string().trim().min(1).max(200).safeParse(req.query.studentIdentifier);
@@ -112,18 +109,7 @@ export default handleRoute(async (req, res) => {
       } else ok(res, await listFlokzuReview(createServerClient(), req.auth!, filters));
       return;
     }
-    if (req.query.view === 'imports') {
-      if (!capabilitiesForRole(req.auth!.role).canImportCases) {
-        throw new ApiError(403, 'AUTH_ERROR', 'No tienes permiso para consultar importaciones de Flokzu.');
-      }
-      const rawImportOffset = req.query.importOffset;
-      if (rawImportOffset !== undefined && (Array.isArray(rawImportOffset) || !/^\d{1,7}$/.test(rawImportOffset))) {
-        throw new ApiError(400, 'VALIDATION_ERROR', 'importOffset debe ser un entero no negativo.');
-      }
-      const client = createServerClient();
-      ok(res, await listFlokzuImportData(client, rawImportOffset === undefined ? 0 : Number(rawImportOffset)));
-      return;
-    }
+
     const client = createServerClient();
     const rawLimit = req.query.limit;
     if (rawLimit !== undefined) {
@@ -304,16 +290,8 @@ export default handleRoute(async (req, res) => {
   }
 
   if (req.method === 'POST') {
-    if ((req.headers['content-type'] ?? '').toLowerCase().startsWith('multipart/form-data')) {
-      if (!capabilitiesForRole(req.auth!.role).canImportCases) {
-        throw new ApiError(403, 'AUTH_ERROR', 'Solo un Coordinador puede importar tickets de Flokzu.');
-      }
-      const body = await readRawBodyLimited(req, FLOKZU_MAX_FILE_BYTES + 64 * 1024);
-      const uploaded = parseSingleXlsxMultipart(req.headers['content-type'] as string, body);
-      const preview = await createFlokzuPreview(createServerClient(), req.auth!, uploaded.buffer);
-      created(res, { preview });
-      return;
-    }
+    assertCaseWriteCapability(req.auth!);
+    if (!(req.headers['content-type'] ?? '').toLowerCase().startsWith('application/json')) throw new ApiError(415, 'VALIDATION_ERROR', 'La creación requiere consultar una matrícula en Flokzu. La importación Excel fue retirada.');
     // Autorización ANTES de leer el cuerpo: un Gerente (solo lectura global) no
     // crea casos y no debe llegar a validar ni a escribir. Es 403 y no 404 porque
     // el recurso (la colección de casos) está en alcance; lo que falta es permiso.
@@ -334,19 +312,11 @@ export default handleRoute(async (req, res) => {
       throw new ApiError(400, 'VALIDATION_ERROR', `VALIDATION_ERROR: ${detail}`);
     }
 
-    const rawIdentifier = typeof parsed.data.studentIdentifier === 'string' ? parsed.data.studentIdentifier.trim() : '';
-    const studentIdentifier = rawIdentifier.length > 0 ? rawIdentifier.slice(0, 200) : null;
-    const rawName = typeof parsed.data.studentName === 'string' ? parsed.data.studentName.trim() : '';
-    const studentName = rawName.length > 0 ? rawName.slice(0, 200) : null;
-
-    const client = createServerClient();
     const requestId = idempotencyKey(req);
-    if (parsed.data.assignedTo && !capabilitiesForRole(req.auth!.role).canImportCases) {
-      throw new ApiError(403, 'AUTH_ERROR', 'Solo el Coordinador elige otro responsable.');
-    }
-    const row = await createCase(client, studentIdentifier, studentName, req.auth!.sub, requestId,
-      { externalCaseId: parsed.data.externalCaseId, assignedTo: parsed.data.assignedTo, separateRequest: parsed.data.separateRequest });
-    created(res, { case: caseToSummary({ ...row, evidence: [] }, capabilitiesForRole(req.auth!.role).canManageCases) });
+    if (!requestId) throw new ApiError(400, 'VALIDATION_ERROR', 'Falta la identidad de la solicitud. Vuelve a consultar la matrícula.');
+    const row = await createCaseFromPortal(createServerClient(), req.auth!, parsed.data, requestId);
+    const importedAssets = (row.flokzu_data as { acquisition?: { assets?: unknown[] } } | null)?.acquisition?.assets;
+    created(res, { case: caseToSummary({ ...row, evidence: [{ count: Array.isArray(importedAssets) ? importedAssets.length : 0 }] }, capabilitiesForRole(req.auth!.role).canManageCases), existingAuditId: row.existingAuditId ?? null });
     return;
   }
 
@@ -358,14 +328,6 @@ export default handleRoute(async (req, res) => {
       ok(res, { result: await decideFlokzuTicket(createServerClient(), req.auth!, parsed.data) });
       return;
     }
-    if (!capabilitiesForRole(req.auth!.role).canImportCases) {
-      throw new ApiError(403, 'AUTH_ERROR', 'Solo un Coordinador puede confirmar importaciones de Flokzu.');
-    }
-    const parsed = zod.object({ batchId: zod.string().uuid(), resolutions: zod.array(zod.object({ externalCaseId: zod.string().regex(/^CaVe-\d{1,16}$/), caseId: zod.string().uuid().nullable() }).strict()).max(10000).optional() }).strict().safeParse(await readJsonBody(req));
-    if (!parsed.success) throw new ApiError(400, 'VALIDATION_ERROR', 'La vista previa indicada no es válida.');
-    const result = await confirmFlokzuImport(createServerClient(), req.auth!, parsed.data.batchId, parsed.data.resolutions);
-    ok(res, { result });
-    return;
   }
 
   methodNotAllowed(req, res, 'GET, POST, PATCH');
