@@ -273,7 +273,7 @@ export function deriveCaseCycleStartDate(result: AuditResult): AuditResult {
 }
 
 export function parseAiAuditAssessment(raw: unknown, context: AssessmentValidationContext = {}): AiAuditAssessment {
-  return parseWithInvalidAiError(AiAuditAssessmentSchema, raw, context);
+  return parseWithInvalidAiError(AiAuditAssessmentSchema, withDefaultObservations(raw), context);
 }
 
 export function parseAuditResult(raw: unknown, context: AssessmentValidationContext = {}): AuditResult {
@@ -388,7 +388,18 @@ function validateContactAttemptsMinimum(assessment: ValidatedAssessment): void {
     throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.procedureChecks 5.2: un conteo no comprobable debe tener status NO_DETERMINABLE');
   }
   if (assessment.audit.result !== 'TICKET_RECHAZADO') {
-    throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.result: no se puede dictaminar mientras 5.2 esté incumplido o no sea determinable; usa TICKET_RECHAZADO');
+    // El segundo intento necesita saber cuál fue el estado y los conteos que
+    // dispararon la regla, no sólo que `audit.result` está desalineado. Estos
+    // valores ya están restringidos a estados cerrados y conteos enteros/
+    // NO_DETERMINABLE; no contienen texto libre del modelo.
+    const failure = new ApiError(
+      502,
+      'INVALID_AI_RESPONSE',
+      `INVALID_AI_RESPONSE: audit.result: no se puede dictaminar mientras 5.2 esté incumplido o no sea determinable; usa TICKET_RECHAZADO. Check ${check.status}, llamadas ${observedCalls}, interacciones escritas ${observedWritten}`,
+    );
+    failure.failurePath = 'audit.result';
+    failure.sanitizedDetail = `section 5.2 check ${check.status} calls ${observedCalls} written ${observedWritten}. Use TICKET_RECHAZADO`;
+    throw failure;
   }
   const blockingAttempts = assessment.audit.missingEvidence.find((item) =>
     item.blocking
@@ -697,10 +708,16 @@ function parseWithInvalidAiError<T>(schema: z.ZodType<T>, raw: unknown, context:
     if (error instanceof z.ZodError) {
       const details = error.issues.slice(0, 5).map((issue) => `${issue.path.join('.')}: ${issue.message}`);
       const wrapped = new ApiError(502, 'INVALID_AI_RESPONSE', `INVALID_AI_RESPONSE: ${details.join(' | ')}`);
-      // Atestiguamiento: SÓLO códigos de issue. El `issue.message` de Zod puede
-      // ecoar valores de la respuesta ("Unrecognized key(s) in object: '...'",
-      // "received X"), así que nunca se copia a observabilidad.
-      wrapped.sanitizedDetail = error.issues.slice(0, 3).map((issue) => issue.code).join(' | ');
+      // Atestiguamiento: sólo ruta estructural y código de Zod. El `issue.message`
+      // puede ecoar valores de la respuesta (por ejemplo claves desconocidas o
+      // contenido de texto libre), así que no se copia a observabilidad.
+      wrapped.sanitizedDetail = error.issues.slice(0, 3).map((issue) => {
+        const path = issue.path.length > 0 ? issue.path.join('.') : 'response';
+        const typeMismatch = issue.code === 'invalid_type'
+          ? ` expected ${issue.expected} received ${issue.received}`
+          : '';
+        return `${path} ${issue.code}${typeMismatch}`;
+      }).join(' | ');
       throw wrapped;
     }
     if (error instanceof ApiError) {
@@ -713,8 +730,23 @@ function parseWithInvalidAiError<T>(schema: z.ZodType<T>, raw: unknown, context:
       // logs. Si necesitan dejar detalle, lo atestiguan ellos mismos en su
       // propio constructor — es lo que hace `invalidEvidenceReference` en
       // `execute.ts`, que es el ÚNICO sitio que sabe qué ruta y qué id fallaron.
-      error.sanitizedDetail = error.message;
+      error.sanitizedDetail ??= error.message;
     }
     throw error;
   }
+}
+
+/**
+ * `audit.observations` es una lista descriptiva no obligatoria para la
+ * clasificación. Si el modelo la omite, su forma canónica es `[]`; otras
+ * formas explícitamente incorrectas (por ejemplo `null` o un objeto) siguen
+ * fallando con Zod para no reinterpretar contenido.
+ */
+function withDefaultObservations(raw: unknown): unknown {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
+  const record = raw as Record<string, unknown>;
+  if (!record.audit || typeof record.audit !== 'object' || Array.isArray(record.audit)) return raw;
+  const audit = record.audit as Record<string, unknown>;
+  if (Object.hasOwn(audit, 'observations')) return raw;
+  return { ...record, audit: { ...audit, observations: [] } };
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { AuditResultSchema, parseAuditResult } from '../src/skills/audit/schema';
+import { AuditResultSchema, parseAiAuditAssessment, parseAuditResult } from '../src/skills/audit/schema';
+import { sanitizeAttemptDiagnostic } from '../src/server/audit-observability';
 import { ApiError } from '../src/server/http';
 
 describe('snapshot de comentarios de área en el resultado', () => {
@@ -325,6 +326,14 @@ describe('parseAuditResult (schema único)', () => {
     };
 
     expect(parseInvalid(invalid)).toContain('no se puede dictaminar mientras 5.2');
+    try {
+      parseAuditResult(invalid);
+    } catch (error) {
+      const failure = error as ApiError;
+      const diagnostic = sanitizeAttemptDiagnostic({ format: 'json_schema', failureCategory: 'SCHEMA_VALIDATION_ERROR', path: failure.failurePath, detail: failure.sanitizedDetail });
+      expect(diagnostic?.path).toBe('audit.result');
+      expect(diagnostic?.detail).toContain('section 5.2 check NO_ACREDITADO calls 15 written 6');
+    }
   });
 
   /**
@@ -614,6 +623,19 @@ describe('AuditResultSchema (serialización)', () => {
 });
 
 describe('detalle saneado atestiguado (parseWithInvalidAiError)', () => {
+  it('una nota auxiliar omitida se normaliza, pero un objeto explícito sigue fallando', () => {
+    const { model: _model, usage: _usage, ...assessment } = validResult;
+    const { observations: _observations, ...audit } = assessment.audit;
+    expect(parseAiAuditAssessment({ ...assessment, audit }).audit.observations).toEqual([]);
+    try {
+      parseAiAuditAssessment({ ...assessment, audit: { ...audit, observations: { privateText: 'no publicar' } } });
+      throw new Error('Debió rechazar observations como objeto');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ApiError);
+      expect((error as ApiError).sanitizedDetail).toContain('expected array received object');
+      expect((error as ApiError).sanitizedDetail).not.toContain('privateText');
+    }
+  });
   it('un fallo de forma de Zod adjunta solo códigos de issue, nunca valores de la respuesta', () => {
     let caught: unknown;
     try {

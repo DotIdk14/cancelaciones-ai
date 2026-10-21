@@ -22,3 +22,13 @@ it('oculta con 404 una auditoría que pertenece a otro ticket', async () => { se
 it('oculta con 404 un identificador inexistente', async () => { expect((await read(auditId)).status).toBe(404); });
 it('rechaza un identificador inválido antes de consultar la auditoría', async () => { seed(); expect((await read('../invalido')).status).toBe(400); });
 it('requiere sesión para leer un dictamen histórico', async () => { seed(); expect((await read(auditId, false)).status).toBe(401); });
+
+it.each(['ERROR', 'RUNNING', 'COMPLETED', null] as const)('deriva el permiso de reintento ajeno del Coordinador para estado %s', async status => {
+  if (status) db.seed('audits', { id: auditId, case_id: caseId, status, result_json: status === 'COMPLETED' ? validAuditResult : null, provider: 'openrouter', model: 'test', created_at: new Date().toISOString(), deadline_at: new Date(Date.now() + 300_000).toISOString() });
+  const output = { statusCode: 200, body: '', setHeader: vi.fn(), end(value: string) { this.body = value; } };
+  await caseHandler({ method: 'GET', headers: {}, query: { caseId }, auth: fakeAuthContext('coordinator', { sub: 'coordinator-other' }) } as unknown as ApiRequest, output as unknown as ApiResponse);
+  expect(output.statusCode, output.body).toBe(200);
+  const data = JSON.parse(output.body);
+  expect(data.case.canWrite).toBe(false);
+  expect(data.canRunAudit).toBe(status === 'ERROR');
+});

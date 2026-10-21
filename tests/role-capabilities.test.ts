@@ -44,6 +44,7 @@ const CAPABILITIES = [
   'canImportCases',
   'canValidateAuditFeedback',
   'canManageAiLab',
+  'canRetryFailedAudits',
 ] as const;
 
 describe('mapeo rol -> capacidades (derivado en el servidor)', () => {
@@ -57,6 +58,7 @@ describe('mapeo rol -> capacidades (derivado en el servidor)', () => {
       canImportCases: false,
       canValidateAuditFeedback: false,
       canManageAiLab: false,
+      canRetryFailedAudits: false,
     });
   });
 
@@ -71,6 +73,7 @@ describe('mapeo rol -> capacidades (derivado en el servidor)', () => {
       canImportCases: true,
       canValidateAuditFeedback: true,
       canManageAiLab: false,
+      canRetryFailedAudits: true,
     });
   });
 
@@ -84,6 +87,7 @@ describe('mapeo rol -> capacidades (derivado en el servidor)', () => {
       canImportCases: false,
       canValidateAuditFeedback: false,
       canManageAiLab: true,
+      canRetryFailedAudits: false,
     });
   });
 

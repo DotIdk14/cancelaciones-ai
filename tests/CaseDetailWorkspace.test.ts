@@ -384,7 +384,7 @@ describe('CaseDetailPage — gating por rol (solo presentación)', () => {
     // Sin guardar notas de área.
     expect(screen.queryByRole('button', { name: /guardar/i })).toBeNull();
     // El modo de solo lectura se declara en la revisión y en el dictamen.
-    expect(screen.getByText(/solo lectura:.*ejecutar/i)).toBeTruthy();
+    expect(screen.getByText(/Expediente en modo de consulta/i)).toBeTruthy();
     expect(screen.getByText(/solo lectura: la revisión del asesor/i)).toBeTruthy();
   });
 

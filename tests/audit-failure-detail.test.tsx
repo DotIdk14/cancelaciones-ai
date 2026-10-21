@@ -10,7 +10,7 @@
 // =============================================================================
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { CaseDetailPage } from '../src/components/CaseDetailPage';
 import type { CaseDetailResponse } from '../src/lib/api';
 
@@ -158,7 +158,7 @@ describe('Panel de error del dictamen: detalle técnico del fallo', () => {
     render(<CaseDetailPage caseId="case-1" />);
 
     // El ErrorCard de siempre sigue estando (es la explicación en lenguaje llano).
-    expect(await screen.findByText(/referencias de evidencia inexistentes/i)).toBeTruthy();
+    expect(await screen.findByText(/La IA citó una evidencia que no corresponde al expediente/i)).toBeTruthy();
     expect(screen.queryByRole('region', { name: /detalle técnico del fallo/i })).toBeNull();
   });
 
@@ -168,5 +168,19 @@ describe('Panel de error del dictamen: detalle técnico del fallo', () => {
 
     // El panel aparece con lo que hay, sin romper por campos ausentes.
     expect(await screen.findByRole('region', { name: /detalle técnico del fallo/i })).toBeTruthy();
+  });
+
+  it('el Coordinador puede reintentar sin propiedad ni edición de evidencias', async () => {
+    const data = buildCase(erroredAudit(null));
+    data.case.canWrite = false;
+    data.case.status = 'ERROR';
+    data.canRunAudit = true;
+    stubFetch(data);
+    render(<CaseDetailPage caseId="case-1" role="coordinator" />);
+    const retry = await screen.findByRole('button', { name: 'Reintentar auditoría' });
+    expect(retry.hasAttribute('disabled')).toBe(false);
+    fireEvent.click(retry);
+    await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([url, init]) => String(url).endsWith('/audit') && init?.method === 'POST')).toBe(true));
+    expect(screen.queryByText('Agregar notas ahora')).toBeNull();
   });
 });

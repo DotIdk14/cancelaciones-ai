@@ -35,6 +35,8 @@ export interface AuthCapabilities {
   readonly canValidateAuditFeedback: boolean;
   /** Puede administrar versiones, datasets, experimentos y promoción del auditor. */
   readonly canManageAiLab: boolean;
+  /** Puede reintentar auditorías fallidas de cualquier caso, nunca rehacer un dictamen válido. */
+  readonly canRetryFailedAudits: boolean;
 }
 
 function freezeCapabilities(caps: AuthCapabilities): AuthCapabilities {
@@ -51,6 +53,7 @@ export const DENY_ALL_CAPABILITIES: AuthCapabilities = freezeCapabilities({
   canImportCases: false,
   canValidateAuditFeedback: false,
   canManageAiLab: false,
+  canRetryFailedAudits: false,
 });
 
 const CAPABILITIES_BY_ROLE: Record<AppRole, AuthCapabilities> = {
@@ -64,6 +67,7 @@ const CAPABILITIES_BY_ROLE: Record<AppRole, AuthCapabilities> = {
     canImportCases: false,
     canValidateAuditFeedback: false,
     canManageAiLab: false,
+    canRetryFailedAudits: false,
   }),
   // Coordinador: consulta global y puede cerrar la etapa del Coordinador; la
   // API exige propiedad para cambiar la resolución o agregar comentarios.
@@ -76,6 +80,7 @@ const CAPABILITIES_BY_ROLE: Record<AppRole, AuthCapabilities> = {
     canImportCases: true,
     canValidateAuditFeedback: true,
     canManageAiLab: false,
+    canRetryFailedAudits: true,
   }),
   // Gerente: lectura global y mantenimiento administrativo acotado.
   manager: freezeCapabilities({
@@ -87,6 +92,7 @@ const CAPABILITIES_BY_ROLE: Record<AppRole, AuthCapabilities> = {
     canImportCases: false,
     canValidateAuditFeedback: false,
     canManageAiLab: true,
+    canRetryFailedAudits: false,
   }),
 };
 

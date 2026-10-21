@@ -1,7 +1,7 @@
-import { handleRoute, json, methodNotAllowed, ok, requiredUuid } from '../../../../src/server/http.js';
+import { ApiError, handleRoute, json, methodNotAllowed, ok, requiredUuid } from '../../../../src/server/http.js';
 import { createServerClient } from '../../../../src/server/insforge.js';
-import { assertCaseWriteCapability } from '../../../../src/server/auth.js';
-import { assertCaseOwner, assertCaseNotFinalized, getScopedCaseOr404 } from '../../../../src/server/cases.js';
+import { assertCaseWriteCapability, capabilitiesForRole } from '../../../../src/server/auth.js';
+import { assertCaseOwner, assertCaseNotFinalized, getScopedCaseOr404, latestAudit } from '../../../../src/server/cases.js';
 import { getAuditForPolling, runAudit } from '../../../../src/server/audit-service.js';
 import { assertAuditMayRun } from '../../../../src/server/review-locks.js';
 
@@ -28,8 +28,15 @@ export default handleRoute(async (req, res) => {
 
   const caseRow = await getScopedCaseOr404(client, caseId, req.auth!);
   // Lanzar la auditoría ES una mutación: el gerente solo lee.
-  assertCaseWriteCapability(req.auth!);
-  assertCaseOwner(caseRow, req.auth!);
+  if (capabilitiesForRole(req.auth!.role).canRetryFailedAudits) {
+    const previous = await latestAudit(client, caseId);
+    if (previous?.status !== 'ERROR') {
+      throw new ApiError(409, 'VALIDATION_ERROR', 'El Coordinador solo puede reintentar una auditoría que terminó con error.');
+    }
+  } else {
+    assertCaseWriteCapability(req.auth!);
+    assertCaseOwner(caseRow, req.auth!);
+  }
   await assertCaseNotFinalized(client, caseId);
   await assertAuditMayRun(client, caseId);
   const outcome = await runAudit(client, caseId, { userId: req.auth!.sub, correlationId: req.correlationId });

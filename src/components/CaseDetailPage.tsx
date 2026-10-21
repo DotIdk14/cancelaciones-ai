@@ -22,6 +22,7 @@ import {
 } from '../lib/labels';
 import { goToCases } from '../lib/useHashRoute';
 import { usePolling } from '../lib/usePolling';
+import { auditFailureMessage } from '../lib/audit-failure';
 import { AuditResultPanel } from './AuditResultPanel';
 import { AuditProgressSteps } from './AuditProgressSteps';
 import { CaseReviewPanel } from './CaseReviewPanel';
@@ -104,7 +105,8 @@ function AuditFailureDetail({ attempts }: { attempts: FailureAttemptDetail[] }):
 
   return (
     <section aria-label="Detalle técnico del fallo" className="mt-3 rounded-xl border border-danger/30 bg-danger/5 p-3 text-sm">
-      <p className="font-semibold text-ink">Detalle técnico del fallo</p>
+      <details>
+      <summary className="cursor-pointer font-semibold text-ink">Ver detalle técnico del fallo</summary>
       <ul className="mt-2 space-y-2">
         {failed.map((attempt, index) => (
           <li key={`${attempt.failureCategory}-${index}`}>
@@ -123,13 +125,14 @@ function AuditFailureDetail({ attempts }: { attempts: FailureAttemptDetail[] }):
               {attempt.detail !== null && (
                 <>
                   <dt className="font-mono text-xs text-danger/80">Detalle</dt>
-                  <dd className="font-mono text-xs text-ink">{attempt.detail}</dd>
+                  <dd className="min-w-0 break-words font-mono text-xs text-ink">{attempt.detail}</dd>
                 </>
               )}
             </dl>
           </li>
         ))}
       </ul>
+      </details>
     </section>
   );
 }
@@ -248,14 +251,14 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
           (comment.area === 'BACK_OFFICE' || comment.area === 'HELPDESK') &&
           comment.comment.trim() !== '',
       );
-    if (!hasQuickComments && !skipNotesPrompt) {
+    if (detail?.case.canWrite === true && !hasQuickComments && !skipNotesPrompt) {
       setShowNotesPrompt(true);
       return;
     }
     setShowNotesPrompt(false);
     setProgressOpen(true);
     void auditWorkflow.recoverAudit();
-  }, [quickComments, showNotesPrompt, skipNotesPrompt, auditWorkflow]);
+  }, [detail?.case.canWrite, quickComments, showNotesPrompt, skipNotesPrompt, auditWorkflow]);
 
   const evidences = detail?.evidences ?? EMPTY_EVIDENCES;
   const audit = detail?.audit ?? null;
@@ -271,7 +274,7 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
   const canUploadEvidence = !readOnly && detail?.canUploadEvidence !== false;
   const canDeleteEvidence = !readOnly && detail?.canDeleteEvidence !== false;
   const canEditAuditContext = !readOnly && detail?.canEditAuditContext !== false;
-  const canRunAudit = !readOnly && detail?.canRunAudit !== false;
+  const canRunAudit = detail?.canRunAudit === true || (!readOnly && detail?.canRunAudit !== false);
   const reviewAuditValue = review === null ? null : detail?.audits.find((item) => item.id === review.auditId)?.result ?? null;
   const reviewAuditResult: AuditResultType | null =
     AUDIT_RESULTS.find((result) => result === reviewAuditValue) ?? null;
@@ -352,6 +355,7 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
   // Mientras hay un flujo de auditoría activo manda el error local (POST fallido);
   // si no, se muestra el error que dejó registrado el servidor.
   const displayError = auditError ?? (auditBusy ? null : serverError);
+  const failureMessage = displayError ? auditFailureMessage(displayError.category, audit?.providerMetadata?.openrouterAttempts ?? [], displayError.message) : '';
   const result = audit?.status === 'COMPLETED' && detail?.auditIsCurrent !== false ? audit.resultJson : null;
   const findingCount = (result?.facts.length ?? 0) + (result?.audit.procedureChecks.length ?? 0);
   // ---------------------------------------------------------------- cronología
@@ -500,7 +504,7 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
             onSubmitted={() => void load()}
           />
   </>);
-  const auditAction = !readOnly && (
+  const auditAction = (!readOnly || canRunAudit) && (
               <Button id={AUDIT_TRIGGER_ID} variant="primary" className="shrink-0" onClick={() => { setContextOpen(false); void maybeRunAudit(); }} disabled={!canAudit || !canRunAudit} loading={auditBusy} loadingLabel="Consultando auditoría">
                 {auditPhase === 'waiting' ? 'Esperando transcripción…' : auditPhase === 'running' || auditPhase === 'starting' ? 'Auditando con IA…' : caseIsError ? 'Reintentar auditoría' : shouldShowReauditLabel ? 'Volver a auditar' : 'Auditar con IA'}
               </Button>
@@ -522,7 +526,7 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
   const auditControls = (<>
             {readOnly && (
               <p role="status" className="text-xs text-muted">
-                Solo lectura: no tienes permiso para ejecutar ni modificar este expediente.
+                {canRunAudit ? 'Puedes reintentar la auditoría fallida. Las evidencias y los datos del caso siguen en modo de consulta.' : 'Expediente en modo de consulta.'}
               </p>
             )}
 
@@ -586,7 +590,7 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
         { label: 'Evidencias disponibles', status: auditPhase === 'waiting' ? 'current' : allReady ? 'done' : hasFailedEvidence ? 'error' : 'pending', detail: auditPhase === 'waiting' ? `Esperando ${pendingEvidence.length} evidencia(s)` : undefined },
         { label: 'Preparación, evaluación y validación de IA', status: auditError ? 'error' : auditBusy && auditPhase !== 'waiting' ? 'current' : audit?.status === 'COMPLETED' ? 'done' : 'pending' },
         { label: 'Dictamen vigente guardado', status: !auditBusy && !auditError && detail.auditIsCurrent !== false && audit?.status === 'COMPLETED' ? 'done' : 'pending' },
-      ]} error={auditError} onClose={() => setProgressOpen(false)} onRetry={readOnly ? undefined : () => void auditWorkflow.recoverAudit()} onReport={() => setReportOpen(true)}><AuditFailureDetail attempts={audit?.providerMetadata?.openrouterAttempts ?? []} /></OperationProgressDialog>}
+      ]} error={auditError ? { ...auditError, message: failureMessage || auditError.message } : null} onClose={() => setProgressOpen(false)} onRetry={canRunAudit && !auditBusy && allReady ? () => void auditWorkflow.recoverAudit() : undefined} onReport={() => setReportOpen(true)}><AuditFailureDetail attempts={audit?.providerMetadata?.openrouterAttempts ?? []} /></OperationProgressDialog>}
       {reportOpen && <ReportProblemModal initialDescription={`Problema durante la auditoría. Código: ${auditError?.category ?? audit?.errorCategory ?? 'sin código'}. Referencia: ${auditError?.correlationId ?? audit?.id ?? 'sin referencia'}.`} module="Expedientes" context={{ route: `#/casos/${caseId}`, correlationId: auditError?.correlationId }} onClose={() => setReportOpen(false)} />}
       {loadError !== null && (
         <ErrorCard message={loadError.message} category={loadError.category} onRetry={() => void load()} />
@@ -804,10 +808,14 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
               <p className="mt-3 text-sm text-danger">
                 {hasFailedEvidence
                   ? 'Hay evidencias con error. Elimínalas y vuelve a subir los archivos originales antes de auditar.'
-                  : 'La operación anterior falló. Revisa las evidencias y vuelve a auditar; el servidor controla los reintentos y la cuota.'}
+                  : canRunAudit ? 'La auditoría anterior terminó con error. Puedes reintentar desde este expediente.' : 'La auditoría anterior terminó con error. El Asesor responsable o un Coordinador pueden reintentarla.'}
               </p>
             )}
-            {displayError !== null && <ErrorCard title={`Auditoría con error · ${errorCategoryLabel(displayError.category)}`} category={displayError.category} message={displayError.message} onRetry={readOnly ? undefined : () => { setProgressOpen(true); void auditWorkflow.recoverAudit(); }} retrying={auditBusy} />}
+            {displayError !== null && <>
+              <ErrorCard title="No se completó la auditoría" category={displayError.category} message={failureMessage} onRetry={canRunAudit && allReady ? () => { setProgressOpen(true); void auditWorkflow.recoverAudit(); } : undefined} retrying={auditBusy} />
+              <p className="mt-2 break-all text-xs text-muted">Referencia: {displayError.correlationId ?? audit?.providerMetadata?.correlationId ?? audit?.id ?? 'no disponible'}</p>
+              <Button variant="secondary" className="mt-3" onClick={() => setReportOpen(true)}>Reportar problema</Button>
+            </>}
             {/* El `ErrorCard` explica el error en lenguaje llano; este panel da
                 el "dónde" y el "qué": sin él, un `INVALID_EVIDENCE_REFERENCE` sólo
                 decía que el modelo falló, no qué campo ni qué evidencia. */}

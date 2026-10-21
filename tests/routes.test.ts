@@ -32,8 +32,10 @@ import {
   listAudits,
   resetStore,
   seedCase,
+  seedAudit,
   seedEvidence,
 } from './helpers/fake-store';
+import { validAuditResult } from './fixtures/audit-result';
 
 // --- Persistencia: store en memoria de `cases`/`evidence`/`audits` -----------
 vi.mock('../src/server/cases', async () => {
@@ -86,6 +88,47 @@ vi.mock('../src/server/openrouter', async (importOriginal) => {
 });
 
 const mockedCall = vi.mocked(callOpenRouterAudit);
+
+describe('reintento de auditoría fallida por capacidad y estado', () => {
+  beforeEach(() => {
+    setTestEnv();
+    resetStore();
+    seedCase({ id: 'case-1', created_by: 'other-owner' });
+    seedEvidence({ id: 'ev-1', processing_status: 'READY', content: 'Evidencia sintética' });
+    mockedCall.mockReset();
+    mockedCall.mockResolvedValue({ parsed: validAuditResult, model: 'test-model', usage: validAuditResult.usage, attempts: [] });
+  });
+
+  it('el Coordinador reintenta un caso ajeno ERROR y conserva el intento fallido', async () => {
+    seedAudit({ id: 'failed-original', status: 'ERROR' });
+    const request = () => makeApiRequest({ method: 'POST', query: { caseId: 'case-1' }, auth: fakeAuthContext('coordinator') });
+    const res = makeApiResponse();
+    await auditHandler(request(), res);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(mockedCall).toHaveBeenCalledTimes(1);
+    expect(listAudits().find(row => row.id === 'failed-original')?.status).toBe('ERROR');
+    const second = makeApiResponse();
+    await auditHandler(request(), second);
+    expect(second.statusCode).toBe(409);
+    expect(mockedCall).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([undefined, 'COMPLETED', 'RUNNING'] as const)('el Coordinador no inicia otra auditoría con estado %s', async status => {
+    if (status) seedAudit({ status });
+    const res = makeApiResponse();
+    await auditHandler(makeApiRequest({ method: 'POST', query: { caseId: 'case-1' }, auth: fakeAuthContext('coordinator') }), res);
+    expect(res.statusCode).toBe(409);
+    expect(mockedCall).not.toHaveBeenCalled();
+  });
+
+  it.each([['user', 404], ['manager', 403]] as const)('rol %s no reintenta el caso ajeno aunque esté en ERROR', async (role, expected) => {
+    seedAudit({ status: 'ERROR' });
+    const res = makeApiResponse();
+    await auditHandler(makeApiRequest({ method: 'POST', query: { caseId: 'case-1' }, auth: fakeAuthContext(role) }), res);
+    expect(res.statusCode).toBe(expected);
+    expect(mockedCall).not.toHaveBeenCalled();
+  });
+});
 
 /** Fake de ServerResponse: res ES el objeto observable (statusCode compartido). */
 function makeApiResponse(): ApiResponse & { statusCode: number; body: string } {

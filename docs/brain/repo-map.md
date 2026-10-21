@@ -4,10 +4,8 @@ Using openrouter/deepseek/deepseek-r1:free model with API key from environment.
 Aider v0.86.2
 Model: openrouter/deepseek/deepseek-r1:free with diff edit format, prompt 
 cache, infinite output
-Git repo: ..\..\..\..\Desktop\cancelaciones-ai\.git\worktrees\cancelaciones-ai1
-with 304 files
+Git repo: .git with 384 files
 Repo-map: using 4096 tokens, auto refresh
-Initial repo scan can be slow in larger repos, but only happens once.
 Here are summaries of some files present in my git repository.
 Do not propose changes to these files, treat them as *read-only*.
 If you need to edit any of these files, ask me to *add them to the chat* first.
@@ -54,20 +52,6 @@ scripts\generate-policy.mjs:
 │    .replace(/\u2028/g, '\\u2028')
 │    .replace(/\u2029/g, '\\u2029');
 ⋮
-│function fullText(sections) {
-│  const parts = [
-│    `PROCEDIMIENTO ${manifest.code} — ${manifest.title} — VERSIÓN 
-${manifest.version}`,
-│    `Fuente oficial: ${manifest.sourceFile} (SHA-256: 
-${manifest.sourceSha256})`,
-│    '',
-│  ];
-│  for (const section of sections) {
-│    parts.push(`## Sección ${section.id} — ${section.title} (páginas 
-${section.pages.join(', ') || 
-│    parts.push(section.content);
-│    parts.push('');
-⋮
 
 src\components\AppDock.tsx:
 ⋮
@@ -84,6 +68,13 @@ src\components\AppHeader.tsx:
 │  onReportProblem?: () => void;
 ⋮
 
+src\components\AuditProgressSteps.tsx:
+⋮
+│export interface AuditProgressStage {
+│  label: string;
+│  status: 'done' | 'attention' | 'current' | 'pending';
+⋮
+
 src\components\CaseListPage.tsx:
 ⋮
 │export function CaseListPage({ canReadAllCases = false, canFinalizeAnyCase = 
@@ -94,6 +85,11 @@ false }: { canReadAllC
 canFinalizeAnyCase={canFinalizeAnyCase} />
 │    </div>
 │  );
+⋮
+
+src\components\ContinuousImprovementPage.tsx:
+⋮
+│type Tab = 'feedback' | 'examples' | 'versions' | 'lab';
 ⋮
 
 src\components\CycleStartDateCapture.tsx:
@@ -160,14 +156,6 @@ src\components\LoginScreen.tsx:
 
 src\components\NewCasePanel.tsx:
 ⋮
-│interface EvidenceEntry {
-│  /** Identidad de la fila, estable entre renders. Es lo que se quita. */
-│  key: string;
-│  file: File;
-│  status: 'pending' | 'uploading' | 'error';
-│  message?: string;
-│  category?: string;
-⋮
 │interface EvidenceRow {
 │  key: string;
 │  name: string;
@@ -179,19 +167,18 @@ src\components\NewCasePanel.tsx:
 
 src\components\OperationProgressDialog.tsx:
 ⋮
-│export function ModalShell({ title, onClose, children }: { title: string; 
-onClose: () => void; chil
+│export function ModalShell({ title, onClose, children, variant = 'modal', 
+subtitle, open = true, no
 │  const ref = useRef<HTMLDialogElement>(null);
 │  const titleId = useId();
+│  const isContextOverlay = className.split(' ').includes('case-context-menu');
 │  useEffect(() => {
-│    const dialog = ref.current;
-│    const previous = document.activeElement as HTMLElement | null;
-│    if (dialog && typeof dialog.showModal === 'function') dialog.showModal();
-│    else dialog?.setAttribute('open', '');
-│    return () => { dialog?.close?.(); previous?.focus(); };
-│  }, []);
-│  return <dialog ref={ref} aria-labelledby={titleId} onCancel={(event) => { 
-event.preventDefault();
+│    if (!open || !nonModal) return;
+│    const outside = (event: PointerEvent): void => {
+│      const target = event.target as Node;
+│      if (ref.current?.contains(target) || (target instanceof Element && 
+target.closest('[aria-cont
+│      // Los diálogos modales de la capa superior conservan su interacción.
 ⋮
 
 src\components\PdfCanvas.tsx:
@@ -207,23 +194,6 @@ src\components\PdfCanvas.tsx:
 │  url: string;
 │  /** Nombre legible, para los lectores de pantalla y el error. */
 │  filename: string;
-⋮
-
-src\components\dashboard\QualityPage.tsx:
-⋮
-│function HumanReviewNotice({ report }: { report: QualityReport | null }): 
-ReactNode {
-│  const message = report?.humanReview.message;
-│  if (message === undefined) return null;
-│
-│  return (
-│    <div className="flex flex-wrap items-start justify-between gap-3 
-rounded-2xl border border-line
-│      <div className="flex min-w-0 items-start gap-3">
-│        <Info size={18} aria-hidden="true" className="mt-0.5 shrink-0 
-text-muted" />
-│        <p className="max-w-3xl text-sm text-muted">{message}</p>
-│      </div>
 ⋮
 
 src\components\dashboard\RecentCasesTable.tsx:
@@ -279,7 +249,7 @@ src\components\dashboard\charts\EvolutionChart.tsx:
 │        <BarChart
 │          data={data}
 │          margin={{ top: 8, right: 8, bottom: 0, left: -18 }}
-│          title="Evolución de casos por grupo de resolución"
+│          title="Auditorías por día y resultado"
 ⋮
 │function timelineSummary(data: TimelinePoint[]): string {
 │  const total = data.reduce(
@@ -287,11 +257,11 @@ src\components\dashboard\charts\EvolutionChart.tsx:
 point.insufficient,
 │    0,
 │  );
-│  const conceded = data.reduce((sum, point) => sum + point.granted, 0);
-│  const ruling = data.reduce((sum, point) => sum + point.needsRuling, 0);
-│  const rejected = data.reduce((sum, point) => sum + point.rejected, 0);
-│  const insufficient = data.reduce((sum, point) => sum + point.insufficient, 
-0);
+│  const approved = data.reduce((sum, point) => sum + point.granted, 0);
+│  const needsReview = data.reduce((sum, point) => sum + point.needsRuling, 0);
+│  const declined = data.reduce((sum, point) => sum + point.rejected, 0);
+│  const missingEvidence = data.reduce((sum, point) => sum + 
+point.insufficient, 0);
 │  const detalle = data
 ⋮
 
@@ -310,9 +280,6 @@ src\components\ui.tsx:
 
 src\lib\api.ts:
 ⋮
-│export type ResolutionSource = 'HUMAN' | 'AI';
-│
-⋮
 │export type CoordinatorDecision = 'APPROVE' | 'CHANGE';
 │
 ⋮
@@ -321,6 +288,7 @@ src\lib\api.ts:
 │
 │export interface CaseSummary {
 │  id: string;
+│  externalCaseId?: string | null;
 │  status: CaseStatus;
 │  studentIdentifier: string | null;
 │  studentName?: string | null;
@@ -328,7 +296,6 @@ src\lib\api.ts:
 │  createdAt: string;
 │  updatedAt: string;
 │  /** Etapa humana derivada de case_reviews; no corresponde a cases.status. */
-│  workflowState?: WorkflowState;
 ⋮
 │export type CaseCreatorRole = 'user' | 'coordinator' | 'manager';
 │
@@ -344,16 +311,16 @@ src\lib\api.ts:
 │   * Fecha de inicio de clases que aportó una persona, con su procedencia.
 │   *
 ⋮
-│export interface FlokzuImportPreview {
-│  batchId: string;
-│  exportedAt: string | null;
-│  totalRows: number;
-│  validRows: number;
-│  newRows: number;
-│  changedRows: number;
-│  unchangedRows: number;
-│  errorRows: number;
-│  unassignedRows: number;
+│export interface FlokzuCaseData {
+│  observations?: import('./flokzu-administrative.js').FlokzuObservation[];
+│  administrativeComments?: Array<{ label: string; value: string }>;
+│  academic: { campus: string | null; university: string | null; 
+countryReported: string | null; pro
+│  procedure: { policyReported: string | null; motive: string | null; 
+description: string | null; re
+│  operations: { salesChannelReported?: string | null; currentTask: string | 
+null; statusReported: s
+│  evidenceReferences: Array<{ label: string; value: string; url?: string }>;
 ⋮
 │export interface Evidence {
 │  id: string;
@@ -426,10 +393,11 @@ estricto.
 │  audit: AuditDetail | null;
 │  audits: AuditHistoryItem[];
 │  review: CaseReviewDto | null;
-│  comparison: ComparisonDto | null;
-│  effectiveResolution: EffectiveResolution | null;
-│  /** Si el último dictamen completado usa evidencias y datos actuales. */
-│  auditIsCurrent?: boolean | null;
+│  /** Revisiones humanas ligadas a cada auditoría del expediente, recientes 
+primero. */
+│  reviews?: CaseReviewDto[];
+│  canUploadEvidence?: boolean;
+│  canDeleteEvidence?: boolean;
 ⋮
 │export interface ErrorState {
 │  category: string;
@@ -448,23 +416,6 @@ correlationId?: string) {
 │    this.category = category;
 │    this.status = status;
 ⋮
-│export class SessionExpiredError extends ApiError {
-│  constructor() {
-│    super('UNAUTHENTICATED', 'Tu sesión expiró. Vuelve a iniciar sesión.', 
-401);
-│    this.name = 'SessionExpiredError';
-│  }
-⋮
-│interface RequestOptions {
-│  method?: string;
-│  headers?: Record<string, string>;
-│  body?: BodyInit;
-│  timeoutMs?: number;
-⋮
-│interface SafeFetchOptions extends RequestOptions {
-│  /** Si es false, un 401 no dispara refresh automático. */
-│  retryAuth?: boolean;
-⋮
 │export type IncidentModule = 'Resumen' | 'Calidad' | 'IA y Costos' | 
 'Expedientes' | 'Nueva auditor
 │export type IncidentStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED';
@@ -481,6 +432,39 @@ correlationId?: string) {
 │  events: TicketEventDto[];
 ⋮
 
+src\lib\audit-lifecycle.ts:
+│export type AuditLifecycle =
+⋮
+
+src\lib\case-workflow.ts:
+⋮
+│export type CaseBucket = (typeof CASE_BUCKETS)[number]['value'];
+⋮
+│interface WorkflowSummary {
+│  status: string;
+│  evidenceCount: number;
+│  workflowState?: string;
+│  auditIsCurrent?: boolean | null;
+│  effectiveResolution?: { source: string } | null;
+⋮
+
+src\lib\dashboard-metrics-contracts.ts:
+⋮
+│export type EvaluationState = 'AGREEMENT' | 'DISAGREEMENT' | 'PENDING_ADVISOR'
+| 'PENDING_COORDINAT
+│
+│export interface ActivityMetrics {
+│  executions: number;
+│  completed: number;
+│  failed: number;
+│  running: number;
+│  uniqueCases: number;
+│  uniqueStudents?: number;
+│  uniqueCaveTickets?: number;
+│  reaudits: number;
+│  retried: number;
+⋮
+
 src\lib\dashboard-shared.ts:
 ⋮
 │export type DashboardFilters = {
@@ -488,6 +472,7 @@ src\lib\dashboard-shared.ts:
 │  to: string;
 │  result: string | null;
 │  status: string | null;
+│  evaluation?: string | null;
 ⋮
 
 src\lib\layout.ts:
@@ -499,20 +484,11 @@ src\lib\layout.ts:
 │  return isDashboardRoute(name) ? 'max-w-6xl' : 'max-w-5xl';
 ⋮
 
-src\lib\useEvidenceUpload.ts:
+src\lib\student-history.ts:
+│export type RelationKind =
 ⋮
-│export type UploadStatus = 'uploading' | 'done' | 'error';
-│
-│export interface UploadItem {
-│  id: string;
-│  /** El archivo real, para poder reconciliar la fila al reintentar. */
-│  file: File;
-│  name: string;
-│  sizeBytes: number;
-│  status: UploadStatus;
-│  message?: string;
-│  category?: string;
-│  correlationId?: string;
+
+src\lib\useEvidenceUpload.ts:
 ⋮
 │export interface EvidenceUploadController {
 │  items: UploadItem[];
@@ -536,6 +512,8 @@ src\lib\useHashRoute.ts:
 │  | { name: 'new-case' } // #/nuevo
 │  | { name: 'cases' } // #/casos
 │  | { name: 'incidents' } // #/incidencias
+│  | { name: 'continuous-improvement' } // #/mejora-continua
+│  | { name: 'flokzu-review' } // #/revision-flokzu
 │  | { name: 'flokzu-import' } // #/importacion-tickets
 ⋮
 
@@ -555,9 +533,6 @@ null): void {
 ⋮
 
 src\lib\useSession.ts:
-⋮
-│export type SessionStatus = 'loading' | 'anon' | 'authed';
-│
 ⋮
 │export interface UseSessionResult {
 │  status: SessionStatus;
@@ -631,6 +606,11 @@ src\server\capabilities.ts:
 │  readonly canWriteOwnedCases: boolean;
 │  readonly canManageCases: boolean;
 │  readonly canImportCases: boolean;
+│  /** Puede validar feedback humano, sin adquirir permisos de cierre de casos.
+*/
+│  readonly canValidateAuditFeedback: boolean;
+│  /** Puede administrar versiones, datasets, experimentos y promoción del 
+auditor. */
 ⋮
 
 src\server\cases.ts:
@@ -656,21 +636,33 @@ src\server\cases.ts:
 src\server\dashboard-contracts.ts:
 ⋮
 │export interface DashboardMetricRow {
+│  execution_kind?: 'AUDIT' | 'COMPARISON';
+│  call_metrics?: Array<{model: string; cost: number | null}> | null;
+│  usage_is_aggregate?: boolean;
+│  is_reaudit?: boolean;
+│  cost_incomplete?: boolean;
+│  tokens_incomplete?: boolean;
 │  id: string;
 │  case_id: string;
 │  case_status: CaseStatus;
-│  student_identifier: string | null;
-│  audit_status: AuditStatus;
-│  model: string;
-│  provider: string;
-│  latency_ms: number | null;
-│  error_category: ErrorCategory | null;
 ⋮
 
-src\server\dashboard-costs.ts:
+src\server\dashboard-responsibles.ts:
 ⋮
-│export type CostGranularity = 'day' | 'week' | 'month';
-│
+│export async function responsibleNames(client: InsForgeClient, values: 
+Array<string | null>): Promi
+│  const ids = [...new Set(values.filter((value): value is string => typeof 
+value === 'string' && /^
+│  const names: Record<string, string> = {};
+│  for (let offset = 0; offset < ids.length; offset += 10) {
+│    await Promise.all(ids.slice(offset, offset + 10).map(async id => {
+│      try {
+│        const { data } = await client.auth.getProfile(id);
+│        const profile = data as { name?: unknown; profile?: { name?: unknown }
+| null } | null;
+│        const name = profile?.name ?? profile?.profile?.name;
+│        if (typeof name === 'string' && name.trim()) names[id] = 
+name.trim().slice(0, 200);
 ⋮
 
 src\server\derived.ts:
@@ -739,6 +731,20 @@ por
 │   * contenido de la respuesta del modelo ni PII. Si no puede garantizarse, no
 ⋮
 
+src\server\flokzu-parser.ts:
+⋮
+│export interface FlokzuCaseData {
+│  externalCaseId: string;
+│  studentIdentifier: string;
+│  studentName: string;
+│  academic: {
+│    campus: string | null;
+│    university: string | null;
+│    countryReported: string | null;
+│    program: string | null;
+│    level: string | null;
+⋮
+
 src\server\http.ts:
 ⋮
 │export interface ApiRequest extends IncomingMessage {
@@ -756,13 +762,6 @@ tests). */
 ⋮
 │export type ApiResponse = ServerResponse;
 │
-⋮
-│export interface CookieOptions {
-│  maxAgeSeconds: number;
-│  httpOnly?: boolean;
-│  secure?: boolean;
-│  sameSite?: 'Lax' | 'Strict' | 'None';
-│  path?: string;
 ⋮
 
 src\server\incidents.ts:
@@ -782,10 +781,28 @@ src\server\pdf.ts:
 │    useWorkerFetch: false,
 │    isEvalSupported: false,
 │    disableFontFace: true,
+│    standardFontDataUrl,
 │  }).promise;
 │
 │  try {
-│    const pages: string[] = [];
+⋮
+
+src\shared\case-links.ts:
+│export interface ManualCaseMatch {
+⋮
+│export interface ImportLinkResolution { externalCaseId: string; caseId: string
+| null }
+
+src\shared\flokzu-review.ts:
+⋮
+│export type FlokzuClassification = typeof FLOKZU_CLASSIFICATIONS[number];
+│export type FlokzuReviewState = 'OPEN' | 'CLOSED' | 'REACTIVATED' | 'PENDING';
+⋮
+│export interface AdministrativeData {
+│  operations: { currentTask: string | null; statusReported: string | null; 
+finalizedReported: strin
+│  procedure: { motive: string | null; description: string | null };
+│  administrativeComments?: Array<{ label: string; value: string }>;
 ⋮
 
 src\skills\audit\procedure-v5.ts:
@@ -824,20 +841,6 @@ src\skills\audit\types.ts:
 ⋮
 │export type ErrorCategory = (typeof ERROR_CATEGORIES)[number];
 │
-⋮
-│export interface AuditSkillInput {
-│  caseId: string;
-│  studentIdentifier: string | null;
-│  evidences: EvidenceInputItem[];
-│  /**
-│   * Contexto de otras áreas (Back Office / HelpDesk) que SÍ entra al 
-expediente.
-│   *
-│   * `comment` llega YA cercado con `wrapUntrusted`; el Skill solo lo inserta
-│   * como bloque y lo snapshottea en el resultado. `undefined` y `[]` 
-significan
-│   * lo mismo para el expediente (no hay contexto), pero el snapshot 
-distingue:
 ⋮
 │export type AreaCommentScope = (typeof AREA_COMMENT_SCOPES)[number];
 │
@@ -881,19 +884,15 @@ src\skills\sanitize.ts:
 │export function sanitizeTagDelimiters(text: string): string {
 │  return text.replace(/</g, '\uFF1C').replace(/>/g, '\uFF1E');
 ⋮
-│export function sanitizeFenceDelimiters(text: string): string {
-│  return text.replace(/===/g, '= =');
-⋮
 │function stripControlChars(text: string): string {
 │  // eslint-disable-next-line no-control-regex
 │  return text.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '');
 ⋮
-│export function wrapUntrustedInline(label: string, content: string): string {
-│  const safe = 
-stripControlChars(sanitizeFenceDelimiters(sanitizeTagDelimiters(content)))
-│    .replace(/\s*\n\s*/g, ' ')
-│    .trim();
-│  return `${label}: ${safe.length > 0 ? safe : '(vacío)'}`;
+
+tests\assignment-linking.test.ts:
+⋮
+│type Case = { id: string; assigned_to: string | null; created_by: string; 
+external_case_id: string 
 ⋮
 
 tests\auth-smoke.test.ts:
@@ -913,14 +912,6 @@ tests\case-dimensions.test.ts:
 │  value: unknown;
 ⋮
 
-tests\dashboard-human-review-query.test.ts:
-⋮
-│interface QueryResult {
-│  data: Row[] | null;
-│  error: unknown;
-│  count: number | null;
-⋮
-
 tests\evidence-mime-detection.test.ts:
 ⋮
 │function makeFetchMock(status = 201) {
@@ -937,15 +928,15 @@ tests\evidence-mime-detection.test.ts:
 
 tests\flokzu-parser.test.ts:
 ⋮
-│async function sampleWorkbook(rows: Array<Record<string, string>> = []): 
-Promise<Buffer> {
+│async function sampleWorkbook(rows: Array<Record<string, ExcelJS.CellValue>> =
+[]): Promise<Buffer>
 │  const workbook = new ExcelJS.Workbook();
 │  const sheet = workbook.addWorksheet('FLOKZU-CaVe-2026-10-12');
 │  sheet.addRow(['FLOKZU', null, null, '2026-10-12', 'fixture sintético', 
 'CaVe']);
 │  sheet.addRow(headers);
 │  for (const [index, values] of rows.entries()) {
-│    const row = new Array<string | null>(headers.length).fill(null);
+│    const row = new Array<ExcelJS.CellValue>(headers.length).fill(null);
 │    for (const [name, value] of Object.entries(values)) {
 │      const column = headers.indexOf(name);
 │      if (column >= 0) row[column] = value;
@@ -957,14 +948,14 @@ tests\helpers\fake-database.ts:
 │
 │class FakeQuery implements PromiseLike<QueryResult> {
 │  private readonly filters: Array<[string, unknown, 'eq' | 'is']> = [];
+│  private readonly notNullFilters: string[] = [];
 │  private readonly orders: Array<[string, boolean]> = [];
 │  private limitCount: number | null = null;
+│  private rangeStart = 0;
+│  private rangeEnd: number | null = null;
 │
 │  constructor(
 │    private readonly db: FakeDatabaseImpl,
-│    private readonly table: string,
-│    private readonly op: Op,
-│    private readonly payload: Row[] | null = null,
 ⋮
 │class FakeDatabaseImpl {
 │  private readonly tables = new Map<string, Row[]>();
@@ -987,6 +978,19 @@ tests\helpers\fake-database.ts:
 │  /**
 │   * Siembra una fila CRUDO, sin pasar por el cliente ni por una función de
 │   * producción.
+⋮
+
+tests\historical-audit-read.test.ts:
+⋮
+│async function read(id: string, authenticated = true) {
+│  const output = { statusCode: 200, body: '', setHeader: vi.fn(), end(value: 
+string) { this.body = 
+│  await caseHandler({ method: 'GET', headers: {}, query: { caseId, auditId: id
+}, ...(authenticated
+│  return { status: output.statusCode, payload: JSON.parse(output.body) };
+│}
+│function seed(ownerId = caseId) { db.seed('audits', { id: auditId, case_id: 
+ownerId, status: 'COMPL
 ⋮
 
 tests\model-capabilities.test.ts:

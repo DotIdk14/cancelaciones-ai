@@ -184,11 +184,15 @@ export default handleRoute(async (req, res) => {
   );
   const canDeleteEvidence = ownsWritableCase && (reviews.length === 0 || auditVersionUnreviewed);
   const canEditAuditContext = ownsWritableCase && reviews.length === 0;
-  const canRunAudit = ownsWritableCase && (
+  const auditReviewAllowsRun = (
     reviews.length === 0 || (
       reviews[0]?.result === 'EVIDENCIA_INSUFICIENTE' &&
       auditIsCurrent !== true
     )
+  );
+  const auditCapabilities = capabilitiesForRole(req.auth!.role);
+  const canRunAudit = auditReviewAllowsRun && !hasCoordinatorDecision && (
+    auditCapabilities.canRetryFailedAudits ? audit?.status === 'ERROR' : ownsWritableCase
   );
 
   ok(res, {

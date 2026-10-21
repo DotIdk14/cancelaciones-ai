@@ -42,6 +42,8 @@ Tres roles persistidos en `app_memberships.role` (vocabulario cerrado, `CHECK` e
 
 Los tres roles pueden leer el expediente completo, incluidas evidencias y comentarios. El Coordinador puede aprobar o cambiar la resolución final y agregar un comentario en cualquier caso; la resolución del Asesor permanece preservada. Los comentarios por área siguen sujetos a propiedad según `AREA_COMMENTS_ARE_WRITABLE_BY_OWNER_ONLY`.
 
+`canRetryFailedAudits` se concede solo al Coordinador: permite `POST /audit` en cualquier caso cuyo último intento esté en `ERROR`, conservando el historial. No permite iniciar auditorías sin intento previo, rehacer una completada ni duplicar una en curso; tampoco omite los bloqueos de revisión/finalización ni las cuotas. La capacidad `canRunAudit` del detalle se deriva en el servidor de esos mismos permisos y estados, independientemente de `case.canWrite`.
+
 La autorización se decide SIEMPRE con `capabilitiesForRole(role)`, nunca con un `if (role === 'user')` repartido por los endpoints: preguntar "¿TIENE la capacidad?" y no "¿el rol es exactamente este?" es lo que evita congelar el vocabulario en cada guard. Rol desconocido, `null` o `undefined` → `DENY_ALL_CAPABILITIES` (fail-closed). Los dos guards de casos son `assertCaseWriteCapability` (capacidad antes que propiedad: un Gerente no muta ni su propio caso) y `assertCaseOwner` (propiedad: un caso ajeno es `404`).
 
 **La frontera NO es la RLS.** El servidor lee y escribe con el cliente administrativo (`project_admin`, BYPASSRLS): para él las políticas no aplican y `created_by` no restringe nada. Por eso el alcance y los permisos se resuelven en código (`getScopedCaseOr404` + los guards) y la RLS queda como defensa en profundidad ante una fuga de cookie.

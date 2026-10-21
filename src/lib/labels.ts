@@ -439,6 +439,7 @@ export const ERROR_CATEGORY_MESSAGES: Record<string, string> = {
 };
 
 export const ERROR_CATEGORY_LABELS: Record<string, string> = {
+  PROVIDER_BAD_REQUEST: 'Solicitud rechazada por el proveedor',
   UPLOAD_ERROR: 'Error de subida',
   TRANSCRIPTION_ERROR: 'Error de transcripción',
   AI_PROVIDER_ERROR: 'Error del proveedor de IA',
