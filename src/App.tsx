@@ -61,10 +61,6 @@ const IncidentsPage = lazy(async () => ({
   default: (await import('./components/IncidentsPage')).IncidentsPage,
 }));
 
-const ContinuousImprovementPage = lazy(async () => ({
-  default: (await import('./components/ContinuousImprovementPage')).ContinuousImprovementPage,
-}));
-
 /**
  * Estado de carga del chunk del dashboard. Usa las mismas primitivas que el
  * resto de la app (`Panel` + `Spinner`) para no romper la rejilla visual: si
@@ -132,8 +128,6 @@ function renderRoute(
       return <AiCostsPage />;
     case 'incidents':
       return <IncidentsPage previewOnly={previewOnly} />;
-    case 'continuous-improvement':
-      return <ContinuousImprovementPage capabilities={capabilities} previewOnly={previewOnly} />;
     case 'flokzu-review':
       return <FlokzuReviewPage previewOnly={previewOnly} />;
     case 'flokzu-import':
@@ -160,7 +154,6 @@ function Shell({
   const [reportOpen, setReportOpen] = useState(false);
   const restrictedRoute =
     (!capabilities.canReadAllCases && route.name === 'dashboard') ||
-    (route.name === 'continuous-improvement' && !capabilities.canReviewOwnCases && !capabilities.canValidateAuditFeedback && !capabilities.canManageAiLab) ||
     ((route.name === 'flokzu-import' || route.name === 'flokzu-review') && !capabilities.canImportCases) ||
     (route.name === 'quality' && !capabilities.canManageCases && !capabilities.canFinalizeAnyCase) ||
     (!capabilities.canManageCases && (route.name === 'ai-costs' || route.name === 'incidents'));
@@ -181,7 +174,7 @@ function Shell({
     const module = route.name === 'case' || route.name === 'cases' ? 'Expedientes'
       : route.name === 'quality' ? 'Calidad'
         : route.name === 'ai-costs' ? 'IA y Costos'
-        : route.name === 'new-case' ? 'Nueva auditoría' : route.name === 'incidents' ? 'Incidencias' : route.name === 'continuous-improvement' ? 'Mejora continua' : 'Resumen';
+        : route.name === 'new-case' ? 'Nueva auditoría' : route.name === 'incidents' ? 'Incidencias' : 'Resumen';
     const routePath = window.location.hash.split('?')[0]?.slice(0, 120) || '#/';
     const onError = (): void => {
       const correlationId = crypto.randomUUID();

@@ -63,6 +63,10 @@ function ticketDto<T extends { reporter_user_id?: string; events?: Array<{ autho
  */
 function requiredView(query: Record<string, QueryValue>): View {
   const value = query.view;
+  // Módulo cerrado para todos los roles: bloquear antes de leer datos o ejecutar acciones.
+  if (value === 'continuous-improvement') {
+    throw new ApiError(404, 'NOT_FOUND', 'Vista de dashboard no encontrada');
+  }
   if (typeof value !== 'string' || !VIEWS.includes(value as View)) {
     throw new ApiError(404, 'NOT_FOUND', 'Vista de dashboard no encontrada');
   }

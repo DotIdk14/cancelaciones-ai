@@ -21,7 +21,6 @@ export type AppRoute =
   | { name: 'new-case' } // #/nuevo
   | { name: 'cases' } // #/casos
   | { name: 'incidents' } // #/incidencias
-  | { name: 'continuous-improvement' } // #/mejora-continua
   | { name: 'flokzu-review' } // #/revision-flokzu
   | { name: 'flokzu-import' } // #/importacion-tickets
   | { name: 'case'; caseId: string }; // #/casos/:id
@@ -65,7 +64,8 @@ export function parseHash(hash: string): AppRoute {
     case 'incidencias':
       return { name: 'incidents' };
     case 'mejora-continua':
-      return { name: 'continuous-improvement' };
+      // El módulo está cerrado para todos los roles, también con un enlace guardado.
+      return { name: 'cases' };
     case 'revision-flokzu':
       return { name: 'flokzu-review' };
     case 'importacion-tickets':
