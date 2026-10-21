@@ -60,6 +60,7 @@ import {
   resolutionTone,
 } from '../lib/labels';
 import { usePolling } from '../lib/usePolling';
+import { PROCEDURE_SECTION_OPTIONS } from '../lib/procedure-sections';
 import { CoordinatorStage } from './CoordinatorReviewStage';
 import { Badge, Button, Chip, DataRow, ErrorCard, Panel, SectionTitle, Spinner } from './ui';
 
@@ -179,11 +180,6 @@ export function CaseReviewPanel({
   const commentLength = trimmed.length + tracePrefix.length;
   const commentValid = isValidReviewComment(commentLength);
   const lengthError = commentLength === 0 ? null : commentLengthError(commentLength);
-  const availableProcedureSections = Array.from(new Set([
-    ...(audit?.resultJson?.audit?.auditPath?.procedureSections ?? []),
-    ...(audit?.resultJson?.audit?.procedureChecks?.map((check) => check.procedureSection) ?? []),
-    ...(audit?.resultJson?.audit?.procedureSection ? [audit.resultJson.audit.procedureSection] : []),
-  ])).filter((section) => /^\d+(?:\.\d+)*$/.test(section)).sort((a, b) => a.localeCompare(b, 'es', { numeric: true }));
   const sending = phase === 'sending';
   // El comentario es OPCIONAL (el servidor lo acepta vacío); la resolución es lo
   // único obligatorio para registrar la etapa del Asesor.
@@ -412,11 +408,10 @@ export function CaseReviewPanel({
           {needsProcedureSection && <label htmlFor="asesor-procedure-section" className="mt-3 flex flex-col gap-1.5 text-sm font-semibold text-ink">
             Lineamiento V5 que fundamenta la diferencia <span className="font-normal text-danger">(obligatorio)</span>
             <select id="asesor-procedure-section" value={procedureSection} onChange={(event) => setProcedureSection(event.target.value)} disabled={sending} required className="rounded-lg border border-line bg-surface-2 px-3 py-2 font-normal text-ink">
-              <option value="">Selecciona una sección citada por la auditoría</option>
-              {availableProcedureSections.map((section) => <option key={section} value={section}>Sección {section}</option>)}
+              <option value="">Selecciona una sección del procedimiento V5</option>
+              {PROCEDURE_SECTION_OPTIONS.map((section) => <option key={section.value} value={section.value}>{section.label}</option>)}
             </select>
-            <span className="text-xs font-normal text-muted">La sección quedará registrada junto con la justificación de la revisión.</span>
-            {availableProcedureSections.length === 0 && <span role="alert" className="text-xs font-medium text-danger">La auditoría no contiene secciones V5 seleccionables; contacta al Coordinador antes de registrar una resolución distinta.</span>}
+            <span className="text-xs font-normal text-muted">Procedimiento GDM_GAM_PRD_MLG_003, versión 5. Puedes elegir una sección aunque la IA no la haya citado. Quedará registrada junto con la justificación de la revisión.</span>
           </label>}
         </fieldset>}
 

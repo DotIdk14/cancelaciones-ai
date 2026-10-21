@@ -188,7 +188,7 @@ describe('confirmación de finalización de auditoría', () => {
     expect(calls).toHaveLength(0);
   });
 
-  it('exige elegir un lineamiento citado por la auditoría cuando se cambia la resolución', () => {
+  it('exige elegir un lineamiento oficial cuando se cambia la resolución', () => {
     renderPanel({
       review: makeReview({ result: 'BAJA' }),
       role: 'coordinator',
@@ -203,6 +203,38 @@ describe('confirmación de finalización de auditoría', () => {
     const section = screen.getByLabelText(/Lineamiento V5 que fundamenta el cambio/);
     fireEvent.change(section, { target: { value: '5.2' } });
     expect(finish.disabled).toBe(false);
+  });
+});
+
+describe('fundamento oficial de una corrección humana', () => {
+  it.each(['user', 'coordinator'] as const)('ofrece secciones no citadas aunque la IA use citas con texto (%s)', (role) => {
+    const audit = structuredClone(makeAudit());
+    const assessment = audit.resultJson!.audit;
+    assessment.procedureSection = 'Sección 5.2, páginas 3-4';
+    assessment.auditPath.procedureSections = ['Sección 5.2, páginas 3-4'];
+    assessment.procedureChecks.forEach((check) => { check.procedureSection = '5.2 (páginas 3-4)'; });
+    renderPanel({
+      audit,
+      role,
+      review: role === 'coordinator' ? makeReview({ result: 'BAJA' }) : null,
+      canReviewOwnCase: role === 'user',
+      canFinalizeAnyCase: role === 'coordinator',
+    });
+    if (role === 'coordinator') {
+      fireEvent.click(screen.getByLabelText('Cambiar la resolución'));
+      fireEvent.click(screen.getByLabelText('Cancelación de venta'));
+    } else {
+      fireEvent.click(screen.getByRole('radio', { name: 'Baja' }));
+    }
+    const section = screen.getByRole('combobox', { name: /Lineamiento V5/ });
+    expect(within(section).getByRole('option', { name: /Sección 5.6 — Promesa de venta NO cumplida \(pág\./ })).toBeTruthy();
+    const submit = role === 'coordinator'
+      ? screen.getByRole('button', { name: 'Finalizar auditoría' })
+      : submitButton();
+    expect((submit as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(section, { target: { value: '5.6' } });
+    expect((section as HTMLSelectElement).value).toBe('5.6');
+    expect((submit as HTMLButtonElement).disabled).toBe(false);
   });
 });
 

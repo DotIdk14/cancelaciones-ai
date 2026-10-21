@@ -18,6 +18,7 @@ import { Badge, Button, DataRow, ErrorCard, Panel, SectionTitle } from './ui';
 import { EVIDENCE_CHANNELS, EVIDENCE_COUNTRIES } from '../skills/audit/types';
 import { CHANNEL_LABELS, COUNTRY_LABELS } from '../lib/labels';
 import { ModalShell } from './OperationProgressDialog';
+import { PROCEDURE_SECTION_OPTIONS } from '../lib/procedure-sections';
 
 /** Etiqueta de la decisión de etapa 2, para los radios del Coordinador. */
 const DECISION_OPTIONS: ReadonlyArray<{ value: CoordinatorDecision; label: string; description: string }> = [
@@ -138,11 +139,6 @@ function CoordinatorFinalizeForm({
   const aiAudit = audit?.resultJson?.audit ?? null;
   const aiResolution = aiAudit?.result ?? null;
   const missingEvidence = aiAudit?.missingEvidence ?? [];
-  const availableProcedureSections = Array.from(new Set([
-    ...(aiAudit?.auditPath.procedureSections ?? []),
-    ...(aiAudit?.procedureChecks.map((check) => check.procedureSection) ?? []),
-    ...(aiAudit?.procedureSection ? [aiAudit.procedureSection] : []),
-  ])).filter((section) => /^\d+(?:\.\d+)*$/.test(section)).sort((a, b) => a.localeCompare(b, 'es', { numeric: true }));
   const canSubmit =
     (decision === 'APPROVE' || (decision === 'CHANGE' && canChangeResolution && resolution !== '' && procedureSection !== '')) &&
     (canAddComment || trimmed === '') && !tooLong && !sending;
@@ -278,11 +274,10 @@ function CoordinatorFinalizeForm({
           <label htmlFor="coordinador-procedure-section" className="flex flex-col gap-1.5 text-sm font-semibold text-ink">
             Lineamiento V5 que fundamenta el cambio <span className="font-normal text-danger">(obligatorio)</span>
             <select id="coordinador-procedure-section" value={procedureSection} onChange={(event) => setProcedureSection(event.target.value)} disabled={sending} required className="rounded-lg border border-line bg-surface-2 px-3 py-2 font-normal text-ink">
-              <option value="">Selecciona una sección citada por la auditoría</option>
-              {availableProcedureSections.map((section) => <option key={section} value={section}>Sección {section}</option>)}
+              <option value="">Selecciona una sección del procedimiento V5</option>
+              {PROCEDURE_SECTION_OPTIONS.map((section) => <option key={section.value} value={section.value}>{section.label}</option>)}
             </select>
-            <span className="text-xs font-normal text-muted">La sección y el comentario quedarán registrados con la decisión del Coordinador.</span>
-            {availableProcedureSections.length === 0 && <span role="alert" className="text-xs font-medium text-danger">La auditoría no contiene secciones V5 seleccionables; no se puede registrar un cambio sin ese fundamento.</span>}
+            <span className="text-xs font-normal text-muted">Procedimiento GDM_GAM_PRD_MLG_003, versión 5. Puedes elegir una sección aunque la IA no la haya citado. La sección y el comentario quedarán registrados con la decisión del Coordinador.</span>
           </label>
           </div>
         )}
