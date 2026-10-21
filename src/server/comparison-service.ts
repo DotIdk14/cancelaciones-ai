@@ -27,6 +27,7 @@ import {
   getCaseOr404,
   getAuditById,
   latestCompletedAudit,
+  latestAudit,
   listEvidenceRows,
   type AuditRow,
   type CaseRow,
@@ -119,7 +120,8 @@ export async function submitCaseReview(
   const evidences = await listEvidenceRows(client, caseId);
   const areaComments = await listAreaComments(client, caseId);
   const activeVersion = await getActiveAuditVersion(client);
-  if (audit.evidence_fingerprint !== fingerprintForAuditVersion(evidences, caseRow.cycle_start_date ?? null, areaComments, caseRow.flokzu_data, activeVersion)) {
+  const currentAudit = await latestAudit(client, caseId);
+  if (audit.evidence_fingerprint !== fingerprintForAuditVersion(evidences, caseRow.cycle_start_date ?? null, areaComments, caseRow.flokzu_data, activeVersion, currentAudit?.provider_metadata ?? audit.provider_metadata)) {
     throw new ApiError(409, 'VALIDATION_ERROR', 'Las evidencias o el contexto cambiaron. Ejecuta una auditoría vigente antes de registrar la revisión.');
   }
 
@@ -310,6 +312,7 @@ async function loadContext(client: InsForgeClient, caseId: string): Promise<Comp
     areaComments,
     caseRow.flokzu_data,
     activeVersion,
+    audit.provider_metadata,
   )) {
     throw new ApiError(409, 'VALIDATION_ERROR', 'La auditoría cambió o dejó de estar vigente. Registra una nueva resolución del Asesor antes de comparar.');
   }

@@ -3,6 +3,8 @@ import { CaseContextMenu, type ContextTab } from './CaseContextMenu';
 import { EvidenceReferences } from './EvidenceReferences';
 import { OperationProgressDialog } from './OperationProgressDialog';
 import { ReportProblemModal } from './ReportProblemModal';
+import { ContactConfirmationNotice } from './ContactConfirmationNotice';
+import { needsContactConfirmation } from '../shared/audit-contact';
 // =============================================================================
 // Detalle de caso: evidencias, botón AUDITAR, polling y panel de resultado.
 // Toda la verdad vive en el servidor; aquí solo se orquestan peticiones.
@@ -296,6 +298,10 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
   const hasCompletedAudit = audit?.status === 'COMPLETED';
   const auditBusy = auditPhase !== 'idle';
   const canAudit = allReady && !auditBusy;
+  const contactPending = needsContactConfirmation(audit);
+  useEffect(() => {
+    if (contactPending) setProgressOpen(false);
+  }, [contactPending, audit?.id]);
   const shouldShowReauditLabel = detail?.case.status === 'READY' && allReady && hasCompletedAudit;
 
   // Mientras hay transcripciones en curso se refresca el caso cada 3 s.
@@ -354,7 +360,7 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
       : null;
   // Mientras hay un flujo de auditoría activo manda el error local (POST fallido);
   // si no, se muestra el error que dejó registrado el servidor.
-  const displayError = auditError ?? (auditBusy ? null : serverError);
+  const displayError = contactPending ? null : auditError ?? (auditBusy ? null : serverError);
   const failureMessage = displayError ? auditFailureMessage(displayError.category, audit?.providerMetadata?.openrouterAttempts ?? [], displayError.message) : '';
   const result = audit?.status === 'COMPLETED' && detail?.auditIsCurrent !== false ? audit.resultJson : null;
   const findingCount = (result?.facts.length ?? 0) + (result?.audit.procedureChecks.length ?? 0);
@@ -505,7 +511,7 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
           />
   </>);
   const auditAction = (!readOnly || canRunAudit) && (
-              <Button id={AUDIT_TRIGGER_ID} variant="primary" className="shrink-0" onClick={() => { setContextOpen(false); void maybeRunAudit(); }} disabled={!canAudit || !canRunAudit} loading={auditBusy} loadingLabel="Consultando auditoría">
+              <Button id={AUDIT_TRIGGER_ID} variant="primary" className="shrink-0" onClick={() => { setContextOpen(false); void maybeRunAudit(); }} disabled={!canAudit || !canRunAudit || contactPending} loading={auditBusy} loadingLabel="Consultando auditoría">
                 {auditPhase === 'waiting' ? 'Esperando transcripción…' : auditPhase === 'running' || auditPhase === 'starting' ? 'Auditando con IA…' : caseIsError ? 'Reintentar auditoría' : shouldShowReauditLabel ? 'Volver a auditar' : 'Auditar con IA'}
               </Button>
               );
@@ -585,7 +591,12 @@ export function CaseDetailPage({ caseId, role, capabilities = { canReadAllCases:
       {detail.case.externalSource === 'FLOKZU' && <p className="case-ticket-deadline-note"><strong>Plazo del ticket:</strong> sin fecha de notificación formal disponible; no es posible calcular días transcurridos ni vencimiento con la información importada.</p>}
 
 
-      {(auditBusy || auditError) && <Button variant="secondary" onClick={() => setProgressOpen(true)}>Ver progreso de auditoría</Button>}
+      <ContactConfirmationNotice audit={audit} canConfirm={canRunAudit && allReady} busy={auditBusy} onAnswer={(performed) => {
+        if (!audit || !canRunAudit || auditBusy) return;
+        setProgressOpen(performed);
+        void auditWorkflow.runAudit({ auditId: audit.id, performed });
+      }} />
+      {(auditBusy || (auditError && !contactPending)) && <Button variant="secondary" onClick={() => setProgressOpen(true)}>Ver progreso de auditoría</Button>}
       {progressOpen && !reportOpen && <OperationProgressDialog title="Progreso de auditoría" stages={[
         { label: 'Evidencias disponibles', status: auditPhase === 'waiting' ? 'current' : allReady ? 'done' : hasFailedEvidence ? 'error' : 'pending', detail: auditPhase === 'waiting' ? `Esperando ${pendingEvidence.length} evidencia(s)` : undefined },
         { label: 'Preparación, evaluación y validación de IA', status: auditError ? 'error' : auditBusy && auditPhase !== 'waiting' ? 'current' : audit?.status === 'COMPLETED' ? 'done' : 'pending' },

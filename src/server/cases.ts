@@ -292,7 +292,7 @@ async function enrichCaseSummaries(
     for (let auditOffset = 0; ; auditOffset += 500) {
       const { data: auditsData, error: auditsError } = await client.database
         .from('audits')
-        .select('id,case_id,status,provider,model,result_json,error_category,latency_ms,evidence_fingerprint,created_at')
+        .select('id,case_id,status,provider,model,result_json,error_category,latency_ms,evidence_fingerprint,provider_metadata,created_at')
         .eq('status', 'COMPLETED').is('retired_at', null)
         .lte('created_at', snapshot)
         .in('case_id', caseIds)
@@ -371,7 +371,7 @@ async function enrichCaseSummaries(
     const review = audit ? reviews.find((candidate) => candidate.audit_id === audit.id) ?? null : null;
     const auditIsCurrent = audit === null
       ? null
-      : audit.evidence_fingerprint === fingerprintForAuditVersion(evidencesByCase.get(row.id) ?? [], row.cycle_start_date ?? null, areaContext.get(row.id) ?? [], row.flokzu_data, activeVersion);
+      : audit.evidence_fingerprint === fingerprintForAuditVersion(evidencesByCase.get(row.id) ?? [], row.cycle_start_date ?? null, areaContext.get(row.id) ?? [], row.flokzu_data, activeVersion, audit.provider_metadata);
     return {
       ...row,
       assigned_name: row.assigned_to ? assignedNames.get(row.assigned_to) ?? null : null,

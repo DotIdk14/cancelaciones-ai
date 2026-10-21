@@ -12,7 +12,8 @@ async function fingerprintNow(client: InsForgeClient, caseId: string): Promise<s
     listAreaComments(client, caseId),
   ]);
   const activeVersion = await getActiveAuditVersion(client);
-  return fingerprintForAuditVersion(evidences, row.cycle_start_date ?? null, comments, row.flokzu_data, activeVersion);
+  const audit = await latestAudit(client, caseId);
+  return fingerprintForAuditVersion(evidences, row.cycle_start_date ?? null, comments, row.flokzu_data, activeVersion, audit?.provider_metadata);
 }
 
 function isMissingEvidenceResolution(result: string): boolean {

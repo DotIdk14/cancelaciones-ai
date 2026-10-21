@@ -228,6 +228,7 @@ export interface AuditAttemptDiagnostic {
 
 /** Metadatos técnicos del proveedor, sin prompts, expediente, PII ni secretos. */
 export interface AuditProviderMetadata {
+  contactConfirmation?: { performed: boolean; confirmedAt: string };
   correlationId?: string;
   openrouterAttempts?: AuditAttemptDiagnostic[];
   usage?: { promptTokens: number | null; completionTokens: number | null; totalTokens: number | null; estimatedCostUSD: number | null } | null;
@@ -844,8 +845,8 @@ export function evidencePreviewUrl(evidenceId: string): string {
  *  - 200 con el audit ya terminado (o el COMPLETED existente),
  *  - 202 con `pendingEvidence` cuando falta transcripción.
  */
-export async function startAudit(caseId: string): Promise<StartAuditResponse> {
-  const res = await safeFetch(casePath(caseId, '/audit'), { method: 'POST', timeoutMs: 285_000 });
+export async function startAudit(caseId: string, contactConfirmation?: { auditId: string; performed: boolean }): Promise<StartAuditResponse> {
+  const res = await safeFetch(casePath(caseId, '/audit'), { method: 'POST', timeoutMs: 285_000, ...(contactConfirmation ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contactConfirmation }) } : {}) });
   if (res.status === 200) {
     const data = await responseJson<{ audit: AuditDetail }>(res);
     return { kind: 'finished', audit: data.audit };

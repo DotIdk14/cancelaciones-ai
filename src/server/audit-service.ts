@@ -33,6 +33,8 @@ import { listAreaComments } from './area-comments.js';
 import { buildAuditFailureLog } from './audit-observability.js';
 import { fingerprintForAuditVersion, getActiveAuditVersion } from './audit-versions.js';
 import { AUDIT_PIPELINE_VERSION } from './audit-fingerprint.js';
+import { fingerprintWithContactContext } from './audit-fingerprint.js';
+import { needsContactConfirmation, readContactConfirmation, type ContactAnswer, type ContactConfirmation } from '../shared/audit-contact.js';
 export { AUDIT_PIPELINE_VERSION, computeEvidenceFingerprint, computeEvidenceFingerprintFor } from './audit-fingerprint.js';
 import {
   getCaseOr404,
@@ -71,7 +73,7 @@ export async function healStaleAudit(client: InsForgeClient, caseId: string): Pr
       result_json: null,
       error_category: 'AI_PROVIDER_ERROR',
       latency_ms: ageMs,
-      provider_metadata: { stale: true, deadlineAt: new Date(deadlineAt).toISOString() },
+      provider_metadata: { ...(audit.provider_metadata as Record<string, unknown> ?? {}), stale: true, deadlineAt: new Date(deadlineAt).toISOString() },
     });
     await updateCaseStatus(client, caseId, 'ERROR').catch(() => undefined);
   }
@@ -364,6 +366,7 @@ const EXTRACTION_PIPELINE_VERSION = 'extract-v1';
  * - Audit RUNNING previo → lo devuelve (el cliente pollea).
  */
 export interface RunAuditOptions {
+  contactAnswer?: ContactAnswer;
   /** Usuario que pide la ejecución; se cobra cuota por él. Sin él, no se cobra. */
   userId?: string;
   correlationId?: string;
@@ -410,7 +413,36 @@ export async function runAudit(
     return [];
   });
   const activeVersion = await getActiveAuditVersion(client);
-  const fingerprint = fingerprintForAuditVersion(evidences, caseRow.cycle_start_date ?? null, areaRows, caseRow.flokzu_data, activeVersion);
+  const baseFingerprint = fingerprintForAuditVersion(evidences, caseRow.cycle_start_date ?? null, areaRows, caseRow.flokzu_data, activeVersion);
+  const previous = await latestAudit(client, caseId);
+  let contactConfirmation: ContactConfirmation | null = readContactConfirmation(previous?.provider_metadata);
+  if (contactConfirmation?.evidenceFingerprint !== baseFingerprint) contactConfirmation = null;
+  if (!options?.contactAnswer && previous && previous.evidence_fingerprint === baseFingerprint && needsContactConfirmation(auditToDto(previous))) {
+    throw new ApiError(409, 'VALIDATION_ERROR', 'Confirma si se realizó contacto con el estudiante antes de continuar la auditoría.');
+  }
+  if (options?.contactAnswer) {
+    if (!options.userId || !previous || previous.id !== options.contactAnswer.auditId
+      || previous.evidence_fingerprint !== baseFingerprint || !needsContactConfirmation(auditToDto(previous))) {
+      throw new ApiError(409, 'VALIDATION_ERROR', 'La confirmación ya no corresponde a la auditoría vigente. Actualiza el expediente.');
+    }
+    contactConfirmation = {
+      performed: options.contactAnswer.performed,
+      actorId: options.userId,
+      confirmedAt: new Date().toISOString(),
+      evidenceFingerprint: baseFingerprint,
+      sourceAuditId: previous.id,
+    };
+    if (!contactConfirmation.performed) {
+      const recorded = await updateAuditResult(client, previous.id, {
+        status: previous.status, result_json: previous.result_json,
+        error_category: previous.error_category, latency_ms: previous.latency_ms ?? 0,
+        provider_metadata: { ...(previous.provider_metadata as Record<string, unknown> ?? {}), contactConfirmation },
+      });
+      return { phase: 'done', audit: auditToDto(recorded) };
+    }
+  }
+  const contactMetadata = contactConfirmation ? { contactConfirmation } : {};
+  const fingerprint = fingerprintWithContactContext(baseFingerprint, contactMetadata);
   const completed = await latestCompletedAuditByFingerprint(client, caseId, fingerprint);
   if (completed) return { phase: 'done', audit: auditToDto(completed) };
   const running = await latestRunningAuditByFingerprint(client, caseId, fingerprint);
@@ -423,7 +455,7 @@ export async function runAudit(
       result_json: null,
       error_category: 'AI_PROVIDER_ERROR',
       latency_ms: ageMs,
-      provider_metadata: { stale: true, deadlineAt: new Date(deadlineAt).toISOString(), fingerprint },
+      provider_metadata: { ...(running.provider_metadata as Record<string, unknown> ?? {}), stale: true, deadlineAt: new Date(deadlineAt).toISOString(), fingerprint },
     });
   }
 
@@ -431,6 +463,7 @@ export async function runAudit(
   // son accionables por el usuario y no deben dejar una auditoría técnica fallida.
   await assertNoRedundantAudit(client, caseId);
   const inputs = await buildAuditInputs(client, caseRow, evidences, areaRows);
+  inputs.humanContactPerformed = contactConfirmation?.performed === true;
 
   // Cuota ANTES de la fila durable y ANTES del proveedor, y DESPUÉS de las
   // comprobaciones de reutilización de arriba: reutilizar un COMPLETED o una
@@ -444,7 +477,7 @@ export async function runAudit(
   const startedAt = Date.now();
   const deadlineMs = startedAt + getEnv().TOTAL_AUDIT_TIMEOUT_MS;
   const attempts = await countAuditsByFingerprint(client, caseId, fingerprint);
-  const versionMetadata = activeVersion ? {
+  const versionMetadata = { ...contactMetadata, ...(activeVersion ? {
     auditVersionId: activeVersion.id,
     auditVersionKey: activeVersion.version_key,
     auditVersionSnapshotSha256: activeVersion.snapshot_sha256,
@@ -453,7 +486,7 @@ export async function runAudit(
     pipelineVersion: activeVersion.pipeline_version,
     outputSchemaVersion: activeVersion.output_schema_version,
     auditFingerprintVersion: activeVersion.config.baseline === true ? AUDIT_PIPELINE_VERSION : activeVersion.snapshot_sha256,
-  } : {};
+  } : {}) };
   let auditRow;
   try {
     auditRow = await insertAudit(client, {

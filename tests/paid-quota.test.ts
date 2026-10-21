@@ -73,6 +73,7 @@ vi.mock('../src/server/cases', async () => {
       reusableForFingerprint === null || fingerprint === reusableForFingerprint ? completedByFingerprint : null,
     ),
     latestRunningAuditByFingerprint: vi.fn(async () => runningByFingerprint),
+    latestAudit: vi.fn(async () => completedByFingerprint ?? runningByFingerprint),
     countAuditsByFingerprint: vi.fn(async () => 0),
   };
 });

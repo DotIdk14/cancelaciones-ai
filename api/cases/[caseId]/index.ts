@@ -1,3 +1,4 @@
+import { needsContactConfirmation } from '../../../src/shared/audit-contact.js';
 import { assignManualCase } from '../../../src/server/case-assignment.js';
 import { auditLifecycle } from '../../../src/lib/audit-lifecycle.js';
 import { reconcileCases } from '../../../src/server/student-history.js';
@@ -171,7 +172,7 @@ export default handleRoute(async (req, res) => {
   const activeAuditVersion = await getActiveAuditVersion(client);
   const auditIsCurrent = completedAudit === null
     ? (audit?.status === 'COMPLETED' ? false : null)
-    : areaRows !== null && completedAudit.evidence_fingerprint === fingerprintForAuditVersion(evidences, caseRow.cycle_start_date ?? null, areaRows, caseRow.flokzu_data, activeAuditVersion);
+    : areaRows !== null && completedAudit.evidence_fingerprint === fingerprintForAuditVersion(evidences, caseRow.cycle_start_date ?? null, areaRows, caseRow.flokzu_data, activeAuditVersion, audit?.provider_metadata ?? completedAudit.provider_metadata);
   const review = auditIsCurrent === true
     ? reviews.find((candidate) => candidate.audit_id === completedAudit?.id) ?? null
     : null;
@@ -192,7 +193,7 @@ export default handleRoute(async (req, res) => {
   );
   const auditCapabilities = capabilitiesForRole(req.auth!.role);
   const canRunAudit = auditReviewAllowsRun && !hasCoordinatorDecision && (
-    auditCapabilities.canRetryFailedAudits ? audit?.status === 'ERROR' : ownsWritableCase
+    auditCapabilities.canRetryFailedAudits ? (audit?.status === 'ERROR' || (audit !== null && needsContactConfirmation(auditToDto(audit)))) : ownsWritableCase
   );
 
   ok(res, {

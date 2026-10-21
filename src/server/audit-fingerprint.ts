@@ -2,6 +2,15 @@ import { prepareFlokzuContext } from '../lib/flokzu-administrative.js';
 import { createHash } from 'node:crypto';
 import { readTranscriptFromJson } from './evidence-prep.js';
 import type { EvidenceRow } from './cases.js';
+import { readContactConfirmation } from '../shared/audit-contact.js';
+
+/** Una confirmación solo vale para el expediente exacto que vio la persona. */
+export function fingerprintWithContactContext(base: string, metadata: unknown): string {
+  const confirmation = readContactConfirmation(metadata);
+  return confirmation?.performed === true && confirmation.evidenceFingerprint === base
+    ? createHash('sha256').update(JSON.stringify({ evidenceFingerprint: base, humanContactPerformed: true })).digest('hex')
+    : base;
+}
 
 /** Versión del pipeline de preparación y evaluación que produce la huella. */
 export const AUDIT_PIPELINE_VERSION = 'audit-v5-pipeline-2';

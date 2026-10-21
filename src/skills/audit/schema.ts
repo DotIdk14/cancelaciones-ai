@@ -322,7 +322,10 @@ function refersToProcedureSection(value: string, section: string): boolean {
   return new RegExp(`(^|[^0-9])${section.replace('.', '\\.')}([^0-9]|$)`).test(value);
 }
 
-function validateContactAttemptsMinimum(assessment: ValidatedAssessment): void {
+function validateContactAttemptsMinimum(assessment: ValidatedAssessment, context: AssessmentValidationContext): void {
+  // Excepción operativa solicitada por el owner: la persona confirma contacto
+  // para continuar el análisis. No rellenar conteos, estados ni evidencia.
+  if (context.humanContactPerformed === true) return;
   const sections = [
     assessment.audit.procedureSection,
     ...assessment.audit.auditPath.procedureSections,
@@ -487,7 +490,7 @@ function validateBusinessRules(assessment: ValidatedAssessment, context: Assessm
       }
     }
   });
-  check(() => validateContactAttemptsMinimum(assessment));
+  check(() => validateContactAttemptsMinimum(assessment, context));
   check(() => validateTemporalCoherence(assessment, context));
   check(() => validateOrigin(assessment));
   // Esta comprobación es independiente de citas/fechas y no debe quedar oculta

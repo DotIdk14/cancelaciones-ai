@@ -1,4 +1,7 @@
-import { ApiError, handleRoute, json, methodNotAllowed, ok, requiredUuid } from '../../../../src/server/http.js';
+import { ApiError, handleRoute, json, methodNotAllowed, ok, requiredUuid, readJsonBody } from '../../../../src/server/http.js';
+import { z } from 'zod';
+import { ContactAnswerSchema, needsContactConfirmation } from '../../../../src/shared/audit-contact.js';
+import { auditToDto } from '../../../../src/server/dto.js';
 import { createServerClient } from '../../../../src/server/insforge.js';
 import { assertCaseWriteCapability, capabilitiesForRole } from '../../../../src/server/auth.js';
 import { assertCaseOwner, assertCaseNotFinalized, getScopedCaseOr404, latestAudit } from '../../../../src/server/cases.js';
@@ -27,10 +30,13 @@ export default handleRoute(async (req, res) => {
   }
 
   const caseRow = await getScopedCaseOr404(client, caseId, req.auth!);
+  const hasBody = req.body !== undefined || req.headers['content-length'] !== undefined || req.headers['transfer-encoding'] !== undefined;
+  const input = z.object({ contactConfirmation: ContactAnswerSchema.optional() }).strict().safeParse(hasBody ? await readJsonBody(req) : {});
+  if (!input.success) throw new ApiError(400, 'VALIDATION_ERROR', 'La confirmación de contacto debe indicar la auditoría y una respuesta Sí o No.');
   // Lanzar la auditoría ES una mutación: el gerente solo lee.
   if (capabilitiesForRole(req.auth!.role).canRetryFailedAudits) {
     const previous = await latestAudit(client, caseId);
-    if (previous?.status !== 'ERROR') {
+    if (previous?.status !== 'ERROR' && !(input.data.contactConfirmation && previous && needsContactConfirmation(auditToDto(previous)))) {
       throw new ApiError(409, 'VALIDATION_ERROR', 'El Coordinador solo puede reintentar una auditoría que terminó con error.');
     }
   } else {
@@ -39,7 +45,7 @@ export default handleRoute(async (req, res) => {
   }
   await assertCaseNotFinalized(client, caseId);
   await assertAuditMayRun(client, caseId);
-  const outcome = await runAudit(client, caseId, { userId: req.auth!.sub, correlationId: req.correlationId });
+  const outcome = await runAudit(client, caseId, { userId: req.auth!.sub, correlationId: req.correlationId, contactAnswer: input.data.contactConfirmation });
   if (outcome.phase === 'pending') {
     json(res, 202, { audit: null, pendingEvidence: outcome.pendingEvidence });
     return;

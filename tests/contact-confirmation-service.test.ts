@@ -1,0 +1,80 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { runAudit, healStaleAudit } from '../src/server/audit-service';
+import { computeEvidenceFingerprint, fingerprintWithContactContext } from '../src/server/audit-fingerprint';
+import { auditSkill } from '../src/skills/audit/execute';
+import { setTestEnv } from './helpers/env';
+import { fakeClient, getAuditById, latestAudit, resetStore, seedAudit, seedCase, seedEvidence } from './helpers/fake-store';
+import { validAuditResult } from './fixtures/audit-result';
+
+vi.mock('../src/server/cases', async () => import('./helpers/fake-store'));
+vi.mock('../src/server/area-comments', () => ({ listAreaComments: async () => [] }));
+vi.mock('../src/server/quotas', () => ({ checkPaidQuota: vi.fn() }));
+vi.mock('../src/server/student-history', () => ({ assertNoRedundantAudit: vi.fn() }));
+vi.mock('../src/server/audit-versions', async (original) => ({
+  ...await original<typeof import('../src/server/audit-versions')>(),
+  getActiveAuditVersion: async () => null,
+}));
+vi.mock('../src/skills/audit/execute', () => ({
+  PDF_MIN_TEXT_CHARS: 80,
+  auditSkill: { executeWithMetadata: vi.fn() },
+}));
+
+const provider = vi.mocked(auditSkill.executeWithMetadata);
+let base: string;
+beforeEach(() => {
+  vi.clearAllMocks();
+  setTestEnv();
+  resetStore();
+  seedCase({ id: 'case-1' });
+  const evidence = seedEvidence({ id: 'ev-1', case_id: 'case-1', mime_type: 'audio/mpeg', processing_status: 'READY', transcript_json: { transcript: 'Solicitud del estudiante.', durationSeconds: 4, speakers: [] } });
+  base = computeEvidenceFingerprint([evidence]);
+  seedAudit({ id: 'previous-audit', case_id: 'case-1', status: 'ERROR', evidence_fingerprint: base, error_category: 'SCHEMA_VALIDATION_ERROR', provider_metadata: {
+    openrouterAttempts: [{ model: 'test', format: 'json_schema', failureCategory: 'SCHEMA_VALIDATION_ERROR', detail: '5.2 observedValues exactos' }],
+  } });
+  provider.mockResolvedValue({ result: structuredClone(validAuditResult), model: 'test', usage: validAuditResult.usage, attempts: [] });
+});
+
+describe('continuación durable después de confirmar contacto', () => {
+  it('Sí persiste actor y fecha antes del proveedor, cambia la huella y reutiliza el dictamen posterior', async () => {
+    provider.mockImplementationOnce(async (input) => {
+      const running = await latestAudit(fakeClient, 'case-1');
+      expect(running?.status).toBe('RUNNING');
+      expect(running?.provider_metadata).toMatchObject({ contactConfirmation: { actorId: 'actor-server', performed: true, sourceAuditId: 'previous-audit', evidenceFingerprint: base } });
+      expect(input.humanContactPerformed).toBe(true);
+      return { result: structuredClone(validAuditResult), model: 'test', usage: validAuditResult.usage, attempts: [] };
+    });
+    const result = await runAudit(fakeClient, 'case-1', { userId: 'actor-server', contactAnswer: { auditId: 'previous-audit', performed: true } });
+    expect(result.phase).toBe('done');
+    const completed = await latestAudit(fakeClient, 'case-1');
+    expect(completed?.status).toBe('COMPLETED');
+    expect(completed?.evidence_fingerprint).toBe(fingerprintWithContactContext(base, completed?.provider_metadata));
+    expect(completed?.evidence_fingerprint).not.toBe(base);
+    expect((await getAuditById(fakeClient, 'previous-audit'))?.status).toBe('ERROR');
+    await runAudit(fakeClient, 'case-1', { userId: 'actor-server' });
+    expect(provider).toHaveBeenCalledTimes(1);
+  });
+
+  it('No guarda la respuesta, no crea otro intento y no llama a IA', async () => {
+    await runAudit(fakeClient, 'case-1', { userId: 'actor-server', contactAnswer: { auditId: 'previous-audit', performed: false } });
+    expect((await latestAudit(fakeClient, 'case-1'))?.id).toBe('previous-audit');
+    expect((await latestAudit(fakeClient, 'case-1'))?.provider_metadata).toMatchObject({ contactConfirmation: { performed: false, actorId: 'actor-server' } });
+    await expect(runAudit(fakeClient, 'case-1', { userId: 'actor-server' })).rejects.toMatchObject({ status: 409 });
+    expect(provider).not.toHaveBeenCalled();
+  });
+
+  it('rechaza confirmaciones sin actor, sobre otro intento o sobre evidencia que cambió antes de pagar IA', async () => {
+    await expect(runAudit(fakeClient, 'case-1', { contactAnswer: { auditId: 'previous-audit', performed: true } })).rejects.toMatchObject({ status: 409 });
+    await expect(runAudit(fakeClient, 'case-1', { userId: 'actor-server', contactAnswer: { auditId: 'otra', performed: true } })).rejects.toMatchObject({ status: 409 });
+    seedEvidence({ id: 'ev-2', case_id: 'case-1', processing_status: 'READY' });
+    await expect(runAudit(fakeClient, 'case-1', { userId: 'actor-server', contactAnswer: { auditId: 'previous-audit', performed: true } })).rejects.toMatchObject({ status: 409 });
+    expect(provider).not.toHaveBeenCalled();
+  });
+
+  it('conserva la confirmación si una ejecución es interrumpida por timeout de infraestructura', async () => {
+    const contactConfirmation = { performed: true, actorId: 'actor-server', confirmedAt: '2026-10-21T21:00:00.000Z', sourceAuditId: 'previous-audit', evidenceFingerprint: base };
+    seedAudit({ id: 'running', case_id: 'case-1', status: 'RUNNING', created_at: '2099-01-01T00:00:00Z', deadline_at: '2000-01-01T00:00:00Z', provider_metadata: { contactConfirmation } });
+    await healStaleAudit(fakeClient, 'case-1');
+    expect((await getAuditById(fakeClient, 'running'))?.provider_metadata).toMatchObject({ stale: true, contactConfirmation });
+    expect(provider).not.toHaveBeenCalled();
+  });
+});

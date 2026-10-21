@@ -80,7 +80,7 @@ export function useCaseAuditWorkflow({ caseId, setDetail }: UseCaseAuditWorkflow
     }
   }, []);
 
-  const runAudit = useCallback(async (): Promise<void> => {
+  const runAudit = useCallback(async (contactConfirmation?: { auditId: string; performed: boolean }): Promise<void> => {
     if (requestInFlight.current) return;
     requestInFlight.current = true;
     const revision = generation.current;
@@ -89,7 +89,7 @@ export function useCaseAuditWorkflow({ caseId, setDetail }: UseCaseAuditWorkflow
     setPendingEvidence([]);
     waitRetriesRef.current = 0;
     try {
-      const response = await startAudit(caseId);
+      const response = await startAudit(caseId, contactConfirmation);
       if (revision !== generation.current) return;
       if (response.kind === 'pending') {
         setPendingEvidence(response.pendingEvidence);
@@ -108,6 +108,11 @@ export function useCaseAuditWorkflow({ caseId, setDetail }: UseCaseAuditWorkflow
       if (revision !== generation.current) return;
       setAuditPhase('idle');
       setAuditError(userFacingError(error));
+      // También recupera la fila ERROR durable para ofrecer la confirmación.
+      try {
+        const current = await getCase(caseId);
+        if (revision === generation.current) setDetail(current);
+      } catch { /* Conserva el error original y permite actualizar manualmente. */ }
     } finally {
       if (revision === generation.current) requestInFlight.current = false;
     }

@@ -169,6 +169,8 @@ export interface TranscriptData {
 
 /** Entrada del Skill. */
 export interface AuditSkillInput {
+  /** Confirmación humana; no acredita conteos ni crea referencias de evidencia. */
+  humanContactPerformed?: boolean;
   caseId: string;
   studentIdentifier: string | null;
   evidences: EvidenceInputItem[];
@@ -207,6 +209,7 @@ export interface AuditSkillInput {
  * evidencia como siempre.
  */
 export interface AssessmentValidationContext {
+  humanContactPerformed?: boolean;
   /**
    * Fecha de inicio aportada por el equipo, ya validada a ISO, o `null` si no
    * existe (columna ausente o sin capturar). Un valor con otro formato se

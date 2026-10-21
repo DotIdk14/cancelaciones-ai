@@ -3,6 +3,7 @@ import type { InsForgeClient } from './insforge.js';
 import type { EvidenceRow } from './cases.js';
 import { ApiError } from './errors.js';
 import { computeEvidenceFingerprint, AUDIT_PIPELINE_VERSION } from './audit-fingerprint.js';
+import { fingerprintWithContactContext } from './audit-fingerprint.js';
 import { PROCEDURE_MANIFEST } from '../skills/audit/procedure-v5.js';
 
 export interface ActiveAuditVersion {
@@ -52,7 +53,8 @@ export function fingerprintForAuditVersion(
   areaComments: Array<{ area: string; comment: string }>,
   flokzuData: unknown,
   version: ActiveAuditVersion | null,
+  contactMetadata?: unknown,
 ): string {
   const fingerprintVersion = version?.config.baseline === true ? AUDIT_PIPELINE_VERSION : version?.snapshot_sha256 ?? AUDIT_PIPELINE_VERSION;
-  return computeEvidenceFingerprint(evidences, humanCycleStartDate, areaComments, flokzuData, fingerprintVersion);
+  return fingerprintWithContactContext(computeEvidenceFingerprint(evidences, humanCycleStartDate, areaComments, flokzuData, fingerprintVersion), contactMetadata);
 }

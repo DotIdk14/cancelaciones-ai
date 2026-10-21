@@ -28,6 +28,7 @@
 
 import type { AttemptFailureCategory, OpenRouterAttemptDiagnostic } from './openrouter.js';
 import type { ErrorCategory, ModelUsage } from '../skills/audit/types.js';
+import { readContactConfirmation } from '../shared/audit-contact.js';
 
 // -----------------------------------------------------------------------------
 // Vocabulario permitido (espejo en runtime de los tipos de `openrouter.ts`).
@@ -110,6 +111,7 @@ export interface AuditAttemptDiagnosticView {
  * y cuyos valores pasaron el tipo esperado; el resto se descarta.
  */
 export interface AuditProviderMetadata {
+  contactConfirmation?: { performed: boolean; confirmedAt: string };
   correlationId?: string;
   /** Diagnóstico por intento del transporte de IA. */
   openrouterAttempts?: AuditAttemptDiagnosticView[];
@@ -268,6 +270,8 @@ function sanitizeUsage(value: unknown): ModelUsage | null {
 export function sanitizeProviderMetadata(value: unknown): AuditProviderMetadata | null {
   if (!isPlainObject(value)) return null;
   const out: AuditProviderMetadata = {};
+  const contact = readContactConfirmation(value);
+  if (contact) out.contactConfirmation = { performed: contact.performed, confirmedAt: contact.confirmedAt };
   if (typeof value.correlationId === 'string' && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value.correlationId)) out.correlationId = value.correlationId;
 
   if (Array.isArray(value.openrouterAttempts)) {

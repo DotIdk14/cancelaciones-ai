@@ -9,7 +9,7 @@ import {
 } from '../../../../src/server/http.js';
 import { createServerClient } from '../../../../src/server/insforge.js';
 import { capabilitiesForRole } from '../../../../src/server/auth.js';
-import { assertCaseOwner, getCaseOr404, getScopedCaseOr404, latestCompletedAudit, listEvidenceRows, updateCaseDimensions } from '../../../../src/server/cases.js';
+import { assertCaseOwner, getCaseOr404, getScopedCaseOr404, latestAudit, latestCompletedAudit, listEvidenceRows, updateCaseDimensions } from '../../../../src/server/cases.js';
 import { DUPLICATE_FINALIZATION_MESSAGE, finalizeCaseReview, getCaseReviewForAudit, listComparisonsForReview } from '../../../../src/server/reviews.js';
 import { fingerprintForAuditVersion, getActiveAuditVersion } from '../../../../src/server/audit-versions.js';
 import { listAreaComments } from '../../../../src/server/area-comments.js';
@@ -170,7 +170,7 @@ export default handleRoute(async (req, res) => {
 async function auditMatchesCurrentCase(
   client: ReturnType<typeof createServerClient>,
   caseId: string,
-  audit: { evidence_fingerprint: string | null },
+  audit: { evidence_fingerprint: string | null; provider_metadata?: unknown },
 ): Promise<boolean> {
   const [caseRow, evidences, areaComments] = await Promise.all([
     getCaseOr404(client, caseId),
@@ -178,11 +178,13 @@ async function auditMatchesCurrentCase(
     listAreaComments(client, caseId),
   ]);
   const activeVersion = await getActiveAuditVersion(client);
+  const currentAudit = await latestAudit(client, caseId);
   return audit.evidence_fingerprint === fingerprintForAuditVersion(
     evidences,
     caseRow.cycle_start_date ?? null,
     areaComments,
     caseRow.flokzu_data,
     activeVersion,
+    currentAudit?.provider_metadata ?? audit.provider_metadata,
   );
 }
