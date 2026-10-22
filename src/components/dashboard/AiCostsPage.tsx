@@ -7,8 +7,8 @@ import { DashboardFilters } from './DashboardFilters';
 import { ActivityCharts } from './ActivityCharts';
 import { ActivityOverview } from './ActivityOverview';
 import { formatLatency } from '../../lib/format';
+import { formatCostMxn as money, MXN_CONVERSION_NOTE, MXN_REFERENCE_RATE } from '../../lib/currency';
 
-const money = (value: number | null): string => value === null ? 'No disponible' : `$${value.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 6 })} USD`;
 
 export function AiCostsPage() {
   const [filters, setFilters] = useState<Filters>(defaultDateRange);
@@ -25,6 +25,7 @@ export function AiCostsPage() {
       <header className="dashboard-page-heading"><div><h1 className="text-2xl font-semibold text-ink">Actividad y consumo</h1><p className="mt-2 text-sm text-muted">Cuánto se ha gastado, cuántos expedientes se han auditado y qué ejecuciones fallaron.</p></div></header>
       <details className="quality-disclosure"><summary>Periodo: {applied.from} al {applied.to} · {scopeActive ? 'Filtros aplicados' : 'Todos los casos de producción'} · Cambiar filtros</summary><div className="pt-4"><DashboardFilters value={filters} onChange={setFilters} allowResultFilter={false} /></div></details>
     </section>
+    <p className="text-sm text-muted">Importes en pesos mexicanos. {MXN_CONVERSION_NOTE} <a className="underline underline-offset-4" href={MXN_REFERENCE_RATE.sourceUrl} target="_blank" rel="noreferrer">Consultar fuente</a></p>
     {error && <ErrorCard title="No se pudo cargar el consumo" message={error} onRetry={reload} retrying={isLoading} />}
     {isLoading && !data ? <Skeleton height={160} /> : a && <>
       <section className="quality-overview" aria-label="Resumen de actividad y consumo">
@@ -41,7 +42,7 @@ export function AiCostsPage() {
       {data && <>
         <p className="my-4 text-sm text-muted">Tiempo de las auditorías completadas: promedio {formatLatency(data.kpi.avgLatencyMs)}. La mitad terminó en {formatLatency(data.kpi.p50LatencyMs)} o menos (P50); el 95 % en {formatLatency(data.kpi.p95LatencyMs)} o menos (P95).</p>
         <p className="my-4 text-sm text-muted">Auditorías con reintento: {data.reliability.retried}. Con cambio de modelo: {data.reliability.fallback}. Pueden coincidir en una misma ejecución; no se suman como categorías distintas.</p>
-        <div className="overflow-x-auto" role="region" aria-label="Detalle por modelo" tabIndex={0}><table className="student-history-comparison"><thead><tr>{['Modelo', 'Llamadas registradas', 'Llamadas con costo disponible', 'Gasto registrado USD', 'Promedio de llamadas con costo USD'].map(label => <th scope="col" key={label}>{label}</th>)}</tr></thead><tbody>{data.byModel.map(row => <tr key={row.model}><th scope="row">{row.model}</th><td>{row.calls}</td><td>{row.costKnownCalls} de {row.calls}</td><td>{money(row.costKnownCalls ? row.totalCostUsd : null)}</td><td>{money(row.avgCostUsd)}</td></tr>)}</tbody></table></div>
+        <div className="overflow-x-auto" role="region" aria-label="Detalle por modelo" tabIndex={0}><table className="student-history-comparison"><thead><tr>{['Modelo', 'Llamadas registradas', 'Llamadas con costo disponible', 'Gasto registrado MXN', 'Promedio de llamadas con costo MXN'].map(label => <th scope="col" key={label}>{label}</th>)}</tr></thead><tbody>{data.byModel.map(row => <tr key={row.model}><th scope="row">{row.model}</th><td>{row.calls}</td><td>{row.costKnownCalls} de {row.calls}</td><td>{money(row.costKnownCalls ? row.totalCostUsd : null)}</td><td>{money(row.avgCostUsd)}</td></tr>)}</tbody></table></div>
       </>}
       <p className="mt-4 text-sm text-muted">Datos de producción, sin casos de prueba. Fechas según el inicio de cada ejecución, en UTC. No se estiman costos faltantes. Los tiempos no incluyen auditorías fallidas ni comparaciones.</p>
     </div></details>

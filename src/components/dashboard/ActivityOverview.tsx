@@ -2,8 +2,9 @@ import type { ReactNode } from 'react';
 import type { ActivityMetrics, MonthlyActivity } from '../../lib/dashboard-metrics-contracts';
 import { DASH } from '../../lib/format';
 import { Panel, Skeleton, StatCard } from '../ui';
+import { formatCostMxn, MXN_CONVERSION_NOTE } from '../../lib/currency';
 
-const money = (value: number | null | undefined): string => value == null ? DASH : `$${value.toFixed(4)} USD`;
+const money = (value: number | null | undefined): string => formatCostMxn(value, DASH);
 const count = (value: number | undefined): string => value === undefined ? DASH : value.toLocaleString('es-MX');
 const metrics: Array<{ label: string; key: keyof ActivityMetrics; currency?: boolean }> = [
   { label: 'Ejecuciones', key: 'executions' }, { label: 'Completadas', key: 'completed' },
@@ -27,7 +28,7 @@ export function ActivityOverview({ activity, loading }: { activity?: MonthlyActi
       <StatCard label="Costo total conocido de IA" value={money(activity && ((activity.audits.costReportedExecutions ?? 0) + (activity.comparisons.costReportedExecutions ?? 0) > 0 || activity.knownTotalCostUsd > 0) ? activity.knownTotalCostUsd : null)} hint="Auditorías + comparaciones; consumo del proveedor" />
       <StatCard label="Costo desconocido o parcial" value={count(activity?.unknownCostExecutions)} hint="Ejecuciones; no se interpreta como costo cero" />
     </div>
-    <Panel title="Actividad y consumo del periodo" description="Producción · UTC. Los reintentos y fallbacks pueden coincidir. Las medias requieren consumo completo; no se generan estimaciones.">
+    <Panel title="Actividad y consumo del periodo" description={`Producción · UTC. Los reintentos y fallbacks pueden coincidir. Las medias requieren consumo completo. ${MXN_CONVERSION_NOTE}`}>
       <div role="region" aria-label="Detalle de ejecuciones y consumo" tabIndex={0} className="overflow-x-auto">
         <table className="w-full text-sm tabular-nums">
           <thead><tr className="border-b border-line text-left text-muted"><th scope="col" className="py-3">Métrica</th><th scope="col" className="px-4 py-3 text-right">Auditorías</th><th scope="col" className="px-4 py-3 text-right">Comparaciones</th></tr></thead>

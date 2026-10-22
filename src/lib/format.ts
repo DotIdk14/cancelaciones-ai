@@ -2,6 +2,8 @@
 // Formateadores de presentación. Solo presentación: ninguna regla de negocio.
 // =============================================================================
 
+import { formatCostMxn } from './currency';
+
 /** Placeholder único para valores ausentes. */
 export const DASH = '—';
 
@@ -64,10 +66,9 @@ export function formatPercent(value: number | null | undefined): string {
   return `${Math.round(ratio * 100)}%`;
 }
 
-/** Coste estimado en USD. */
+/** Coste reportado en USD, presentado como equivalente de referencia en MXN. */
 export function formatCost(value: number | null | undefined): string {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return DASH;
-  return `$${value.toFixed(4)}`;
+  return formatCostMxn(value, DASH);
 }
 
 /** Segundos -> `mm:ss` (o `h:mm:ss`). */
