@@ -410,3 +410,14 @@ it("el Coordinador sincroniza el CaVe vacío asignado a otro Asesor sin cambiar 
     expect(patch).not.toHaveProperty("coordinator_decision");
   }
 });
+
+it('importa un CaVe sin tareas activas sin crear bloqueos de auditoría por clasificación', async () => {
+  const detail = await mocks.detail();
+  mocks.detail.mockResolvedValue({ ...detail, data: { ...detail.data, operations: { currentTask: 'Sin tareas activas', statusReported: 'REVISIÓN', finalizedReported: 'No' } } });
+  await createCaseFromPortal(client, fakeAuthContext('user'), input, row.id);
+  expect(mocks.patches).toHaveLength(2);
+  for (const patch of mocks.patches) {
+    expect(patch).not.toHaveProperty('flokzu_audit_eligible');
+    expect(patch).not.toHaveProperty('flokzu_classification');
+  }
+});

@@ -63,7 +63,7 @@ it("identifica borradores propios editables y enlaza cualquier caso auditado sin
         external_case_id: "CaVe-1",
         external_source: "FLOKZU",
         assigned_to: actor.sub,
-        flokzu_audit_eligible: true,
+
       },
       {
         id: "audited",
@@ -115,7 +115,7 @@ it("un coordinador puede importar el contenido Flokzu de un borrador asignado a 
         external_case_id: "CaVe-1",
         external_source: "FLOKZU",
         assigned_to: "someone-else",
-        flokzu_audit_eligible: true,
+
       },
     ],
     [],
@@ -158,7 +158,7 @@ it.each(["READY", "ERROR", "COMPLETED"])(
           external_case_id: "CaVe-1",
           external_source: "FLOKZU",
           assigned_to: actor.sub,
-          flokzu_audit_eligible: true,
+
           evidence: [{ count: 0 }],
         },
       ],
@@ -187,7 +187,7 @@ it("una auditoría en curso impide ofrecer la sincronización de un expediente v
         external_case_id: "CaVe-1",
         external_source: "FLOKZU",
         assigned_to: actor.sub,
-        flokzu_audit_eligible: true,
+
         evidence: [{ count: 0 }],
       },
     ],
@@ -211,7 +211,7 @@ it("un borrador propio con auditoría y archivos sigue admitiendo sincronizació
         external_case_id: "CaVe-1",
         external_source: "FLOKZU",
         assigned_to: actor.sub,
-        flokzu_audit_eligible: true,
+
         evidence: [{ count: 3 }],
       },
     ],
@@ -239,7 +239,7 @@ it("un Asesor no recibe importación de un borrador ajeno", async () => {
         external_case_id: "CaVe-1",
         external_source: "FLOKZU",
         assigned_to: "other-advisor",
-        flokzu_audit_eligible: true,
+
         evidence: [{ count: 0 }],
       },
     ],

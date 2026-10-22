@@ -20,8 +20,6 @@ import { capabilitiesForRole } from '../../src/server/capabilities.js';
 import { describeExistingPortalCases } from '../../src/server/flokzu-existing.js';
 import { createCaseFromPortal } from '../../src/server/flokzu-acquisition.js';
 import { lookupPortalTickets, StudentNumberSchema, TicketIdSchema } from '../../src/server/flokzu-portal.js';
-import { assertFlokzuCoordinator, listFlokzuReview, getFlokzuTicket, decideFlokzuTicket, FlokzuDecisionSchema } from '../../src/server/flokzu-review.js';
-import { z as zod } from 'zod';
 
 export const maxDuration = 300;
 export const config = { api: { bodyParser: false } };
@@ -70,12 +68,15 @@ function decodeCursor(value: string): z.infer<typeof CaseCursorSchema> {
 
 export default handleRoute(async (req, res) => {
   if (req.method === 'GET' && req.query.historyForCase !== undefined) {
-    const input = zod.object({ historyForCase: zod.string().uuid(), offset: zod.coerce.number().int().min(0).max(1000000).default(0), limit: zod.coerce.number().int().min(1).max(50).default(20) }).safeParse(req.query);
+    const input = z.object({ historyForCase: z.string().uuid(), offset: z.coerce.number().int().min(0).max(1000000).default(0), limit: z.coerce.number().int().min(1).max(50).default(20) }).safeParse(req.query);
     if (!input.success) throw new ApiError(400, 'VALIDATION_ERROR', 'Consulta de historial inválida.');
     ok(res, { history: await getStudentHistory(createServerClient(), input.data.historyForCase, req.auth!, input.data.offset, input.data.limit) });
     return;
   }
   if (req.method === 'GET') {
+    if (req.query.view !== undefined && !z.enum(['flokzu-student', 'student-options', 'assignment-options']).safeParse(req.query.view).success) {
+      throw new ApiError(400, 'VALIDATION_ERROR', 'La vista solicitada no existe.');
+    }
     if (req.query.view === 'flokzu-student') {
       assertCaseWriteCapability(req.auth!);
       const parsed = StudentNumberSchema.safeParse(req.query.studentIdentifier);
@@ -97,16 +98,6 @@ export default handleRoute(async (req, res) => {
     }
     if (req.query.view === 'assignment-options') {
       ok(res, { assignmentOptions: await listAssignmentOptions(createServerClient(), req.auth!) });
-      return;
-    }
-    if (req.query.view === 'flokzu-review') {
-      assertFlokzuCoordinator(req.auth!);
-      const { view: _view, caseId, historyOffset, ...filters } = req.query;
-      if (caseId !== undefined) {
-        const parsed = z.object({ caseId: z.string().uuid(), historyOffset: z.coerce.number().int().min(0).max(1000000).default(0) }).safeParse({ caseId, historyOffset });
-        if (!parsed.success) throw new ApiError(400, 'VALIDATION_ERROR', 'Ticket o página no válida.');
-        ok(res, await getFlokzuTicket(createServerClient(), req.auth!, parsed.data.caseId, parsed.data.historyOffset));
-      } else ok(res, await listFlokzuReview(createServerClient(), req.auth!, filters));
       return;
     }
 
@@ -320,15 +311,5 @@ export default handleRoute(async (req, res) => {
     return;
   }
 
-  if (req.method === 'PATCH') {
-    if (req.query.view === 'flokzu-review') {
-      assertFlokzuCoordinator(req.auth!);
-      const parsed = FlokzuDecisionSchema.safeParse(await readJsonBody(req));
-      if (!parsed.success) throw new ApiError(400, 'VALIDATION_ERROR', parsed.error.issues[0]?.message ?? 'Decisión inválida.');
-      ok(res, { result: await decideFlokzuTicket(createServerClient(), req.auth!, parsed.data) });
-      return;
-    }
-  }
-
-  methodNotAllowed(req, res, 'GET, POST, PATCH');
+  methodNotAllowed(req, res, 'GET, POST');
 });

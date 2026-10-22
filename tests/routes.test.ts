@@ -710,8 +710,8 @@ describe('observabilidad: la fila ERROR conserva los diagnostics del fallback', 
   });
 });
 
-describe('Actividad y consumo: acceso exclusivo del Gerente', () => {
-  it.each(['user', 'coordinator'] as const)('rechaza solicitudes directas de %s', async role => {
+describe('Actividad y consumo: el Asesor conserva acceso denegado', () => {
+  it.each(['user'] as const)('rechaza solicitudes directas de %s', async role => {
     const res = makeApiResponse();
     await dashboardHandler(makeApiRequest({ method: 'GET', query: { view: 'ai-costs' }, auth: fakeAuthContext(role) }), res);
     expect(res.statusCode).toBe(403);

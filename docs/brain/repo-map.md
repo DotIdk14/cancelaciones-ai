@@ -4,34 +4,30 @@ Using openrouter/deepseek/deepseek-r1:free model with API key from environment.
 Aider v0.86.2
 Model: openrouter/deepseek/deepseek-r1:free with diff edit format, prompt 
 cache, infinite output
-Git repo: .git with 397 files
+Git repo: .git with 401 files
 Repo-map: using 4096 tokens, auto refresh
 Repo-map can't include 
-C:\Users\IanEmilianoJarquinHe\Desktop\cancelaciones-ai\src\components\FlokzuImp
-ortPage.tsx
+C:\Users\IanEmilianoJarquinHe\Desktop\cancelaciones-ai\src\components\FlokzuRev
+iewPage.tsx
 Has it been deleted from the file system but not from git?
 Repo-map can't include 
-C:\Users\IanEmilianoJarquinHe\Desktop\cancelaciones-ai\src\server\flokzu-import
+C:\Users\IanEmilianoJarquinHe\Desktop\cancelaciones-ai\src\server\flokzu-assign
+ment.ts
+Has it been deleted from the file system but not from git?
+Repo-map can't include 
+C:\Users\IanEmilianoJarquinHe\Desktop\cancelaciones-ai\src\server\flokzu-review
 .ts
 Has it been deleted from the file system but not from git?
 Repo-map can't include 
-C:\Users\IanEmilianoJarquinHe\Desktop\cancelaciones-ai\src\server\flokzu-multip
-art.ts
-Has it been deleted from the file system but not from git?
-Repo-map can't include 
-C:\Users\IanEmilianoJarquinHe\Desktop\cancelaciones-ai\src\server\flokzu-parser
+C:\Users\IanEmilianoJarquinHe\Desktop\cancelaciones-ai\src\shared\flokzu-review
 .ts
 Has it been deleted from the file system but not from git?
 Repo-map can't include 
-C:\Users\IanEmilianoJarquinHe\Desktop\cancelaciones-ai\tests\flokzu-assignment.
-test.ts
+C:\Users\IanEmilianoJarquinHe\Desktop\cancelaciones-ai\tests\FlokzuReviewPage.t
+est.tsx
 Has it been deleted from the file system but not from git?
 Repo-map can't include 
-C:\Users\IanEmilianoJarquinHe\Desktop\cancelaciones-ai\tests\flokzu-links-persi
-stence.test.ts
-Has it been deleted from the file system but not from git?
-Repo-map can't include 
-C:\Users\IanEmilianoJarquinHe\Desktop\cancelaciones-ai\tests\flokzu-parser.test
+C:\Users\IanEmilianoJarquinHe\Desktop\cancelaciones-ai\tests\flokzu-review.test
 .ts
 Has it been deleted from the file system but not from git?
 Here are summaries of some files present in my git repository.
@@ -61,6 +57,16 @@ ${error.message}`)
 │      await checkFreshness()
 │    })
 │  },
+⋮
+
+scripts\contrast.mjs:
+⋮
+│function relativeLuminance(hex) {
+│  const [r, g, b] = toRgb(hex).map((channel) => {
+│    const c = channel / 255;
+│    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+│  });
+│  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 ⋮
 
 scripts\generate-policy.mjs:
@@ -190,11 +196,6 @@ target.closest('[aria-cont
 
 src\components\PdfCanvas.tsx:
 ⋮
-│interface PdfDocumentProxy {
-│  numPages: number;
-│  getPage(pageNumber: number): Promise<PdfPageProxy>;
-│  destroy(): Promise<void>;
-⋮
 │export interface PdfCanvasProps {
 │  /** Mismo origen, con la cookie de sesión: devuelve los bytes con MIME 
 `application/pdf`. */
@@ -318,18 +319,6 @@ src\lib\api.ts:
 │   * Fecha de inicio de clases que aportó una persona, con su procedencia.
 │   *
 ⋮
-│export interface FlokzuCaseData {
-│  fields?: Array<{ label: string; value: string }>;
-│  observations?: import('./flokzu-administrative.js').FlokzuObservation[];
-│  administrativeComments?: Array<{ label: string; value: string }>;
-│  academic: { campus: string | null; university: string | null; 
-countryReported: string | null; pro
-│  procedure: { policyReported: string | null; motive: string | null; 
-description: string | null; re
-│  operations: { salesChannelReported?: string | null; currentTask: string | 
-null; statusReported: s
-│  evidenceReferences: Array<{ label: string; value: string; url?: string }>;
-⋮
 │export interface Evidence {
 │  id: string;
 │  caseId: string;
@@ -442,6 +431,7 @@ src\lib\audit-lifecycle.ts:
 src\lib\case-workflow.ts:
 ⋮
 │export type CaseBucket = (typeof CASE_BUCKETS)[number]['value'];
+│export type CaseStage = (typeof CASE_STAGES)[number]['value'];
 ⋮
 │interface WorkflowSummary {
 │  status: string;
@@ -449,6 +439,18 @@ src\lib\case-workflow.ts:
 │  workflowState?: string;
 │  auditIsCurrent?: boolean | null;
 │  effectiveResolution?: { source: string } | null;
+⋮
+
+src\lib\currency.ts:
+⋮
+│export function usdToMxn(value: number): number {
+│  return value * MXN_REFERENCE_RATE.pesosPerUsd;
+⋮
+│export function formatCostMxn(value: number | null | undefined, unavailable = 
+'No disponible'): str
+│  if (typeof value !== 'number' || !Number.isFinite(value)) return 
+unavailable;
+│  return `$${mexicanPesos.format(usdToMxn(value))} MXN`;
 ⋮
 
 src\lib\dashboard-metrics-contracts.ts:
@@ -480,15 +482,6 @@ src\lib\dashboard-shared.ts:
 
 src\lib\flokzu-administrative.ts:
 ⋮
-│export interface FlokzuObservation {
-│  field: string;
-│  area: 'BACK_OFFICE' | 'HELPDESK' | 'ADMINISTRATIVE';
-│  original: string;
-│  text: string;
-│  externalCaseId: string;
-│  exportedAt: string | null;
-│  version: string;
-⋮
 │export function normalizeAdministrativeText(value: string): string {
 │  return value.replace(/_x000D_/gi, '\n').replace(/<br\s*\/?\s*>|<\/p>/gi, 
 '\n')
@@ -515,21 +508,6 @@ src\lib\student-history.ts:
 │export type RelationKind =
 ⋮
 
-src\lib\useEvidenceUpload.ts:
-⋮
-│export interface EvidenceUploadController {
-│  items: UploadItem[];
-│  busy: boolean;
-│  announcement: string;
-│  /**
-│   * Sube un lote de forma SECUENCIAL. Nunca lanza: el fallo de un archivo no
-│   * cancela el resto y queda registrado en su propia fila.
-│   *
-│   * El `caseId` es un ARGUMENTO y no el del hook a propósito: en el alta se
-│   * conoce justo después de `createCase`, dentro de la misma pulsación. 
-Cerrar
-⋮
-
 src\lib\useHashRoute.ts:
 ⋮
 │export type AppRoute =
@@ -539,7 +517,6 @@ src\lib\useHashRoute.ts:
 │  | { name: 'new-case' } // #/nuevo
 │  | { name: 'cases' } // #/casos
 │  | { name: 'incidents' } // #/incidencias
-│  | { name: 'flokzu-review' } // #/revision-flokzu
 ⋮
 
 src\lib\usePolling.ts:
@@ -793,18 +770,6 @@ src\shared\case-links.ts:
 │export interface ImportLinkResolution { externalCaseId: string; caseId: string
 | null }
 
-src\shared\flokzu-review.ts:
-⋮
-│export type FlokzuClassification = typeof FLOKZU_CLASSIFICATIONS[number];
-│export type FlokzuReviewState = 'OPEN' | 'CLOSED' | 'REACTIVATED' | 'PENDING';
-⋮
-│export interface AdministrativeData {
-│  operations: { currentTask: string | null; statusReported: string | null; 
-finalizedReported: strin
-│  procedure: { motive: string | null; description: string | null };
-│  administrativeComments?: Array<{ label: string; value: string }>;
-⋮
-
 src\skills\audit\procedure-v5.ts:
 ⋮
 │export interface PolicyManifest {
@@ -884,10 +849,6 @@ src\skills\sanitize.ts:
 │export function sanitizeTagDelimiters(text: string): string {
 │  return text.replace(/</g, '\uFF1C').replace(/>/g, '\uFF1E');
 ⋮
-│function stripControlChars(text: string): string {
-│  // eslint-disable-next-line no-control-regex
-│  return text.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '');
-⋮
 
 tests\assignment-linking.test.ts:
 ⋮
@@ -910,6 +871,49 @@ tests\case-dimensions.test.ts:
 │  patch: Record<string, unknown>;
 │  column: string;
 │  value: unknown;
+⋮
+
+tests\cases-pagination.test.ts:
+⋮
+│function database(rows: Row[], related: Record<string, Row[]> = {}) {
+│  const ranges: Array<[string, number, number]> = [];
+│  const filters: Array<[string, string, unknown]> = [];
+│  const client = {
+│    auth: { async getProfile(id: string) { return { data: { name: id === 
+'advisor-a' ? 'Ana Pérez' 
+│    database: {
+│      from(table: string) {
+│        let page: [number, number] = [0, 9999];
+│        let predicates: Array<[string, string, unknown]> = [];
+│        let disjunction: Array<[string, unknown]> = [];
+│        const orders: Array<[string, boolean]> = [];
+│        const query = {
+│          select() { return query; },
+│          eq(column: string, value: unknown) { predicates.push([column, 'eq', 
+value]); return query
+│          is(column: string, value: unknown) { predicates.push([column, 'is', 
+value]); return query
+│          lte(column: string, value: unknown) { predicates.push([column, 
+'lte', value]); return que
+│          in(column: string, value: unknown[]) { predicates.push([column, 
+'in', value]); return que
+│          or(expression: string) { filters.push(['created_by|assigned_to', 
+'or', expression]); disj
+│          order(column: string, options?: { ascending?: boolean }) { 
+orders.push([column, options?.
+│          range(from: number, to: number) { page = [from, to]; return query; 
+},
+│          then(resolve: (value: unknown) => unknown) {
+⋮
+│function caseRows(count: number): Row[] {
+│  return Array.from({ length: count }, (_, index) => ({
+│    id: `case-${String(index).padStart(5, '0')}`,
+│    status: 'READY',
+│    student_identifier: `student-${index}`,
+│    created_by: FAKE_USER_SUB,
+│    created_at: new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString(),
+│    updated_at: new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString(),
+│  }));
 ⋮
 
 tests\dashboard-human-review-query.test.ts:

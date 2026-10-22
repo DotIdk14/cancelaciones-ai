@@ -1,5 +1,5 @@
 import { needsContactConfirmation } from '../../../src/shared/audit-contact.js';
-import { assignManualCase } from '../../../src/server/case-assignment.js';
+import { assignCase } from '../../../src/server/case-assignment.js';
 import { auditLifecycle } from '../../../src/lib/audit-lifecycle.js';
 import { reconcileCases } from '../../../src/server/student-history.js';
 import { healStaleAudit } from '../../../src/server/audit-service.js';
@@ -39,7 +39,6 @@ import { refreshTranscriptions } from '../../../src/server/audit-service.js';
 import { healStaleComparison } from '../../../src/server/comparison-service.js';
 import { capabilitiesForRole } from '../../../src/server/capabilities.js';
 import { fingerprintForAuditVersion, getActiveAuditVersion } from '../../../src/server/audit-versions.js';
-import { assignImportedCase } from '../../../src/server/flokzu-assignment.js';
 import { assertCaseHasNoAdvisorReview } from '../../../src/server/review-locks.js';
 
 // GET   /api/cases/:caseId → { case, evidences, audit, audits, review, comparison, effectiveResolution }
@@ -77,8 +76,7 @@ export default handleRoute(async (req, res) => {
       }
       const parsed = z.object({ assignedTo: z.string().uuid().nullable() }).strict().safeParse(body);
       if (!parsed.success) throw new ApiError(400, 'VALIDATION_ERROR', 'El responsable indicado no es válido.');
-      if (caseRow.external_source === 'FLOKZU') await assignImportedCase(client, caseId, parsed.data.assignedTo, req.auth!);
-      else await assignManualCase(client, caseId, parsed.data.assignedTo, req.auth!);
+      await assignCase(client, caseId, parsed.data.assignedTo, req.auth!);
       ok(res, { ok: true });
       return;
     }

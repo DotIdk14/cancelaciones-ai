@@ -33,7 +33,7 @@ function database(rows: Row[], related: Record<string, Row[]> = {}) {
             ranges.push([table, page[0], page[1]]);
             const matches = (rowsForTable: Row[]) => rowsForTable.filter((row) => predicates.every(([column, op, value]) => {
               if (op === 'is') return (row[column] ?? null) === value;
-              if (op === 'eq') return (column === 'flokzu_audit_eligible' ? row[column] ?? true : row[column]) === value;
+              if (op === 'eq') return row[column] === value;
               if (op === 'in') return (value as unknown[]).includes(row[column]);
               return String(row[column] ?? '') <= String(value);
             }));

@@ -12,7 +12,6 @@ import {
   updateCaseStatus,
   type CaseRow,
 } from "./cases.js";
-import { classifyFlokzu } from "../shared/flokzu-review.js";
 import { getEnv } from "./env.js";
 import {
   fetchPortalDetail,
@@ -216,14 +215,11 @@ export async function createCaseFromPortal(
       ...snapshot,
       acquisition: { ...snapshot.acquisition, status },
     };
-    const classification = classifyFlokzu(detail.data);
     const { error } = await client.database
       .from("cases")
       .update({
         flokzu_data: data,
         student_name: detail.studentName,
-        flokzu_classification: classification.classification,
-        flokzu_audit_eligible: classification.classification === "ACTIVE",
       })
       .eq("id", caseId);
     if (error) throw mapProviderError(error, "DATABASE_ERROR");

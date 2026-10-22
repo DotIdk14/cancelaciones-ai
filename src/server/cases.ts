@@ -31,7 +31,6 @@ export interface CaseRow {
   external_source?: 'FLOKZU' | null;
   external_case_id?: string | null;
   flokzu_data?: unknown;
-  flokzu_audit_eligible?: boolean;
   created_at: string;
   updated_at: string;
   /** Proyección del origen del dictamen, usada también como validación de cierre. */
@@ -539,7 +538,7 @@ export function assertCaseOwner(row: CaseRow, auth: AuthContext): void {
 /** Un CaVe capturado manualmente conserva al creador hasta su primera sincronización. */
 export function caseOwnedBy(row: CaseRow, userId: string): boolean {
   if (row.merged_into_case_id) return false;
-  if (row.external_source === 'FLOKZU') return row.flokzu_audit_eligible !== false && (
+  if (row.external_source === 'FLOKZU') return (
     row.assigned_to === userId || (row.flokzu_data === null && row.created_by === userId)
   );
   return row.created_by === userId || row.assigned_to === userId;

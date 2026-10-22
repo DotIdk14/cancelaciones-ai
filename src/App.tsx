@@ -33,7 +33,6 @@ import type { AppRoute } from './lib/useHashRoute';
 import { useSession } from './lib/useSession';
 import { capabilitiesForRole } from './server/capabilities';
 import { ReportProblemModal } from './components/ReportProblemModal';
-import { FlokzuReviewPage } from './components/FlokzuReviewPage';
 
 // -----------------------------------------------------------------------------
 // Dashboard en carga diferida
@@ -127,8 +126,6 @@ function renderRoute(
       return <AiCostsPage />;
     case 'incidents':
       return <IncidentsPage previewOnly={previewOnly} />;
-    case 'flokzu-review':
-      return <FlokzuReviewPage previewOnly={previewOnly} />;
     case 'dashboard':
       return <OverviewPage />;
   }
@@ -151,7 +148,6 @@ function Shell({
   const [reportOpen, setReportOpen] = useState(false);
   const restrictedRoute =
     (!capabilities.canReadAllCases && route.name === 'dashboard') ||
-    ((route.name === 'flokzu-review') && !capabilities.canImportCases) ||
     (route.name === 'quality' && !capabilities.canManageCases && !capabilities.canFinalizeAnyCase) ||
     (route.name === 'ai-costs' && !capabilities.canManageCases && !capabilities.canFinalizeAnyCase) ||
     (route.name === 'incidents' && !capabilities.canManageCases);

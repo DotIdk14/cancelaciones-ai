@@ -346,3 +346,15 @@ el bloque `DO $verify$` ni el registro del runner oficial en esa prueba; por eso
 se clasifica como prueba de DDL y estado de catálogo en staging, no como prueba
 completa del flujo de migraciones. La rama temporal se eliminó después. El
 baseline vacío sigue sin probarse.
+
+## Retiro de la revisión Flokzu — 22 de octubre de 2026
+
+Solicitud explícita del owner: retirar la bandeja administrativa heredada de Excel y sus objetos en base, manteniendo los expedientes y el flujo de Nueva auditoría.
+
+Se verificó el proyecto principal `a4e801ec-9552-490a-8e48-6884282dc1bb`, el ledger remoto y las definiciones reales de funciones. El ledger ya llega a `20261019100100`; se aplica únicamente `20261022163849_remove-flokzu-administrative-review.sql`, sin reproducir migraciones anteriores ni editar el ledger.
+
+Alcance: eliminar `case_import_batches`, `flokzu_admin_events`, seis columnas administrativas de `cases`, su índice y nueve RPC heredados; actualizar reparto y consolidación, y unificar la asignación en `assign_case`. No se usa `CASCADE`. Se conservan `external_source`, `external_case_id`, `flokzu_data`, `assigned_to`, los expedientes y todos sus originales y dictámenes. La migración incluye un bloque de verificación de dependencias y privilegios fail-closed.
+
+Respaldo específico de las estructuras retiradas en `.insforge/backups/` (ignorado por Git). Se comprobó la restauración de los 15 lotes, 418 eventos y las banderas de 227 casos en PGlite, incluyendo claves y valores, sin persistir PII en el repositorio. La cuota de backup manual de plataforma ya estaba ocupada; no se borró el backup existente. Esta copia local cubre los datos retirados, no constituye un backup completo de InsForge o Storage.
+
+La migración completa se aplicó con el runner oficial en la rama aislada `remove-flokzu-review`, modo `schema-only`, y pasó el bloque `DO $verify$`. Las pruebas de integración locales siembran originales y dictámenes sintéticos, aplican el historial más esta migración y verifican su preservación, el reparto y la reasignación con permisos.

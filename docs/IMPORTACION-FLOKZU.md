@@ -1,6 +1,6 @@
 # Consulta directa de Flokzu
 
-La importación Excel está retirada: no hay pantalla, parser XLSX, endpoint multipart ni dependencia ExcelJS. Los lotes y migraciones históricos se conservan como registro; no se elimina información almacenada.
+La importación Excel está retirada: no hay pantalla, parser XLSX, endpoint multipart ni dependencia ExcelJS. Las tablas de lotes y revisión administrativa, sus RPC y las columnas que bloqueaban auditorías fueron retiradas mediante migración. Las migraciones históricas se conservan para reproducir el esquema.
 
 ## Crear expediente
 
@@ -21,7 +21,7 @@ Los originales se guardan como evidencias con hash. `flokzu_data.acquisition.ass
 
 La identidad de creación se conserva en sessionStorage. La clave externa evita dos expedientes para el mismo CaVe; los archivos usan IDs deterministas por expediente, origen y hash. Una carga interrumpida queda `INCOMPLETE`, impide auditar y se recupera al repetir la matrícula y ticket. Solo pasa a `COMPLETE` después de confirmar todas las evidencias. No se inicia IA de auditoría al crear; el audio utiliza la preparación y cuota existentes.
 
-Los casos existentes se identifican por su CaVe. Si están en DRAFT o tienen cero evidencias realmente guardadas, y el actor tiene capacidad de importación o es el responsable con escritura, respetando los bloqueos de revisión, se actualizan en el mismo expediente los datos administrativos, nombre y archivos. Se conservan originales y procedencia anteriores; no se duplica el expediente. La existencia de una auditoría anterior no impide recuperar archivos en esos dos supuestos: se conserva el intento y nunca se vuelve a ejecutar automáticamente. Los expedientes finalizados por el Coordinador o con una auditoría en curso mantienen sus bloqueos. Si ya tienen auditoría y no necesitan sincronización, se ofrece un enlace directo `#/casos/:id?audit=:auditId` al intento más reciente no retirado y no se modifica el expediente. Los demás casos se abren en consulta. La presencia de auditoría se comprueba nuevamente después de descargar y antes de guardar. Las solicitudes finalizadas en Flokzu se distinguen de la bandeja activa mediante la clasificación administrativa existente.
+Los casos existentes se identifican por su CaVe. Si están en DRAFT o tienen cero evidencias realmente guardadas, y el actor tiene capacidad de importación o es el responsable con escritura, respetando los bloqueos de revisión, se actualizan en el mismo expediente los datos administrativos, nombre y archivos. Se conservan originales y procedencia anteriores; no se duplica el expediente. La existencia de una auditoría anterior no impide recuperar archivos en esos dos supuestos: se conserva el intento y nunca se vuelve a ejecutar automáticamente. Los expedientes finalizados por el Coordinador o con una auditoría en curso mantienen sus bloqueos. Si ya tienen auditoría y no necesitan sincronización, se ofrece un enlace directo `#/casos/:id?audit=:auditId` al intento más reciente no retirado y no se modifica el expediente. Los demás casos se abren en consulta. La presencia de auditoría se comprueba nuevamente después de descargar y antes de guardar. La tarea o el estado reportados por Flokzu son datos de contexto: no bloquean la auditoría ni exigen una reactivación administrativa. El Asesor asignado trabaja con los permisos normales del expediente.
 
 La ruta de colección existente sirve la consulta y creación: se mantienen las 12 Functions, sin migraciones ni nuevos servicios.
 
@@ -32,3 +32,7 @@ La ruta de colección existente sirve la consulta y creación: se mantienen las 
 ### Alcance del Coordinador al sincronizar
 
 La capacidad `canImportCases` autoriza al Coordinador a incorporar contenido de Flokzu en un CaVe existente aunque esté asignado a otro Asesor, como la importación de origen anterior. Esta autorización solo opera en la sincronización desde el portal, con matrícula y CaVe verificados: no modifica `caseOwnedBy`, asignación, autor, comentarios humanos locales, revisiones ni permisos de otras rutas. El Asesor sigue necesitando propiedad. Los casos consolidados y los bloqueos de revisión, finalización y auditoría en curso se conservan.
+
+## Retiro de la revisión administrativa
+
+La pantalla Revisión Flokzu y sus endpoints no existen. Nueva auditoría es la entrada única para consultar e incorporar un CaVe. La asignación y reasignación siguen en el expediente; se conservan las validaciones de rol y los bloqueos por consolidación, auditoría en curso y revisión humana finalizada. No se borran expedientes, evidencias, dictámenes ni comentarios locales.

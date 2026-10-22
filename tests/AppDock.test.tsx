@@ -20,3 +20,8 @@ describe('AppDock — acceso a Calidad', () => {
     expect(screen.queryByRole('link', { name: 'Calidad' })).toBeNull();
   });
 });
+
+it('no ofrece la bandeja administrativa retirada al Coordinador', () => {
+  render(<AppDock capabilities={capabilitiesForRole('coordinator')} />);
+  expect(screen.queryByRole('link', { name: 'Revisión Flokzu' })).toBeNull();
+});

@@ -1,5 +1,5 @@
 import { useEffect, useId, useState } from 'react';
-import { assignImportedCase, getCaseAssignmentOptions } from '../lib/api';
+import { assignCase, getCaseAssignmentOptions } from '../lib/api';
 import { Button, ErrorCard, Panel } from './ui';
 
 export function CaseAssignment({ caseId, assignedTo, finalized, onSaved }: { caseId: string; assignedTo: string | null; finalized: boolean; onSaved: () => Promise<void> }) {
@@ -11,7 +11,7 @@ export function CaseAssignment({ caseId, assignedTo, finalized, onSaved }: { cas
   useEffect(() => { void getCaseAssignmentOptions().then(setOptions).catch(() => setError('No se pudieron cargar los Asesores. Actualiza el expediente para reintentar.')); }, []);
   async function save() {
     setBusy(true); setError(null);
-    try { await assignImportedCase(caseId, selected || null); await onSaved(); }
+    try { await assignCase(caseId, selected || null); await onSaved(); }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudo guardar la asignación.'); }
     finally { setBusy(false); }
   }

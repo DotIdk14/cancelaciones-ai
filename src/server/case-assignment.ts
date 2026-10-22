@@ -26,8 +26,8 @@ export async function listAssignmentOptions(client: InsForgeClient, actor: AuthC
   }));
 }
 
-export async function assignManualCase(client: InsForgeClient, caseId: string, assignedTo: string | null, actor: AuthContext): Promise<void> {
+export async function assignCase(client: InsForgeClient, caseId: string, assignedTo: string | null, actor: AuthContext): Promise<void> {
   if (!capabilitiesForRole(actor.role).canImportCases) throw new ApiError(403, 'AUTH_ERROR', 'No tienes permiso para asignar expedientes.');
-  const { error } = await client.database.rpc('assign_manual_case', { p_case_id: caseId, p_assigned_to: assignedTo, p_actor: actor.sub });
+  const { error } = await client.database.rpc('assign_case', { p_case_id: caseId, p_assigned_to: assignedTo, p_actor: actor.sub });
   if (error) assignmentError(error);
 }

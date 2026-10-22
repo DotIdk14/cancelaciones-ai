@@ -59,7 +59,7 @@ export async function describeExistingPortalCases(
   const { data, error } = await client.database
     .from("cases")
     .select(
-      "id,status,student_identifier,external_case_id,external_source,created_by,assigned_to,flokzu_audit_eligible,flokzu_data,merged_into_case_id,evidence(count)",
+      "id,status,student_identifier,external_case_id,external_source,created_by,assigned_to,flokzu_data,merged_into_case_id,evidence(count)",
     )
     .eq("student_identifier", student)
     .eq("external_source", "FLOKZU")

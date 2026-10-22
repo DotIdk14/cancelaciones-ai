@@ -52,3 +52,10 @@ it("rechaza matrícula inválida antes de consultar el proveedor", async () => {
   expect(response.statusCode).toBe(400);
   expect(client).not.toHaveBeenCalled();
 });
+
+it.each(['GET', 'PATCH'] as const)('retira la revisión Flokzu por %s sin acceder a persistencia', async method => {
+  const response = res();
+  await handler({ method, headers: {}, query: { view: 'flokzu-review' }, auth: fakeAuthContext('coordinator') } as ApiRequest, response);
+  expect(response.statusCode).toBe(method === 'GET' ? 400 : 405);
+  expect(client).not.toHaveBeenCalled();
+});

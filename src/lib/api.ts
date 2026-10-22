@@ -623,7 +623,7 @@ export async function createCase(studentIdentifier: string, externalCaseId: stri
   return { ...data.case, existingAuditId: data.existingAuditId };
 }
 
-export async function assignImportedCase(caseId: string, assignedTo: string | null): Promise<void> {
+export async function assignCase(caseId: string, assignedTo: string | null): Promise<void> {
   await request<{ ok: true }>(casePath(caseId), {
     method: 'PATCH',
     headers: { 'content-type': 'application/json' },
@@ -1098,26 +1098,6 @@ export async function refreshSession(): Promise<SessionSnapshot | null> {
   } catch {
     return { role: null, capabilities: { canReadAllCases: false, canReviewOwnCases: false, canFinalizeAnyCase: false, canWriteOwnedCases: false, canManageCases: false, canImportCases: false, canValidateAuditFeedback: false, canManageAiLab: false } };
   }
-}
-
-export interface FlokzuReviewPageData {
-  tickets: import('../shared/flokzu-review').FlokzuTicket[]; nextOffset: number | null;
-  counts: { pending: number; rejected: number; finalized: number; otherStage: number; discrepancies: number };
-}
-export interface FlokzuTicketDetail {
-  ticket: import('../shared/flokzu-review').FlokzuTicket; data: FlokzuCaseData;
-  history: import('../shared/flokzu-review').FlokzuEvent[]; historyNextOffset: number | null;
-}
-export function getFlokzuReview(filters: Record<string,string>): Promise<FlokzuReviewPageData> {
-  const params = new URLSearchParams({ view: 'flokzu-review' });
-  for (const [key,value] of Object.entries(filters)) if (value) params.set(key,value);
-  return request('/api/cases?'+params.toString(), {}, [200]);
-}
-export function getFlokzuTicket(caseId: string, historyOffset = 0): Promise<FlokzuTicketDetail> {
-  return request('/api/cases?'+new URLSearchParams({view:'flokzu-review',caseId,historyOffset:String(historyOffset)}).toString(), {}, [200]);
-}
-export function decideFlokzuTicket(decision: import('../shared/flokzu-review').FlokzuDecision): Promise<unknown> {
-  return request('/api/cases?view=flokzu-review', {method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify(decision)}, [200]);
 }
 
 export async function getStudentHistory(caseId: string, offset = 0): Promise<StudentHistory> {

@@ -43,3 +43,11 @@ describe('propiedad de tickets importados', () => {
     expect(caseOwnedBy({ ...manualWithCave, merged_into_case_id: 'principal' }, FAKE_COORDINATOR_SUB)).toBe(false);
   });
 });
+
+it('un CaVe asignado permite trabajar aunque la clasificación administrativa antigua lo bloqueara', () => {
+  const legacy = { ...flokzuCase, status: 'READY' as const, flokzu_data: {}, flokzu_audit_eligible: false };
+  expect(caseOwnedBy(legacy, FAKE_USER_SUB)).toBe(true);
+  expect(() => assertCaseOwner(legacy, fakeAuthContext('user'))).not.toThrow();
+  expect(caseOwnedBy(legacy, FAKE_COORDINATOR_SUB)).toBe(false);
+  expect(caseOwnedBy({ ...legacy, merged_into_case_id: 'principal' }, FAKE_USER_SUB)).toBe(false);
+});
