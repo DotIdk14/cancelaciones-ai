@@ -248,7 +248,7 @@ export default handleRoute(async (req, res) => {
   if (view === 'quality' && !capabilities.canManageCases && !capabilities.canFinalizeAnyCase) {
     throw new ApiError(403, 'AUTH_ERROR', 'No tienes permiso para consultar este módulo.');
   }
-  if (view === 'ai-costs' && !capabilities.canManageCases) {
+  if (view === 'ai-costs' && !capabilities.canManageCases && !capabilities.canFinalizeAnyCase) {
     throw new ApiError(403, 'AUTH_ERROR', 'No tienes permiso para consultar este módulo.');
   }
   const client = createServerClient();

@@ -26,13 +26,14 @@ describe('consumo administrativo en la frontera HTTP', () => {
     await handler({ method: 'GET', query: { view: 'ai-costs', from: '2026-10-01', to: '2026-10-31' }, auth: fakeAuthContext('manager') } as ApiRequest, res as unknown as ApiResponse);
     expect(res.body).toEqual({ costs: { realReport: true } });
   });
-  it('el Coordinador puede consultar Calidad, pero no IA y Costos', async () => {
+  it('el Coordinador puede consultar Calidad y el informe de costos', async () => {
     const quality = { body: null };
     await handler({ method: 'GET', query: { view: 'quality', from: '2026-10-01', to: '2026-10-31' }, auth: fakeAuthContext('coordinator') } as ApiRequest, quality as unknown as ApiResponse);
     expect(quality.body).toEqual({ quality: { qualityData: true } });
 
-    await expect(handler({ method: 'GET', query: { view: 'ai-costs', from: '2026-10-01', to: '2026-10-31' }, auth: fakeAuthContext('coordinator') } as ApiRequest, { body: null } as unknown as ApiResponse))
-      .rejects.toMatchObject({ status: 403 });
+    const costs = { body: null };
+    await handler({ method: 'GET', query: { view: 'ai-costs', from: '2026-10-01', to: '2026-10-31' }, auth: fakeAuthContext('coordinator') } as ApiRequest, costs as unknown as ApiResponse);
+    expect(costs.body).toEqual({ costs: { realReport: true } });
   });
   it('el Asesor sigue sin acceso al informe de Calidad', async () => {
     await expect(handler({ method: 'GET', query: { view: 'quality', from: '2026-10-01', to: '2026-10-31' }, auth: fakeAuthContext('user') } as ApiRequest, { body: null } as unknown as ApiResponse))

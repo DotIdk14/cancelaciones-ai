@@ -9,10 +9,10 @@ describe('AppDock — acceso a Calidad', () => {
   beforeEach(() => { window.location.hash = '#/'; });
   afterEach(() => { cleanup(); });
 
-  it('muestra Calidad al Coordinador y mantiene IA y Costos restringido al Gerente', () => {
+  it('muestra Calidad y Actividad y consumo al Coordinador', () => {
     render(<AppDock capabilities={capabilitiesForRole('coordinator')} />);
     expect(screen.getByRole('link', { name: 'Calidad' }).getAttribute('href')).toBe('#/calidad');
-    expect(screen.queryByRole('link', { name: 'Actividad y consumo' })).toBeNull();
+    expect(screen.getByRole('link', { name: 'Actividad y consumo' }).getAttribute('href')).toBe('#/ia-costos');
   });
 
   it('mantiene Calidad oculta al Asesor', () => {
