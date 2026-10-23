@@ -31,7 +31,7 @@ import type { Tone } from '../components/ui';
 
 export const RESULT_LABELS: Record<AuditResultType, string> = {
   CANCELACION_VENTA: 'Cancelación de venta',
-  CANCELACION_VENTA_PETICION_CLIENTE: 'Cancelación por promesa no cumplida',
+  CANCELACION_VENTA_PETICION_CLIENTE: 'Cancelación de venta a petición del cliente',
   BAJA: 'Baja',
   CANCELACION_VENTA_OPERATIVA: 'Cancelación de venta operativa',
   CANCELACION_MATRICULA: 'Cancelación de matrícula',

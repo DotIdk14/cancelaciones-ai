@@ -98,3 +98,9 @@ describe('DashboardFilters — etiqueta de dimensión', () => {
     expect((option as HTMLOptionElement).value).toBe('MX');
   });
 });
+
+it('presenta una petición personal sin atribuir una promesa incumplida al mostrar el resultado persistido', () => {
+  render(createElement(RecentCasesTable, { cases: [caseRow({ result: 'CANCELACION_VENTA_PETICION_CLIENTE' })] }));
+  expect(screen.getByText('Cancelación de venta a petición del cliente')).toBeTruthy();
+  expect(screen.queryByText(/promesa no cumplida/i)).toBeNull();
+});

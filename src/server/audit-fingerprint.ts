@@ -13,7 +13,7 @@ export function fingerprintWithContactContext(base: string, metadata: unknown): 
 }
 
 /** Versión del pipeline de preparación y evaluación que produce la huella. */
-export const AUDIT_PIPELINE_VERSION = 'audit-v5-pipeline-2';
+export const AUDIT_PIPELINE_VERSION = 'audit-v5-pipeline-3';
 
 /** Huella canónica compartida por la ejecución y la proyección de vigencia. */
 export function computeEvidenceFingerprint(evidences: EvidenceRow[], humanCycleStartDate?: string | null, areaComments: Array<{ area: string; comment: string }> = [], flokzuData?: unknown, pipelineVersion = AUDIT_PIPELINE_VERSION): string {

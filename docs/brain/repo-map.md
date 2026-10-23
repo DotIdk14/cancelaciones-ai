@@ -4,32 +4,8 @@ Using openrouter/deepseek/deepseek-r1:free model with API key from environment.
 Aider v0.86.2
 Model: openrouter/deepseek/deepseek-r1:free with diff edit format, prompt 
 cache, infinite output
-Git repo: .git with 401 files
+Git repo: .git with 395 files
 Repo-map: using 4096 tokens, auto refresh
-Repo-map can't include 
-C:\Users\IanEmilianoJarquinHe\Desktop\cancelaciones-ai\src\components\FlokzuRev
-iewPage.tsx
-Has it been deleted from the file system but not from git?
-Repo-map can't include 
-C:\Users\IanEmilianoJarquinHe\Desktop\cancelaciones-ai\src\server\flokzu-assign
-ment.ts
-Has it been deleted from the file system but not from git?
-Repo-map can't include 
-C:\Users\IanEmilianoJarquinHe\Desktop\cancelaciones-ai\src\server\flokzu-review
-.ts
-Has it been deleted from the file system but not from git?
-Repo-map can't include 
-C:\Users\IanEmilianoJarquinHe\Desktop\cancelaciones-ai\src\shared\flokzu-review
-.ts
-Has it been deleted from the file system but not from git?
-Repo-map can't include 
-C:\Users\IanEmilianoJarquinHe\Desktop\cancelaciones-ai\tests\FlokzuReviewPage.t
-est.tsx
-Has it been deleted from the file system but not from git?
-Repo-map can't include 
-C:\Users\IanEmilianoJarquinHe\Desktop\cancelaciones-ai\tests\flokzu-review.test
-.ts
-Has it been deleted from the file system but not from git?
 Here are summaries of some files present in my git repository.
 Do not propose changes to these files, treat them as *read-only*.
 If you need to edit any of these files, ask me to *add them to the chat* first.
@@ -196,6 +172,11 @@ target.closest('[aria-cont
 
 src\components\PdfCanvas.tsx:
 ⋮
+│interface PdfDocumentProxy {
+│  numPages: number;
+│  getPage(pageNumber: number): Promise<PdfPageProxy>;
+│  destroy(): Promise<void>;
+⋮
 │export interface PdfCanvasProps {
 │  /** Mismo origen, con la cookie de sesión: devuelve los bytes con MIME 
 `application/pdf`. */
@@ -287,9 +268,6 @@ src\components\ui.tsx:
 ⋮
 
 src\lib\api.ts:
-⋮
-│export type CoordinatorDecision = 'APPROVE' | 'CHANGE';
-│
 ⋮
 │export type WorkflowState = 'PENDING_ADVISOR' | 'PENDING_COORDINATOR' | 
 'FINALIZED';

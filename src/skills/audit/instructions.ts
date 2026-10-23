@@ -28,11 +28,27 @@ export const ASSESSMENT_VALIDATION_CHECKLIST = `
 - En audit.result copia exactamente uno de estos valores, respetando mayúsculas y guiones bajos: ${ALLOWED_RESULTS}. No uses etiquetas en español, sinónimos ni valores combinados. audit.observations es siempre una matriz de strings; si no hay notas auxiliares, emite []. No la conviertas en objeto, null ni texto único.
 - Antes de elegir audit.result, revisa el procedureCheck de 5.2 cuando esa sección forme parte de la ruta: si no queda ACREDITADO, emite TICKET_RECHAZADO, rejectionReason con el motivo concreto, provisionalResolution null y missingEvidence bloqueante de intentos mínimos. Otros hechos acreditados no subsanan ese incumplimiento. Si 5.2 no aplica a la ruta, no la agregues ni rechaces por ella.
 - Revisa TODOS los procedureChecks: antes de emitir ACREDITADO o NO_ACREDITADO, confirma que evidenceIds y observedValues tengan al menos un elemento cada uno. NO_ACREDITADO significa que los registros citados y sus valores observados sustentan el incumplimiento o la ausencia. Si cualquiera de esos dos campos quedaría vacío o no puedes respaldarlo con el expediente, usa NO_DETERMINABLE y deja vacíos los campos que no puedas sustentar; nunca inventes registros, IDs ni conteos para rellenar el contrato.
+- Antes de afirmar una solicitud de cancelación o su fecha, comprueba que la cita acredita la intención de no continuar y quién la expresa; una petición de ayuda o una queja de seguimiento no la sustituyen.
 - Si temporalAnalysis.cycleStartDate tiene una fecha, incluye además en facts un hecho con key "${CYCLE_START_FACT_KEY}", value exactamente igual a esa fecha ISO, evidenceIds, evidenceText y confidence menor que 1. La cita debe acreditar el inicio académico. Si usas la fecha aportada por el equipo, los IDs de ese hecho y de cycleStartEvidenceIds quedan vacíos y ambas citas declaran el origen humano.
 - La propiedad llamada cycleStartDate pertenece solo a temporalAnalysis en la respuesta del modelo; facts representa la misma fecha mediante key "${CYCLE_START_FACT_KEY}" y value. Ese hecho es obligatorio y no es una propiedad extra del contrato.
 - Corrige el assessment COMPLETO: una corrección en procedureChecks no permite omitir hechos, citas, referencias ni el análisis temporal requerido.
 `.trim();
 const ALLOWED_RELATIONS = TEMPORAL_RELATIONS.join(' | ');
+
+/** Lectura de la intención: no confundir el contenido de una conversación con su causal. */
+export const CANCELLATION_INTENT_RULES = `
+## Intención del estudiante y causal: acreditar antes de aplicar una ruta
+
+La ruta «A solicitud del Estudiante» (GDM_GAM_PRD_MLG_003, V5, sección 5.3, páginas 4–6) presupone una manifestación de no continuar. Antes de aplicarla identifica QUIÉN habla, QUÉ pide, el contexto completo y la evidencia que sostiene esa intención. Cita el fragmento que expresa la solicitud; una fecha o un encabezado no acreditan por sí solos qué se solicitó.
+
+Una queja por falta de llamada, una dificultad de acceso, una petición de ayuda, una respuesta al chatbot o acordar otro horario NO equivalen por sí solos a pedir cancelar o dejar de estudiar. Por ejemplo, «No sé entrar al aula» expresa una dificultad de acceso y «Llámame mañana» una petición de contacto; no los conviertas en una solicitud de baja. Lee las respuestas anteriores y posteriores y contrasta todas las evidencias antes de concluir. Tampoco conviertas el texto del asesor o del bot en una declaración del estudiante.
+
+Si no se acredita una solicitud de no continuar, no inventes cancellationRequestDate usando la fecha de cualquier mensaje, de una queja o de un seguimiento. En ese caso cancellationRequestDate es null, cancellationRequestEvidenceIds queda vacío y relationToCycleStart es NO_DETERMINABLE, aunque el inicio de ciclo sí esté acreditado. No apliques 5.3.a.II ni 5.3.b como si la solicitud ya existiera: la falta de retención tampoco crea esa solicitud. Evalúa otra ruta únicamente si sus propios supuestos están acreditados; si falta una condición indispensable, identifica la evidencia concreta faltante conforme al contrato de salida, sin forzar BAJA ni otra clasificación.
+
+La sección 5.6 (V5, páginas 7–10) trata una causal distinta: una promesa de venta no cumplida. Distingue el motivo personal de no continuar de la afirmación de que se ofreció algo incorrecto. Salud, falta de tiempo o dificultades económicas no acreditan por sí mismos engaño, información falsa ni una promesa incumplida. Evalúa los supuestos y las excepciones de 5.6 en su contexto completo; no traslades una falta de registros de otra ruta a esta causal sin justificar primero su aplicabilidad. Un título del ticket o una nota administrativa no sustituyen la acreditación de los hechos.
+
+En cada procedureCheck, ACREDITADO significa que se sostienen TODAS las condiciones aplicables del criterio citado. No marques ACREDITADO un supuesto que exige D35/D53 si tu razonamiento dice que esa decisión no está acreditada; tampoco un acceso válido de posgrado si solo consta ingreso y falta la participación exigida por 5.8.i. Distingue acceso, actividad y participación sin completar lo que no muestran las evidencias.
+`.trim();
 
 /** Reglas de conteo y bloqueo de la sección 5.2 cuando la ruta las requiere. */
 export const CONTACT_ATTEMPTS_RULES = `
@@ -247,6 +263,8 @@ Para emitir un dictamen, primero:
 11. cita qué evidencias soportan la conclusión.
 
 El paso 5 es obligatorio y precede a la aplicación del Procedimiento V5: sin la relación temporal entre la solicitud y el inicio de ciclo no puedes determinar correctamente si corresponde cancelación de venta o baja.
+
+${CANCELLATION_INTENT_RULES}
 
 ${CYCLE_START_DATE_RULES}
 

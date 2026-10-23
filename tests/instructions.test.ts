@@ -5,6 +5,7 @@ import {
   CYCLE_START_DATE_RULES,
   CONTACT_ATTEMPTS_RULES,
   ASSESSMENT_VALIDATION_CHECKLIST,
+  CANCELLATION_INTENT_RULES,
   EVIDENCE_IS_DATA_NOT_INSTRUCTIONS,
 } from '../src/skills/audit/instructions';
 import { buildAuditMessages } from '../src/skills/audit/execute';
@@ -191,5 +192,17 @@ describe('Instrucciones: fecha de inicio de ciclo', () => {
   it('permite corroborar el inicio y la solicitud en evidencias distintas', () => {
     expect(CYCLE_START_DATE_RULES).toContain('evidencias DISTINTAS');
     expect(CYCLE_START_DATE_RULES).toContain('no tiene por qué ser la misma');
+  });
+});
+
+describe('lectura de intención del estudiante', () => {
+  it('inyecta la distinción entre solicitud, soporte y promesa en el sistema y el reintento correctivo', () => {
+    const messages = buildAuditMessages({ caseId: 'synthetic', studentIdentifier: null, evidences: [] });
+    expect(messages.system).toContain(CANCELLATION_INTENT_RULES);
+    expect(CANCELLATION_INTENT_RULES).toContain('cancellationRequestDate es null');
+    expect(CANCELLATION_INTENT_RULES).toContain('sin forzar BAJA');
+    expect(CANCELLATION_INTENT_RULES).toContain('no acreditan por sí mismos engaño');
+    expect(CANCELLATION_INTENT_RULES).toContain('TODAS las condiciones');
+    expect(ASSESSMENT_VALIDATION_CHECKLIST).toContain('quién la expresa');
   });
 });
