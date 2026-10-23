@@ -1,10 +1,62 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { getEnv } from '../env.js';
 import { ApiError } from '../errors.js';
+import type { EvidenceInputItem } from '../../skills/audit/types.js';
+import type { OpenRouterContentPart } from '../openrouter.js';
 
 export type AiProvider = 'openrouter' | 'github-copilot';
+// Contexto efímero de una ejecución; no guarda jobs, decisiones ni estado durable.
+const selectedProvider = new AsyncLocalStorage<AiProvider>();
+
+export function withAiProvider<T>(provider: AiProvider, operation: () => Promise<T>): Promise<T> {
+  return selectedProvider.run(provider, operation);
+}
+
+/** Refleja únicamente los adjuntos originales que el Skill ya envía. */
+export function visualEvidenceParts(evidences: readonly EvidenceInputItem[]): OpenRouterContentPart[] {
+  const parts: OpenRouterContentPart[] = [];
+  for (const evidence of evidences) {
+    if (evidence.imageBase64) parts.push({ type: 'image_url', image_url: { url: evidence.imageBase64 } });
+    for (const page of evidence.pagesBase64 ?? []) parts.push({ type: 'image_url', image_url: { url: page } });
+  }
+  for (const evidence of evidences) {
+    if (evidence.kind === 'PDF' && evidence.pdfBase64) parts.push({ type: 'file', file: {
+      filename: evidence.filename, file_data: `data:${evidence.mimeType};base64,${evidence.pdfBase64}`,
+    } });
+  }
+  return parts;
+}
+
+/** Comprueba propuesta Y contraste antes de crear un intento de auditoría. */
+export async function preflightAiProvider(evidences: readonly EvidenceInputItem[], deadlineMs: number): Promise<AiProvider> {
+  const provider = await selectAiProvider(deadlineMs);
+  if (provider !== 'github-copilot') return provider;
+  const env = getEnv();
+  const { readCopilotModels, assertCopilotParts } = await import('./copilot-capabilities.js');
+  const models = await readCopilotModels(deadlineMs);
+  for (const modelId of new Set([env.COPILOT_MODEL, env.COPILOT_REVIEW_MODEL])) {
+    const model = models.find(item => item.id === modelId && (!item.policy || item.policy.state === 'enabled'));
+    if (!model) throw new ApiError(502, 'UNSUPPORTED_MODEL_CAPABILITY', 'Un modelo configurado de Copilot no está disponible para completar propuesta y contraste.');
+    try {
+      assertCopilotParts(visualEvidenceParts(evidences), model);
+    } catch (error) {
+      if (error instanceof ApiError && env.AI_PROVIDER_MODE === 'auto') {
+        const failure = new ApiError(error.status, error.category,
+          `${error.message} OpenRouter no tiene presupuesto suficiente o verificable para utilizarse. Revisa el saldo o configura un proveedor compatible.`);
+        failure.failurePath = error.failurePath;
+        failure.sanitizedDetail = error.sanitizedDetail;
+        throw failure;
+      }
+      throw error;
+    }
+  }
+  return provider;
+}
 
 /** Elige antes de inferir: nunca reinicia un dictamen después de gastar sus intentos. */
 export async function selectAiProvider(deadlineMs?: number): Promise<AiProvider> {
+  const pinned = selectedProvider.getStore();
+  if (pinned) return pinned;
   const env = getEnv();
   if (env.AI_PROVIDER_MODE === 'openrouter') return 'openrouter';
   if (!env.COPILOT_GITHUB_TOKEN || !env.COPILOT_MODEL || !env.COPILOT_REVIEW_MODEL) {

@@ -12,6 +12,7 @@ import { prepareFlokzuContext } from '../lib/flokzu-administrative.js';
 import type { InsForgeClient } from './insforge.js';
 import { randomUUID } from 'node:crypto';
 import { getEnv } from './env.js';
+import { preflightAiProvider, withAiProvider } from './ai/provider.js';
 import { auditSkill, PDF_MIN_TEXT_CHARS } from '../skills/audit/execute.js';
 import { OpenRouterAuditError } from './openrouter.js';
 import type { AuditSkillInput, ErrorCategory, EvidenceInputItem, AreaCommentContext, AreaCommentScope } from '../skills/audit/types.js';
@@ -466,6 +467,9 @@ export async function runAudit(
   await assertNoRedundantAudit(client, caseId);
   const inputs = await buildAuditInputs(client, caseRow, evidences, areaRows);
   inputs.humanContactPerformed = contactConfirmation?.performed === true;
+  const startedAt = Date.now();
+  const deadlineMs = startedAt + getEnv().TOTAL_AUDIT_TIMEOUT_MS;
+  const selectedProvider = await preflightAiProvider(inputs.evidences, deadlineMs);
 
   // Cuota ANTES de la fila durable y ANTES del proveedor, y DESPUÉS de las
   // comprobaciones de reutilización de arriba: reutilizar un COMPLETED o una
@@ -476,8 +480,6 @@ export async function runAudit(
   }
 
   // La fila durable se crea ANTES de la llamada al modelo.
-  const startedAt = Date.now();
-  const deadlineMs = startedAt + getEnv().TOTAL_AUDIT_TIMEOUT_MS;
   const attempts = await countAuditsByFingerprint(client, caseId, fingerprint);
   const versionMetadata = { ...contactMetadata, ...(activeVersion ? {
     auditVersionId: activeVersion.id,
@@ -494,8 +496,8 @@ export async function runAudit(
     auditRow = await insertAudit(client, {
       case_id: caseId,
       status: 'RUNNING',
-      provider: 'openrouter',
-      model: activeVersion?.model ?? getEnv().OPENROUTER_MODEL,
+      provider: selectedProvider,
+      model: selectedProvider === 'github-copilot' ? getEnv().COPILOT_MODEL! : activeVersion?.model ?? getEnv().OPENROUTER_MODEL,
       evidence_fingerprint: fingerprint,
       attempt_number: attempts + 1,
       deadline_at: new Date(deadlineMs).toISOString(),
@@ -511,10 +513,10 @@ export async function runAudit(
     await updateCaseStatus(client, caseId, 'AUDITING');
     // Relee la conciliación después de adquirir la fila RUNNING.
     await assertNoRedundantAudit(client, caseId);
-    const execution = await auditSkill.executeWithMetadata(inputs, {
+    const execution = await withAiProvider(selectedProvider, () => auditSkill.executeWithMetadata(inputs, {
       deadlineMs,
       ...(activeVersion && activeVersion.config.baseline !== true ? { model: activeVersion.model, supplementalInstructions: activeVersion.instructions } : {}),
-    });
+    }));
     executionMetadata = {
       usage: execution.usage, usageScope: 'aggregate', openrouterAttempts: execution.attempts,
       ...versionMetadata,

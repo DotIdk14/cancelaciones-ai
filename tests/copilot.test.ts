@@ -54,7 +54,41 @@ describe('transporte Copilot con herramientas denegadas',()=>{
  it('conserva la asociación de cada imagen con su bloque y comprueba sus límites',()=>{
   const part={type:'image_url' as const,image_url:{url:'data:image/png;base64,c3ludGhldGlj'}};
   const message=copilotMessage({...input(),parts:[...input().parts,part]},model);expect(message.prompt).toContain('Imagen de este bloque: evidencia-1');expect(message.attachments?.[0]?.type).toBe('blob');
-  expect(()=>copilotMessage({...input(),parts:[part,part,part]},model)).toThrow('número de imágenes');
+  expect(()=>copilotMessage({...input(),parts:[part,part,part]},model)).toThrow('3 adjuntos y Copilot admite 2');
+ });
+ it('conserva proveedor, modelo y motivo incluso si rechaza antes de inferir',async()=>{
+  const part={type:'image_url' as const,image_url:{url:'data:image/png;base64,c3ludGhldGlj'}};
+  await expect(callCopilotAudit({...input(),parts:[part,part,part]})).rejects.toMatchObject({
+   name:'CopilotAuditError',category:'UNSUPPORTED_MODEL_CAPABILITY',diagnostics:[expect.objectContaining({
+    model:'synthetic-vision',format:'capability',failureCategory:'UNSUPPORTED_MODEL_CAPABILITY',
+    path:'evidence.attachments',detail:'adjuntos recibidos 3 - maximo permitido 2',promptTokens:null,
+   })],
+  });
+  expect(fake.send).not.toHaveBeenCalled();expect(fake.create).not.toHaveBeenCalled();
+ });
+ it('registra modelo no disponible como capacidad y no como una caída genérica',async()=>{
+  fake.models.mockResolvedValue([]);
+  await expect(callCopilotAudit(input())).rejects.toMatchObject({name:'CopilotAuditError',category:'UNSUPPORTED_MODEL_CAPABILITY',
+   diagnostics:[expect.objectContaining({model:'synthetic-vision',format:'capability',capabilitiesVerified:false})]});
+  expect(fake.send).not.toHaveBeenCalled();
+ });
+ it('acota una llamada sin respuesta, aborta y no inicia un segundo intento',async()=>{
+  fake.send.mockImplementation(()=>new Promise(()=>{}));
+  await expect(callCopilotAudit({...input(),deadlineMs:Date.now()+500})).rejects.toMatchObject({
+   name:'CopilotAuditError',category:'PROVIDER_UNAVAILABLE',diagnostics:[expect.objectContaining({
+    failureCategory:'TIMEOUT',failureReason:expect.stringContaining('agoto el plazo'),
+   })],
+  });
+  expect(fake.send).toHaveBeenCalledOnce();expect(fake.abort).toHaveBeenCalledOnce();expect(fake.stop).toHaveBeenCalledOnce();
+ });
+ it('descarta la respuesta que llega después del timeout antes de validarla',async()=>{
+  let finish:((value:unknown)=>void)|undefined;
+  fake.send.mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));
+  const validate=vi.fn();
+  await expect(callCopilotAudit({...input(),validate,deadlineMs:Date.now()+500})).rejects.toMatchObject({category:'PROVIDER_UNAVAILABLE'});
+  finish?.({data:{content:'{"ok":true}'}});
+  await new Promise(resolve=>setTimeout(resolve,10));
+  expect(validate).not.toHaveBeenCalled();expect(fake.send).toHaveBeenCalledOnce();
  });
  it('termina sin inferencia si se agota el plazo durante la preparación del cliente',async()=>{
   let finish:((value:unknown)=>void)|undefined;fake.models.mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));

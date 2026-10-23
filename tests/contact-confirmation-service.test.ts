@@ -1,10 +1,15 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runAudit, healStaleAudit } from '../src/server/audit-service';
 import { computeEvidenceFingerprint, fingerprintWithContactContext } from '../src/server/audit-fingerprint';
 import { auditSkill } from '../src/skills/audit/execute';
 import { setTestEnv } from './helpers/env';
 import { fakeClient, getAuditById, latestAudit, resetStore, seedAudit, seedCase, seedEvidence } from './helpers/fake-store';
 import { validAuditResult } from './fixtures/audit-result';
+import * as aiProvider from '../src/server/ai/provider';
+import { checkPaidQuota } from '../src/server/quotas';
+import { ApiError } from '../src/server/errors';
+import { listAudits } from './helpers/fake-store';
+import { resetEnvCache } from '../src/server/env';
 
 vi.mock('../src/server/cases', async () => import('./helpers/fake-store'));
 vi.mock('../src/server/area-comments', () => ({ listAreaComments: async () => [] }));
@@ -20,6 +25,7 @@ vi.mock('../src/skills/audit/execute', () => ({
 }));
 
 const provider = vi.mocked(auditSkill.executeWithMetadata);
+afterEach(() => vi.restoreAllMocks());
 let base: string;
 beforeEach(() => {
   vi.clearAllMocks();
@@ -35,6 +41,25 @@ beforeEach(() => {
 });
 
 describe('continuación durable después de confirmar contacto', () => {
+  it('rechaza un proveedor incompatible antes de consumir cuota o crear otra auditoría', async () => {
+    const before = listAudits().length;
+    vi.spyOn(aiProvider, 'preflightAiProvider').mockRejectedValueOnce(new ApiError(502, 'UNSUPPORTED_MODEL_CAPABILITY', 'Doce adjuntos exceden el límite del proveedor.'));
+    await expect(runAudit(fakeClient, 'case-1', { userId: 'actor-server',
+      contactAnswer: { auditId: 'previous-audit', performed: true } })).rejects.toMatchObject({ category: 'UNSUPPORTED_MODEL_CAPABILITY' });
+    expect(listAudits()).toHaveLength(before); expect(checkPaidQuota).not.toHaveBeenCalled(); expect(provider).not.toHaveBeenCalled();
+  });
+
+  it('persiste el proveedor real antes de inferir y lo mantiene durante el Skill', async () => {
+    vi.stubEnv('COPILOT_MODEL', 'synthetic-vision'); resetEnvCache();
+    vi.spyOn(aiProvider, 'preflightAiProvider').mockResolvedValueOnce('github-copilot');
+    provider.mockImplementationOnce(async () => {
+      expect(await aiProvider.selectAiProvider()).toBe('github-copilot');
+      expect(await latestAudit(fakeClient, 'case-1')).toMatchObject({ provider: 'github-copilot', model: 'synthetic-vision', status: 'RUNNING' });
+      return { result: structuredClone(validAuditResult), model: 'synthetic-vision', usage: validAuditResult.usage, attempts: [] };
+    });
+    await runAudit(fakeClient, 'case-1', { userId: 'actor-server', contactAnswer: { auditId: 'previous-audit', performed: true } });
+    expect(await latestAudit(fakeClient, 'case-1')).toMatchObject({ provider: 'github-copilot', status: 'COMPLETED' });
+  });
   it('Sí persiste actor y fecha antes del proveedor, cambia la huella y reutiliza el dictamen posterior', async () => {
     provider.mockImplementationOnce(async (input) => {
       const running = await latestAudit(fakeClient, 'case-1');

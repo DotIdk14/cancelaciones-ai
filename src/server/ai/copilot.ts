@@ -7,6 +7,7 @@ import { ApiError } from '../errors.js';
 import { OpenRouterAuditError, type CallOpenRouterAuditInput, type CallOpenRouterAuditOutput, type OpenRouterAttemptDiagnostic } from '../openrouter.js';
 import { buildProviderJsonSchema, buildJsonObjectContract } from './provider-schema.js';
 import { AiAuditAssessmentSchema } from '../../skills/audit/schema.js';
+import { assertCopilotParts } from './copilot-capabilities.js';
 
 /** Sin herramientas ni lectura del workspace: el modelo recibe únicamente el expediente preparado. */
 export const COPILOT_SESSION_SAFETY = {
@@ -48,22 +49,17 @@ export function parseCopilotJson(raw: string): unknown {
 }
 
 export function copilotMessage(input: CallOpenRouterAuditInput, model: ModelInfo): MessageOptions {
+  assertCopilotParts(input.parts, model);
   const text: string[] = [];
   const attachments: NonNullable<MessageOptions['attachments']> = [];
   for (const part of input.parts) {
     if (part.type === 'text') { text.push(part.text); continue; }
     const source = part.type === 'file' ? part.file.file_data : part.image_url.url;
-    const match = /^data:(image\/[a-z0-9.+-]+|application\/pdf);base64,([a-z0-9+/=\r\n]+)$/i.exec(source);
-    const vision = model.capabilities.limits.vision;
-    if (!match || !model.capabilities.supports.vision || !vision || !vision.supported_media_types.includes(match[1]!.toLowerCase())
-      || Buffer.byteLength(match[2]!, 'base64') > vision.max_prompt_image_size) {
-      throw new ApiError(502, 'UNSUPPORTED_MODEL_CAPABILITY', part.type === 'file' ? 'El modelo de Copilot no admite este PDF original. No se omitió el documento.' : 'Una imagen excede las capacidades verificadas de Copilot. No se omitió evidencia para emitir el dictamen.');
-    }
+    const match = /^data:(image\/[a-z0-9.+-]+|application\/pdf);base64,([a-z0-9+/=\r\n]+)$/i.exec(source)!;
     const displayName = `evidencia-${attachments.length + 1}${part.type === 'file' ? '.pdf' : ''}`;
     text.push(`[${part.type === 'file' ? 'PDF' : 'Imagen'} de este bloque: ${displayName}]`);
     attachments.push({ type: 'blob', data: match[2]!, mimeType: match[1]!.toLowerCase(), displayName });
   }
-  if (attachments.length > (model.capabilities.limits.vision?.max_prompt_images ?? 0)) throw new ApiError(502, 'UNSUPPORTED_MODEL_CAPABILITY', 'El expediente supera el número de imágenes admitido por Copilot.');
   // El contrato completo excede la gramática del proveedor; Zod valida el JSON.
   const contract = buildProviderJsonSchema(input.schema ?? AiAuditAssessmentSchema, 'gemini', input.evidenceIds);
   return { prompt: `${text.join('\n\n')}\n\n${input.validationChecklist ?? ''}\n\n${buildJsonObjectContract(contract)}`, attachments, agentMode: 'interactive' };
@@ -86,6 +82,7 @@ export async function callCopilotAudit(input: CallOpenRouterAuditInput): Promise
   let session: CopilotSession | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let attempted = false;
+  let capabilitiesVerified = false;
   const state: { stage: 'provider' | 'json' | 'validation' } = { stage: 'provider' };
   const usage: CallOpenRouterAuditOutput['usage'] = { promptTokens: null, completionTokens: null, totalTokens: null, estimatedCostUSD: null };
   let usageEvents = 0;
@@ -93,10 +90,11 @@ export async function callCopilotAudit(input: CallOpenRouterAuditInput): Promise
   let cancelled = false;
   const assertActive = () => { if (cancelled || Date.now() >= deadline) throw new Error('COPILOT_DEADLINE'); };
   const diagnostic = (failureCategory: OpenRouterAttemptDiagnostic['failureCategory']): OpenRouterAttemptDiagnostic => ({
-    model: actualModel, format: 'json_object', status: null, providerErrorType: null, finishReason: null,
+    model: actualModel, format: attempted ? 'json_object' : 'capability', status: null, providerErrorType: null, finishReason: null,
     latencyMs: Date.now() - started, promptTokens: usage.promptTokens, completionTokens: usage.completionTokens, totalTokens: usage.totalTokens,
-    cost: null, maxOutputTokensRequested: null, capabilitiesVerified: true, retryable: false, failureCategory,
-    failureReason: failureCategory ? 'La llamada de Copilot no produjo una salida validada' : null, path: null, detail: null,
+    cost: null, maxOutputTokensRequested: null, capabilitiesVerified, retryable: false, failureCategory,
+    failureReason: failureCategory === 'TIMEOUT' ? 'Copilot agoto el plazo de la llamada. No se reintento ni se publico la propuesta.'
+      : failureCategory ? 'Copilot no pudo completar y validar la auditoria' : null, path: null, detail: null,
   });
   try {
     const operation = async () => {
@@ -104,6 +102,7 @@ export async function callCopilotAudit(input: CallOpenRouterAuditInput): Promise
       assertActive();
       if (!(await client.getAuthStatus()).isAuthenticated) throw new Error('COPILOT_AUTH_REQUIRED');
       const model = (await client.listModels()).find(item => item.id === modelId && (!item.policy || item.policy.state === 'enabled'));
+      capabilitiesVerified = Boolean(model);
       assertActive();
       if (!model) throw new ApiError(502, 'UNSUPPORTED_MODEL_CAPABILITY', 'El modelo configurado no está disponible en Copilot.');
       const message = copilotMessage(input, model);
@@ -119,6 +118,7 @@ export async function callCopilotAudit(input: CallOpenRouterAuditInput): Promise
       });
       attempted = true;
       const reply = await session.sendAndWait(message, Math.max(1, deadline - Date.now()));
+      assertActive();
       if (usageEvents > 1 || actualModel !== modelId) throw new Error('COPILOT_UNEXPECTED_MODEL_CALLS');
       state.stage = 'json';
       const parsed: unknown = parseCopilotJson(reply?.data.content ?? '');
@@ -128,11 +128,15 @@ export async function callCopilotAudit(input: CallOpenRouterAuditInput): Promise
     };
     return await Promise.race([operation(), new Promise<never>((_, reject) => { timer = setTimeout(() => { cancelled = true; reject(new Error('COPILOT_DEADLINE')); }, Math.max(1, deadline - Date.now())); })]);
   } catch (error) {
-    const category = state.stage === 'validation' ? 'SCHEMA_VALIDATION_ERROR' : state.stage === 'json' ? 'INVALID_JSON' : Date.now() >= deadline ? 'TIMEOUT' : 'PROVIDER_UNAVAILABLE';
-    if (!attempted && error instanceof ApiError) throw error;
+    const category = error instanceof ApiError && error.category === 'UNSUPPORTED_MODEL_CAPABILITY' ? 'UNSUPPORTED_MODEL_CAPABILITY'
+      : state.stage === 'validation' ? 'SCHEMA_VALIDATION_ERROR' : state.stage === 'json' ? 'INVALID_JSON' : cancelled || Date.now() >= deadline ? 'TIMEOUT' : 'PROVIDER_UNAVAILABLE';
     const details = diagnostic(category);
     if (error instanceof ApiError) { details.path = error.failurePath ?? null; details.detail = error.sanitizedDetail ?? null; }
-    const failure = new OpenRouterAuditError(category, attempted ? [details] : [], 'Copilot no pudo completar y validar la auditoría.');
+    if (details.detail) details.failureReason = details.detail;
+    const failure = new OpenRouterAuditError(category, [details], category === 'TIMEOUT'
+      ? 'Copilot agotó el tiempo disponible. No se publicó ningún dictamen ni se reintentó automáticamente.'
+      : error instanceof ApiError && error.category === 'UNSUPPORTED_MODEL_CAPABILITY' ? error.message
+      : 'Copilot no pudo completar y validar la auditoría.');
     failure.name = 'CopilotAuditError';
     throw failure;
   } finally {
