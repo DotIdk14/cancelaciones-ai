@@ -1,5 +1,6 @@
-Detected dumb terminal, disabling fancy input and pretty output.
-
+Can't initialize prompt toolkit: No Windows console found. Are you running 
+cmd.exe?
+───────────────────────────────────────────────────────────────────────────────
 Using openrouter/deepseek/deepseek-r1:free model with API key from environment.
 Aider v0.86.2
 Model: openrouter/deepseek/deepseek-r1:free with diff edit format, prompt 
@@ -418,6 +419,12 @@ src\lib\currency.ts:
 ⋮
 │export function usdToMxn(value: number): number {
 │  return value * MXN_REFERENCE_RATE.pesosPerUsd;
+⋮
+│export function formatCostMxn(value: number | null | undefined, unavailable = 
+'No disponible'): str
+│  if (typeof value !== 'number' || !Number.isFinite(value)) return 
+unavailable;
+│  return `$${mexicanPesos.format(usdToMxn(value))} MXN`;
 ⋮
 
 src\lib\dashboard-metrics-contracts.ts:
@@ -908,13 +915,6 @@ tests\dashboard-human-review-query.test.ts:
 case_reviews(id,case_id,audit_id,result,coordinator_decision,coordina
 │    [id(21), id(1), id(auditId), 'BAJA', final, final === 'CHANGE' ? 
 'CANCELACION_VENTA' : null, fi
-│}
-│async function comparison(status = 'COMPLETED', agrees = true, at = 
-'2026-10-12T12:00:00Z'): Promis
-│  await db.query('INSERT INTO 
-case_comparisons(id,case_review_id,audit_id,status,provider,model,cre
-│    [id(31), id(21), id(11), status, 'openrouter', 'test/model', at, status 
-=== 'COMPLETED' ? { agr
 ⋮
 
 tests\evidence-mime-detection.test.ts:

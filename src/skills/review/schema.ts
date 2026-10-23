@@ -46,7 +46,7 @@ const ComparisonResultObject = z
  */
 const ComparisonOutcomeObject = ComparisonResultObject.extend({
   model: z.object({
-    provider: z.literal('openrouter'),
+    provider: z.enum(['openrouter', 'github-copilot']),
     model: z.string(),
   }),
   usage: z.object({

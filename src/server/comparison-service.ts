@@ -439,7 +439,7 @@ async function executeComparison(
     const done = await updateComparisonResult(client, row.id, {
       resultJson: execution.result,
       providerMetadata,
-      provider: 'openrouter',
+      provider: execution.result.model.provider,
       model: execution.model,
       latencyMs: Date.now() - startedAt,
       expectedAttemptCount: row.attempt_count,

@@ -17,6 +17,7 @@ import { providerRejectionReason } from './ai/provider-errors.js';
 import { wrapUntrusted } from '../skills/sanitize.js';
 import { getEnv } from './env.js';
 import { ApiError } from './http.js';
+import { selectAiProvider, type AiProvider } from './ai/provider.js';
 
 export type OpenRouterContentPart =
   | { type: 'text'; text: string }
@@ -24,6 +25,7 @@ export type OpenRouterContentPart =
   | { type: 'file'; file: { filename: string; file_data: string } };
 
 export interface CallOpenRouterAuditInput {
+  provider?: AiProvider;
   /** Model order pinned by a versioned evaluation; absent in production audits. */
   models?: readonly string[];
   /** IDs autoritativos del expediente; restringen únicamente referencias. */
@@ -51,6 +53,7 @@ export interface CallOpenRouterAuditInput {
 }
 
 export interface CallOpenRouterAuditOutput {
+  provider?: AiProvider;
   /** JSON ya parseado (sin validar; la validación Zod ocurre en el Skill). */
   parsed: unknown;
   /** Modelo que realmente respondió. */
@@ -488,6 +491,8 @@ async function singleAttempt(
 export async function callOpenRouterAudit(
   input: CallOpenRouterAuditInput,
 ): Promise<CallOpenRouterAuditOutput> {
+  const provider = input.provider ?? await selectAiProvider(input.deadlineMs);
+  if (provider === 'github-copilot') return (await import('./ai/copilot.js')).callCopilotAudit(input);
   const env = getEnv();
   const perAttemptTimeoutMs = input.timeoutMs ?? env.AI_TIMEOUT_MS;
   const deadlineMs = input.deadlineMs ?? Date.now() + env.TOTAL_AUDIT_TIMEOUT_MS;

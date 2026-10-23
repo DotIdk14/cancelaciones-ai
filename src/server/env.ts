@@ -18,6 +18,11 @@ export interface ServerEnv {
   /** Modelo de contraste crítico, separado de la propuesta. */
   OPENROUTER_REVIEW_MODEL: string;
   OPENROUTER_FALLBACK_MODEL: string | null;
+  AI_PROVIDER_MODE: 'openrouter' | 'github-copilot' | 'auto';
+  COPILOT_GITHUB_TOKEN: string | null;
+  COPILOT_MODEL: string | null;
+  COPILOT_REVIEW_MODEL: string | null;
+  OPENROUTER_MIN_BALANCE_USD: number;
   AI_TIMEOUT_MS: number;
   TOTAL_AUDIT_TIMEOUT_MS: number;
   AUDIT_STALE_AFTER_MS: number;
@@ -91,6 +96,10 @@ export function getEnv(): ServerEnv {
   if (cached) return cached;
   const env = process.env;
   assertNoPublicSecrets(env);
+  const providerMode = env.AI_PROVIDER_MODE?.trim() || 'openrouter';
+  if (!['openrouter', 'github-copilot', 'auto'].includes(providerMode)) throw new Error('[env] AI_PROVIDER_MODE no válido');
+  const minimumBalance = Number(env.OPENROUTER_MIN_BALANCE_USD?.trim() || '0.50');
+  if (!Number.isFinite(minimumBalance) || minimumBalance < 0) throw new Error('[env] OPENROUTER_MIN_BALANCE_USD no válido');
 
   cached = {
     INSFORGE_BASE_URL: required('INSFORGE_BASE_URL', env.INSFORGE_BASE_URL).replace(/\/+$/, ''),
@@ -102,6 +111,11 @@ export function getEnv(): ServerEnv {
     OPENROUTER_MODEL: required('OPENROUTER_MODEL', env.OPENROUTER_MODEL),
     OPENROUTER_REVIEW_MODEL: env.OPENROUTER_REVIEW_MODEL?.trim() || 'google/gemini-2.5-pro',
     OPENROUTER_FALLBACK_MODEL: optional('OPENROUTER_FALLBACK_MODEL', env.OPENROUTER_FALLBACK_MODEL),
+    AI_PROVIDER_MODE: providerMode as ServerEnv['AI_PROVIDER_MODE'],
+    COPILOT_GITHUB_TOKEN: optional('COPILOT_GITHUB_TOKEN', env.COPILOT_GITHUB_TOKEN),
+    COPILOT_MODEL: optional('COPILOT_MODEL', env.COPILOT_MODEL),
+    COPILOT_REVIEW_MODEL: optional('COPILOT_REVIEW_MODEL', env.COPILOT_REVIEW_MODEL),
+    OPENROUTER_MIN_BALANCE_USD: minimumBalance,
     AI_TIMEOUT_MS: numberEnv('AI_TIMEOUT_MS', env.AI_TIMEOUT_MS, 60_000, { min: 1_000, max: 290_000 }),
     TOTAL_AUDIT_TIMEOUT_MS: numberEnv('TOTAL_AUDIT_TIMEOUT_MS', env.TOTAL_AUDIT_TIMEOUT_MS, 240_000, { min: 10_000, max: 295_000 }),
     AUDIT_STALE_AFTER_MS: numberEnv('AUDIT_STALE_AFTER_MS', env.AUDIT_STALE_AFTER_MS, 10 * 60_000, { min: 60_000 }),

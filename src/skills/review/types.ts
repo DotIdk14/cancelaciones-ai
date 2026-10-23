@@ -114,7 +114,7 @@ export interface ComparisonResult {
  * servidor; el modelo no puede declararla (mismo contrato que `AuditResult`).
  */
 export interface ComparisonOutcome extends ComparisonResult {
-  model: { provider: 'openrouter'; model: string };
+  model: { provider: 'openrouter' | 'github-copilot'; model: string };
   usage: ModelUsage;
 }
 

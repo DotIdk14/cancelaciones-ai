@@ -528,6 +528,7 @@ export async function runAudit(
       error_category: null,
       latency_ms: latencyMs,
       model: execution.model,
+      provider: result.model.provider,
       provider_metadata: {
         ...executionMetadata,
         administrativeContext: inputs.administrativeContext ?? '',
@@ -589,7 +590,7 @@ export async function runAudit(
           caseId,
           errorCategory: category,
           error,
-          model: auditRow.model,
+          model: error instanceof Error && error.name === 'CopilotAuditError' ? diagnostics?.at(-1)?.model ?? auditRow.model : auditRow.model,
           latencyMs,
           diagnostics: diagnostics ?? [],
         }),
@@ -598,6 +599,7 @@ export async function runAudit(
     await updateAuditResult(client, auditRow.id, {
       status: 'ERROR',
       result_json: null,
+      ...(error instanceof Error && error.name === 'CopilotAuditError' ? { provider: 'github-copilot', ...(diagnostics?.at(-1)?.model ? { model: diagnostics.at(-1)!.model } : {}) } : {}),
       error_category: category,
       latency_ms: latencyMs,
       provider_metadata: { correlationId, ...executionMetadata, ...(diagnostics ? { openrouterAttempts: diagnostics } : {}) },

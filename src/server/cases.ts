@@ -830,6 +830,7 @@ export async function updateAuditResult(
     error_category: ErrorCategory | null;
     latency_ms: number;
     model?: string;
+    provider?: string;
     provider_metadata?: unknown;
   },
 ): Promise<AuditRow> {
@@ -841,6 +842,7 @@ export async function updateAuditResult(
       error_category: patch.error_category,
       latency_ms: patch.latency_ms,
       ...(patch.model ? { model: patch.model } : {}),
+      ...(patch.provider ? { provider: patch.provider } : {}),
       ...(patch.provider_metadata !== undefined ? { provider_metadata: patch.provider_metadata } : {}),
     })
     .eq('id', auditId)

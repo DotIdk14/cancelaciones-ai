@@ -58,7 +58,7 @@ export const comparisonSkill: ComparisonSkill = {
         ...result,
         // La metadata la agrega el servidor desde OpenRouter real; el modelo no
         // puede declararla (mismo contrato que el Audit Skill).
-        model: { provider: 'openrouter', model: response.model },
+        model: { provider: response.provider ?? 'openrouter', model: response.model },
         usage: response.usage,
       },
       model: response.model,

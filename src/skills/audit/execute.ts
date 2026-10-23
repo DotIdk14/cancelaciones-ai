@@ -19,6 +19,7 @@ import type { AuditSkillInput } from './types.js';
 import { verifyAuditAssessment, sumModelUsage } from './verify.js';
 import { validateProcedureReferences } from './references.js';
 import { getEnv } from '../../server/env.js';
+import { selectAiProvider } from '../../server/ai/provider.js';
 
 /** Umbral de texto extraído de un PDF para considerarlo "textual" (no escaneado). */
 export const PDF_MIN_TEXT_CHARS = 80;
@@ -36,7 +37,9 @@ export const auditSkill: AuditSkill = {
     const { system, parts } = buildAuditMessages(input, options?.supplementalInstructions);
     const evidenceIds = input.evidences.map((evidence) => evidence.evidenceId);
     const deadlineMs = options?.deadlineMs ?? Date.now() + getEnv().TOTAL_AUDIT_TIMEOUT_MS;
+    const provider = await selectAiProvider(deadlineMs);
     const response = await callOpenRouterAudit({
+      provider,
       system,
       parts,
       ...(options?.model ? { models: [options.model] } : {}),
@@ -75,7 +78,7 @@ export const auditSkill: AuditSkill = {
     const proposalAttempts = response.attempts ?? [];
     let verified;
     try {
-      verified = await verifyAuditAssessment({ input, proposal, system, parts, deadlineMs, proposalModel: response.model, proposalValidationIssue,
+      verified = await verifyAuditAssessment({ input, proposal, system, parts, deadlineMs, provider, proposalModel: response.model, proposalValidationIssue,
         validateAssessment: raw => {
           const assessment = parseAiAuditAssessment(raw, validationContext(input));
           validateAssessmentReferences(assessment, input);
@@ -96,7 +99,7 @@ export const auditSkill: AuditSkill = {
       // y de ahí sale un solo lugar posible: la copia acreditada.
       result: deriveCaseCycleStartDate({
         ...assessment,
-        model: { provider: 'openrouter', model: verified.reliabilityReview.model },
+        model: { provider, model: verified.reliabilityReview.model },
         usage,
         reliabilityReview: verified.reliabilityReview,
         // Snapshot de lo que el modelo efectivamente vio en "Contexto de otras

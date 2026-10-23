@@ -7,6 +7,7 @@ import { wrapUntrusted } from '../sanitize.js';
 import type { AuditSkillInput, ModelUsage } from './types.js';
 import { validatePolicyQuote, validateProcedureReferences } from './references.js';
 import { getEnv } from '../../server/env.js';
+import type { AiProvider } from '../../server/ai/provider.js';
 
 export const SemanticReviewSchema = z.object({
   verdict: z.enum(['CONFIRMED', 'CORRECTED', 'NEEDS_INPUT']),
@@ -75,9 +76,10 @@ export function validateSemanticReview(raw: unknown, proposal: AiAuditAssessment
 }
 export async function verifyAuditAssessment(args: {
   input: AuditSkillInput; proposal: AiAuditAssessment; system: string; parts: OpenRouterContentPart[]; proposalModel: string;
-  deadlineMs: number; proposalValidationIssue?: string; validateAssessment: (raw: unknown) => AiAuditAssessment;
+  deadlineMs: number; provider?: AiProvider; proposalValidationIssue?: string; validateAssessment: (raw: unknown) => AiAuditAssessment;
 }) {
   const response = await callOpenRouterAudit({
+    provider: args.provider,
     system: `${args.system}\n\n# Revisión crítica obligatoria\n${VERIFICATION_INSTRUCTIONS}`,
     parts: [...args.parts, { type: 'text', text: wrapUntrusted('PROPUESTA A CONTRASTAR — NO ES EVIDENCIA', JSON.stringify(args.proposal)) },
       ...(args.proposalValidationIssue ? [{ type: 'text' as const, text: `La propuesta NO pasó la validación local. Debes corregir esta incoherencia además de contrastar el contenido; no puedes confirmarla:\n${wrapUntrusted('DIAGNÓSTICO DE VALIDACIÓN — NO ES POLÍTICA', args.proposalValidationIssue)}` }] : [])],

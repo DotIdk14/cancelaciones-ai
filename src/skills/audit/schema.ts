@@ -233,7 +233,7 @@ export const AuditResultSchema = AiAuditAssessmentSchema.extend({
   /** El `case` persistido suma la fecha de inicio; el del modelo no la tiene. */
   case: PersistedCaseSchema,
   model: z.object({
-    provider: z.literal('openrouter'),
+    provider: z.enum(['openrouter', 'github-copilot']),
     model: z.string(),
   }),
   usage: z.object({

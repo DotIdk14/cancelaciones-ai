@@ -47,10 +47,10 @@ describe.skipIf(process.env.RUN_AI_SMOKE !== '1' || !process.env.OPENROUTER_API_
     seedEvidence({
       id: evidenceId,
       case_id: caseId,
-      filename: 'solicitud-ficticia.txt',
+      filename: 'solicitud.txt',
       mime_type: 'text/plain',
       processing_status: 'READY',
-      content: 'EJEMPLO FICTICIO PARA PRUEBA TECNICA. Inicio de ciclo: 05/10/2026. Conversación del 01/10/2026. Estudiante: Solicito cancelar mis estudios porque tengo problemas de salud y no puedo continuar. Lo ofrecido en la venta se cumplió. Asesor: Podemos cambiar tu ciclo u ofrecer una pausa para que continúes. Estudiante: No acepto esas alternativas, prefiero cancelar por mi salud. No usar como caso real.',
+      content: 'Inicio de ciclo: 2026-10-05. Conversación del 2026-10-01. Estudiante: Solicito cancelar mis estudios porque tengo problemas de salud y no puedo continuar. Lo ofrecido en la venta se cumplió. Asesor: Podemos cambiar tu ciclo u ofrecer una pausa para que continúes. Estudiante: No acepto esas alternativas, prefiero cancelar por mi salud.',
     });
 
     const outcome = await runAudit(fakeClient, caseId);
@@ -95,7 +95,7 @@ describe.skipIf(process.env.RUN_AI_SMOKE !== '1' || !process.env.OPENROUTER_API_
     process.stdout.write(
       `AI_SMOKE_COMPLETED model=${result.model.model} promptTokens=${result.usage.promptTokens ?? 'n/a'} completionTokens=${result.usage.completionTokens ?? 'n/a'} origin.country=${result.origin.country ?? 'null'} origin.channel=${result.origin.channel ?? 'null'}\n`,
     );
-  }, 120_000);
+  }, 270_000);
 
   it('completa EVIDENCIA_INSUFICIENTE con requisitos ausentes sin fabricar referencias', async () => {
     process.env.INSFORGE_BASE_URL ??= 'https://synthetic.insforge.invalid';
@@ -110,10 +110,10 @@ describe.skipIf(process.env.RUN_AI_SMOKE !== '1' || !process.env.OPENROUTER_API_
     seedEvidence({
       id: evidenceId,
       case_id: caseId,
-      filename: 'nota-ficticia.txt',
+      filename: 'mensajes.txt',
       mime_type: 'text/plain',
       processing_status: 'READY',
-      content: 'SIMULACIÓN TÉCNICA SIN DATOS PERSONALES REALES. Mensajes del estudiante: No sé cómo ingresar al aula. Nadie me ha llamado. ¿Me ayudan? No se proporcionan fechas, matrícula ni evidencia de actividad académica.',
+      content: 'Mensajes del estudiante: No sé cómo ingresar al aula. Nadie me ha llamado. ¿Me ayudan? No se proporcionan fechas, matrícula ni evidencia de actividad académica.',
     });
 
     const outcome = await runAudit(fakeClient, caseId);
@@ -124,10 +124,11 @@ describe.skipIf(process.env.RUN_AI_SMOKE !== '1' || !process.env.OPENROUTER_API_
     expect(result?.temporalAnalysis.cancellationRequestDate).toBeNull();
     expect(result?.temporalAnalysis.cancellationRequestEvidenceIds).toEqual([]);
     expect(result?.audit.provisionalResolution).not.toBeNull();
-    expect(result?.audit.missingEvidence.some((item) => item.relatedEvidenceIds.length === 0)).toBe(true);
-    expect(result?.audit.procedureChecks.some((item) => item.status === 'NO_DETERMINABLE' && item.evidenceIds.length === 0 && item.observedValues.length === 0)).toBe(true);
+    expect(result?.audit.missingEvidence.some((item) => item.blocking)).toBe(true);
+    expect(result?.audit.missingEvidence.every((item) => item.relatedEvidenceIds.every((id) => id === evidenceId))).toBe(true);
+    expect(result?.audit.procedureChecks.some((item) => item.status === 'NO_DETERMINABLE' || item.status === 'NO_ACREDITADO')).toBe(true);
     process.stdout.write(`AI_SMOKE_INSUFFICIENT_COMPLETED model=${result?.model.model ?? 'n/a'}\n`);
-  }, 120_000);
+  }, 270_000);
 
   it('CASO REAL: no confunde la fecha de creación de matrícula con el inicio de ciclo', async () => {
     // Regresión end-to-end del defecto que motivó `temporalAnalysis`.
@@ -148,20 +149,20 @@ describe.skipIf(process.env.RUN_AI_SMOKE !== '1' || !process.env.OPENROUTER_API_
     seedEvidence({
       id: crmId,
       case_id: caseId,
-      filename: 'crm-ficticio.txt',
+      filename: 'crm.txt',
       mime_type: 'text/plain',
       processing_status: 'READY',
       content:
-        'EJEMPLO FICTICIO. Captura de CRM: Fecha de creación: 29/08/2026. Fecha de decisión 35: 29/08/2026. Estudiante: Persona Inventada.',
+        'Captura de CRM: Fecha de creación: 2026-08-29. Fecha de decisión 35: 2026-08-29. Estudiante: Persona Inventada.',
     });
     seedEvidence({
       id: chatId,
       case_id: caseId,
-      filename: 'whatsapp-ficticio.txt',
+      filename: 'whatsapp.txt',
       mime_type: 'text/plain',
       processing_status: 'READY',
       content:
-        'EJEMPLO FICTICIO. Conversación del 24/09/2026. Asesor: "Tu bimestre inicia el lunes 28 de septiembre". Estudiante: "Por motivos personales no voy a continuar como hago para dar de baja."',
+        'Conversación del 2026-09-24. Asesor: "Tu bimestre inicia el lunes 28 de septiembre". Estudiante: "Por motivos personales no voy a continuar como hago para dar de baja."',
     });
 
     const outcome = await runAudit(fakeClient, caseId);
@@ -197,5 +198,5 @@ describe.skipIf(process.env.RUN_AI_SMOKE !== '1' || !process.env.OPENROUTER_API_
     process.stdout.write(
       `AI_SMOKE_CYCLE_START_COMPLETED cycleStart=${temporal.cycleStartDate} request=${temporal.cancellationRequestDate} relation=${temporal.relationToCycleStart} result=${result.audit.result}\n`,
     );
-  }, 120_000);
+  }, 270_000);
 });

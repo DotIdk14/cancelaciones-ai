@@ -369,7 +369,7 @@ export interface AuditSkillOutput {
     observations: string[];
   };
   model: {
-    provider: 'openrouter';
+    provider: 'openrouter' | 'github-copilot';
     model: string;
   };
   usage: ModelUsage;
