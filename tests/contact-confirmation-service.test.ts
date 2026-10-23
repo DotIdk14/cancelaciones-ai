@@ -51,14 +51,16 @@ describe('continuación durable después de confirmar contacto', () => {
 
   it('persiste el proveedor real antes de inferir y lo mantiene durante el Skill', async () => {
     vi.stubEnv('COPILOT_MODEL', 'synthetic-vision'); resetEnvCache();
-    vi.spyOn(aiProvider, 'preflightAiProvider').mockResolvedValueOnce('github-copilot');
+    const manifest = { format: 'lossless-image-pdf-v1' as const, sha256: 'synthetic-container-hash', sizeBytes: 100, pages: [] };
+    vi.spyOn(aiProvider, 'preflightAiProvider').mockResolvedValueOnce({ provider: 'github-copilot',
+      bundle: { sources: [], manifest, part: { type: 'file', file: { filename: 'evidencias-visuales.pdf', file_data: 'data:application/pdf;base64,cGRm' } } } });
     provider.mockImplementationOnce(async () => {
       expect(await aiProvider.selectAiProvider()).toBe('github-copilot');
-      expect(await latestAudit(fakeClient, 'case-1')).toMatchObject({ provider: 'github-copilot', model: 'synthetic-vision', status: 'RUNNING' });
+      expect(await latestAudit(fakeClient, 'case-1')).toMatchObject({ provider: 'github-copilot', model: 'synthetic-vision', status: 'RUNNING', provider_metadata: { evidenceTransport: manifest } });
       return { result: structuredClone(validAuditResult), model: 'synthetic-vision', usage: validAuditResult.usage, attempts: [] };
     });
     await runAudit(fakeClient, 'case-1', { userId: 'actor-server', contactAnswer: { auditId: 'previous-audit', performed: true } });
-    expect(await latestAudit(fakeClient, 'case-1')).toMatchObject({ provider: 'github-copilot', status: 'COMPLETED' });
+    expect(await latestAudit(fakeClient, 'case-1')).toMatchObject({ provider: 'github-copilot', status: 'COMPLETED', provider_metadata: { evidenceTransport: manifest } });
   });
   it('Sí persiste actor y fecha antes del proveedor, cambia la huella y reutiliza el dictamen posterior', async () => {
     provider.mockImplementationOnce(async (input) => {

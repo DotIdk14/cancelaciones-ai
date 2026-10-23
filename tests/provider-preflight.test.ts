@@ -9,14 +9,14 @@ import { setTestEnv } from './helpers/env';
 vi.mock('../src/server/ai/copilot-capabilities', async original => ({
   ...await original<typeof import('../src/server/ai/copilot-capabilities')>(), readCopilotModels: vi.fn(),
 }));
-const image = 'data:image/png;base64,c3ludGhldGlj';
+const image = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j8qkAAAAASUVORK5CYII=';
 function evidences(count: number): EvidenceInputItem[] {
   return Array.from({ length: count }, (_, index) => ({ evidenceId: `ev-${index}`, filename: 'sintetica.png',
     mimeType: 'image/png', kind: 'IMAGE', imageBase64: image, sizeBytes: 9, sha256: 'synthetic', createdAt: '2026-10-23T00:00:00Z' }));
 }
 function model(id: string, limit: number): ModelInfo {
   return { id, capabilities: { supports: { vision: true }, limits: { vision: {
-    max_prompt_images: limit, max_prompt_image_size: 1024, supported_media_types: ['image/png'],
+    max_prompt_images: limit, max_prompt_image_size: 1000000, supported_media_types: ['image/png', 'application/pdf'],
   } } } } as ModelInfo;
 }
 beforeEach(() => {
@@ -28,32 +28,32 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); resetEnvCache(); });
 
 describe('preflight técnico del expediente completo', () => {
-  it('rechaza las doce imágenes antes de llamar al Skill, sin descartarlas', async () => {
+  it('prepara las doce imagenes completas en un solo PDF antes de inferir', async () => {
     const source = evidences(12);
-    await expect(preflightAiProvider(source, Date.now() + 1000)).rejects.toMatchObject({
-      category: 'UNSUPPORTED_MODEL_CAPABILITY', failurePath: 'evidence.attachments',
-      sanitizedDetail: 'adjuntos recibidos 12 - maximo permitido 5',
-    });
+    const prepared = await preflightAiProvider(source, Date.now() + 5000);
+    expect(prepared.provider).toBe('github-copilot');
+    expect(prepared.bundle?.manifest.pages.map(page => page.evidenceId)).toEqual(source.map(e => e.evidenceId));
+    expect(prepared.bundle?.sources).toHaveLength(12);
     expect(source).toHaveLength(12); expect(fetch).not.toHaveBeenCalled();
   });
-  it('comprueba también el límite del revisor antes de gastar la primera inferencia', async () => {
+  it('ajusta el contenedor tambien al limite inferior del revisor', async () => {
     vi.mocked(readCopilotModels).mockResolvedValue([model('proposal', 5), model('review', 1)]);
-    await expect(preflightAiProvider(evidences(2), Date.now() + 1000)).rejects.toMatchObject({
-      sanitizedDetail: 'adjuntos recibidos 2 - maximo permitido 1',
-    });
+    const prepared = await preflightAiProvider(evidences(2), Date.now() + 5000);
+    expect(prepared.bundle?.manifest.pages).toHaveLength(2);
   });
   it('rechaza un revisor deshabilitado sin intentar sustituir el modelo', async () => {
     vi.mocked(readCopilotModels).mockResolvedValue([model('proposal', 5)]);
     await expect(preflightAiProvider(evidences(1), Date.now() + 1000)).rejects.toMatchObject({ category: 'UNSUPPORTED_MODEL_CAPABILITY' });
   });
   it('admite ambas etapas compatibles y consulta el catálogo una vez', async () => {
-    expect(await preflightAiProvider(evidences(5), Date.now() + 1000)).toBe('github-copilot');
+    expect(await preflightAiProvider(evidences(5), Date.now() + 1000)).toEqual({ provider: 'github-copilot' });
     expect(readCopilotModels).toHaveBeenCalledOnce();
   });
-  it('en auto no envía a OpenRouter un expediente que el respaldo rechaza con saldo agotado', async () => {
+  it('en auto no envía a OpenRouter el expediente cuando el respaldo admite el contenedor', async () => {
     vi.stubEnv('AI_PROVIDER_MODE', 'auto'); resetEnvCache();
     vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ data: { limit_remaining: 0, total_credits: 0, total_usage: 0 } })));
-    await expect(preflightAiProvider(evidences(12), Date.now() + 1000)).rejects.toThrow('presupuesto suficiente o verificable');
+    const prepared = await preflightAiProvider(evidences(12), Date.now() + 5000);
+    expect(prepared.bundle?.manifest.pages).toHaveLength(12);
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(vi.mocked(fetch).mock.calls.every(([url]) => !String(url).includes('chat/completions'))).toBe(true);
   });

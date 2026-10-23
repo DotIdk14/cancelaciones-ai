@@ -3,13 +3,19 @@ import { getEnv } from '../env.js';
 import { ApiError } from '../errors.js';
 import type { EvidenceInputItem } from '../../skills/audit/types.js';
 import type { OpenRouterContentPart } from '../openrouter.js';
+import { bundleCopilotEvidence, applyCopilotBundle, type CopilotEvidenceBundle } from './copilot-evidence.js';
 
 export type AiProvider = 'openrouter' | 'github-copilot';
 // Contexto efímero de una ejecución; no guarda jobs, decisiones ni estado durable.
-const selectedProvider = new AsyncLocalStorage<AiProvider>();
+export interface PreparedAiProvider { provider: AiProvider; bundle?: CopilotEvidenceBundle }
+const selectedProvider = new AsyncLocalStorage<PreparedAiProvider>();
 
-export function withAiProvider<T>(provider: AiProvider, operation: () => Promise<T>): Promise<T> {
-  return selectedProvider.run(provider, operation);
+export function withAiProvider<T>(provider: AiProvider, operation: () => Promise<T>, bundle?: CopilotEvidenceBundle): Promise<T> {
+  return selectedProvider.run({ provider, bundle }, operation);
+}
+
+export function preparedCopilotParts(parts: OpenRouterContentPart[]): OpenRouterContentPart[] {
+  return applyCopilotBundle(parts, selectedProvider.getStore()?.bundle);
 }
 
 /** Refleja únicamente los adjuntos originales que el Skill ya envía. */
@@ -28,17 +34,22 @@ export function visualEvidenceParts(evidences: readonly EvidenceInputItem[]): Op
 }
 
 /** Comprueba propuesta Y contraste antes de crear un intento de auditoría. */
-export async function preflightAiProvider(evidences: readonly EvidenceInputItem[], deadlineMs: number): Promise<AiProvider> {
+export async function preflightAiProvider(evidences: readonly EvidenceInputItem[], deadlineMs: number): Promise<PreparedAiProvider> {
   const provider = await selectAiProvider(deadlineMs);
-  if (provider !== 'github-copilot') return provider;
+  if (provider !== 'github-copilot') return { provider };
   const env = getEnv();
   const { readCopilotModels, assertCopilotParts } = await import('./copilot-capabilities.js');
   const models = await readCopilotModels(deadlineMs);
-  for (const modelId of new Set([env.COPILOT_MODEL, env.COPILOT_REVIEW_MODEL])) {
+  const configuredModels = [...new Set([env.COPILOT_MODEL, env.COPILOT_REVIEW_MODEL])].map(modelId => {
     const model = models.find(item => item.id === modelId && (!item.policy || item.policy.state === 'enabled'));
     if (!model) throw new ApiError(502, 'UNSUPPORTED_MODEL_CAPABILITY', 'Un modelo configurado de Copilot no está disponible para completar propuesta y contraste.');
+    return model;
+  });
+  const bundle = await bundleCopilotEvidence(evidences, configuredModels, deadlineMs);
+  const parts = applyCopilotBundle(visualEvidenceParts(evidences), bundle);
+  for (const model of configuredModels) {
     try {
-      assertCopilotParts(visualEvidenceParts(evidences), model);
+      assertCopilotParts(parts, model);
     } catch (error) {
       if (error instanceof ApiError && env.AI_PROVIDER_MODE === 'auto') {
         const failure = new ApiError(error.status, error.category,
@@ -50,13 +61,13 @@ export async function preflightAiProvider(evidences: readonly EvidenceInputItem[
       throw error;
     }
   }
-  return provider;
+  return { provider, bundle };
 }
 
 /** Elige antes de inferir: nunca reinicia un dictamen después de gastar sus intentos. */
 export async function selectAiProvider(deadlineMs?: number): Promise<AiProvider> {
   const pinned = selectedProvider.getStore();
-  if (pinned) return pinned;
+  if (pinned) return pinned.provider;
   const env = getEnv();
   if (env.AI_PROVIDER_MODE === 'openrouter') return 'openrouter';
   if (!env.COPILOT_GITHUB_TOKEN || !env.COPILOT_MODEL || !env.COPILOT_REVIEW_MODEL) {

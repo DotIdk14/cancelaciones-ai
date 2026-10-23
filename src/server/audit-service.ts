@@ -469,7 +469,8 @@ export async function runAudit(
   inputs.humanContactPerformed = contactConfirmation?.performed === true;
   const startedAt = Date.now();
   const deadlineMs = startedAt + getEnv().TOTAL_AUDIT_TIMEOUT_MS;
-  const selectedProvider = await preflightAiProvider(inputs.evidences, deadlineMs);
+  const preparedProvider = await preflightAiProvider(inputs.evidences, deadlineMs);
+  const selectedProvider = preparedProvider.provider;
 
   // Cuota ANTES de la fila durable y ANTES del proveedor, y DESPUÉS de las
   // comprobaciones de reutilización de arriba: reutilizar un COMPLETED o una
@@ -481,7 +482,8 @@ export async function runAudit(
 
   // La fila durable se crea ANTES de la llamada al modelo.
   const attempts = await countAuditsByFingerprint(client, caseId, fingerprint);
-  const versionMetadata = { ...contactMetadata, ...(activeVersion ? {
+  const versionMetadata = { ...contactMetadata,
+    ...(preparedProvider.bundle ? { evidenceTransport: preparedProvider.bundle.manifest } : {}), ...(activeVersion ? {
     auditVersionId: activeVersion.id,
     auditVersionKey: activeVersion.version_key,
     auditVersionSnapshotSha256: activeVersion.snapshot_sha256,
@@ -516,7 +518,7 @@ export async function runAudit(
     const execution = await withAiProvider(selectedProvider, () => auditSkill.executeWithMetadata(inputs, {
       deadlineMs,
       ...(activeVersion && activeVersion.config.baseline !== true ? { model: activeVersion.model, supplementalInstructions: activeVersion.instructions } : {}),
-    }));
+    }), preparedProvider.bundle);
     executionMetadata = {
       usage: execution.usage, usageScope: 'aggregate', openrouterAttempts: execution.attempts,
       ...versionMetadata,

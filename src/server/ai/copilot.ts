@@ -7,6 +7,7 @@ import { ApiError } from '../errors.js';
 import { OpenRouterAuditError, type CallOpenRouterAuditInput, type CallOpenRouterAuditOutput, type OpenRouterAttemptDiagnostic } from '../openrouter.js';
 import { buildProviderJsonSchema, buildJsonObjectContract } from './provider-schema.js';
 import { AiAuditAssessmentSchema } from '../../skills/audit/schema.js';
+import { preparedCopilotParts } from './provider.js';
 import { assertCopilotParts } from './copilot-capabilities.js';
 
 /** Sin herramientas ni lectura del workspace: el modelo recibe únicamente el expediente preparado. */
@@ -49,14 +50,16 @@ export function parseCopilotJson(raw: string): unknown {
 }
 
 export function copilotMessage(input: CallOpenRouterAuditInput, model: ModelInfo): MessageOptions {
-  assertCopilotParts(input.parts, model);
+  const parts = preparedCopilotParts(input.parts);
+  assertCopilotParts(parts, model);
   const text: string[] = [];
   const attachments: NonNullable<MessageOptions['attachments']> = [];
-  for (const part of input.parts) {
+  for (const part of parts) {
     if (part.type === 'text') { text.push(part.text); continue; }
     const source = part.type === 'file' ? part.file.file_data : part.image_url.url;
     const match = /^data:(image\/[a-z0-9.+-]+|application\/pdf);base64,([a-z0-9+/=\r\n]+)$/i.exec(source)!;
-    const displayName = `evidencia-${attachments.length + 1}${part.type === 'file' ? '.pdf' : ''}`;
+    const displayName = part.type === 'file' && part.file.filename === 'evidencias-visuales.pdf'
+      ? 'evidencias-visuales.pdf' : `evidencia-${attachments.length + 1}${part.type === 'file' ? '.pdf' : ''}`;
     text.push(`[${part.type === 'file' ? 'PDF' : 'Imagen'} de este bloque: ${displayName}]`);
     attachments.push({ type: 'blob', data: match[2]!, mimeType: match[1]!.toLowerCase(), displayName });
   }
