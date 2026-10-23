@@ -8,10 +8,32 @@ import { bundleCopilotEvidence, applyCopilotBundle, type CopilotEvidenceBundle }
 export type AiProvider = 'openrouter' | 'github-copilot';
 // Contexto efímero de una ejecución; no guarda jobs, decisiones ni estado durable.
 export interface PreparedAiProvider { provider: AiProvider; bundle?: CopilotEvidenceBundle }
-const selectedProvider = new AsyncLocalStorage<PreparedAiProvider>();
+export type CreditFallbackStage = 'proposal' | 'review' | 'comparison';
+interface ProviderContext extends PreparedAiProvider {
+  onCreditExhausted?: (stage: CreditFallbackStage) => Promise<PreparedAiProvider>;
+}
 
-export function withAiProvider<T>(provider: AiProvider, operation: () => Promise<T>, bundle?: CopilotEvidenceBundle): Promise<T> {
-  return selectedProvider.run({ provider, bundle }, operation);
+const selectedProvider = new AsyncLocalStorage<ProviderContext>();
+
+export function withAiProvider<T>(provider: AiProvider, operation: () => Promise<T>, bundle?: CopilotEvidenceBundle,
+  onCreditExhausted?: (stage: CreditFallbackStage) => Promise<PreparedAiProvider>): Promise<T> {
+  return selectedProvider.run({ provider, bundle, onCreditExhausted }, operation);
+}
+
+export function currentAiProvider(): AiProvider | undefined { return selectedProvider.getStore()?.provider; }
+
+/** Solo se invoca tras un 402 real de créditos; conserva la etapa que ya terminó. */
+export async function activateCreditFallback(deadlineMs: number, stage: CreditFallbackStage = 'proposal'): Promise<boolean> {
+  if (getEnv().AI_PROVIDER_MODE !== 'auto') return false;
+  const context = selectedProvider.getStore();
+  if (context?.provider === 'github-copilot') return false;
+  // Las evaluaciones directas del Skill deben medir el modelo solicitado.
+  // La auditoria productiva proporciona el callback de persistencia durable.
+  if (!context?.onCreditExhausted && stage !== 'comparison') return false;
+  const prepared = context?.onCreditExhausted
+    ? await context.onCreditExhausted(stage) : await prepareCopilotProvider([], deadlineMs);
+  if (context) Object.assign(context, prepared);
+  return true;
 }
 
 export function preparedCopilotParts(parts: OpenRouterContentPart[]): OpenRouterContentPart[] {
@@ -37,7 +59,14 @@ export function visualEvidenceParts(evidences: readonly EvidenceInputItem[]): Op
 export async function preflightAiProvider(evidences: readonly EvidenceInputItem[], deadlineMs: number): Promise<PreparedAiProvider> {
   const provider = await selectAiProvider(deadlineMs);
   if (provider !== 'github-copilot') return { provider };
+  return prepareCopilotProvider(evidences, deadlineMs);
+}
+
+export async function prepareCopilotProvider(evidences: readonly EvidenceInputItem[], deadlineMs: number): Promise<PreparedAiProvider> {
   const env = getEnv();
+  if (!env.COPILOT_GITHUB_TOKEN || !env.COPILOT_MODEL || !env.COPILOT_REVIEW_MODEL) {
+    throw new ApiError(503, 'PROVIDER_UNAVAILABLE', 'Configura las credenciales y modelos de Copilot en el servidor.');
+  }
   const { readCopilotModels, assertCopilotParts } = await import('./copilot-capabilities.js');
   const models = await readCopilotModels(deadlineMs);
   const configuredModels = [...new Set([env.COPILOT_MODEL, env.COPILOT_REVIEW_MODEL])].map(modelId => {
@@ -48,53 +77,17 @@ export async function preflightAiProvider(evidences: readonly EvidenceInputItem[
   const bundle = await bundleCopilotEvidence(evidences, configuredModels, deadlineMs);
   const parts = applyCopilotBundle(visualEvidenceParts(evidences), bundle);
   for (const model of configuredModels) {
-    try {
-      assertCopilotParts(parts, model);
-    } catch (error) {
-      if (error instanceof ApiError && env.AI_PROVIDER_MODE === 'auto') {
-        const failure = new ApiError(error.status, error.category,
-          `${error.message} OpenRouter no tiene presupuesto suficiente o verificable para utilizarse. Revisa el saldo o configura un proveedor compatible.`);
-        failure.failurePath = error.failurePath;
-        failure.sanitizedDetail = error.sanitizedDetail;
-        throw failure;
-      }
-      throw error;
-    }
+    assertCopilotParts(parts, model);
   }
-  return { provider, bundle };
+  return { provider: 'github-copilot', bundle };
 }
 
-/** Elige antes de inferir: nunca reinicia un dictamen después de gastar sus intentos. */
+/** Auto siempre comienza con una llamada real a OpenRouter, sin consultar saldo. */
 export async function selectAiProvider(deadlineMs?: number): Promise<AiProvider> {
   const pinned = selectedProvider.getStore();
   if (pinned) return pinned.provider;
-  const env = getEnv();
-  if (env.AI_PROVIDER_MODE === 'openrouter') return 'openrouter';
-  if (!env.COPILOT_GITHUB_TOKEN || !env.COPILOT_MODEL || !env.COPILOT_REVIEW_MODEL) {
-    throw new ApiError(503, 'PROVIDER_UNAVAILABLE', 'Configura las credenciales y modelos de Copilot en el servidor.');
+  if (deadlineMs !== undefined && deadlineMs <= Date.now()) {
+    throw new ApiError(503, 'PROVIDER_UNAVAILABLE', 'Se agoto el tiempo disponible para seleccionar proveedor.');
   }
-  if (env.AI_PROVIDER_MODE === 'github-copilot') return 'github-copilot';
-  const timeout = Math.min(5_000, (deadlineMs ?? Date.now() + 5_000) - Date.now());
-  if (timeout <= 0) throw new ApiError(503, 'PROVIDER_UNAVAILABLE', 'Se agotó el tiempo disponible para seleccionar proveedor.');
-  try {
-    const read = async (path: string) => {
-      const response = await fetch(`https://openrouter.ai/api/v1/${path}`, {
-        headers: { Authorization: `Bearer ${env.OPENROUTER_API_KEY}` }, signal: AbortSignal.timeout(timeout),
-      });
-      if (!response.ok) throw new Error('BUDGET_UNAVAILABLE');
-      return await response.json() as { data?: Record<string, unknown> };
-    };
-    const [key, credits] = await Promise.all([read('key'), read('credits')]);
-    const remaining = key.data?.limit_remaining;
-    const purchased = credits.data?.total_credits;
-    const spent = credits.data?.total_usage;
-    if ((remaining !== null && (typeof remaining !== 'number' || !Number.isFinite(remaining)))
-      || typeof purchased !== 'number' || !Number.isFinite(purchased)
-      || typeof spent !== 'number' || !Number.isFinite(spent)) return 'github-copilot';
-    const available = Math.min(remaining ?? Infinity, purchased - spent);
-    return available >= env.OPENROUTER_MIN_BALANCE_USD ? 'openrouter' : 'github-copilot';
-  } catch {
-    // El respaldo está autorizado y configurado; no se relajan sesión, cuotas ni validación.
-    return 'github-copilot';
-  }
+  return getEnv().AI_PROVIDER_MODE === 'github-copilot' ? 'github-copilot' : 'openrouter';
 }

@@ -77,7 +77,7 @@ Todas son de servidor. No usar prefijos VITE_ ni NEXT_PUBLIC_. `.env.local`, con
 | OPENROUTER_API_KEY, OPENROUTER_MODEL | Credencial y modelo principal; requeridos por la configuración actual. |
 | OPENROUTER_REVIEW_MODEL | Revisor; default definido en env.ts. |
 | OPENROUTER_FALLBACK_MODEL | Configuración opcional existente; no habilita superar el presupuesto del Skill. |
-| AI_PROVIDER_MODE, OPENROUTER_MIN_BALANCE_USD | Selección openrouter, github-copilot o auto antes de inferir. |
+| AI_PROVIDER_MODE | En auto, OpenRouter primero y Copilot solo tras rechazo real por créditos (HTTP 402); sin consulta previa de saldo. |
 | COPILOT_GITHUB_TOKEN, COPILOT_MODEL, COPILOT_REVIEW_MODEL | Respaldo Copilot en servidor; necesarios cuando se selecciona ese proveedor. |
 | ASSEMBLYAI_API_KEY, ASSEMBLYAI_REQUEST_TIMEOUT_MS | Transcripción y timeout HTTP de audio. |
 | APP_URL | Origen de aplicación y retornos OAuth derivados por servidor. |

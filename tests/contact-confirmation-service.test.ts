@@ -57,10 +57,26 @@ describe('continuación durable después de confirmar contacto', () => {
     provider.mockImplementationOnce(async () => {
       expect(await aiProvider.selectAiProvider()).toBe('github-copilot');
       expect(await latestAudit(fakeClient, 'case-1')).toMatchObject({ provider: 'github-copilot', model: 'synthetic-vision', status: 'RUNNING', provider_metadata: { evidenceTransport: manifest } });
-      return { result: structuredClone(validAuditResult), model: 'synthetic-vision', usage: validAuditResult.usage, attempts: [] };
+      return { result: { ...structuredClone(validAuditResult), model: { ...validAuditResult.model, provider: 'github-copilot' as const } }, model: 'synthetic-vision', usage: validAuditResult.usage, attempts: [] };
     });
     await runAudit(fakeClient, 'case-1', { userId: 'actor-server', contactAnswer: { auditId: 'previous-audit', performed: true } });
     expect(await latestAudit(fakeClient, 'case-1')).toMatchObject({ provider: 'github-copilot', status: 'COMPLETED', provider_metadata: { evidenceTransport: manifest } });
+  });
+  it('persiste el cambio por creditos antes de Copilot y corrige solo metadata tecnica al finalizar', async () => {
+    vi.stubEnv('AI_PROVIDER_MODE', 'auto'); vi.stubEnv('COPILOT_MODEL', 'copilot-proposal'); resetEnvCache();
+    vi.spyOn(aiProvider, 'prepareCopilotProvider').mockResolvedValueOnce({ provider: 'github-copilot' });
+    provider.mockImplementationOnce(async () => {
+      expect(await aiProvider.selectAiProvider()).toBe('openrouter');
+      await aiProvider.activateCreditFallback(Date.now() + 10000);
+      expect(await latestAudit(fakeClient, 'case-1')).toMatchObject({ status: 'RUNNING', provider: 'github-copilot',
+        provider_metadata: { creditFallback: { from: 'openrouter', to: 'github-copilot', reason: 'PAYMENT_REQUIRED' } } });
+      return { result: structuredClone(validAuditResult), model: 'copilot-review', usage: validAuditResult.usage, attempts: [] };
+    });
+    await runAudit(fakeClient, 'case-1', { userId: 'actor-server', contactAnswer: { auditId: 'previous-audit', performed: true } });
+    const audit = await latestAudit(fakeClient, 'case-1');
+    expect(audit).toMatchObject({ status: 'COMPLETED', provider: 'github-copilot', model: 'copilot-review',
+      result_json: { model: { provider: 'github-copilot' } }, provider_metadata: { creditFallback: { reason: 'PAYMENT_REQUIRED' } } });
+    expect(checkPaidQuota).toHaveBeenCalledOnce(); expect(provider).toHaveBeenCalledOnce();
   });
   it('Sí persiste actor y fecha antes del proveedor, cambia la huella y reutiliza el dictamen posterior', async () => {
     provider.mockImplementationOnce(async (input) => {

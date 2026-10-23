@@ -49,12 +49,13 @@ describe('preflight técnico del expediente completo', () => {
     expect(await preflightAiProvider(evidences(5), Date.now() + 1000)).toEqual({ provider: 'github-copilot' });
     expect(readCopilotModels).toHaveBeenCalledOnce();
   });
-  it('en auto no envía a OpenRouter el expediente cuando el respaldo admite el contenedor', async () => {
+  it('en auto deja OpenRouter primero y no prepara Copilot antes de un rechazo real', async () => {
     vi.stubEnv('AI_PROVIDER_MODE', 'auto'); resetEnvCache();
     vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ data: { limit_remaining: 0, total_credits: 0, total_usage: 0 } })));
     const prepared = await preflightAiProvider(evidences(12), Date.now() + 5000);
-    expect(prepared.bundle?.manifest.pages).toHaveLength(12);
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(prepared).toEqual({ provider: 'openrouter' });
+    expect(readCopilotModels).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
     expect(vi.mocked(fetch).mock.calls.every(([url]) => !String(url).includes('chat/completions'))).toBe(true);
   });
   it('conserva imágenes, páginas y PDF como adjuntos separados', () => {

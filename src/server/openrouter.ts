@@ -17,7 +17,7 @@ import { providerRejectionReason } from './ai/provider-errors.js';
 import { wrapUntrusted } from '../skills/sanitize.js';
 import { getEnv } from './env.js';
 import { ApiError } from './http.js';
-import { selectAiProvider, type AiProvider } from './ai/provider.js';
+import { activateCreditFallback, currentAiProvider, selectAiProvider, type AiProvider } from './ai/provider.js';
 
 export type OpenRouterContentPart =
   | { type: 'text'; text: string }
@@ -83,6 +83,8 @@ export interface OpenRouterAttemptDiagnostic {
   model: string;
   format: 'json_schema' | 'json_object' | 'capability';
   status: number | null;
+  /** Rechazo antes de inferir por créditos; no incluye presupuesto temporal en vuelo. */
+  creditExhausted?: boolean;
   providerErrorType: string | null;
   finishReason: string | null;
   latencyMs: number;
@@ -356,7 +358,7 @@ async function singleAttempt(
 
     if (!response.ok) {
       const errInfo = parsedBody as {
-        error?: { message?: string; metadata?: { error_type?: string } };
+        error?: { message?: string; metadata?: { error_type?: string; limit_source?: string } };
       } | null;
       const rawProviderErrorType = errInfo?.error?.metadata?.error_type;
       const providerErrorType = typeof rawProviderErrorType === 'string'
@@ -375,6 +377,9 @@ async function singleAttempt(
       const reason = response.status === 400
         ? providerRejectionReason(parsedBody)
         : providerErrorType ?? category.toLowerCase();
+      const source = errInfo?.error?.metadata?.limit_source;
+      info.creditExhausted = response.status === 402 && (source === undefined
+        || source === 'openrouter_credits' || source === 'openrouter_key_limit');
       throw new AttemptFailure(info, `HTTP ${response.status}: ${reason}`);
     }
 
@@ -491,7 +496,7 @@ async function singleAttempt(
 export async function callOpenRouterAudit(
   input: CallOpenRouterAuditInput,
 ): Promise<CallOpenRouterAuditOutput> {
-  const provider = input.provider ?? await selectAiProvider(input.deadlineMs);
+  const provider = currentAiProvider() ?? input.provider ?? await selectAiProvider(input.deadlineMs);
   if (provider === 'github-copilot') return (await import('./ai/copilot.js')).callCopilotAudit(input);
   const env = getEnv();
   const perAttemptTimeoutMs = input.timeoutMs ?? env.AI_TIMEOUT_MS;
@@ -650,6 +655,21 @@ export async function callOpenRouterAudit(
           diagnostics.push(error.diagnostic);
           finalFailure = error.diagnostic.failureCategory ?? finalFailure;
           if (finalFailure === 'PAYMENT_REQUIRED') {
+            if (error.diagnostic.creditExhausted) {
+              try {
+                const stage = input.schemaName === 'AuditSemanticReview' ? 'review' : input.schemaName === 'CaseComparison' ? 'comparison' : 'proposal';
+                if (await activateCreditFallback(deadlineMs, stage)) {
+                  const fallback = await (await import('./ai/copilot.js')).callCopilotAudit({ ...input, deadlineMs });
+                  return { ...fallback, attempts: [...diagnostics, ...fallback.attempts] };
+                }
+              } catch (fallbackError) {
+                if (fallbackError instanceof OpenRouterAuditError) fallbackError.diagnostics.unshift(...diagnostics);
+                else if (fallbackError instanceof ApiError && (fallbackError.category === 'UNSUPPORTED_MODEL_CAPABILITY' || fallbackError.category === 'PROVIDER_UNAVAILABLE')) {
+                  throw new OpenRouterAuditError(fallbackError.category, diagnostics, fallbackError.message, fallbackError.status);
+                }
+                throw fallbackError;
+              }
+            }
             throw new OpenRouterAuditError(
               'PAYMENT_REQUIRED',
               diagnostics,

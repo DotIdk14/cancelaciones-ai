@@ -3,7 +3,6 @@ import { selectAiProvider } from '../src/server/ai/provider';
 import { setTestEnv } from './helpers/env';
 import { resetEnvCache } from '../src/server/env';
 
-const response = (data: unknown) => new Response(JSON.stringify({ data }), { status: 200 });
 beforeEach(() => { setTestEnv(); vi.stubGlobal('fetch', vi.fn()); });
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); resetEnvCache(); });
 function auto() {
@@ -14,21 +13,20 @@ describe('selección de proveedor antes de gastar intentos', () => {
   it('conserva OpenRouter sin nuevas consultas si el respaldo está desactivado', async () => {
     expect(await selectAiProvider()).toBe('openrouter'); expect(fetch).not.toHaveBeenCalled();
   });
-  it('distingue el límite de la clave del saldo real de la cuenta', async () => {
-    auto(); vi.mocked(fetch).mockResolvedValueOnce(response({limit_remaining: 10})).mockResolvedValueOnce(response({total_credits: 5,total_usage: 4.9}));
-    expect(await selectAiProvider()).toBe('github-copilot'); expect(fetch).toHaveBeenCalledTimes(2);
-    expect(vi.mocked(fetch).mock.calls.every(([url]) => !String(url).includes('chat/completions'))).toBe(true);
+  it('usa OpenRouter aunque una consulta de saldo devolveria cero', async () => {
+    auto(); vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({data:{limit_remaining:0}})));
+    expect(await selectAiProvider()).toBe('openrouter'); expect(fetch).not.toHaveBeenCalled();
   });
-  it('conserva OpenRouter con saldo suficiente y clave sin límite', async () => {
-    auto(); vi.mocked(fetch).mockResolvedValueOnce(response({limit_remaining: null})).mockResolvedValueOnce(response({total_credits: 10,total_usage: 1}));
-    expect(await selectAiProvider()).toBe('openrouter');
+  it('usa OpenRouter aunque el servicio de saldo este caido', async () => {
+    auto(); vi.mocked(fetch).mockRejectedValue(new Error('unavailable'));
+    expect(await selectAiProvider()).toBe('openrouter'); expect(fetch).not.toHaveBeenCalled();
   });
-  it('usa el respaldo autorizado ante información de presupuesto no comprobable', async () => {
-    auto(); vi.mocked(fetch).mockResolvedValueOnce(response({})).mockResolvedValueOnce(response({}));
-    expect(await selectAiProvider()).toBe('github-copilot');
-  });
-  it('no intenta llamadas pagadas ni relaja configuración si falta autorización de Copilot', async () => {
+  it('no exige configurar Copilot para utilizar OpenRouter en auto', async () => {
     auto(); vi.stubEnv('COPILOT_GITHUB_TOKEN',''); resetEnvCache();
-    await expect(selectAiProvider()).rejects.toThrow('credenciales'); expect(fetch).not.toHaveBeenCalled();
+    expect(await selectAiProvider()).toBe('openrouter'); expect(fetch).not.toHaveBeenCalled();
+  });
+  it('conserva el modo explicito de Copilot para diagnosticos', async () => {
+    auto(); vi.stubEnv('AI_PROVIDER_MODE','github-copilot'); resetEnvCache();
+    expect(await selectAiProvider()).toBe('github-copilot'); expect(fetch).not.toHaveBeenCalled();
   });
 });

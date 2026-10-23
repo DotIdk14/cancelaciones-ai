@@ -443,7 +443,7 @@ export async function insertAudit(_client: unknown, row: InsertAuditRow): Promis
 export async function updateAuditResult(
   _client: unknown,
   auditId: string,
-  patch: { status: AuditStatus; result_json: unknown; error_category: AuditRow['error_category']; latency_ms: number; model?: string; provider_metadata?: unknown },
+  patch: { status: AuditStatus; result_json: unknown; error_category: AuditRow['error_category']; latency_ms: number; model?: string; provider?: string; provider_metadata?: unknown },
 ): Promise<AuditRow> {
   const row = auditRows.find((item) => item.id === auditId);
   if (!row) throw new ApiError(404, 'NOT_FOUND', 'Auditoría no encontrada');
@@ -452,6 +452,7 @@ export async function updateAuditResult(
   row.error_category = patch.error_category;
   row.latency_ms = patch.latency_ms;
   if (patch.model) row.model = patch.model;
+  if (patch.provider) row.provider = patch.provider;
   if (patch.provider_metadata !== undefined) row.provider_metadata = patch.provider_metadata;
   return { ...row };
 }

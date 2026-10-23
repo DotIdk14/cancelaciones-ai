@@ -12,7 +12,7 @@ import { prepareFlokzuContext } from '../lib/flokzu-administrative.js';
 import type { InsForgeClient } from './insforge.js';
 import { randomUUID } from 'node:crypto';
 import { getEnv } from './env.js';
-import { preflightAiProvider, withAiProvider } from './ai/provider.js';
+import { preflightAiProvider, prepareCopilotProvider, withAiProvider } from './ai/provider.js';
 import { auditSkill, PDF_MIN_TEXT_CHARS } from '../skills/audit/execute.js';
 import { OpenRouterAuditError } from './openrouter.js';
 import type { AuditSkillInput, ErrorCategory, EvidenceInputItem, AreaCommentContext, AreaCommentScope } from '../skills/audit/types.js';
@@ -482,7 +482,7 @@ export async function runAudit(
 
   // La fila durable se crea ANTES de la llamada al modelo.
   const attempts = await countAuditsByFingerprint(client, caseId, fingerprint);
-  const versionMetadata = { ...contactMetadata,
+  const versionMetadata: Record<string, unknown> = { ...contactMetadata,
     ...(preparedProvider.bundle ? { evidenceTransport: preparedProvider.bundle.manifest } : {}), ...(activeVersion ? {
     auditVersionId: activeVersion.id,
     auditVersionKey: activeVersion.version_key,
@@ -518,12 +518,27 @@ export async function runAudit(
     const execution = await withAiProvider(selectedProvider, () => auditSkill.executeWithMetadata(inputs, {
       deadlineMs,
       ...(activeVersion && activeVersion.config.baseline !== true ? { model: activeVersion.model, supplementalInstructions: activeVersion.instructions } : {}),
-    }), preparedProvider.bundle);
+    }), preparedProvider.bundle, async (stage) => {
+      const fallback = await prepareCopilotProvider(inputs.evidences, deadlineMs);
+      versionMetadata.creditFallback = {
+        from: 'openrouter', to: 'github-copilot', reason: 'PAYMENT_REQUIRED', stage,
+        proposalProvider: stage === 'review' ? 'openrouter' : 'github-copilot',
+        reviewProvider: 'github-copilot', at: new Date().toISOString(),
+      };
+      if (fallback.bundle) versionMetadata.evidenceTransport = fallback.bundle.manifest;
+      // La elección y la procedencia quedan durables ANTES de inferir en el respaldo.
+      await updateAuditResult(client, auditRow.id, { status: 'RUNNING', result_json: null, error_category: null,
+        latency_ms: Date.now() - startedAt, provider: 'github-copilot', model: getEnv().COPILOT_MODEL!, provider_metadata: versionMetadata });
+      return fallback;
+    });
     executionMetadata = {
       usage: execution.usage, usageScope: 'aggregate', openrouterAttempts: execution.attempts,
       ...versionMetadata,
     };
-    const result = execution.result;
+    // Solo metadata técnica; el assessment validado del Skill permanece intacto.
+    const result = versionMetadata.creditFallback
+      ? { ...execution.result, model: { ...execution.result.model, provider: 'github-copilot' as const } }
+      : execution.result;
     const latencyMs = Date.now() - startedAt;
 
     const final = await updateAuditResult(client, auditRow.id, {
