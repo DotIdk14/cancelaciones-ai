@@ -1,0 +1,88 @@
+{
+  "date": "2026-10-23",
+  "commit": "38fe66f2eb6f81f49a79f72f5f90681b97f8d072",
+  "production": {
+    "state": "READY",
+    "branch": "main",
+    "url": "cancelaciones-lqcbz2vlh-idkboooi-s-projects.vercel.app",
+    "functions": 12
+  },
+  "database": {
+    "ledgerEntries": 34,
+    "latestVersion": "20261022163849",
+    "catalogCounts": {
+      "columns": 674,
+      "constraints": 115,
+      "indexes": 58,
+      "policies": 21,
+      "functions": 180,
+      "triggers": 6,
+      "views": 11
+    },
+    "publicRelations": [
+      "app_error_events",
+      "app_memberships",
+      "app_ticket_events",
+      "app_tickets",
+      "approved_examples",
+      "audit_activity_metrics",
+      "audit_activity_metrics_with_sales_channel",
+      "audit_dashboard_metrics",
+      "audit_evaluation_datasets",
+      "audit_evaluation_metrics",
+      "audit_evaluation_metrics_with_sales_channel",
+      "audit_evaluation_results",
+      "audit_evaluation_runs",
+      "audit_feedback",
+      "audit_versions",
+      "audits",
+      "case_area_comments",
+      "case_comparisons",
+      "case_comparisons_dashboard_metrics",
+      "case_merge_events",
+      "case_request_relations",
+      "case_reviews",
+      "cases",
+      "comparison_activity_metrics",
+      "comparison_activity_metrics_with_sales_channel",
+      "comparison_execution_history",
+      "comparison_execution_rows",
+      "current_audit_evaluation_metrics",
+      "current_audit_evaluation_metrics_with_sales_channel",
+      "evidence",
+      "request_admissions"
+    ]
+  },
+  "storage": [
+    {
+      "name": "evidencias",
+      "public": false
+    }
+  ],
+  "productionEnvironmentNames": [
+    "OPENROUTER_MIN_BALANCE_USD",
+    "AI_PROVIDER_MODE",
+    "COPILOT_REVIEW_MODEL",
+    "COPILOT_MODEL",
+    "COPILOT_GITHUB_TOKEN",
+    "AI_MAX_OUTPUT_TOKENS",
+    "OPENROUTER_FALLBACK_MODEL",
+    "OPENROUTER_MODEL",
+    "ASSEMBLYAI_API_KEY",
+    "INSFORGE_API_KEY",
+    "MAX_AUDIT_MULTIMODAL_BYTES",
+    "MAX_AUDIT_TEXT_CHARS_PER_EVIDENCE",
+    "MAX_AUDIT_TEXT_CHARS",
+    "MAX_EVIDENCE_COUNT",
+    "AUDIT_STALE_AFTER_MS",
+    "TOTAL_AUDIT_TIMEOUT_MS",
+    "AI_TIMEOUT_MS",
+    "TRANSCRIPTION_POLL_TIMEOUT_MS",
+    "MAX_EVIDENCE_BYTES",
+    "INSFORGE_STORAGE_BUCKET",
+    "APP_URL",
+    "OPENROUTER_API_KEY",
+    "INSFORGE_ANON_KEY",
+    "INSFORGE_BASE_URL"
+  ]
+}

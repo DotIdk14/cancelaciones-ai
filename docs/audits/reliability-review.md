@@ -1,3 +1,5 @@
+> Informe histórico de fiabilidad: conserva hallazgos y limitaciones de su sesión. Para la entrega documental autorizada del 23/10 consultar [producción](production-release.md); esta reorganización no cambia los contratos ni certifica de nuevo precisión del modelo.
+
 # Revisión de fiabilidad de las auditorías
 
 Fecha: 22 de octubre de 2026. Base revisada: commit `a4504ab`.

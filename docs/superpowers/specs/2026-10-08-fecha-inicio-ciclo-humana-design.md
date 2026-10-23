@@ -1,7 +1,7 @@
 # Fecha de inicio de ciclo aportada por una persona — Diseño
 
 **Fecha:** 2026-10-08
-**Estado:** implementado. Este documento conserva las decisiones de diseño; el comportamiento vigente está en `AGENTS.md` y `docs/ARCHITECTURE.md`.
+**Estado:** implementado. Este documento conserva las decisiones de diseño; el comportamiento vigente está en `AGENTS.md` y `docs/architecture/overview.md`.
 **Relacionado:** incidente de producción (dictamen en ERROR)
 
 ---
@@ -59,7 +59,7 @@ Elimina la causa del incidente sin cambiar lo que la UI muestra.
 | `tests/cycle-start-date.test.ts:354-364` | El test que afirma el rechazo por divergencia pasa a afirmar la derivación. |
 | `tests/schema.test.ts:27-34,231,277` y `tests/fixtures/audit-result.ts:5-10` | Ajustar fixtures. |
 | `tests/provider-schema.test.ts:28-39` | `case` deja de exigir `cycleStartDate`. |
-| `README.md:194-255`, `docs/AUDIT_PIPELINE.md:116-123` | Documentar que el campo es derivado, no afirmado. |
+| `README.md:194-255`, `docs/architecture/ai-pipeline.md:116-123` | Documentar que el campo es derivado, no afirmado. |
 
 **Precauciones**
 

@@ -1,3 +1,5 @@
+> Registro histórico. Consultar el [informe vigente](../audits/cleanup-report.md) antes de operar. Las limitaciones de sesiones anteriores no certifican el estado actual.
+
 # Auditoría del repositorio
 
 **Revisión:** 2026-10-07. **Alcance:** árbol de trabajo local, rutas, servicios, configuración, scripts, migraciones, pruebas, documentación, lockfile y CI. Se revisó el código presente; no se inspeccionaron Vercel, InsForge ni otros servicios productivos.
@@ -75,7 +77,7 @@ No se confirmó una vulnerabilidad crítica explotable en el runtime de producci
 
 - **Hallazgo:** el repo tiene scripts, checks y documentación de despliegue, pero no puede garantizar que las migraciones y políticas declarativas hayan sido aplicadas al proyecto InsForge real.
 - **Riesgo e impacto:** discrepancia de esquema durante deploy.
-- **Estado:** documentación existente en `docs/DATABASE.md`, `docs/DEPLOYMENT.md` y `docs/PRODUCTION-RUNBOOK.md`; ejecución y estado remoto **NO VERIFICADOS**.
+- **Estado:** documentación existente en `docs/architecture/database.md`, `docs/guides/deployment.md` y `docs/operations/production-runbook.md`; ejecución y estado remoto **NO VERIFICADOS**.
 
 ### L2 — Sin herramientas separadas de lint y formato
 
@@ -114,6 +116,6 @@ No se confirmó una vulnerabilidad crítica explotable en el runtime de producci
 - `src/server/http.ts`: deja de imprimir mensajes crudos de excepciones no controladas.
 - `src/server/comparison-service.ts`: deja de registrar mensajes crudos de excepciones de comparación.
 - `tests/http.test.ts`: cubre la redacción de logs y la respuesta genérica.
-- `docs/ARCHITECTURE.md`: arquitectura, límites de confianza y flujo real de auditoría.
-- `docs/REPOSITORY_AUDIT.md`: reemplaza resultados de auditorías antiguas con el estado comprobado el 2026-10-07.
+- `docs/architecture/overview.md`: arquitectura, límites de confianza y flujo real de auditoría.
+- `docs/audits/repository-history.md`: reemplaza resultados de auditorías antiguas con el estado comprobado el 2026-10-07.
 - `README.md` y `docs/migration-ai-native.md`: actualizan referencias al documento de arquitectura.

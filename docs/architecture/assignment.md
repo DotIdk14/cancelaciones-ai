@@ -1,3 +1,5 @@
+> Referencia operativa con antecedentes históricos. Estado remoto del 23/10/2026: [informe vigente](../audits/cleanup-report.md). Para adquisición actual usar [Flokzu directo](../architecture/flokzu.md); no usar instrucciones retiradas de Excel o revisión administrativa.
+
 # Asignación y vinculación de expedientes
 
 La creación conserva `created_by` y guarda el responsable en `assigned_to`.

@@ -12,7 +12,7 @@ Dictaminador UTEL (personal administrativo que revisa deserción). Situación: e
 
 ## Product Purpose
 
-Analizar expedientes de cancelación, baja y deserción de estudiantes UTEL y emitir un dictamen estructurado, trazable y auditable. Existe para sustituir revisión manual dispersa por un flujo AI-native donde el modelo lee el expediente completo junto al procedimiento oficial. Éxito: dictamen válido (uno de siete resultados) con cada conclusión enlazada a evidencia y sección del procedimiento, reutilizable sin reprocesar IA si la evidencia no cambia.
+Analizar expedientes de cancelación, baja y deserción de estudiantes UTEL y emitir un dictamen estructurado, trazable y auditable. Existe para sustituir revisión manual dispersa por un flujo AI-native donde el modelo lee el expediente completo junto al procedimiento oficial. Éxito: dictamen válido (uno de ocho resultados) con cada conclusión enlazada a evidencia y sección del procedimiento, reutilizable sin reprocesar IA si la evidencia no cambia.
 
 ## Positioning
 

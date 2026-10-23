@@ -2,7 +2,7 @@
 
 ## Estado
 
-Implementado. Este documento conserva el diseño aprobado; los permisos vigentes están en `AGENTS.md` y `docs/ARCHITECTURE.md`.
+Implementado. Este documento conserva el diseño aprobado; los permisos vigentes están en `AGENTS.md` y `docs/architecture/overview.md`.
 
 ## Objetivo
 

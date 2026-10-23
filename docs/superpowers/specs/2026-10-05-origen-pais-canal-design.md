@@ -2,7 +2,7 @@
 
 - **Fecha:** 2026-10-05
 - **Path:** ARCHITECTURAL
-- **Estado:** implementado. Se conserva como registro de diseño; la arquitectura vigente está en `AGENTS.md` y `docs/ARCHITECTURE.md`.
+- **Estado:** implementado. Se conserva como registro de diseño; la arquitectura vigente está en `AGENTS.md` y `docs/architecture/overview.md`.
 - **Alcance:** Assessment del Audit Skill → columnas de dimensión → filtros de Calidad → visualizaciones de Resumen
 
 ---
@@ -174,7 +174,7 @@ Se mantiene `text` y no FK, coherente con las 6 dims existentes: el catálogo de
 sigue sin existir (`LEGACY_IS_NOT_POLICY`).
 
 La aplicación de esta migración queda sujeta a la conciliación oficial descrita
-en [`docs/MIGRATION-RECONCILIATION.md`](../../MIGRATION-RECONCILIATION.md). No
+en [`docs/operations/migration-history.md`](../../operations/migration-history.md). No
 aplicar SQL directamente con `db query`.
 
 ---

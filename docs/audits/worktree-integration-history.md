@@ -1,3 +1,5 @@
+> Registro histórico. Consultar el [informe vigente](../audits/cleanup-report.md) antes de operar. Las limitaciones de sesiones anteriores no certifican el estado actual.
+
 # Integración de worktrees
 
 Se integraron los commits e751923, 2483765, 05d35b8 y 50a89f5 junto con los cambios locales de conciliación e historial, conservando los checkouts originales.

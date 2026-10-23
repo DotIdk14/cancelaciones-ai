@@ -1,3 +1,5 @@
+> Registro histórico. Consultar el [informe vigente](../audits/cleanup-report.md) antes de operar. Las limitaciones de sesiones anteriores no certifican el estado actual.
+
 # Revisión de preparación para producción
 
 Fecha: 9 de octubre de 2026. Se revisó `main`, el backend de producción y una

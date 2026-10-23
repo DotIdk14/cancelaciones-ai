@@ -1,3 +1,5 @@
+> Referencia operativa con antecedentes históricos. Estado remoto del 23/10/2026: [informe vigente](../audits/cleanup-report.md). Para adquisición actual usar [Flokzu directo](../architecture/flokzu.md); no usar instrucciones retiradas de Excel o revisión administrativa.
+
 # InsForge
 
 > [!IMPORTANT]
@@ -58,7 +60,7 @@ arrancar con `[env] Falta la variable de entorno <NOMBRE>`.
   algunos efectos ya están presentes y hay migraciones de vistas intermedias
   que no se pueden reaplicar directamente.
 - Antes de cualquier cambio, sigue el análisis y el plan de
-  [`../MIGRATION-RECONCILIATION.md`](../MIGRATION-RECONCILIATION.md). No escribas
+  [`../MIGRATION-RECONCILIATION.md`](migration-history.md). No escribas
   en producción sin staging aislado, respaldo restaurable y aprobación del SQL
   exacto.
 - Storage: bucket **único** `evidencias`. El path del objeto es

@@ -1,4 +1,6 @@
-﻿# Troubleshooting — Cancelaciones AI
+> Referencia operativa con antecedentes históricos. Estado remoto del 23/10/2026: [informe vigente](../audits/cleanup-report.md). Para adquisición actual usar [Flokzu directo](../architecture/flokzu.md); no usar instrucciones retiradas de Excel o revisión administrativa.
+
+# Troubleshooting — Cancelaciones AI
 
 Errores reales esperables y su causa. Antes de cambiar código, identifica la capa que falla.
 
@@ -60,7 +62,7 @@ npm.cmd run dev
 ### Migración sin aplicar
 
 - Revisar `insforge db migrations status`.
-- Aplicar en orden por nombre de archivo; la secuencia completa y las comprobaciones por migración están en [`DATABASE.md`](DATABASE.md) y [`DEPLOYMENT.md`](DEPLOYMENT.md). Las últimas de la feature de roles son `membership-role-manager`, `case-test-flag`, `case-review-coordinator-decision` y `dashboard-view-test-owner-scope`.
+- Aplicar en orden por nombre de archivo; la secuencia completa y las comprobaciones por migración están en [`DATABASE.md`](../architecture/database.md) y [`DEPLOYMENT.md`](deployment.md). Las últimas de la feature de roles son `membership-role-manager`, `case-test-flag`, `case-review-coordinator-decision` y `dashboard-view-test-owner-scope`.
 
 ## Evidencias
 

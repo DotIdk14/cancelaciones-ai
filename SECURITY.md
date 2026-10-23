@@ -216,7 +216,7 @@ porque el estado del entorno no se comprobó.
 | 7 | Purgar las ramas `archive/*` | Publican código y posible material interno fuera del flujo mantenido | Media |
 | 8 | Decidir `LICENSE` | Sin licencia, "open source" no es cierto legalmente | Media |
 | 9 | Declarar que el PDF fuente del procedimiento no está versionado | `policy/` versiona las 26 secciones, no el `.docx.pdf`. El SHA-256 permite verificar que no cambió, no reconstruirlo. Ya está documentado en el README; falta decidir si es aceptable para publicar | Media |
-| 10 | `vitest` 2 → 4.1.11+ | CRITICAL de lectura/ejecución arbitraria en Windows, **no explotable hoy** (la UI no se levanta) pero sin fix en 3.x. Detalle en `docs/REPOSITORY_AUDIT.md` §6 bis | Media |
+| 10 | `vitest` 2 → 4.1.11+ | CRITICAL de lectura/ejecución arbitraria en Windows, **no explotable hoy** (la UI no se levanta) pero sin fix en 3.x. Detalle en `docs/audits/repository-history.md` §6 bis | Media |
 | 11 | `@vercel/node` actualizado | Es la vía para subir `undici` fuera de 5.29.0 (11 advisories). Ninguna explotable con el código actual | Baja |
 
 Sobre el punto 5: eliminar el archivo del árbol **no** elimina el secreto del

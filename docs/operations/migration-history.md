@@ -1,3 +1,5 @@
+> Registro histórico. Consultar el [informe vigente](../audits/cleanup-report.md) antes de operar. Las limitaciones de sesiones anteriores no certifican el estado actual.
+
 # Auditoría y conciliación de migraciones
 
 ## Revisión humana por versión de auditoría · 19 de octubre de 2026
@@ -54,7 +56,7 @@ ni eliminaron, y no se llamó a IA.
 Las exportaciones de esquema/datos y comprobaciones están fuera de Git en
 `tmp/assignment-repair/` del checkout original. No incluyen una prueba de
 restauración de Storage. Los detalles y el estado de la entrega de código se
-registran en `docs/asignacion-y-vinculacion-contactos.md`.
+registran en `docs/architecture/assignment.md`.
 
 ## Integración en producción · 13 de octubre de 2026
 
