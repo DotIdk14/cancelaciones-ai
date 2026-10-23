@@ -15,6 +15,8 @@ export interface ServerEnv {
   // IA
   OPENROUTER_API_KEY: string;
   OPENROUTER_MODEL: string;
+  /** Modelo de contraste crítico, separado de la propuesta. */
+  OPENROUTER_REVIEW_MODEL: string;
   OPENROUTER_FALLBACK_MODEL: string | null;
   AI_TIMEOUT_MS: number;
   TOTAL_AUDIT_TIMEOUT_MS: number;
@@ -98,6 +100,7 @@ export function getEnv(): ServerEnv {
 
     OPENROUTER_API_KEY: required('OPENROUTER_API_KEY', env.OPENROUTER_API_KEY),
     OPENROUTER_MODEL: required('OPENROUTER_MODEL', env.OPENROUTER_MODEL),
+    OPENROUTER_REVIEW_MODEL: env.OPENROUTER_REVIEW_MODEL?.trim() || 'google/gemini-2.5-pro',
     OPENROUTER_FALLBACK_MODEL: optional('OPENROUTER_FALLBACK_MODEL', env.OPENROUTER_FALLBACK_MODEL),
     AI_TIMEOUT_MS: numberEnv('AI_TIMEOUT_MS', env.AI_TIMEOUT_MS, 60_000, { min: 1_000, max: 290_000 }),
     TOTAL_AUDIT_TIMEOUT_MS: numberEnv('TOTAL_AUDIT_TIMEOUT_MS', env.TOTAL_AUDIT_TIMEOUT_MS, 240_000, { min: 10_000, max: 295_000 }),

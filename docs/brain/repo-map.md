@@ -4,7 +4,7 @@ Using openrouter/deepseek/deepseek-r1:free model with API key from environment.
 Aider v0.86.2
 Model: openrouter/deepseek/deepseek-r1:free with diff edit format, prompt 
 cache, infinite output
-Git repo: .git with 395 files
+Git repo: .git with 403 files
 Repo-map: using 4096 tokens, auto refresh
 Here are summaries of some files present in my git repository.
 Do not propose changes to these files, treat them as *read-only*.
@@ -172,11 +172,6 @@ target.closest('[aria-cont
 
 src\components\PdfCanvas.tsx:
 ⋮
-│interface PdfDocumentProxy {
-│  numPages: number;
-│  getPage(pageNumber: number): Promise<PdfPageProxy>;
-│  destroy(): Promise<void>;
-⋮
 │export interface PdfCanvasProps {
 │  /** Mismo origen, con la cookie de sesión: devuelve los bytes con MIME 
 `application/pdf`. */
@@ -207,14 +202,6 @@ src\components\dashboard\charts\ConfidenceBandsChart.tsx:
 │export interface ConfidenceBandsChartProps {
 │  data: Band[];
 │  /** Texto alternativo: qué mide y sobre cuántos dictámenes. */
-│  ariaLabel: string;
-⋮
-
-src\components\dashboard\charts\ConfidenceByEvidenceChart.tsx:
-⋮
-│export interface ConfidenceByEvidenceChartProps {
-│  data: Bucket[];
-│  /** Texto alternativo: qué compara y cuál es la lectura principal. */
 │  ariaLabel: string;
 ⋮
 
@@ -268,6 +255,9 @@ src\components\ui.tsx:
 ⋮
 
 src\lib\api.ts:
+⋮
+│export type CoordinatorDecision = 'APPROVE' | 'CHANGE';
+│
 ⋮
 │export type WorkflowState = 'PENDING_ADVISOR' | 'PENDING_COORDINATOR' | 
 'FINALIZED';
@@ -374,6 +364,11 @@ primero. */
 │  canUploadEvidence?: boolean;
 │  canDeleteEvidence?: boolean;
 ⋮
+│export interface ErrorState {
+│  category: string;
+│  message: string;
+│  correlationId?: string;
+⋮
 │export class ApiError extends Error {
 │  readonly category: string;
 │  readonly status: number;
@@ -423,12 +418,6 @@ src\lib\currency.ts:
 ⋮
 │export function usdToMxn(value: number): number {
 │  return value * MXN_REFERENCE_RATE.pesosPerUsd;
-⋮
-│export function formatCostMxn(value: number | null | undefined, unavailable = 
-'No disponible'): str
-│  if (typeof value !== 'number' || !Number.isFinite(value)) return 
-unavailable;
-│  return `$${mexicanPesos.format(usdToMxn(value))} MXN`;
 ⋮
 
 src\lib\dashboard-metrics-contracts.ts:
@@ -748,6 +737,10 @@ src\shared\case-links.ts:
 │export interface ImportLinkResolution { externalCaseId: string; caseId: string
 | null }
 
+src\skills\audit\grounding-schema.ts:
+⋮
+│export type ReliabilityReview = z.infer<typeof ReliabilityReviewSchema>;
+
 src\skills\audit\procedure-v5.ts:
 ⋮
 │export interface PolicyManifest {
@@ -784,6 +777,19 @@ src\skills\audit\types.ts:
 ⋮
 │export type ErrorCategory = (typeof ERROR_CATEGORIES)[number];
 │
+⋮
+│export interface AuditSkillInput {
+│  /** Confirmación humana; no acredita conteos ni crea referencias de 
+evidencia. */
+│  humanContactPerformed?: boolean;
+│  caseId: string;
+│  studentIdentifier: string | null;
+│  evidences: EvidenceInputItem[];
+│  /**
+│   * Contexto de otras áreas (Back Office / HelpDesk) que SÍ entra al 
+expediente.
+│   *
+│   * `comment` llega YA cercado con `wrapUntrusted`; el Skill solo lo inserta
 ⋮
 │export type AreaCommentScope = (typeof AREA_COMMENT_SCOPES)[number];
 │
@@ -895,10 +901,6 @@ orders.push([column, options?.
 ⋮
 
 tests\dashboard-human-review-query.test.ts:
-⋮
-│async function caseRow(value = 1, test = false): Promise<void> {
-│  await db.query('INSERT INTO 
-cases(id,country,campus,responsible,guideline,is_test,external_case_i
 ⋮
 │async function review(auditId = 11, final: 'APPROVE' | 'CHANGE' | null = 
 'APPROVE'): Promise<void> 

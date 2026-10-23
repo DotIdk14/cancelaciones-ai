@@ -46,6 +46,8 @@ export interface CallOpenRouterAuditInput {
   schema?: ZodTypeAny;
   /** Nombre del `json_schema` enviado al proveedor. */
   schemaName?: string;
+  /** Presupuesto real de llamadas; el Skill reserva una para generación y una para revisión. */
+  maxAttempts?: 1 | 2;
 }
 
 export interface CallOpenRouterAuditOutput {
@@ -495,6 +497,7 @@ export async function callOpenRouterAudit(
     : [env.OPENROUTER_MODEL, env.OPENROUTER_FALLBACK_MODEL].filter((model): model is string => Boolean(model));
   let finalFailure: AttemptFailureCategory = 'PROVIDER_UNAVAILABLE';
   let attemptsMade = 0;
+  const maxAttempts = input.maxAttempts ?? 2;
   /**
    * Feedback correctivo pendiente del último fallo de validación de salida. Se
    * consume en el siguiente intento (y sólo en ése): es lo que convierte el
@@ -617,7 +620,7 @@ export async function callOpenRouterAudit(
 
     let fallbackOnUnavailable = false;
     for (const format of formats) {
-      for (let tryNumber = 0; tryNumber < 2 && attemptsMade < 2; tryNumber += 1) {
+      for (let tryNumber = 0; tryNumber < 2 && attemptsMade < maxAttempts; tryNumber += 1) {
         const remainingMs = deadlineMs - Date.now();
         if (remainingMs < MIN_ATTEMPT_BUDGET_MS) break;
         const retryBudget = tryNumber > 0 && diagnostics.at(-1)?.failureCategory === 'TRUNCATED_OUTPUT'
@@ -673,23 +676,23 @@ export async function callOpenRouterAudit(
           if (MODEL_OUTPUT_VALIDATION_FAILURES.has(finalFailure) && error.validation) {
             correctiveFeedback ??= buildCorrectiveFeedback(finalFailure, error.validation, input.validationChecklist);
             // `continue` reintenta el MISMO formato con el feedback pendiente;
-            // las guardas `tryNumber < 2` y `attemptsMade < 2` lo acotan a una
+            // las guardas `tryNumber < 2` y `attemptsMade < maxAttempts` lo acotan a una
             // única llamada extra.
-            if (tryNumber === 0 && attemptsMade < 2) continue;
+            if (tryNumber === 0 && attemptsMade < maxAttempts) continue;
             break;
           }
 
-          if (!error.diagnostic.retryable || tryNumber === 1 || attemptsMade >= 2) break;
+          if (!error.diagnostic.retryable || tryNumber === 1 || attemptsMade >= maxAttempts) break;
           if ((error.diagnostic.failureCategory === 'PROVIDER_UNAVAILABLE' || error.diagnostic.failureCategory === 'TIMEOUT') && models.length > 1) {
             fallbackOnUnavailable = true;
             break;
           }
         }
       }
-      if (fallbackOnUnavailable || attemptsMade >= 2) break;
+      if (fallbackOnUnavailable || attemptsMade >= maxAttempts) break;
     }
     if (fallbackOnUnavailable) continue modelLoop;
-    if (attemptsMade >= 2) break;
+    if (attemptsMade >= maxAttempts) break;
   }
 
   const summary = diagnostics.map((item) => `${item.model} [${item.format}]: ${item.failureCategory ?? 'OK'}${item.status ? ` HTTP ${item.status}` : ''}${item.failureReason ? ` (${item.failureReason})` : ''}`).join(' | ');

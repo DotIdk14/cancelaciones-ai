@@ -1,3 +1,4 @@
+import { FactGroundingDetails } from './FactGroundingDetails';
 import { CaseAssignment } from './CaseAssignment';
 import { CaseContextMenu, type ContextTab } from './CaseContextMenu';
 import { EvidenceReferences } from './EvidenceReferences';
@@ -17,7 +18,7 @@ import { deleteEvidence, getAreaComments, getCase, toErrorState, workflowStateOf
 import type { AppRole, AreaComment, CaseDetailResponse, ErrorState, Evidence, SessionSnapshot } from '../lib/api';
 import { formatDateTime, formatLatency, formatPercent, formatFactValue, textOrDash } from '../lib/format';
 import {
-  RESULT_LABELS,
+  factSupportLabel, RESULT_LABELS,
   EVIDENCE_STATUS_LABELS,
   errorCategoryLabel,
   errorCategoryMessage,
@@ -714,7 +715,7 @@ export function CaseDetailPage({ caseId, initialAuditId, role, capabilities = { 
                 {result === null ? <div className="case-workspace-empty"><FileCheck2 size={22} /><strong>Sin hallazgos de auditoría</strong><p>Los hechos y checks aparecerán cuando exista un dictamen completado.</p></div> : <div className="case-findings-content">
                   <section><h3>Hechos extraídos <span>{searching ? visibleFacts.length : result.facts.length}</span></h3>
                     {result.facts.length === 0 ? <p className="case-workspace-note">La auditoría no registró hechos estructurados.</p> : visibleFacts.length === 0 ? <p className="case-workspace-note">Ningún hecho coincide con la búsqueda.</p> : visibleFacts.map((fact) => (
-                      <article className="case-finding-row" key={fact.key}><div><strong>{fact.label}</strong><span>{formatFactValue(fact.value)}</span></div><p>{fact.evidenceText ?? 'Sin cita textual guardada.'}</p><EvidenceReferences text={fact.evidenceText ?? ''} evidenceIds={fact.evidenceIds} evidences={evidences} onOpen={(id, seconds) => { setViewingEvidenceId(id); setActiveTab('evidence'); setSeekRequest(seconds === null ? null : { seconds, requestId: Date.now() }); }} /><small>{fact.value === null ? 'Información no determinada' : 'Hecho registrado por IA; el assessment no clasifica comprobación o inferencia'} · Confianza {formatPercent(fact.confidence)} · {fact.evidenceIds.length} evidencia(s)</small>{result.audit.procedureChecks.filter(check => check.evidenceIds?.some(id => fact.evidenceIds.includes(id))).map((check, index) => <p key={index}>Criterio con evidencia compartida · {check.procedureSection}: {check.reasoning}</p>)}</article>
+                      <article className="case-finding-row" key={fact.key}><div><strong>{fact.label}</strong><span>{formatFactValue(fact.value)}</span></div><p>{fact.evidenceText ?? 'Sin cita textual guardada.'}</p><EvidenceReferences text={fact.evidenceText ?? ''} evidenceIds={fact.evidenceIds} evidences={evidences} onOpen={(id, seconds) => { setViewingEvidenceId(id); setActiveTab('evidence'); setSeekRequest(seconds === null ? null : { seconds, requestId: Date.now() }); }} /><small>{factSupportLabel(result.reliabilityReview?.factGrounding.find(item => item.factKey === fact.key)?.support)} · Autoestimación de IA {formatPercent(fact.confidence)} · {fact.evidenceIds.length} evidencia(s)</small><FactGroundingDetails grounding={result.reliabilityReview?.factGrounding.find(item => item.factKey === fact.key)} evidences={evidences} onOpen={(id, seconds) => { setViewingEvidenceId(id); setActiveTab('evidence'); setSeekRequest(seconds === null ? null : { seconds, requestId: Date.now() }); }} />{result.audit.procedureChecks.filter(check => check.evidenceIds?.some(id => fact.evidenceIds.includes(id))).map((check, index) => <p key={index}>Criterio con evidencia compartida · {check.procedureSection}: {check.reasoning}</p>)}</article>
                     ))}
                   </section>
                   <section><h3>Checks del procedimiento <span>{searching ? visibleChecks.length : result.audit.procedureChecks.length}</span></h3>

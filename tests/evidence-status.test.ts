@@ -555,3 +555,6 @@ it('cambiar el contexto inyectado invalida la caché y genera una evaluación vi
   expect(listAudits()[0]?.evidence_fingerprint).not.toBe(listAudits()[1]?.evidence_fingerprint);
   expect(mockedCall).toHaveBeenCalledTimes(2);
 });
+
+// Suite de generación/persistencia aislada; la revisión real se cubre por separado.
+vi.mock('../src/skills/audit/verify', async () => ({ verifyAuditAssessment: (await import('./helpers/semantic-review')).isolatedReview, sumModelUsage: (await vi.importActual<typeof import('../src/skills/audit/verify')>('../src/skills/audit/verify')).sumModelUsage }));

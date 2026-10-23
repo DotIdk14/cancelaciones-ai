@@ -1,3 +1,4 @@
+import { setTestEnv } from './helpers/env';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { auditSkill, buildAuditMessages, invalidEvidenceReference } from '../src/skills/audit/execute';
 import type { AuditSkillInput } from '../src/skills/audit/types';
@@ -61,6 +62,7 @@ describe('auditSkill.execute', () => {
   });
   beforeEach(() => {
     mockedCall.mockReset();
+    setTestEnv();
   });
 
   it('incorpora la transcripción al expediente (texto primero, imágenes después)', () => {
@@ -424,3 +426,6 @@ describe('Expediente — fecha de inicio aportada por el equipo', () => {
     expect(result.case.cycleStartDate).toBe(result.temporalAnalysis.cycleStartDate);
   });
 });
+
+// Suite de generación/persistencia aislada; la revisión real se cubre por separado.
+vi.mock('../src/skills/audit/verify', async () => ({ verifyAuditAssessment: (await import('./helpers/semantic-review')).isolatedReview, sumModelUsage: (await vi.importActual<typeof import('../src/skills/audit/verify')>('../src/skills/audit/verify')).sumModelUsage }));

@@ -11,11 +11,14 @@
 
 import { callOpenRouterAudit, type OpenRouterAttemptDiagnostic, type OpenRouterContentPart } from '../../server/openrouter.js';
 import { ApiError } from '../../server/http.js';
-import { deriveCaseCycleStartDate, isIsoDateValue, parseAiAuditAssessment, type AuditResult } from './schema.js';
+import { AiAuditAssessmentSchema, deriveCaseCycleStartDate, isIsoDateValue, parseAiAuditAssessment, type AuditResult } from './schema.js';
 import { ASSESSMENT_VALIDATION_CHECKLIST, CONTACT_ATTEMPTS_RULES, buildDossierHeader, buildSystemPrompt } from './instructions.js';
 import { sanitizeFenceDelimiters, sanitizeTagDelimiters, wrapUntrusted } from '../sanitize.js';
 import { PROCEDURE_TEXT } from './procedure-v5.js';
 import type { AuditSkillInput } from './types.js';
+import { verifyAuditAssessment, sumModelUsage } from './verify.js';
+import { validateProcedureReferences } from './references.js';
+import { getEnv } from '../../server/env.js';
 
 /** Umbral de texto extraído de un PDF para considerarlo "textual" (no escaneado). */
 export const PDF_MIN_TEXT_CHARS = 80;
@@ -32,12 +35,14 @@ export const auditSkill: AuditSkill = {
   async executeWithMetadata(input: AuditSkillInput, options?: { deadlineMs?: number; model?: string; supplementalInstructions?: string }) {
     const { system, parts } = buildAuditMessages(input, options?.supplementalInstructions);
     const evidenceIds = input.evidences.map((evidence) => evidence.evidenceId);
+    const deadlineMs = options?.deadlineMs ?? Date.now() + getEnv().TOTAL_AUDIT_TIMEOUT_MS;
     const response = await callOpenRouterAudit({
       system,
       parts,
       ...(options?.model ? { models: [options.model] } : {}),
       evidenceIds,
-      deadlineMs: options?.deadlineMs,
+      deadlineMs,
+      maxAttempts: 1,
       validationChecklist: [
         ASSESSMENT_VALIDATION_CHECKLIST,
         input.humanContactPerformed === true
@@ -53,12 +58,37 @@ export const auditSkill: AuditSkill = {
       // dejó el incidente de producción indescifrable. Dentro, el mismo fallo se
       // clasifica por su código y deja el detalle atestiguado.
       validate: (parsed) => {
-        const assessment = parseAiAuditAssessment(stripTechnicalMetadata(parsed), validationContext(input));
+        const assessment = parseProposal(parsed);
         validateAssessmentReferences(assessment, input);
       },
     });
-    const assessment = parseAiAuditAssessment(stripTechnicalMetadata(response.parsed), validationContext(input));
-    validateAssessmentReferences(assessment, input);
+    const proposal = parseProposal(response.parsed);
+    validateAssessmentReferences(proposal, input);
+    let proposalValidationIssue: string | undefined;
+    try {
+      parseAiAuditAssessment(proposal, validationContext(input));
+      validateProcedureReferences(proposal);
+    } catch (error) {
+      if (!(error instanceof ApiError)) throw error;
+      proposalValidationIssue = error.message;
+    }
+    const proposalAttempts = response.attempts ?? [];
+    let verified;
+    try {
+      verified = await verifyAuditAssessment({ input, proposal, system, parts, deadlineMs, proposalModel: response.model, proposalValidationIssue,
+        validateAssessment: raw => {
+          const assessment = parseAiAuditAssessment(raw, validationContext(input));
+          validateAssessmentReferences(assessment, input);
+          return assessment;
+        },
+      });
+    } catch (error) {
+      if (error && typeof error === 'object' && 'diagnostics' in error && Array.isArray(error.diagnostics)) error.diagnostics.unshift(...proposalAttempts);
+      throw error;
+    }
+    const assessment = parseAiAuditAssessment(verified.assessment, validationContext(input));
+    validateProcedureReferences(assessment);
+    const usage = sumModelUsage(response.usage, verified.usage);
     return {
       // La derivación va AQUÍ y una sola vez: el assessment del modelo ya está
       // validado, así que `temporalAnalysis.cycleStartDate` ya pasó Zod y las
@@ -66,19 +96,27 @@ export const auditSkill: AuditSkill = {
       // y de ahí sale un solo lugar posible: la copia acreditada.
       result: deriveCaseCycleStartDate({
         ...assessment,
-        model: { provider: 'openrouter', model: response.model },
-        usage: response.usage,
+        model: { provider: 'openrouter', model: verified.reliabilityReview.model },
+        usage,
+        reliabilityReview: verified.reliabilityReview,
         // Snapshot de lo que el modelo efectivamente vio en "Contexto de otras
         // áreas". Aditivo y armado por el servidor: `undefined` y `[]` significan
         // lo mismo para el expediente, pero el snapshot los distingue.
         areaComments: input.areaComments ?? [],
       }),
-      model: response.model,
-      usage: response.usage,
-      attempts: response.attempts,
+      model: verified.reliabilityReview.model,
+      usage,
+      attempts: [...proposalAttempts, ...verified.attempts],
     };
   },
 };
+
+/** La propuesta no es un dictamen: la revisión puede corregir incoherencias de negocio. */
+function parseProposal(raw: unknown) {
+  const parsed = AiAuditAssessmentSchema.safeParse(stripTechnicalMetadata(raw));
+  if (!parsed.success) throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: proposal: la propuesta no cumple el contrato estructural');
+  return parsed.data;
+}
 
 function stripTechnicalMetadata(parsed: unknown): unknown {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return parsed;

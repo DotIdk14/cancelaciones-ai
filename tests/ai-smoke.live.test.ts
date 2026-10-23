@@ -50,7 +50,7 @@ describe.skipIf(process.env.RUN_AI_SMOKE !== '1' || !process.env.OPENROUTER_API_
       filename: 'solicitud-ficticia.txt',
       mime_type: 'text/plain',
       processing_status: 'READY',
-      content: 'EJEMPLO FICTICIO PARA PRUEBA TECNICA. Una persona estudiante inventada solicita cancelar antes del inicio de actividades. No usar como caso real.',
+      content: 'EJEMPLO FICTICIO PARA PRUEBA TECNICA. Inicio de ciclo: 05/10/2026. Conversación del 01/10/2026. Estudiante: Solicito cancelar mis estudios porque tengo problemas de salud y no puedo continuar. Lo ofrecido en la venta se cumplió. Asesor: Podemos cambiar tu ciclo u ofrecer una pausa para que continúes. Estudiante: No acepto esas alternativas, prefiero cancelar por mi salud. No usar como caso real.',
     });
 
     const outcome = await runAudit(fakeClient, caseId);
@@ -75,6 +75,9 @@ describe.skipIf(process.env.RUN_AI_SMOKE !== '1' || !process.env.OPENROUTER_API_
 
     expect(result.evidenceSummary.map((item) => item.evidenceId)).toContain(evidenceId);
     expect(result.audit.result).toMatch(/^(CANCELACION_VENTA|CANCELACION_VENTA_PETICION_CLIENTE|BAJA|CANCELACION_VENTA_OPERATIVA|CANCELACION_MATRICULA|DICTAMINACION|EVIDENCIA_INSUFICIENTE)$/);
+    expect(['CANCELACION_VENTA', 'CANCELACION_VENTA_PETICION_CLIENTE']).toContain(result.audit.result);
+    expect(result.reliabilityReview).toBeDefined();
+    expect(result.reliabilityReview?.proposalModel).toBeTruthy();
     expect(result.audit.reasoning.trim().length).toBeGreaterThan(0);
     expect(result.audit.procedureSection.trim().length).toBeGreaterThan(0);
     expect(result.audit.supportingEvidenceIds.length).toBeGreaterThan(0);
@@ -110,7 +113,7 @@ describe.skipIf(process.env.RUN_AI_SMOKE !== '1' || !process.env.OPENROUTER_API_
       filename: 'nota-ficticia.txt',
       mime_type: 'text/plain',
       processing_status: 'READY',
-      content: 'SIMULACIÓN TÉCNICA. Nota sin fechas, matrícula, registro de contacto ni evidencia de actividad académica. No contiene datos personales reales.',
+      content: 'SIMULACIÓN TÉCNICA SIN DATOS PERSONALES REALES. Mensajes del estudiante: No sé cómo ingresar al aula. Nadie me ha llamado. ¿Me ayudan? No se proporcionan fechas, matrícula ni evidencia de actividad académica.',
     });
 
     const outcome = await runAudit(fakeClient, caseId);
@@ -118,6 +121,8 @@ describe.skipIf(process.env.RUN_AI_SMOKE !== '1' || !process.env.OPENROUTER_API_
     expect(outcome.phase).toBe('done');
     expect(outcome.phase === 'done' ? outcome.audit.status : null).toBe('COMPLETED');
     expect(result?.audit.result).toBe('EVIDENCIA_INSUFICIENTE');
+    expect(result?.temporalAnalysis.cancellationRequestDate).toBeNull();
+    expect(result?.temporalAnalysis.cancellationRequestEvidenceIds).toEqual([]);
     expect(result?.audit.provisionalResolution).not.toBeNull();
     expect(result?.audit.missingEvidence.some((item) => item.relatedEvidenceIds.length === 0)).toBe(true);
     expect(result?.audit.procedureChecks.some((item) => item.status === 'NO_DETERMINABLE' && item.evidenceIds.length === 0 && item.observedValues.length === 0)).toBe(true);

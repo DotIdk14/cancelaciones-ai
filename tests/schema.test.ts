@@ -399,6 +399,22 @@ describe('parseAuditResult (schema único)', () => {
     expect(parseAuditResult(rejected).audit.result).toBe('TICKET_RECHAZADO');
   });
 
+  it('acepta explicaciones equivalentes sin palabras mágicas y conserva el conteo estructurado', () => {
+    const rejected = structuredClone(validResult);
+    Object.assign(rejected.audit, { result: 'TICKET_RECHAZADO', rejectionReason: 'Registros de contacto incompletos.', provisionalResolution: null, ...structuredClone(intentos52Incumplido) });
+    rejected.audit.missingEvidence[0]!.reason = 'El mínimo es 16; solo se registraron 15 llamadas. Adjuntar el registro restante.';
+    expect(parseAuditResult(rejected).audit.procedureChecks[0]!.observedValues[1]!.value).toBe('15');
+    const check = rejected.audit.procedureChecks[0]!;
+    check.status = 'NO_DETERMINABLE';
+    check.observedValues[1]!.value = 'NO_DETERMINABLE';
+    check.observedValues[3]!.value = 'NO_DETERMINABLE';
+    rejected.audit.missingEvidence[0]!.reason = 'El expediente carece de registros para verificar las gestiones. Se requiere el historial completo.';
+    expect(parseAuditResult(rejected).audit.result).toBe('TICKET_RECHAZADO');
+    rejected.audit.result = 'BAJA';
+    rejected.audit.rejectionReason = null;
+    expect(parseInvalid(rejected)).toContain('TICKET_RECHAZADO');
+  });
+
   it('rechaza EVIDENCIA_INSUFICIENTE cuando 5.2 está incumplido: ese caso es TICKET_RECHAZADO', () => {
     const invalid = {
       ...validResult,

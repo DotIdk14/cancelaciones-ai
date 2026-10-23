@@ -717,3 +717,6 @@ describe('Actividad y consumo: el Asesor conserva acceso denegado', () => {
     expect(res.statusCode).toBe(403);
   });
 });
+
+// Suite de generación/persistencia aislada; la revisión real se cubre por separado.
+vi.mock('../src/skills/audit/verify', async () => ({ verifyAuditAssessment: (await import('./helpers/semantic-review')).isolatedReview, sumModelUsage: (await vi.importActual<typeof import('../src/skills/audit/verify')>('../src/skills/audit/verify')).sumModelUsage }));

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ReliabilityReviewSchema } from './grounding-schema.js';
 import {
   AREA_COMMENT_SCOPES,
   AUDIT_RESULTS,
@@ -248,6 +249,7 @@ export const AuditResultSchema = AiAuditAssessmentSchema.extend({
    * válido (por eso es opcional).
    */
   areaComments: z.array(AreaCommentSnapshotSchema).optional(),
+  reliabilityReview: ReliabilityReviewSchema.optional(),
 }).strict();
 
 export type AiAuditAssessment = z.infer<typeof AiAuditAssessmentSchema>;
@@ -415,20 +417,9 @@ function validateContactAttemptsMinimum(assessment: ValidatedAssessment, context
     throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.missingEvidence: 5.2 exige un item bloqueante "Intentos mínimos de contacto" relacionado con la sección 5.2');
   }
 
-  const reason = blockingAttempts.reason.toLowerCase();
-  const callsMissingPhrase = callsMissing === 1 ? 'falta 1 llamada' : `faltan ${callsMissing} llamadas`;
-  if (callsMissing !== null && callsMissing > 0 && !reason.includes(callsMissingPhrase)) {
-    throw new ApiError(502, 'INVALID_AI_RESPONSE', `INVALID_AI_RESPONSE: audit.missingEvidence: debe explicar que faltan ${callsMissing} llamadas para cumplir 5.2`);
-  }
-  const writtenMissingPhrase = writtenMissing === 1
-    ? 'falta 1 interacción escrita'
-    : `faltan ${writtenMissing} interacciones escritas`;
-  if (writtenMissing !== null && writtenMissing > 0 && !reason.includes(writtenMissingPhrase)) {
-    throw new ApiError(502, 'INVALID_AI_RESPONSE', `INVALID_AI_RESPONSE: audit.missingEvidence: debe explicar que faltan ${writtenMissing} interacciones escritas para cumplir 5.2`);
-  }
-  if (countsUndetermined && !reason.includes('no fue posible acreditar')) {
-    throw new ApiError(502, 'INVALID_AI_RESPONSE', 'INVALID_AI_RESPONSE: audit.missingEvidence: debe indicar que no fue posible acreditar el conteo de intentos de 5.2');
-  }
+  // Los conteos y su coherencia se validaron en observedValues y status.
+  // La explicación se contrasta semánticamente; no debe exigir palabras mágicas
+  // como "no fue posible acreditar" para aceptar una explicación equivalente.
 }
 
 function validateBusinessRules(assessment: ValidatedAssessment, context: AssessmentValidationContext): void {

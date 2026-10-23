@@ -505,3 +505,8 @@ export function evidenceAltText(filename: string, mimeType: string | null | unde
   const kind = EVIDENCE_KIND_LABELS[kindFromMime(mimeType)].toLowerCase();
   return `${kind}: ${filename}`;
 }
+
+/** Distingue observación e inferencia sin convertir autoestimación en verificación humana. */
+export function factSupportLabel(support: string | undefined): string {
+  return ({ OBSERVED: 'Observación citada', INFERRED: 'Inferencia de IA', UNKNOWN: 'No determinado', HUMAN_CONTEXT: 'Dato aportado por el equipo' } as Record<string,string>)[support ?? ''] ?? 'Sin revisión de sustento registrada';
+}

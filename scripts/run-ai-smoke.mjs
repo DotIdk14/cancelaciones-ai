@@ -22,7 +22,8 @@ const vitest = resolve('node_modules/vitest/vitest.mjs');
 const targets = process.argv.includes('--schema-only')
   ? ['tests/provider-schema.live.test.ts']
   : ['tests/ai-smoke.live.test.ts', 'tests/provider-schema.live.test.ts'];
-const result = spawnSync(process.execPath, [vitest, 'run', ...targets], {
+// Evita reservas de saldo simultáneas entre pruebas de pago y mantiene el coste acotado.
+const result = spawnSync(process.execPath, [vitest, 'run', ...targets, '--maxWorkers=1', '--minWorkers=1'], {
   stdio: 'inherit',
   env: { ...process.env, RUN_AI_SMOKE: '1' },
 });

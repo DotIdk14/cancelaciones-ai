@@ -516,7 +516,7 @@ export async function runAudit(
       ...(activeVersion && activeVersion.config.baseline !== true ? { model: activeVersion.model, supplementalInstructions: activeVersion.instructions } : {}),
     });
     executionMetadata = {
-      usage: execution.usage, usageScope: 'last_attempt', openrouterAttempts: execution.attempts,
+      usage: execution.usage, usageScope: 'aggregate', openrouterAttempts: execution.attempts,
       ...versionMetadata,
     };
     const result = execution.result;

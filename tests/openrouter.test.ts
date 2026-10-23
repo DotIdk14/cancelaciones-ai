@@ -821,3 +821,10 @@ describe('callOpenRouterAudit', () => {
     expect(JSON.stringify(result.attempts)).not.toContain('Expected object');
   });
 });
+
+it('reserva el presupuesto de la segunda etapa: maxAttempts 1 impide fallback y reintento', async () => {
+  delete process.env.OPENROUTER_FALLBACK_MODEL; setTestEnv(); fetchMock.mockReset(); vi.stubGlobal('fetch', fetchMock);
+  fetchMock.mockResolvedValue(jsonResponse({error:{message:'upstream unavailable'}},503));
+  await expect(callOpenRouterAudit({system:'synthetic',parts:[{type:'text',text:'synthetic'}],maxAttempts:1})).rejects.toBeInstanceOf(OpenRouterAuditError);
+  expect(fetchMock).toHaveBeenCalledTimes(1); vi.unstubAllGlobals();
+});
