@@ -28,7 +28,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           # package.json exige >=22.0.0 en engines; 22 funciona con el toolchain
           # actual (Vite 6 / Vitest 2 / TypeScript 5.8). Subir a 24 cuando
