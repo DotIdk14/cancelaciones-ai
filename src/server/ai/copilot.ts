@@ -9,7 +9,7 @@ import { buildProviderJsonSchema, buildJsonObjectContract } from './provider-sch
 import { AiAuditAssessmentSchema } from '../../skills/audit/schema.js';
 import { preparedCopilotParts } from './provider.js';
 import { assertCopilotParts } from './copilot-capabilities.js';
-import { reviewOutputContract } from './review-contract.js';
+import { annotateReviewReferenceFailure, reviewOutputContract } from './review-contract.js';
 
 /** Sin herramientas ni lectura del workspace: el modelo recibe únicamente el expediente preparado. */
 export const COPILOT_SESSION_SAFETY = {
@@ -91,6 +91,7 @@ export async function callCopilotAudit(input: CallOpenRouterAuditInput): Promise
   const usage: CallOpenRouterAuditOutput['usage'] = { promptTokens: null, completionTokens: null, totalTokens: null, estimatedCostUSD: null };
   let usageEvents = 0;
   let actualModel = modelId;
+  let rejectedResponse: string | undefined;
   let cancelled = false;
   const assertActive = () => { if (cancelled || Date.now() >= deadline) throw new Error('COPILOT_DEADLINE'); };
   const diagnostic = (failureCategory: OpenRouterAttemptDiagnostic['failureCategory']): OpenRouterAttemptDiagnostic => ({
@@ -127,7 +128,8 @@ export async function callCopilotAudit(input: CallOpenRouterAuditInput): Promise
       state.stage = 'json';
       const parsed: unknown = parseCopilotJson(reply?.data.content ?? '');
       state.stage = 'validation';
-      input.validate?.(parsed);
+      rejectedResponse = JSON.stringify(parsed);
+      try { input.validate?.(parsed); } catch (error) { annotateReviewReferenceFailure(input, parsed, error); throw error; }
       return { provider: 'github-copilot' as const, parsed, model: actualModel, usage, attempts: [diagnostic(null)] };
     };
     return await Promise.race([operation(), new Promise<never>((_, reject) => { timer = setTimeout(() => { cancelled = true; reject(new Error('COPILOT_DEADLINE')); }, Math.max(1, deadline - Date.now())); })]);
@@ -140,7 +142,9 @@ export async function callCopilotAudit(input: CallOpenRouterAuditInput): Promise
     const failure = new OpenRouterAuditError(category, [details], category === 'TIMEOUT'
       ? 'Copilot agotó el tiempo disponible. No se publicó ningún dictamen ni se reintentó automáticamente.'
       : error instanceof ApiError && error.category === 'UNSUPPORTED_MODEL_CAPABILITY' ? error.message
-      : 'Copilot no pudo completar y validar la auditoría.');
+      : 'Copilot no pudo completar y validar la auditoría.', 502,
+      state.stage === 'validation' && rejectedResponse ? { detail: `${error instanceof Error ? error.message : ''}; ${details.detail ?? ''}`,
+        path: details.path ?? 'response', previousResponse: rejectedResponse, usage: { ...usage } } : undefined);
     failure.name = 'CopilotAuditError';
     throw failure;
   } finally {

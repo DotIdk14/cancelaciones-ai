@@ -18,7 +18,7 @@ import { wrapUntrusted } from '../skills/sanitize.js';
 import { getEnv } from './env.js';
 import { ApiError } from './http.js';
 import { activateCreditFallback, currentAiProvider, selectAiProvider, type AiProvider } from './ai/provider.js';
-import { reviewOutputContract } from './ai/review-contract.js';
+import { annotateReviewReferenceFailure, reviewOutputContract } from './ai/review-contract.js';
 
 export type OpenRouterContentPart =
   | { type: 'text'; text: string }
@@ -116,8 +116,16 @@ export interface OpenRouterAttemptDiagnostic {
   detail: string | null;
 }
 
+export interface ReviewCorrectionContext {
+  detail: string; path: string; previousResponse?: string; usage: ModelUsage;
+}
+
 export class OpenRouterAuditError extends ApiError {
-  constructor(category: AttemptFailureCategory, readonly diagnostics: OpenRouterAttemptDiagnostic[], message: string, status = 502) {
+  // Salida no validada solo durante la llamada: no enumerable ni persistida.
+  #correctionContext?: ReviewCorrectionContext;
+  correctionContext(): ReviewCorrectionContext | undefined { return this.#correctionContext; }
+  constructor(category: AttemptFailureCategory, readonly diagnostics: OpenRouterAttemptDiagnostic[], message: string, status = 502,
+    correctionContext?: ReviewCorrectionContext) {
     const publicCategory = category === 'INVALID_JSON'
       ? 'INVALID_AI_RESPONSE'
       : category === 'TIMEOUT'
@@ -127,6 +135,7 @@ export class OpenRouterAuditError extends ApiError {
           : category;
     super(status, publicCategory, message);
     this.name = 'OpenRouterAuditError';
+    this.#correctionContext = correctionContext;
   }
 }
 
@@ -168,7 +177,7 @@ class AttemptFailure extends Error {
      * se guardan en el diagnóstico, que sí consume la UI. `undefined` cuando el
      * fallo no proviene de validar la respuesta (transporte, HTTP, timeout...).
      */
-    readonly validation?: { detail: string; path: string; previousResponse?: string },
+    readonly validation?: ReviewCorrectionContext,
   ) {
     super(message);
   }
@@ -426,6 +435,7 @@ async function singleAttempt(
     try {
       input.validate?.(parsed);
     } catch (error) {
+      annotateReviewReferenceFailure(input, parsed, error);
       // El mensaje crudo SÓLO se usa aquí para el fallback de la ruta, cuando el
       // emisor no la declara (p. ej. `parseWithInvalidAiError`, que la escribe en
       // el texto). No se persiste ni se registra.
@@ -469,7 +479,7 @@ async function singleAttempt(
           detail,
         }),
         `${category}: ${schemaPath}`,
-        { detail: error instanceof Error ? error.message : '', path: schemaPath, previousResponse: JSON.stringify(parsed) },
+        { detail: `${error instanceof Error ? error.message : ''}${detail ? `; ${detail}` : ''}`, path: schemaPath, previousResponse: JSON.stringify(parsed), usage },
       );
     }
 
@@ -493,18 +503,51 @@ async function singleAttempt(
 }
 
 /**
- * Llama a OpenRouter para auditar con dos llamadas reales como máximo.
+ * Cada etapa conserva su presupuesto; el contraste productivo admite una sola corrección.
  * Nunca inventa resultados: el error final conserva la causa saneada.
  */
 export async function callOpenRouterAudit(
   input: CallOpenRouterAuditInput,
 ): Promise<CallOpenRouterAuditOutput> {
+  // La propuesta sigue teniendo un intento. Solo la revisión productiva puede
+  // reparar una salida rechazada, una vez, con la propuesta y el plazo originales.
+  if (input.schemaName !== 'AuditSemanticReview' || input.maxAttempts !== 1 || !currentAiProvider()) {
+    return callBudgetedAudit(input);
+  }
+  const deadlineMs = input.deadlineMs ?? Date.now() + getEnv().TOTAL_AUDIT_TIMEOUT_MS;
+  try { return await callBudgetedAudit({ ...input, deadlineMs }); }
+  catch (error) {
+    const correction = error instanceof OpenRouterAuditError ? error.correctionContext() : undefined;
+    if (!(error instanceof OpenRouterAuditError) || !correction
+      || !MODEL_OUTPUT_VALIDATION_FAILURES.has(error.diagnostics.at(-1)?.failureCategory ?? 'PROVIDER_UNAVAILABLE')
+      || deadlineMs - Date.now() < MIN_ATTEMPT_BUDGET_MS) throw error;
+    const category = error.diagnostics.at(-1)!.failureCategory!;
+    const feedback = buildCorrectiveFeedback(category, correction, reviewOutputContract(input.schemaName) ?? undefined);
+    try {
+      const repaired = await callBudgetedAudit({ ...input, deadlineMs,
+        parts: [...input.parts, { type: 'text', text: feedback }], maxAttempts: 1 });
+      const add = (a: number | null, b: number | null) => a === null || b === null ? null : a + b;
+      return { ...repaired, attempts: [...error.diagnostics, ...repaired.attempts], usage: {
+        promptTokens: add(correction.usage.promptTokens, repaired.usage.promptTokens),
+        completionTokens: add(correction.usage.completionTokens, repaired.usage.completionTokens),
+        totalTokens: add(correction.usage.totalTokens, repaired.usage.totalTokens),
+        estimatedCostUSD: add(correction.usage.estimatedCostUSD, repaired.usage.estimatedCostUSD),
+      } };
+    } catch (repairError) {
+      if (repairError instanceof OpenRouterAuditError) repairError.diagnostics.unshift(...error.diagnostics);
+      throw repairError;
+    }
+  }
+}
+
+async function callBudgetedAudit(input: CallOpenRouterAuditInput): Promise<CallOpenRouterAuditOutput> {
   const provider = currentAiProvider() ?? input.provider ?? await selectAiProvider(input.deadlineMs);
   if (provider === 'github-copilot') return (await import('./ai/copilot.js')).callCopilotAudit(input);
   const env = getEnv();
   const perAttemptTimeoutMs = input.timeoutMs ?? env.AI_TIMEOUT_MS;
   const deadlineMs = input.deadlineMs ?? Date.now() + env.TOTAL_AUDIT_TIMEOUT_MS;
   const diagnostics: OpenRouterAttemptDiagnostic[] = [];
+  let finalValidation: ReviewCorrectionContext | undefined;
   const models = input.models?.length
     ? [...new Set(input.models)]
     : [env.OPENROUTER_MODEL, env.OPENROUTER_FALLBACK_MODEL].filter((model): model is string => Boolean(model));
@@ -656,6 +699,7 @@ export async function callOpenRouterAudit(
         } catch (error) {
           if (!(error instanceof AttemptFailure)) throw error;
           diagnostics.push(error.diagnostic);
+          finalValidation = error.validation;
           finalFailure = error.diagnostic.failureCategory ?? finalFailure;
           if (finalFailure === 'PAYMENT_REQUIRED') {
             if (error.diagnostic.creditExhausted) {
@@ -731,5 +775,5 @@ export async function callOpenRouterAudit(
     item.failureCategory === 'INVALID_EVIDENCE_REFERENCE',
   );
   const finalCategory = invalidOutput?.failureCategory ?? finalFailure;
-  throw new OpenRouterAuditError(finalCategory, diagnostics, `OpenRouter no pudo producir un assessment válido. ${summary || 'No hubo estrategias compatibles.'}`);
+  throw new OpenRouterAuditError(finalCategory, diagnostics, `OpenRouter no pudo producir un assessment válido. ${summary || 'No hubo estrategias compatibles.'}`, 502, finalValidation);
 }

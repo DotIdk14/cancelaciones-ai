@@ -1,3 +1,5 @@
+import { callOpenRouterAudit } from '../src/server/openrouter';
+import { withAiProvider } from '../src/server/ai/provider';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { setTestEnv } from './helpers/env';
@@ -105,6 +107,16 @@ describe('transporte Copilot con herramientas denegadas',()=>{
   expect(review.prompt).toContain('cita literal real');
   expect(source.parts).toEqual(before);expect(review.agentMode).toBe('interactive');
   expect(copilotMessage(source,model).prompt).not.toContain('assessment FINAL');
+ });
+
+ it('permite una sola correccion del contraste en Copilot conservando el modelo y las validaciones',async()=>{
+  fake.send.mockResolvedValueOnce({data:{content:'{"ok":false}'}}).mockResolvedValueOnce({data:{content:'{"ok":true}'}});
+  const schema=z.object({ok:z.literal(true)}).strict();
+  const result=await withAiProvider('github-copilot',()=>callOpenRouterAudit({...input(),schema,schemaName:'AuditSemanticReview',maxAttempts:1,
+   deadlineMs:Date.now()+5000,validate:value=>{schema.parse(value);}}));
+  expect(result.parsed).toEqual({ok:true});expect(result.provider).toBe('github-copilot');expect(fake.send).toHaveBeenCalledTimes(2);
+  expect(fake.send.mock.calls[1]![0].prompt).toContain('RESPUESTA ANTERIOR RECHAZADA');
+  expect(result.attempts).toHaveLength(2);expect(result.usage.estimatedCostUSD).toBeNull();
  });
 
 });
