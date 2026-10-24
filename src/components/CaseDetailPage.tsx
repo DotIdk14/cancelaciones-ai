@@ -300,10 +300,10 @@ export function CaseDetailPage({ caseId, initialAuditId, role, capabilities = { 
   const hasCompletedAudit = audit?.status === 'COMPLETED';
   const auditBusy = auditPhase !== 'idle';
   const canAudit = allReady && !auditBusy;
-  const contactPending = needsContactConfirmation(audit);
+  const contactPending = !!auditWorkflow.contactRequest || needsContactConfirmation(audit);
   useEffect(() => {
     if (contactPending) setProgressOpen(false);
-  }, [contactPending, audit?.id]);
+  }, [contactPending, audit?.id, auditWorkflow.contactRequest]);
   const shouldShowReauditLabel = detail?.case.status === 'READY' && allReady && hasCompletedAudit;
 
   // Mientras hay transcripciones en curso se refresca el caso cada 3 s.
@@ -593,10 +593,11 @@ export function CaseDetailPage({ caseId, initialAuditId, role, capabilities = { 
       {detail.case.externalSource === 'FLOKZU' && <p className="case-ticket-deadline-note"><strong>Plazo del ticket:</strong> sin fecha de notificación formal disponible; no es posible calcular días transcurridos ni vencimiento con la información importada.</p>}
 
 
-      <ContactConfirmationNotice audit={audit} canConfirm={canRunAudit && allReady} busy={auditBusy} onAnswer={(performed) => {
-        if (!audit || !canRunAudit || auditBusy) return;
+      <ContactConfirmationNotice audit={audit} request={auditWorkflow.contactRequest} canConfirm={canRunAudit && allReady} busy={auditBusy} onAnswer={(performed) => {
+        if (!canRunAudit || auditBusy) return;
         setProgressOpen(performed);
-        void auditWorkflow.runAudit({ auditId: audit.id, performed });
+        const request = auditWorkflow.contactRequest;
+        void auditWorkflow.runAudit(request ? { auditId: request.auditId, evidenceFingerprint: request.evidenceFingerprint, performed } : undefined);
       }} />
       {(auditBusy || (auditError && !contactPending)) && <Button variant="secondary" onClick={() => setProgressOpen(true)}>Ver progreso de auditoría</Button>}
       {progressOpen && !reportOpen && <OperationProgressDialog title="Progreso de auditoría" stages={[

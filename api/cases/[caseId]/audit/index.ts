@@ -36,7 +36,7 @@ export default handleRoute(async (req, res) => {
   // Lanzar la auditoría ES una mutación: el gerente solo lee.
   if (capabilitiesForRole(req.auth!.role).canRetryFailedAudits) {
     const previous = await latestAudit(client, caseId);
-    if (previous?.status !== 'ERROR' && !(input.data.contactConfirmation && previous && needsContactConfirmation(auditToDto(previous)))) {
+    if (previous?.status !== 'ERROR' && !(previous && needsContactConfirmation(auditToDto(previous)))) {
       throw new ApiError(409, 'VALIDATION_ERROR', 'El Coordinador solo puede reintentar una auditoría que terminó con error.');
     }
   } else {
@@ -45,7 +45,11 @@ export default handleRoute(async (req, res) => {
   }
   await assertCaseNotFinalized(client, caseId);
   await assertAuditMayRun(client, caseId);
-  const outcome = await runAudit(client, caseId, { userId: req.auth!.sub, correlationId: req.correlationId, contactAnswer: input.data.contactConfirmation });
+  const outcome = await runAudit(client, caseId, { userId: req.auth!.sub, correlationId: req.correlationId, contactAnswer: input.data.contactConfirmation, contactPreflight: true });
+  if (outcome.phase === 'contact') {
+    ok(res, { contactRequest: outcome.contactRequest });
+    return;
+  }
   if (outcome.phase === 'pending') {
     json(res, 202, { audit: null, pendingEvidence: outcome.pendingEvidence });
     return;

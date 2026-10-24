@@ -10,6 +10,17 @@ const detail = { case: { id: 'case-1', status: 'COMPLETED', canWrite: true }, au
 beforeEach(() => { vi.clearAllMocks(); api.getCase.mockResolvedValue(detail); });
 afterEach(cleanup);
 describe('recuperación del flujo de auditoría', () => {
+  it('pausa en la pregunta previa sin polling ni reenvío automático y descarta la pregunta al cambiar de caso', async () => {
+    const contactRequest = { auditId: null, evidenceFingerprint: 'a'.repeat(64) };
+    api.startAudit.mockResolvedValueOnce({ kind: 'contact', contactRequest });
+    const { result, rerender } = renderHook(({ id }) => useCaseAuditWorkflow({ caseId: id, setDetail: vi.fn() }), { initialProps: { id: 'case-1' } });
+    await act(() => result.current.runAudit());
+    expect(result.current.contactRequest).toEqual(contactRequest);
+    expect(result.current.auditPhase).toBe('idle'); expect(result.current.auditError).toBeNull();
+    expect(api.getAudit).not.toHaveBeenCalled(); expect(api.startAudit).toHaveBeenCalledOnce();
+    rerender({ id: 'case-2' });
+    expect(result.current.contactRequest).toBeNull();
+  });
   it('una recuperación anterior no bloquea ni modifica la ruta nueva', async () => {
     let resolveOld!: (value: CaseDetailResponse) => void;
     api.getCase.mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve; }));

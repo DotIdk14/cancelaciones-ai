@@ -110,6 +110,25 @@ afterEach(() => {
 });
 
 describe('CaseDetailPage · confirmación antes de auditar', () => {
+  it('muestra la pregunta de contacto antes de IA y envía una sola respuesta ligada al expediente actual', async () => {
+    const contactRequest = { auditId: null, evidenceFingerprint: 'a'.repeat(64) };
+    const tracker = stubFetch(buildCase(), [areaComment('BACK_OFFICE', 'Nota humana')], [
+      { status: 200, body: { contactRequest } },
+      { status: 200, body: { contactRequest: { ...contactRequest, declined: true } } },
+    ]);
+    render(<CaseDetailPage caseId="case-1" />);
+    await screen.findByText('Nota humana');
+    await userEvent.click(await screen.findByRole('button', { name: /auditar con ia/i }));
+    expect(await screen.findByText('Antes de iniciar la auditoría')).toBeTruthy();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getByText(/esta pausa no consume tokens/)).toBeTruthy();
+    expect(tracker.auditPostCount()).toBe(1);
+    await userEvent.click(screen.getByRole('button', { name: 'No se realizó contacto' }));
+    expect(await screen.findByText(/permanece detenida sin consumir IA/)).toBeTruthy();
+    const posts = vi.mocked(fetch).mock.calls.filter(([, options]) => options?.method === 'POST');
+    expect(JSON.parse(String(posts[1]![1]!.body))).toEqual({ contactConfirmation: { ...contactRequest, performed: false } });
+    expect(tracker.auditPostCount()).toBe(2);
+  });
   it('sin comentarios, muestra confirmación y NO dispara startAudit', async () => {
     const tracker = stubFetch(buildCase(), []);
     render(<CaseDetailPage caseId="case-1" />);

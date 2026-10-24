@@ -2,7 +2,8 @@ import { z } from 'zod';
 
 /** Solo la respuesta y el intento observado vienen del cliente. */
 export const ContactAnswerSchema = z.object({
-  auditId: z.string().min(1).max(100),
+  auditId: z.string().min(1).max(100).nullable(),
+  evidenceFingerprint: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   performed: z.boolean(),
 }).strict();
 export type ContactAnswer = z.infer<typeof ContactAnswerSchema>;
@@ -13,7 +14,7 @@ export const ContactConfirmationSchema = z.object({
   actorId: z.string().min(1),
   confirmedAt: z.string().datetime(),
   evidenceFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
-  sourceAuditId: z.string().min(1),
+  sourceAuditId: z.string().min(1).nullable(),
 }).strict();
 export type ContactConfirmation = z.infer<typeof ContactConfirmationSchema>;
 

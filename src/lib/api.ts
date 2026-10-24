@@ -381,7 +381,9 @@ export interface StartAuditFinished {
   audit: AuditDetail;
 }
 
-export type StartAuditResponse = StartAuditPending | StartAuditFinished;
+export interface ContactRequest { auditId: string | null; evidenceFingerprint: string; declined?: boolean }
+export type ContactAnswer = ContactRequest & { performed: boolean };
+export type StartAuditResponse = StartAuditPending | StartAuditFinished | { kind: 'contact'; contactRequest: ContactRequest };
 
 export interface ErrorState {
   category: string;
@@ -776,10 +778,11 @@ export function evidencePreviewUrl(evidenceId: string): string {
  *  - 200 con el audit ya terminado (o el COMPLETED existente),
  *  - 202 con `pendingEvidence` cuando falta transcripción.
  */
-export async function startAudit(caseId: string, contactConfirmation?: { auditId: string; performed: boolean }): Promise<StartAuditResponse> {
+export async function startAudit(caseId: string, contactConfirmation?: ContactAnswer): Promise<StartAuditResponse> {
   const res = await safeFetch(casePath(caseId, '/audit'), { method: 'POST', timeoutMs: 285_000, ...(contactConfirmation ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contactConfirmation }) } : {}) });
   if (res.status === 200) {
-    const data = await responseJson<{ audit: AuditDetail }>(res);
+    const data = await responseJson<{ audit: AuditDetail; contactRequest?: ContactRequest }>(res);
+    if (data.contactRequest) return { kind: 'contact', contactRequest: data.contactRequest };
     return { kind: 'finished', audit: data.audit };
   }
   if (res.status === 202) {

@@ -103,7 +103,7 @@ describe('reintento de auditoría fallida por capacidad y estado', () => {
     seedAudit({ id: 'failed-original', status: 'ERROR' });
     const request = () => makeApiRequest({ method: 'POST', query: { caseId: 'case-1' }, auth: fakeAuthContext('coordinator') });
     const res = makeApiResponse();
-    await auditHandler(request(), res);
+    await auditAfterContact(request(), res);
     expect(res.statusCode, res.body).toBe(200);
     expect(mockedCall).toHaveBeenCalledTimes(1);
     expect(listAudits().find(row => row.id === 'failed-original')?.status).toBe('ERROR');
@@ -163,6 +163,15 @@ function makeApiRequest(overrides: Partial<ApiRequest> = {}): ApiRequest {
     auth: fakeAuthContext(),
     ...overrides,
   } as unknown as ApiRequest;
+}
+
+/** Las pruebas del transporte responden primero la pausa humana real. */
+async function auditAfterContact(req: ApiRequest, res: ReturnType<typeof makeApiResponse>) {
+  const paused = makeApiResponse();
+  await auditHandler(req, paused);
+  const contactRequest = JSON.parse(paused.body).contactRequest;
+  expect(contactRequest).toBeDefined();
+  await auditHandler({ ...req, body: { contactConfirmation: { ...contactRequest, performed: true } } }, res);
 }
 
 describe('rutas críticas (validación de método)', () => {
@@ -376,7 +385,7 @@ describe('observabilidad: un fallo de auditoría se puede diagnosticar', () => {
   it('POST /audit responde 502 y NO filtra el diagnóstico por la respuesta de error', async () => {
     const res = makeApiResponse();
 
-    await auditHandler(makeApiRequest({ method: 'POST', query: { caseId: 'case-1' } }), res);
+    await auditAfterContact(makeApiRequest({ method: 'POST', query: { caseId: 'case-1' } }), res);
 
     expect(res.statusCode).toBe(502);
     const payload = JSON.parse(res.body) as { error: { category: string } };
@@ -384,7 +393,7 @@ describe('observabilidad: un fallo de auditoría se puede diagnosticar', () => {
   });
 
   it('GET /audit expone providerMetadata con los diagnostics del fallback', async () => {
-    await auditHandler(makeApiRequest({ method: 'POST', query: { caseId: 'case-1' } }), makeApiResponse());
+    await auditAfterContact(makeApiRequest({ method: 'POST', query: { caseId: 'case-1' } }), makeApiResponse());
     const res = makeApiResponse();
 
     await auditHandler(makeApiRequest({ method: 'GET', query: { caseId: 'case-1' } }), res);
@@ -477,7 +486,7 @@ describe('observabilidad: un fallo de auditoría se puede diagnosticar', () => {
     );
     seedCase({ id: 'case-1', student_identifier: 'UTEL-2026-001', created_by: FAKE_USER_SUB });
 
-    await auditHandler(makeApiRequest({ method: 'POST', query: { caseId: 'case-1' } }), makeApiResponse());
+    await auditAfterContact(makeApiRequest({ method: 'POST', query: { caseId: 'case-1' } }), makeApiResponse());
     const res = makeApiResponse();
     await auditHandler(makeApiRequest({ method: 'GET', query: { caseId: 'case-1' } }), res);
 
@@ -501,7 +510,7 @@ describe('observabilidad: un fallo de auditoría se puede diagnosticar', () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     mockedCall.mockRejectedValue(new Error('fallo interno con detalle secreto TOP-SECRET'));
 
-    await auditHandler(makeApiRequest({ method: 'POST', query: { caseId: 'case-1' } }), makeApiResponse());
+    await auditAfterContact(makeApiRequest({ method: 'POST', query: { caseId: 'case-1' } }), makeApiResponse());
 
     const payload = parseFailureLog(spy.mock.calls);
     expect(payload).toMatchObject({ errorCategory: 'AI_PROVIDER_ERROR' });
@@ -701,7 +710,7 @@ describe('observabilidad: la fila ERROR conserva los diagnostics del fallback', 
   });
 
   it('provider_metadata guarda openrouterAttempts y la API los sirve igual', async () => {
-    await auditHandler(makeApiRequest({ method: 'POST', query: { caseId: 'case-1' } }), makeApiResponse());
+    await auditAfterContact(makeApiRequest({ method: 'POST', query: { caseId: 'case-1' } }), makeApiResponse());
 
     const row = listAudits()[0];
     expect(row?.status).toBe('ERROR');

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { getAudit, getCase, startAudit, toErrorState } from '../lib/api';
-import type { AuditDetail, CaseDetailResponse, ErrorState } from '../lib/api';
+import type { AuditDetail, CaseDetailResponse, ErrorState, ContactAnswer, ContactRequest } from '../lib/api';
 import { errorCategoryMessage } from '../lib/labels';
 
 const TRANSCRIPTION_POLL_MS = 3000;
@@ -28,6 +28,7 @@ export function useCaseAuditWorkflow({ caseId, setDetail }: UseCaseAuditWorkflow
   const [auditPhase, setAuditPhase] = useState<AuditPhase>('idle');
   const [auditError, setAuditError] = useState<ErrorState | null>(null);
   const [pendingEvidence, setPendingEvidence] = useState<string[]>([]);
+  const [contactRequest, setContactRequest] = useState<ContactRequest | null>(null);
   const waitRetriesRef = useRef(0);
   const runningPollsRef = useRef(0);
   const bootstrappedRef = useRef(false);
@@ -39,6 +40,7 @@ export function useCaseAuditWorkflow({ caseId, setDetail }: UseCaseAuditWorkflow
     setAuditPhase('idle');
     setAuditError(null);
     setPendingEvidence([]);
+    setContactRequest(null);
     waitRetriesRef.current = 0;
     runningPollsRef.current = 0;
     bootstrappedRef.current = false;
@@ -80,7 +82,7 @@ export function useCaseAuditWorkflow({ caseId, setDetail }: UseCaseAuditWorkflow
     }
   }, []);
 
-  const runAudit = useCallback(async (contactConfirmation?: { auditId: string; performed: boolean }): Promise<void> => {
+  const runAudit = useCallback(async (contactConfirmation?: ContactAnswer): Promise<void> => {
     if (requestInFlight.current) return;
     requestInFlight.current = true;
     const revision = generation.current;
@@ -91,6 +93,12 @@ export function useCaseAuditWorkflow({ caseId, setDetail }: UseCaseAuditWorkflow
     try {
       const response = await startAudit(caseId, contactConfirmation);
       if (revision !== generation.current) return;
+      if (response.kind === 'contact') {
+        setContactRequest(response.contactRequest);
+        setAuditPhase('idle');
+        return;
+      }
+      setContactRequest(null);
       if (response.kind === 'pending') {
         setPendingEvidence(response.pendingEvidence);
         setAuditPhase('waiting');
@@ -194,6 +202,7 @@ export function useCaseAuditWorkflow({ caseId, setDetail }: UseCaseAuditWorkflow
 
   return {
     auditPhase,
+    contactRequest,
     auditError,
     pendingEvidence,
     runAudit,

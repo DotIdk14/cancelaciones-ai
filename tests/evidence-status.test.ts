@@ -312,7 +312,13 @@ describe('evidencia NO-audio: nace en un estado que la auditoría acepta', () =>
     await upload('text/plain', 'renuncia.txt', 'cancelo mi matricula');
     const res = makeApiResponse();
 
-    await auditHandler(makePlainRequest('POST', { caseId: 'case-1' }), res);
+    const request = makePlainRequest('POST', { caseId: 'case-1' });
+    const paused = makeApiResponse();
+    await auditHandler(request, paused);
+    const { contactRequest } = JSON.parse(paused.body);
+    expect(contactRequest).toBeDefined();
+    expect(mockedCall).not.toHaveBeenCalled();
+    await auditHandler({ ...request, body: { contactConfirmation: { ...contactRequest, performed: true } } }, res);
 
     expect(res.statusCode).toBe(200);
     const payload = JSON.parse(res.body) as { audit: { status: string }; pendingEvidence?: string[] };

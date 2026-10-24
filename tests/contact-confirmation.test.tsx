@@ -67,7 +67,8 @@ describe('confirmación humana de contacto', () => {
 
   it('Sí solicita continuar y No solo registra la respuesta; sin permiso no muestra acciones', () => {
     const answer = vi.fn();
-    const view = render(<ContactConfirmationNotice audit={failed} canConfirm busy={false} onAnswer={answer} />);
+    const request = { auditId: 'audit-1', evidenceFingerprint: base };
+    const view = render(<ContactConfirmationNotice audit={failed} request={request} canConfirm busy={false} onAnswer={answer} />);
     fireEvent.click(screen.getByRole('button', { name: /Sí, se realizó contacto/ }));
     expect(answer).toHaveBeenLastCalledWith(true);
     fireEvent.click(screen.getByRole('button', { name: 'No se realizó contacto' }));
@@ -76,7 +77,7 @@ describe('confirmación humana de contacto', () => {
     expect(screen.queryByRole('button')).toBeNull();
     view.rerender(<ContactConfirmationNotice audit={{ ...failed, providerMetadata: { ...failed.providerMetadata, contactConfirmation: { performed: false, confirmedAt: contact.confirmedAt } } }} canConfirm busy={false} onAnswer={answer} />);
     expect(screen.getByRole('status').textContent).toContain('permanece detenida');
-    view.rerender(<ContactConfirmationNotice audit={failed} canConfirm busy onAnswer={answer} />);
+    view.rerender(<ContactConfirmationNotice audit={failed} request={request} canConfirm busy onAnswer={answer} />);
     expect((screen.getByRole('button', { name: /Sí, se realizó contacto/ }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

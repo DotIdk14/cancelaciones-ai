@@ -41,6 +41,49 @@ beforeEach(() => {
 });
 
 describe('continuación durable después de confirmar contacto', () => {
+  it('preflight sin respuesta pausa sin cuota, fila ni proveedor, incluso para huellas históricas', async () => {
+    seedAudit({ id: 'old-pipeline', case_id: 'case-1', status: 'ERROR', evidence_fingerprint: 'b'.repeat(64), created_at: '2099-01-01T00:00:00Z' });
+    const before = listAudits().length;
+    const preflight = vi.spyOn(aiProvider, 'preflightAiProvider');
+    expect(await runAudit(fakeClient, 'case-1', { userId: 'actor-server', contactPreflight: true })).toEqual({
+      phase: 'contact', contactRequest: { auditId: 'old-pipeline', evidenceFingerprint: base },
+    });
+    expect(listAudits()).toHaveLength(before);
+    expect(checkPaidQuota).not.toHaveBeenCalled(); expect(preflight).not.toHaveBeenCalled(); expect(provider).not.toHaveBeenCalled();
+    await runAudit(fakeClient, 'case-1', { userId: 'actor-server', contactPreflight: true,
+      contactAnswer: { auditId: 'old-pipeline', evidenceFingerprint: base, performed: true } });
+    expect(provider).toHaveBeenCalledOnce();
+    expect(await latestAudit(fakeClient, 'case-1')).toMatchObject({ status: 'COMPLETED', provider_metadata: {
+      contactConfirmation: { evidenceFingerprint: base, sourceAuditId: 'old-pipeline', performed: true, actorId: 'actor-server' },
+    } });
+  });
+
+  it('primera auditoría pregunta antes de pagar; No detiene y Sí usa una sola ejecución', async () => {
+    resetStore(); seedCase({ id: 'case-1' });
+    const evidence = seedEvidence({ id: 'ev-1', case_id: 'case-1', mime_type: 'audio/mpeg', processing_status: 'READY', transcript_json: { transcript: 'Solicitud del estudiante.', durationSeconds: 4, speakers: [] } });
+    const fingerprint = computeEvidenceFingerprint([evidence]);
+    expect(await runAudit(fakeClient, 'case-1', { userId: 'actor-server', contactPreflight: true })).toMatchObject({ phase: 'contact', contactRequest: { auditId: null } });
+    expect(await runAudit(fakeClient, 'case-1', { userId: 'actor-server', contactPreflight: true,
+      contactAnswer: { auditId: null, evidenceFingerprint: fingerprint, performed: false } })).toMatchObject({ phase: 'contact', contactRequest: { declined: true } });
+    expect(listAudits()).toHaveLength(0); expect(checkPaidQuota).not.toHaveBeenCalled(); expect(provider).not.toHaveBeenCalled();
+    await runAudit(fakeClient, 'case-1', { userId: 'actor-server', contactPreflight: true,
+      contactAnswer: { auditId: null, evidenceFingerprint: fingerprint, performed: true } });
+    await runAudit(fakeClient, 'case-1', { userId: 'actor-server', contactPreflight: true });
+    expect(provider).toHaveBeenCalledOnce(); expect(checkPaidQuota).toHaveBeenCalledOnce();
+  });
+
+  it('rechaza respuesta sobre evidencia modificada sin llamar al proveedor', async () => {
+    seedEvidence({ id: 'ev-2', case_id: 'case-1', processing_status: 'READY' });
+    await expect(runAudit(fakeClient, 'case-1', { userId: 'actor-server', contactPreflight: true,
+      contactAnswer: { auditId: 'previous-audit', evidenceFingerprint: base, performed: true } })).rejects.toMatchObject({ status: 409 });
+    expect(provider).not.toHaveBeenCalled(); expect(checkPaidQuota).not.toHaveBeenCalled();
+  });
+
+  it('cliente antiguo recibe una pregunta actual, sin gastar ni aceptar su respuesta fuera de contexto', async () => {
+    expect(await runAudit(fakeClient, 'case-1', { userId: 'actor-server', contactPreflight: true,
+      contactAnswer: { auditId: 'previous-audit', performed: true } })).toMatchObject({ phase: 'contact' });
+    expect(provider).not.toHaveBeenCalled();
+  });
   it('rechaza un proveedor incompatible antes de consumir cuota o crear otra auditoría', async () => {
     const before = listAudits().length;
     vi.spyOn(aiProvider, 'preflightAiProvider').mockRejectedValueOnce(new ApiError(502, 'UNSUPPORTED_MODEL_CAPABILITY', 'Doce adjuntos exceden el límite del proveedor.'));

@@ -58,6 +58,7 @@ import { auditToDto, type AuditDetailDto } from './dto.js';
 const POLL_INTERVAL_MS = 2_000;
 
 export type RunAuditOutcome =
+  | { phase: 'contact'; contactRequest: { auditId: string | null; evidenceFingerprint: string; declined?: boolean } }
   | { phase: 'pending'; pendingEvidence: string[] }
   | { phase: 'running'; audit: AuditDetailDto }
   | { phase: 'done'; audit: AuditDetailDto };
@@ -367,6 +368,8 @@ const EXTRACTION_PIPELINE_VERSION = 'extract-v1';
  * - Audit RUNNING previo → lo devuelve (el cliente pollea).
  */
 export interface RunAuditOptions {
+  /** La ruta pública pausa antes de cuota/proveedor si falta la respuesta humana. */
+  contactPreflight?: boolean;
   contactAnswer?: ContactAnswer;
   /** Usuario que pide la ejecución; se cobra cuota por él. Sin él, no se cobra. */
   userId?: string;
@@ -420,12 +423,25 @@ export async function runAudit(
   const previous = await latestAudit(client, caseId);
   let contactConfirmation: ContactConfirmation | null = readContactConfirmation(previous?.provider_metadata);
   if (contactConfirmation?.evidenceFingerprint !== baseFingerprint) contactConfirmation = null;
-  if (!options?.contactAnswer && previous && previous.evidence_fingerprint === baseFingerprint && needsContactConfirmation(auditToDto(previous))) {
+  const contactRequest = { auditId: previous?.id ?? null, evidenceFingerprint: baseFingerprint };
+  // Los clientes antiguos también reciben la pregunta actual, nunca una inferencia
+  // con una respuesta referida a la huella de un pipeline histórico.
+  if (options?.contactPreflight && contactConfirmation?.performed !== true
+    && (!options.contactAnswer || !options.contactAnswer.evidenceFingerprint)) {
+    const cached = await latestCompletedAuditByFingerprint(client, caseId, baseFingerprint);
+    if (cached && !needsContactConfirmation(auditToDto(cached))) return { phase: 'done', audit: auditToDto(cached) };
+    const inFlight = await latestRunningAuditByFingerprint(client, caseId, baseFingerprint);
+    if (inFlight && Date.now() <= new Date(inFlight.deadline_at ?? 0).getTime()) return { phase: 'running', audit: auditToDto(inFlight) };
+    return { phase: 'contact', contactRequest };
+  }
+  if (!options?.contactPreflight && !options?.contactAnswer && previous && previous.evidence_fingerprint === baseFingerprint && needsContactConfirmation(auditToDto(previous))) {
     throw new ApiError(409, 'VALIDATION_ERROR', 'Confirma si se realizó contacto con el estudiante antes de continuar la auditoría.');
   }
   if (options?.contactAnswer) {
-    if (!options.userId || !previous || previous.id !== options.contactAnswer.auditId
-      || previous.evidence_fingerprint !== baseFingerprint || !needsContactConfirmation(auditToDto(previous))) {
+    const freshAnswer = options.contactPreflight
+      ? options.contactAnswer.auditId === (previous?.id ?? null) && options.contactAnswer.evidenceFingerprint === baseFingerprint
+      : previous && previous.id === options.contactAnswer.auditId && previous.evidence_fingerprint === baseFingerprint && needsContactConfirmation(auditToDto(previous));
+    if (!options.userId || !freshAnswer || previous?.status === 'RUNNING') {
       throw new ApiError(409, 'VALIDATION_ERROR', 'La confirmación ya no corresponde a la auditoría vigente. Actualiza el expediente.');
     }
     contactConfirmation = {
@@ -433,9 +449,11 @@ export async function runAudit(
       actorId: options.userId,
       confirmedAt: new Date().toISOString(),
       evidenceFingerprint: baseFingerprint,
-      sourceAuditId: previous.id,
+      sourceAuditId: previous?.id ?? null,
     };
     if (!contactConfirmation.performed) {
+      if (options.contactPreflight) return { phase: 'contact', contactRequest: { ...contactRequest, declined: true } };
+      if (!previous) throw new ApiError(409, 'VALIDATION_ERROR', 'No hay auditoría previa para registrar la respuesta.');
       const recorded = await updateAuditResult(client, previous.id, {
         status: previous.status, result_json: previous.result_json,
         error_category: previous.error_category, latency_ms: previous.latency_ms ?? 0,
