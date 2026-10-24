@@ -16,6 +16,8 @@
 //
 //   Eliminar bloques de la vista NO elimina datos: `audits.result_json` conserva
 //   el assessment completo y validado, que es la fuente de verdad del dictamen.
+//   Desde 24/10/2026, EVIDENCIA_INSUFICIENTE muestra además la orientación
+//   provisional ya guardada, sin sustituir el resultado formal ni inferir otra.
 //
 // POR QUÉ EL CASE ID VIENE DE `audit` Y NO POR PROP
 //   `audit.caseId` es el mismo caso que se está viendo. Pedirlo por prop
@@ -33,6 +35,7 @@ import { textOrDash } from '../lib/format';
 import { errorCategoryLabel } from '../lib/labels';
 import { AreaComments } from './AreaComments';
 import { SectionTitle } from './ui';
+import { ProvisionalResolutionNotice } from './ProvisionalResolutionNotice';
 
 export interface AuditResultPanelProps {
   audit: AuditDetail;
@@ -60,6 +63,7 @@ export function AuditResultPanel({ audit, canEditComments = false }: AuditResult
 
   return (
     <div className="rounded-2xl border border-success/30 bg-surface-1 p-5">
+      {assessment.result === 'EVIDENCIA_INSUFICIENTE' && <div className="mb-5"><ProvisionalResolutionNotice result={result} /></div>}
       {/* ------------------------------------------------- Regla y sección */}
       <div className="grid gap-4 md:grid-cols-2">
         <div className="rounded-xl border border-line bg-surface-2 p-3">

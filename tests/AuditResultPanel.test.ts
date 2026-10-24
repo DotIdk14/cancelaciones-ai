@@ -49,6 +49,31 @@ afterEach(() => {
 });
 
 describe('AuditResultPanel — alcance del dictamen', () => {
+  it('no inventa una orientación para un histórico de evidencia insuficiente sin propuesta', async () => {
+    const result = structuredClone(validAuditResult);
+    result.audit.result = 'EVIDENCIA_INSUFICIENTE';
+    result.audit.provisionalResolution = null;
+    render(createElement(AuditResultPanel, { audit: makeAudit(result) }));
+    expect(screen.getByText('Esta auditoría no tiene una resolución orientativa registrada.')).toBeTruthy();
+    expect(screen.getByText(/El dictamen sigue siendo Evidencia insuficiente/)).toBeTruthy();
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalled());
+    expect(result.audit.provisionalResolution).toBeNull();
+  });
+  it('muestra la orientación guardada conservando el dictamen de evidencia insuficiente, sin iniciar IA', async () => {
+    const result = structuredClone(validAuditResult);
+    result.audit.result = 'EVIDENCIA_INSUFICIENTE';
+    result.audit.provisionalResolution = { result: 'BAJA', rationale: 'Los mensajes apuntan a una baja, pendiente de confirmar la solicitud.', procedureSection: '5.3', evidenceIds: ['ev-1'] };
+    result.audit.missingEvidence = [{ title: 'Solicitud final del estudiante', reason: 'Falta su decisión final.', acceptedEvidence: ['Mensaje posterior'], relatedProcedureSection: '5.3', relatedEvidenceIds: [], blocking: true }];
+    const before = structuredClone(result);
+    render(createElement(AuditResultPanel, { audit: makeAudit(result) }));
+    expect(screen.getByRole('region', { name: 'Resolución orientativa' }).textContent).toContain('Baja');
+    expect(screen.getByText(/El dictamen sigue siendo Evidencia insuficiente/)).toBeTruthy();
+    expect(screen.getByText(result.audit.provisionalResolution.rationale)).toBeTruthy();
+    expect(screen.getByText('Solicitud final del estudiante')).toBeTruthy();
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalled());
+    expect(fetchSpy.mock.calls.every(([url]) => String(url).endsWith('/area-comments'))).toBe(true);
+    expect(result).toEqual(before);
+  });
   it('muestra la regla, la sección del procedimiento y el razonamiento', async () => {
     render(createElement(AuditResultPanel, { audit: makeAudit(validAuditResult) }));
 
@@ -79,7 +104,6 @@ describe('AuditResultPanel — alcance del dictamen', () => {
       'Observaciones',
       'Ejecución',
       'Datos del caso',
-      'Orientación provisional',
     ]) {
       expect(screen.queryByText(retirado), `no debía renderizar "${retirado}"`).toBeNull();
     }

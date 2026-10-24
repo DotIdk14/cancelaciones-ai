@@ -21,6 +21,20 @@ function Harness({ initialOpen = true, record = detail() }: { initialOpen?: bool
 }
 beforeEach(() => { vi.mocked(getHistoricalAudit).mockReset(); vi.mocked(getCase).mockReset(); });
 afterEach(cleanup);
+it('mantiene Evidencia insuficiente junto a la resolución orientativa ya guardada', () => {
+  const record = detail();
+  const result = structuredClone(validAuditResult);
+  result.audit.result = 'EVIDENCIA_INSUFICIENTE';
+  result.audit.provisionalResolution = { result: 'BAJA', rationale: 'La evidencia sugiere baja, sujeta a la solicitud final.', procedureSection: '5.3', evidenceIds: ['ev-1'] };
+  record.audit = { ...audit, resultJson: result };
+  render(<Harness record={record} />);
+  fireEvent.click(screen.getByRole('tab', { name: 'Dictamen' }));
+  expect(screen.getByText('Evidencia insuficiente')).toBeTruthy();
+  expect(screen.getByRole('region', { name: 'Resolución orientativa' }).textContent).toContain('Baja');
+  expect(screen.getByText(result.audit.provisionalResolution.rationale)).toBeTruthy();
+  expect(getHistoricalAudit).not.toHaveBeenCalled(); expect(getCase).not.toHaveBeenCalled();
+  expect(record.audit.resultJson?.audit.result).toBe('EVIDENCIA_INSUFICIENTE');
+});
 it('monta el menú fuera de la rejilla del expediente y no introduce una columna', () => {
   render(<div data-testid="context-grid"><Harness initialOpen /></div>);
   const dialog = screen.getByRole('dialog', { name: 'Contexto del expediente' });

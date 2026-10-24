@@ -7,6 +7,7 @@ import { factSupportLabel, CASE_STATUS_LABELS, CASE_STATUS_TONE, RESULT_LABELS, 
 import { FlokzuContextPanel, FlokzuEvidenceLinks } from './FlokzuContext';
 import { Badge } from './ui';
 import { StudentHistory } from './StudentHistory';
+import { ProvisionalResolutionNotice } from './ProvisionalResolutionNotice';
 
 export type ContextTab = 'data' | 'verdict' | 'audits';
 const EMPTY_FLOKZU: FlokzuCaseData = {
@@ -166,6 +167,7 @@ export function CaseContextMenu({ detail, initialAuditId, open, tab, onTabChange
               <div className="case-context-result-heading"><div><span className="case-context-kicker">Resolución propuesta por IA</span><Badge tone={RESULT_TONE[assessment.result]}>{RESULT_LABELS[assessment.result]}</Badge></div><details className="case-context-confidence"><summary>Autoestimación de IA</summary><span>{typeof assessment.confidence === 'number' ? formatPercent(assessment.confidence) : '—'} · no calibrada</span></details></div>
               <p className="case-context-note">La autoestimación no es una probabilidad de acierto medida. {audit?.resultJson?.reliabilityReview ? 'Se realizó un contraste adicional por IA; la revisión humana sigue siendo necesaria.' : 'Este resultado histórico no tiene registrada la nueva revisión de sustento.'}</p>
               <dl className="case-context-foundation"><div><dt>Lineamiento</dt><dd>{assessment.rule || 'No especificado'}</dd></div><div><dt>Sección V5</dt><dd>{assessment.procedureSection || 'No especificada'}</dd></div></dl>
+              {assessment.result === 'EVIDENCIA_INSUFICIENTE' && <div className="mt-4"><ProvisionalResolutionNotice result={audit.resultJson} /></div>}
             </article>
 
             {missingEvidence.length > 0 && <section className="case-context-attention-card" aria-label="Evidencias faltantes">
