@@ -18,6 +18,7 @@ import { wrapUntrusted } from '../skills/sanitize.js';
 import { getEnv } from './env.js';
 import { ApiError } from './http.js';
 import { activateCreditFallback, currentAiProvider, selectAiProvider, type AiProvider } from './ai/provider.js';
+import { reviewOutputContract } from './ai/review-contract.js';
 
 export type OpenRouterContentPart =
   | { type: 'text'; text: string }
@@ -313,6 +314,8 @@ async function singleAttempt(
     },
     { role: 'user', content: input.parts },
   ];
+  const reviewContract = reviewOutputContract(input.schemaName);
+  if (reviewContract) messages.push({ role: 'user', content: [{ type: 'text', text: reviewContract }] });
   if (correction) {
     messages.push({ role: 'user', content: [{ type: 'text', text: correction }] });
   }

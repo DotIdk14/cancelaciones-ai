@@ -820,6 +820,24 @@ describe('callOpenRouterAudit', () => {
     // El mensaje crudo del validador (eco de valores de la respuesta) NO se filtra.
     expect(JSON.stringify(result.attempts)).not.toContain('Expected object');
   });
+  it('entrega el contrato de cobertura en la primera llamada del contraste y preserva sistema y evidencias', async () => {
+    const parts = [{ type: 'text' as const, text: 'Evidencia sintetica original' }];
+    const original = structuredClone(parts);
+    fetchMock.mockResolvedValue(completionResponse());
+    await callOpenRouterAudit({ system: 'Sistema original intacto', parts, schemaName: 'AuditSemanticReview', maxAttempts: 1 });
+    const body = JSON.parse(String(fetchMock.mock.calls[0]![1]?.body));
+    expect(body.messages[0]).toEqual({ role: 'system', content: 'Sistema original intacto' });
+    expect(body.messages[1]).toEqual({ role: 'user', content: original });
+    expect(body.messages[2].content[0].text).toContain('cada ID de facts[i].evidenceIds');
+    expect(body.messages[2].content[0].text).toContain('assessment FINAL');
+    expect(parts).toEqual(original); expect(fetchMock).toHaveBeenCalledOnce();
+  });
+  it('no agrega el contrato del contraste a propuestas o comparaciones', async () => {
+    fetchMock.mockResolvedValue(completionResponse());
+    await callOpenRouterAudit({ system: 'Sistema original', parts: [], schemaName: 'CaseComparison', maxAttempts: 1 });
+    expect(JSON.parse(String(fetchMock.mock.calls[0]![1]?.body)).messages).toHaveLength(2);
+  });
+
 });
 
 it('reserva el presupuesto de la segunda etapa: maxAttempts 1 impide fallback y reintento', async () => {

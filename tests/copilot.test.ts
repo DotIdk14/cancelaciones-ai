@@ -98,4 +98,13 @@ describe('transporte Copilot con herramientas denegadas',()=>{
  it('deniega permisos incluso si el runtime solicita una herramienta',()=>{
   expect(COPILOT_SESSION_SAFETY.onPermissionRequest().kind).toBe('reject');
  });
+ it('el respaldo recibe el mismo contrato de cobertura sin alterar evidencias ni permitir herramientas',()=>{
+  const source=input();const before=structuredClone(source.parts);
+  const review=copilotMessage({...source,schemaName:'AuditSemanticReview'},model);
+  expect(review.prompt).toContain('cada ID de facts[i].evidenceIds');
+  expect(review.prompt).toContain('cita literal real');
+  expect(source.parts).toEqual(before);expect(review.agentMode).toBe('interactive');
+  expect(copilotMessage(source,model).prompt).not.toContain('assessment FINAL');
+ });
+
 });

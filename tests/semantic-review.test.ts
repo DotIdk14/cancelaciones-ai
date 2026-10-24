@@ -27,6 +27,14 @@ describe('control de sustento antes de publicar',()=>{
   const missing=review();missing.factGrounding.pop();expect(()=>validateSemanticReview(missing,proposal(),input,parseAiAuditAssessment)).toThrow('cada hecho');
   const forged=review();forged.factGrounding[0]!.citations[0]!.quote='Quiero cancelar';expect(()=>validateSemanticReview(forged,proposal(),input,parseAiAuditAssessment)).toThrow('no aparece');
  });
+ it('exige una cita por cada evidencia del mismo hecho y acepta la cobertura completa sin borrar referencias',()=>{
+  const final=proposal();final.facts[0]!.evidenceIds=['ev-1','ev-2'];
+  const dossier={...input,evidences:[...input.evidences,{...input.evidences[0]!,evidenceId:'ev-2'}]};
+  const checked=review();
+  expect(()=>validateSemanticReview(checked,final,dossier,parseAiAuditAssessment)).toThrow('cubiertas por sus citas');
+  checked.factGrounding[0]!.citations.push({...checked.factGrounding[0]!.citations[0]!,evidenceId:'ev-2'});
+  expect(validateSemanticReview(checked,final,dossier,parseAiAuditAssessment).assessment.facts[0]!.evidenceIds).toEqual(['ev-1','ev-2']);
+ });
  it('rechaza referencias inventadas, duplicados y atribución humana falsa',()=>{
   const forged=review();forged.factGrounding[0]!.citations[0]!.evidenceId='ev-falsa';expect(()=>validateSemanticReview(forged,proposal(),input,parseAiAuditAssessment)).toThrow('cubiertas por sus citas');
   const duplicate=review();duplicate.factGrounding.push(duplicate.factGrounding[0]!);expect(()=>validateSemanticReview(duplicate,proposal(),input,parseAiAuditAssessment)).toThrow('una sola vez');

@@ -9,6 +9,7 @@ import { buildProviderJsonSchema, buildJsonObjectContract } from './provider-sch
 import { AiAuditAssessmentSchema } from '../../skills/audit/schema.js';
 import { preparedCopilotParts } from './provider.js';
 import { assertCopilotParts } from './copilot-capabilities.js';
+import { reviewOutputContract } from './review-contract.js';
 
 /** Sin herramientas ni lectura del workspace: el modelo recibe únicamente el expediente preparado. */
 export const COPILOT_SESSION_SAFETY = {
@@ -65,7 +66,7 @@ export function copilotMessage(input: CallOpenRouterAuditInput, model: ModelInfo
   }
   // El contrato completo excede la gramática del proveedor; Zod valida el JSON.
   const contract = buildProviderJsonSchema(input.schema ?? AiAuditAssessmentSchema, 'gemini', input.evidenceIds);
-  return { prompt: `${text.join('\n\n')}\n\n${input.validationChecklist ?? ''}\n\n${buildJsonObjectContract(contract)}`, attachments, agentMode: 'interactive' };
+  return { prompt: `${text.join('\n\n')}\n\n${input.validationChecklist ?? ''}\n\n${reviewOutputContract(input.schemaName) ?? ''}\n\n${buildJsonObjectContract(contract)}`, attachments, agentMode: 'interactive' };
 }
 
 export async function callCopilotAudit(input: CallOpenRouterAuditInput): Promise<CallOpenRouterAuditOutput> {
